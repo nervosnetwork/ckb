@@ -48,6 +48,8 @@ pub struct BlockAssemblerConfig {
     pub code_hash: H256,
     /// The miner lock script args.
     pub args: JsonBytes,
+    /// A message prefix used to identify the block miner client, miner can disable this prefix by setting it to empty string.
+    pub message_prefix: Option<JsonBytes>,
     /// An arbitrary message to be added into the cellbase transaction.
     pub message: JsonBytes,
     /// The miner lock script hash type.

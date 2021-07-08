@@ -48,6 +48,8 @@ use std::time::Duration;
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
+const DEFAULT_BLOCK_ASSEMBLER_MESSAGE_PREFIX: &str = "RF2021";
+
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
     /// Pending pool
@@ -129,9 +131,18 @@ impl TxPoolService {
             .code_hash(config.code_hash.pack())
             .hash_type(hash_type.into())
             .build();
+        let message = match config.message_prefix.as_ref() {
+            Some(prefix) => [prefix.as_bytes(), config.message.as_bytes()].concat(),
+            None => [
+                DEFAULT_BLOCK_ASSEMBLER_MESSAGE_PREFIX.as_bytes(),
+                config.message.as_bytes(),
+            ]
+            .concat(),
+        }
+        .pack();
         let cellbase_witness = CellbaseWitness::new_builder()
             .lock(cellbase_lock)
-            .message(config.message.as_bytes().pack())
+            .message(message)
             .build();
 
         BlockAssembler::build_cellbase(snapshot, snapshot.tip_header(), cellbase_witness)

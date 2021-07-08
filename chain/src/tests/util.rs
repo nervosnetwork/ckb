@@ -116,6 +116,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         code_hash: h256!("0x0"),
         args: Default::default(),
         hash_type: ScriptHashType::Data,
+        message_prefix: None,
         message: Default::default(),
     };
 
