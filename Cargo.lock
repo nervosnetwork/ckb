@@ -766,6 +766,7 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "num_cpus",
+ "once_cell",
  "tentacle",
 ]
 
@@ -1412,6 +1413,7 @@ dependencies = [
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
+ "ckb-traits",
  "ckb-types",
  "ckb-util",
  "ckb-verification",
@@ -1509,9 +1511,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.20.0-alpha2"
+version = "0.20.0-rc1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "324a45880b65710f2dd5398ec6e941c96cedd764571e85be54b243422f228e75"
+checksum = "e0851c9d552594042db904adf283ef8293cfa1d6a930d81dcee894b41d8f35f3"
 dependencies = [
  "byteorder",
  "bytes 1.0.1",
@@ -1529,9 +1531,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.20.0-alpha2"
+version = "0.20.0-rc1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df4d41afe817d71386d4c8bbbc5ec75d80e53b8a01da7b477c4848000cb13e7d"
+checksum = "fbe88cb6b6f71813eeb83fc1fa5b91a8bf74740b69c4e6fce69b5f24613e633f"
 
 [[package]]
 name = "clap"
@@ -3557,9 +3559,9 @@ checksum = "a9a7ab5d64814df0fe4a4b5ead45ed6c5f181ee3ff04ba344313a6c80446c5d4"
 
 [[package]]
 name = "once_cell"
-version = "1.7.2"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af8b08b04175473088b46763e51ee54da5f9a164bc162f615b91bc179dbf15a3"
+checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
 
 [[package]]
 name = "oorandom"

@@ -40,3 +40,7 @@ pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError
 pub(crate) fn handle_recv_error(error: RecvError) -> OtherError {
     OtherError::new(format!("RecvError {}", error))
 }
+
+pub(crate) fn handle_send_cmd_error<T>(error: ckb_channel::TrySendError<T>) -> OtherError {
+    OtherError::new(format!("send command fails: {}", error))
+}

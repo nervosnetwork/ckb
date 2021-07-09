@@ -1,6 +1,7 @@
 //! TODO(doc): @keroro520
 use ckb_logger::error;
 use parking_lot::Mutex;
+use std::fmt::Debug;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -14,33 +15,33 @@ pub const WATCH_STOP: u8 = 1;
 
 /// TODO(doc): @keroro520
 #[derive(Debug)]
-pub enum SignalSender {
+pub enum SignalSender<T> {
     /// TODO(doc): @keroro520
-    Crossbeam(ckb_channel::Sender<()>),
+    Crossbeam(ckb_channel::Sender<T>),
     /// TODO(doc): @keroro520
-    Std(mpsc::Sender<()>),
+    Std(mpsc::Sender<T>),
     /// TODO(doc): @keroro520
-    Tokio(tokio_oneshot::Sender<()>),
+    Tokio(tokio_oneshot::Sender<T>),
     /// A single-producer, multi-consumer channel that only retains the last sent value.
     Watch(tokio_watch::Sender<u8>),
 }
 
-impl SignalSender {
+impl<T: Debug> SignalSender<T> {
     /// TODO(doc): @keroro520
-    pub fn send(self) {
+    pub fn send(self, cmd: T) {
         match self {
             SignalSender::Crossbeam(tx) => {
-                if let Err(e) = tx.send(()) {
+                if let Err(e) = tx.try_send(cmd) {
                     error!("handler signal send error {:?}", e);
                 };
             }
             SignalSender::Std(tx) => {
-                if let Err(e) = tx.send(()) {
+                if let Err(e) = tx.send(cmd) {
                     error!("handler signal send error {:?}", e);
                 };
             }
             SignalSender::Tokio(tx) => {
-                if let Err(e) = tx.send(()) {
+                if let Err(e) = tx.send(cmd) {
                     error!("handler signal send error {:?}", e);
                 };
             }
@@ -55,7 +56,7 @@ impl SignalSender {
 
 #[derive(Debug)]
 struct Handler<T> {
-    signal: SignalSender,
+    signal: SignalSender<T>,
     thread: Option<JoinHandle<T>>,
 }
 
@@ -67,9 +68,9 @@ pub struct StopHandler<T> {
     inner: Option<Arc<Mutex<Option<Handler<T>>>>>,
 }
 
-impl<T> StopHandler<T> {
+impl<T: Debug> StopHandler<T> {
     /// TODO(doc): @keroro520
-    pub fn new(signal: SignalSender, thread: Option<JoinHandle<T>>) -> StopHandler<T> {
+    pub fn new(signal: SignalSender<T>, thread: Option<JoinHandle<T>>) -> StopHandler<T> {
         let handler = Handler { signal, thread };
         StopHandler {
             inner: Some(Arc::new(Mutex::new(Some(handler)))),
@@ -77,7 +78,7 @@ impl<T> StopHandler<T> {
     }
 
     /// TODO(doc): @keroro520
-    pub fn try_send(&mut self) {
+    pub fn try_send(&mut self, cmd: T) {
         let inner = self
             .inner
             .take()
@@ -85,7 +86,7 @@ impl<T> StopHandler<T> {
         if let Ok(lock) = Arc::try_unwrap(inner) {
             let handler = lock.lock().take().expect("Handler can only be taken once");
             let Handler { signal, thread } = handler;
-            signal.send();
+            signal.send(cmd);
             if let Some(thread) = thread {
                 if let Err(e) = thread.join() {
                     error!("handler thread join error {:?}", e);

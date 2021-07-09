@@ -90,14 +90,14 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
+        const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
         TxPool {
             config,
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
-            committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
+            committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
@@ -202,7 +202,7 @@ impl TxPool {
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id) || self.proposed.contains_key(id)
+        self.pending.contains_key(id) || self.gap.contains_key(id) || self.proposed.contains_key(id)
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -386,12 +386,12 @@ impl TxPool {
         self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry) {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }
@@ -417,12 +417,12 @@ impl TxPool {
         self.check_rtx_from_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }

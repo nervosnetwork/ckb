@@ -25,7 +25,7 @@ use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuil
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::init_cache;
 use p2p::SessionId as PeerIndex;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -42,8 +42,6 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
-    // async stop handle, only test will be assigned
-    async_stop: Option<StopHandler<()>>,
 }
 
 pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
@@ -103,14 +101,23 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             async_handle,
-            async_stop: None,
         })
     }
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
-        let (handle, stop) = new_global_runtime();
-        SharedBuilder {
+        use once_cell::unsync;
+        use std::borrow::Borrow;
+
+        // once #[thread_local] is stable
+        // #[thread_local]
+        // static RUNTIME_HANDLE: unsync::OnceCell<...
+
+        thread_local! {
+            static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
+        }
+
+        RUNTIME_HANDLE.with(|runtime| SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             ancient_path: None,
             consensus: None,
@@ -118,9 +125,8 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: handle,
-            async_stop: Some(stop),
-        }
+            async_handle: runtime.borrow().get_or_init(new_global_runtime).0.clone(),
+        })
     }
 }
 
@@ -255,7 +261,6 @@ impl SharedBuilder {
             block_assembler_config,
             notify_config,
             async_handle,
-            async_stop,
         } = self;
 
         let tx_pool_config = tx_pool_config.unwrap_or_else(Default::default);
@@ -270,9 +275,7 @@ impl SharedBuilder {
             ExitCode::Failure
         })?;
 
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
+        let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 
         let (snapshot, table) =
             Self::init_snapshot(&store, Arc::clone(&consensus)).map_err(|e| {
@@ -305,7 +308,6 @@ impl SharedBuilder {
             consensus,
             snapshot_mgr,
             async_handle,
-            async_stop,
             ibd_finished,
             sender,
         );

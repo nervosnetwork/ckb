@@ -42,6 +42,7 @@ ckb-tx-pool = { path = "../../tx-pool", version = "= 0.44.0-pre" }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.44.0-pre" }
 p2p = { version="0.4.0-alpha.1", package="tentacle" }
 num_cpus = "1.10"
+once_cell = "1.8.0"
 
 
 [features]

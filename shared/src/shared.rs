@@ -21,7 +21,7 @@ use ckb_types::{
     prelude::*,
     U256,
 };
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::TxVerificationCache;
 use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
@@ -43,15 +43,7 @@ pub struct FreezerClose {
 impl Drop for FreezerClose {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
-        self.stop.try_send();
-    }
-}
-
-impl Drop for Shared {
-    fn drop(&mut self) {
-        if let Some(ref mut stop) = self.async_stop {
-            stop.try_send();
-        }
+        self.stop.try_send(());
     }
 }
 
@@ -61,12 +53,10 @@ pub struct Shared {
     pub(crate) store: ChainDB,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
-    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
+    pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerificationCache>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
-    // async stop handle, only test will be assigned
-    pub(crate) async_stop: Option<StopHandler<()>>,
     pub(crate) ibd_finished: Arc<AtomicBool>,
     pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
 }
@@ -78,11 +68,10 @@ impl Shared {
         store: ChainDB,
         tx_pool_controller: TxPoolController,
         notify_controller: NotifyController,
-        txs_verify_cache: Arc<TokioRwLock<TxVerifyCache>>,
+        txs_verify_cache: Arc<TokioRwLock<TxVerificationCache>>,
         consensus: Arc<Consensus>,
         snapshot_mgr: Arc<SnapshotMgr>,
         async_handle: Handle,
-        async_stop: Option<StopHandler<()>>,
         ibd_finished: Arc<AtomicBool>,
         relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
     ) -> Shared {
@@ -94,7 +83,6 @@ impl Shared {
             consensus,
             snapshot_mgr,
             async_handle,
-            async_stop,
             ibd_finished,
             relay_tx_sender,
         }
@@ -289,7 +277,7 @@ impl Shared {
     }
 
     /// TODO(doc): @quake
-    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerifyCache>> {
+    pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerificationCache>> {
         Arc::clone(&self.txs_verify_cache)
     }
 

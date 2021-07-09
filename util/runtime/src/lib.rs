@@ -51,6 +51,17 @@ impl Handle {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.inner.block_on(future)
     }
+
+    /// Spawns a future onto the runtime blocking pool.
+    ///
+    /// This spawns the given future onto the runtime's blocking executor
+    pub fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.inner.spawn_blocking(f)
+    }
 }
 
 /// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle

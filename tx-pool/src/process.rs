@@ -1,5 +1,6 @@
 use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::callback::Callbacks;
+use crate::component::chunk::DEFAULT_MAX_CHUNK_TRANSACTIONS;
 use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
@@ -32,10 +33,15 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
-use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
+use ckb_verification::{
+    cache::{CacheEntry, Completed},
+    ContextualTransactionVerifier, ScriptVerifyResult, TimeRelativeTransactionVerifier,
+    TxVerifyEnv,
+};
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
+use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
@@ -55,6 +61,11 @@ pub enum TxStatus {
     Fresh,
     Gap,
     Proposed,
+}
+
+pub(crate) enum ProcessResult {
+    Suspended,
+    Completed(Completed),
 }
 
 impl TxStatus {
@@ -381,7 +392,7 @@ impl TxPoolService {
         }
     }
 
-    async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
+    pub(crate) async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
         guard.peek(hash).cloned()
     }
@@ -398,9 +409,9 @@ impl TxPoolService {
         .collect()
     }
 
-    async fn submit_entry(
+    pub(crate) async fn submit_entry(
         &self,
-        verified: CacheEntry,
+        verified: Completed,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
@@ -419,7 +430,17 @@ impl TxPoolService {
         _submit_entry(&mut tx_pool, status, entry, &self.callbacks)
     }
 
-    async fn pre_check(&self, tx: TransactionView) -> Result<PreCheckedTx, Reject> {
+    pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
+        let orphan = self.orphan.read().await;
+        orphan.contains_key(&tx.proposal_short_id())
+    }
+
+    pub(crate) async fn chunk_contains(&self, tx: &TransactionView) -> bool {
+        let chunk = self.chunk.read().await;
+        chunk.contains_key(&tx.proposal_short_id())
+    }
+
+    pub(crate) async fn pre_check(&self, tx: TransactionView) -> Result<PreCheckedTx, Reject> {
         // Acquire read lock for cheap check
         let tx_pool = self.tx_pool.read().await;
         let snapshot = tx_pool.cloned_snapshot();
@@ -441,11 +462,45 @@ impl TxPoolService {
         Ok((tip_hash, snapshot, rtx, status, fee, tx_size))
     }
 
+    pub(crate) async fn enqueue_remote_chunk_tx(
+        &self,
+        tx: TransactionView,
+        remote: (Cycle, PeerIndex),
+    ) -> Result<(), Reject> {
+        // non contextual verify first
+        if let Err(reject) = non_contextual_verify(&self.consensus, &tx) {
+            if reject.is_malformed_tx() {
+                self.ban_malformed(remote.1, format!("reject {}", reject));
+            }
+            return Err(reject);
+        }
+        self.chunk.write().await.add_remote_tx(tx, remote);
+        Ok(())
+    }
+
+    pub(crate) async fn resumeble_process_tx(&self, tx: TransactionView) -> Result<(), Reject> {
+        let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
+        let ret = self._resumeble_process_tx(tx.clone(), limit_cycles).await;
+
+        match ret {
+            Ok(processed) => {
+                if let ProcessResult::Completed(completed) = processed {
+                    self.after_process(tx, None, &Ok(completed)).await;
+                }
+                Ok(())
+            }
+            Err(e) => {
+                self.after_process(tx, None, &Err(e.clone())).await;
+                Err(e)
+            }
+        }
+    }
+
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<CacheEntry, Reject> {
+    ) -> Result<Completed, Reject> {
         let ret = self._process_tx(tx.clone(), remote.map(|r| r.0)).await;
 
         self.after_process(tx, remote, &ret).await;
@@ -457,7 +512,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-        ret: &Result<CacheEntry, Reject>,
+        ret: &Result<Completed, Reject>,
     ) {
         let tx_hash = tx.hash();
         // The network protocol is switched after tx-pool confirms the cache,
@@ -491,7 +546,7 @@ impl TxPoolService {
                 }
                 Err(reject) => {
                     if is_missing_input(&reject) && self.all_inputs_is_unknown(&tx) {
-                        self.add_orphan(tx, peer).await;
+                        self.add_orphan(tx, peer, declared_cycle).await;
                     } else if reject.is_malformed_tx() {
                         self.ban_malformed(peer, format!("reject {}", reject));
                     }
@@ -515,8 +570,16 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn add_orphan(&self, tx: TransactionView, peer: PeerIndex) {
-        self.orphan.write().await.add_orphan_tx(tx, peer)
+    pub(crate) async fn add_orphan(
+        &self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        declared_cycle: Cycle,
+    ) {
+        self.orphan
+            .write()
+            .await
+            .add_orphan_tx(tx, peer, declared_cycle)
     }
 
     pub(crate) async fn find_orphan_by_previous(
@@ -540,26 +603,35 @@ impl TxPoolService {
 
         while let Some(previous) = orphan_queue.pop_front() {
             if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
-                match self._process_tx(orphan.tx.clone(), None).await {
-                    Ok(_) => {
-                        let with_vm_2021 = {
-                            let epoch = self.snapshot().tip_header().epoch().number();
-                            self.consensus
-                                .hardfork_switch
-                                .is_vm_version_1_and_syscalls_2_enabled(epoch)
-                        };
-                        self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                        self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
-                        orphan_queue.push_back(orphan.tx);
-                    }
-                    Err(reject) => {
-                        if !is_missing_input(&reject) {
+                if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
+                    self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                    orphan_queue.push_back(orphan.tx.clone());
+                    self.chunk
+                        .write()
+                        .await
+                        .add_remote_tx(orphan.tx, (orphan.cycle, orphan.peer));
+                } else {
+                    match self._process_tx(orphan.tx.clone(), None).await {
+                        Ok(_) => {
+                            let with_vm_2021 = {
+                                let epoch = self.snapshot().tip_header().epoch().number();
+                                self.consensus
+                                    .hardfork_switch
+                                    .is_vm_version_1_and_syscalls_2_enabled(epoch)
+                            };
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
+                            orphan_queue.push_back(orphan.tx);
                         }
-                        if reject.is_malformed_tx() {
-                            self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                        Err(reject) => {
+                            if !is_missing_input(&reject) {
+                                self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            }
+                            if reject.is_malformed_tx() {
+                                self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             }
@@ -608,23 +680,137 @@ impl TxPoolService {
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
     }
 
+    pub(crate) async fn _resumeble_process_tx(
+        &self,
+        tx: TransactionView,
+        limit_cycles: Cycle,
+    ) -> Result<ProcessResult, Reject> {
+        let tx_hash = tx.hash();
+        // non contextual verify first
+        non_contextual_verify(&self.consensus, &tx)?;
+
+        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        let (tip_hash, snapshot, rtx, status, fee, tx_size) = self.pre_check(tx).await?;
+
+        let cached = self.fetch_tx_verify_cache(&tx_hash).await;
+        let tip_header = snapshot.tip_header();
+        let tx_env = status.with_env(tip_header);
+
+        let completed = if let Some(ref entry) = cached {
+            match entry {
+                CacheEntry::Completed(completed) => {
+                    TimeRelativeTransactionVerifier::new(
+                        &rtx,
+                        &self.consensus,
+                        snapshot.as_ref(),
+                        &tx_env,
+                    )
+                    .verify()
+                    .map_err(Reject::Verification)?;
+                    *completed
+                }
+                CacheEntry::Suspended(_) => {
+                    return Ok(ProcessResult::Suspended);
+                }
+            }
+        } else {
+            let consensus = snapshot.consensus();
+            let data_provider = snapshot.as_data_provider();
+            let is_chunk_full = !self.is_chunk_full().await;
+
+            let entry = block_in_place(|| {
+                let verifier =
+                    ContextualTransactionVerifier::new(&rtx, consensus, &data_provider, &tx_env);
+
+                let (ret, fee) = verifier
+                    .resumable_verify(limit_cycles)
+                    .map_err(Reject::Verification)?;
+
+                match ret {
+                    ScriptVerifyResult::Completed(cycles) => Ok(CacheEntry::completed(cycles, fee)),
+                    ScriptVerifyResult::Suspended(state) => {
+                        if is_chunk_full {
+                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
+                            Ok(CacheEntry::suspended(snap, fee))
+                        } else {
+                            Err(Reject::Full(
+                                "chunk".to_owned(),
+                                DEFAULT_MAX_CHUNK_TRANSACTIONS as u64,
+                            ))
+                        }
+                    }
+                }
+            })?;
+
+            match entry {
+                cached @ CacheEntry::Suspended(_) => {
+                    self.enqueue_suspended_tx(rtx.transaction.clone(), cached)
+                        .await?;
+                    return Ok(ProcessResult::Suspended);
+                }
+                CacheEntry::Completed(completed) => completed,
+            }
+        };
+
+        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+
+        self.submit_entry(completed, tip_hash, entry, status)
+            .await?;
+
+        if cached.is_none() {
+            // update cache
+            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
+            tokio::spawn(async move {
+                let mut guard = txs_verify_cache.write().await;
+                guard.put(tx_hash, CacheEntry::Completed(completed));
+            });
+        }
+
+        Ok(ProcessResult::Completed(completed))
+    }
+
+    pub(crate) async fn is_chunk_full(&self) -> bool {
+        self.chunk.read().await.is_full()
+    }
+
+    pub(crate) async fn enqueue_suspended_tx(
+        &self,
+        tx: TransactionView,
+        cached: CacheEntry,
+    ) -> Result<(), Reject> {
+        let tx_hash = tx.hash();
+        let mut chunk = self.chunk.write().await;
+        if chunk.add_tx(tx) {
+            let mut guard = self.txs_verify_cache.write().await;
+            guard.put(tx_hash, cached);
+        }
+        Ok(())
+    }
+
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
         max_cycles: Option<Cycle>,
-    ) -> Result<CacheEntry, Reject> {
+    ) -> Result<Completed, Reject> {
         let tx_hash = tx.hash();
 
         // non contextual verify first
         non_contextual_verify(&self.consensus, &tx)?;
 
+        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
         let (tip_hash, snapshot, rtx, status, fee, tx_size) = self.pre_check(tx).await?;
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
-        let max_cycles = max_cycles.unwrap_or(self.tx_pool_config.max_tx_verify_cycles);
+        let max_cycles = max_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
-        let verified = verify_rtx(&snapshot, &rtx, &tx_env, verify_cache, max_cycles)?;
+        let verified = verify_rtx(&snapshot, &rtx, &tx_env, &verify_cache, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -635,7 +821,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, verified);
+                guard.put(tx_hash, CacheEntry::Completed(verified));
             });
         }
 
@@ -675,7 +861,13 @@ impl TxPoolService {
 
                 let txs_opt = if hardfork_during_detach || hardfork_during_attach {
                     // The tx_pool is locked, remove all caches if has any hardfork.
-                    self.txs_verify_cache.write().await.clear();
+                    {
+                        self.txs_verify_cache.write().await.clear();
+                    }
+                    {
+                        self.chunk.write().await.clear();
+                    }
+
                     Some(tx_pool.drain_all_transactions())
                 } else {
                     None
@@ -701,6 +893,11 @@ impl TxPoolService {
         {
             let mut orphan = self.orphan.write().await;
             orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+        }
+
+        {
+            let mut chunk = self.chunk.write().await;
+            chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
 
         // update network fork switch each block
@@ -735,7 +932,7 @@ impl TxPoolService {
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
                     if let Ok(verified) =
-                        verify_rtx(snapshot, &rtx, &tx_env, verify_cache, max_cycles)
+                        verify_rtx(snapshot, &rtx, &tx_env, &verify_cache, max_cycles)
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
@@ -912,7 +1109,7 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(entry.key()) {
             let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();
@@ -924,14 +1121,14 @@ fn _update_tx_pool_for_reorg(
         if snapshot.proposals().contains_proposed(entry.key()) {
             let tx_entry = entry.get();
             entries.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();
         } else if snapshot.proposals().contains_gap(entry.key()) {
             let tx_entry = entry.get();
             gaps.push((
-                Some(CacheEntry::new(tx_entry.cycles, tx_entry.fee)),
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
             entry.remove();

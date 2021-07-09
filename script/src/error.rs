@@ -16,6 +16,10 @@ pub enum ScriptError {
     #[error("ExceededMaximumCycles: expect cycles <= {0}")]
     ExceededMaximumCycles(Cycle),
 
+    /// Internal error cycles overflow
+    #[error("CyclesOverflow: lhs {0} rhs {1}")]
+    CyclesOverflow(Cycle, Cycle),
+
     /// `script.type_hash` hits multiple cells with different data
     #[error("MultipleMatches")]
     MultipleMatches,
@@ -106,7 +110,8 @@ impl ScriptError {
         ScriptError::ValidationFailure(url_path, exit_code)
     }
 
-    pub(crate) fn source(self, script_group: &ScriptGroup) -> TransactionScriptError {
+    ///  Creates a script error originated from the script group.
+    pub fn source(self, script_group: &ScriptGroup) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::from_script_group(script_group),
             cause: self,
@@ -133,6 +138,14 @@ impl ScriptError {
     pub fn output_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Outputs(index, ScriptGroupType::Type),
+            cause: self,
+        }
+    }
+
+    /// Creates a script error with unknown source, usually a internal error
+    pub fn unknown_source(self) -> TransactionScriptError {
+        TransactionScriptError {
+            source: TransactionScriptErrorSource::Unknown,
             cause: self,
         }
     }

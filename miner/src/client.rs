@@ -119,7 +119,7 @@ impl Rpc {
 
 impl Drop for Rpc {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 

@@ -54,6 +54,8 @@ impl Node {
 
         // Copy node template into node's working directory
         let cells_dir = working_dir.join("specs").join("cells");
+        ckb_logger::info!("working_dir {:?}", working_dir);
+
         fs::create_dir_all(cells_dir).expect("create node's dir");
         for file in &[
             "ckb.toml",
