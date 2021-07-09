@@ -26,8 +26,10 @@ use ckb_types::{
 use ckb_verification::cache::{Completed, TxVerificationCache};
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 use tokio::sync::watch;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
@@ -106,16 +108,24 @@ pub struct TxPoolController {
     handle: Handle,
     stop: StopHandler<()>,
     chunk_stop: StopHandler<Command>,
+    started: Arc<AtomicBool>,
 }
 
 impl Drop for TxPoolController {
     fn drop(&mut self) {
-        self.chunk_stop.try_send(Command::Stop);
-        self.stop.try_send(());
+        if self.service_started() {
+            self.chunk_stop.try_send(Command::Stop);
+            self.stop.try_send(());
+        }
     }
 }
 
 impl TxPoolController {
+    /// Return whether tx-pool service is started
+    pub fn service_started(&self) -> bool {
+        self.started.load(Ordering::Relaxed)
+    }
+
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
@@ -434,6 +444,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     pub(crate) chunk_rx: ckb_channel::Receiver<Command>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
+    pub(crate) started: Arc<AtomicBool>,
 }
 
 impl TxPoolServiceBuilder {
@@ -452,6 +463,7 @@ impl TxPoolServiceBuilder {
         let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
         let (chunk_tx, chunk_rx) = ckb_channel::bounded(12);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
+        let started = Arc::new(AtomicBool::new(false));
 
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
@@ -467,6 +479,7 @@ impl TxPoolServiceBuilder {
             tx_relay_sender,
             chunk_rx,
             chunk,
+            started: Arc::clone(&started),
         };
 
         let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
@@ -478,6 +491,7 @@ impl TxPoolServiceBuilder {
             chunk_stop,
             chunk_tx,
             stop,
+            started,
         };
         (builder, controller)
     }
@@ -577,6 +591,8 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
+
+        self.started.store(true, Ordering::Relaxed);
     }
 }
 
