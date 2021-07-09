@@ -464,23 +464,23 @@ impl ChainService {
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-            if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
-                fork.detached_blocks().clone(),
-                fork.attached_blocks().clone(),
-                fork.detached_proposal_id().clone(),
-                new_snapshot,
-            ) {
-                error!("notify update_tx_pool_for_reorg error {}", e);
-            }
-            for detached_block in fork.detached_blocks() {
-                if let Err(e) = self
-                    .shared
-                    .tx_pool_controller()
-                    .notify_new_uncle(detached_block.as_uncle())
-                {
-                    error!("notify new_uncle error {}", e);
+            let tx_pool_controller = self.shared.tx_pool_controller();
+            if tx_pool_controller.service_started() {
+                if let Err(e) = tx_pool_controller.update_tx_pool_for_reorg(
+                    fork.detached_blocks().clone(),
+                    fork.attached_blocks().clone(),
+                    fork.detached_proposal_id().clone(),
+                    new_snapshot,
+                ) {
+                    error!("notify update_tx_pool_for_reorg error {}", e);
+                }
+                for detached_block in fork.detached_blocks() {
+                    if let Err(e) = tx_pool_controller.notify_new_uncle(detached_block.as_uncle()) {
+                        error!("notify new_uncle error {}", e);
+                    }
                 }
             }
+
             let block_ref: &BlockView = &block;
             self.shared
                 .notify_controller()
@@ -499,13 +499,13 @@ impl ChainService {
                 cannon_total_difficulty,
                 block.transactions().len()
             );
-            let block_ref: &BlockView = &block;
-            if let Err(e) = self
-                .shared
-                .tx_pool_controller()
-                .notify_new_uncle(block_ref.as_uncle())
-            {
-                error!("notify new_uncle error {}", e);
+
+            let tx_pool_controller = self.shared.tx_pool_controller();
+            if tx_pool_controller.service_started() {
+                let block_ref: &BlockView = &block;
+                if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
+                    error!("notify new_uncle error {}", e);
+                }
             }
         }
 
