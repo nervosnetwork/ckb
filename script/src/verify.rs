@@ -7,7 +7,7 @@ use crate::{
     },
     type_id::TypeIdSystemScript,
     types::{
-        CoreMachineType, Machine, ResumableMachine, ScriptGroup, ScriptGroupType,
+        CoreMachine, Machine, ResumableMachine, ScriptGroup, ScriptGroupType, ScriptVersion,
         TransactionSnapshot, TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
@@ -27,16 +27,17 @@ use ckb_types::{
     prelude::*,
 };
 
-#[cfg(has_asm)]
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
-#[cfg(not(has_asm))]
-use ckb_vm::TraceMachine;
 use ckb_vm::{
-    machine::{VERSION0, VERSION1},
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
-    Syscalls, ISA_B, ISA_IMC, ISA_MOP,
+    Syscalls,
 };
+
+#[cfg(has_asm)]
+use ckb_vm::machine::asm::AsmMachine;
+
+#[cfg(not(has_asm))]
+use ckb_vm::TraceMachine;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -395,8 +396,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// Select the ISA and the version number of the new machine.
-    pub fn select_machine_options(&self, script: &'a Script) -> Result<(u8, u32), ScriptError> {
+    /// Returns the version of the machine based on the script and the consensus rules.
+    pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
         let proposal_window = self.consensus.tx_proposal_window();
         let epoch_number = self.tx_env.epoch_number(proposal_window);
         let hardfork_switch = self.consensus.hardfork_switch();
@@ -405,19 +406,19 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
-            ScriptHashType::Data => Ok((ISA_IMC, VERSION0)),
+            ScriptHashType::Data => Ok(ScriptVersion::V0),
             ScriptHashType::Data1 => {
                 if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1))
+                    Ok(ScriptVersion::V1)
                 } else {
                     Err(ScriptError::InvalidVmVersion(1))
                 }
             }
             ScriptHashType::Type => {
                 if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok((ISA_IMC | ISA_B | ISA_MOP, VERSION1))
+                    Ok(ScriptVersion::V1)
                 } else {
-                    Ok((ISA_IMC, VERSION0))
+                    Ok(ScriptVersion::V0)
                 }
             }
         }
@@ -871,11 +872,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// Prepares syscalls.
     pub fn generate_syscalls(
         &'a self,
-        version: u32,
+        script_version: ScriptVersion,
         script_group: &'a ScriptGroup,
-    ) -> Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> {
+    ) -> Vec<Box<(dyn Syscalls<CoreMachine> + 'a)>> {
         let current_script_hash = script_group.script.calc_script_hash();
-        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachineType> + 'a)>> = vec![
+        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine> + 'a)>> = vec![
             Box::new(self.build_load_script_hash(current_script_hash.clone())),
             Box::new(self.build_load_tx()),
             Box::new(
@@ -895,7 +896,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             ),
             Box::new(Debugger::new(current_script_hash, &self.debug_printer)),
         ];
-        if version >= VERSION1 {
+        if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
                 Box::new(self.build_current_cycles()),
@@ -912,15 +913,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         script_group: &'a ScriptGroup,
         max_cycles: Cycle,
     ) -> Result<Machine<'a>, ScriptError> {
-        let (isa, version) = self.select_machine_options(&script_group.script)?;
-        #[cfg(has_asm)]
-        let core_machine = AsmCoreMachine::new(isa, version, max_cycles);
-        #[cfg(not(has_asm))]
-        let core_machine = CoreMachineType::new(isa, version, max_cycles);
-        let machine_builder = DefaultMachineBuilder::<CoreMachineType>::new(core_machine)
+        let script_version = self.select_version(&script_group.script)?;
+        let core_machine = script_version.init_core_machine(max_cycles);
+        let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
             .instruction_cycle_func(self.cost_model());
         let machine_builder = self
-            .generate_syscalls(version, script_group)
+            .generate_syscalls(script_version, script_group)
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
