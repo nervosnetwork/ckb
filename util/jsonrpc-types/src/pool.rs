@@ -70,13 +70,13 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputsValidator {
-    /// "default": The default validator which restricts the lock script and type script usage.
+    /// "well_known_scripts_only": The default validator which restricts the lock script and type script usage.
     ///
-    /// The default validator only allows outputs (a.k.a., cells) that
+    /// This validator only allows outputs (a.k.a., cells) that
     ///
-    /// * use either the secp256k1 or the secp256k1 multisig bundled in the genesis block via type script hash as the lock script,
-    /// * and the type script is either empty or DAO.
-    Default,
+    /// * use `code_hash` and `hash_type` listed in https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md as the lock or type script,
+    /// * use `code_hash` and `hash_type` listed in `custom_well_known_scripts` of `ckb.toml`
+    WellKnownScriptsOnly,
     /// "passthrough": bypass the validator, thus allow any kind of transaction outputs.
     Passthrough,
 }
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_outputs_validator_json_display() {
-        assert_eq!("default", OutputsValidator::Default.json_display());
+        assert_eq!("well_known_scripts_only", OutputsValidator::WellKnownScriptsOnly.json_display());
         assert_eq!("passthrough", OutputsValidator::Passthrough.json_display());
     }
 }

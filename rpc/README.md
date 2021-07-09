@@ -3785,9 +3785,9 @@ Reference to a cell via transaction hash and output index.
 
 Transaction output validators that prevent common mistakes.
 
-`OutputsValidator` is equivalent to `"default" | "passthrough"`.
+`OutputsValidator` is equivalent to `"well_known_scripts_only" | "passthrough"`.
 
-*   "default": The default validator which restricts the lock script and type script usage.
+*   "well_known_scripts_only": The default validator which restricts the lock script and type script usage.
 *   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
 
 

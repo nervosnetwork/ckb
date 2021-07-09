@@ -19,7 +19,7 @@ pub trait PoolRpc {
     /// ## Params
     ///
     /// * `transaction` - The transaction.
-    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
     ///
     /// ## Errors
     ///
@@ -241,17 +241,17 @@ impl PoolRpc for PoolRpcImpl {
         let tx: core::TransactionView = tx.into_view();
 
         if let Err(e) = match outputs_validator {
-            Some(OutputsValidator::Default) => {
-                DefaultOutputsValidator::new(self.shared.consensus()).validate(&tx)
+            Some(OutputsValidator::WellKnownScriptsOnly) | None => {
+                WellKnownScriptsOnlyValidator::new(self.shared.consensus()).validate(&tx)
             }
-            Some(OutputsValidator::Passthrough) | None => Ok(()),
+            Some(OutputsValidator::Passthrough) => Ok(()),
         } {
             return Err(RPCError::custom_with_data(
                 RPCError::PoolRejectedTransactionByOutputsValidator,
                 format!(
                     "The transction is rejected by OutputsValidator set in params[1]: {}. \
                     Please set it to passthrough if you really want to send transactions with advanced scripts.",
-                    outputs_validator.unwrap_or(OutputsValidator::Default).json_display()
+                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
                 ),
                 e,
             ));
@@ -342,7 +342,7 @@ impl PoolRpc for PoolRpcImpl {
     }
 }
 
-struct DefaultOutputsValidator<'a> {
+struct WellKnownScriptsOnlyValidator<'a> {
     consensus: &'a Consensus,
 }
 
@@ -354,7 +354,7 @@ enum DefaultOutputsValidatorError {
     ArgsSince,
 }
 
-impl<'a> DefaultOutputsValidator<'a> {
+impl<'a> WellKnownScriptsOnlyValidator<'a> {
     pub fn new(consensus: &'a Consensus) -> Self {
         Self { consensus }
     }
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_default_outputs_validator() {
         let consensus = ckb_testnet_consensus();
-        let validator = DefaultOutputsValidator::new(&consensus);
+        let validator = WellKnownScriptsOnlyValidator::new(&consensus);
 
         {
             let type_hash = consensus

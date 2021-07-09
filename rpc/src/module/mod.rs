@@ -36,7 +36,7 @@
 //!
 //! * `send_transaction` - The JSONRPC method name.
 //! * `tx: Transaction` - The first param in the request params list which name is `tx` and type is `Transaction`. The type links to the JSON object definition of a CKB transaction.
-//! * `outputs_validator: Option<OutputsValidator>` - The second param. The `Option` shows that this argument is optional. The document for `OutputsValidator` shows that `outputs_validator` is an enum type which possible values include "default" and "passthrough".
+//! * `outputs_validator: Option<OutputsValidator>` - The second param. The `Option` shows that this argument is optional. The document for `OutputsValidator` shows that `outputs_validator` is an enum type which possible values include "well_known_scripts_only" and "passthrough".
 //! * `-> Result<H256>` - The type inside the `Result` after `->` is the response type. In this example, it is `H256` which is a 32-bytes binary encoded as a hex string.
 //!
 //! The RPC errors are documented in [`RPCError`](../enum.RPCError.html).
