@@ -23,10 +23,7 @@ use serde::{Deserialize, Serialize};
 ///       "lock": {
 ///         "args": "0x",
 ///         "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-///         "hash_type": {
-///           "kind": "data",
-///           "vm_version": 0
-///         }
+///         "hash_type": "data"
 ///       },
 ///       "type": null
 ///     }
@@ -81,10 +78,7 @@ pub struct CellWithStatus {
 ///     "lock": {
 ///       "args": "0x",
 ///       "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-///       "hash_type": {
-///         "kind": "data",
-///         "vm_version": 0
-///       }
+///       "hash_type": "data"
 ///     },
 ///     "type": null
 ///   }

@@ -226,7 +226,7 @@ lazy_static! {
         let script = Script::new_builder()
             .code_hash(CellOutput::calc_data_hash(&data))
             .args(Bytes::from(PUBKEY_HASH.as_bytes()).pack())
-            .hash_type(ScriptHashType::Data(0).into())
+            .hash_type(ScriptHashType::Data.into())
             .build();
 
         (cell, data, script)

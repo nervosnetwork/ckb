@@ -11,6 +11,3 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
-[features]
-test-only = []

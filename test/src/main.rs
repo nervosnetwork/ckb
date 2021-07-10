@@ -426,7 +426,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         )),
         Box::new(SendSecpTxUseDepGroup::new(
             "send_secp_tx_use_dep_group_data_hash",
-            ScriptHashType::Data(0),
+            ScriptHashType::Data,
         )),
         Box::new(SendSecpTxUseDepGroup::new(
             "send_secp_tx_use_dep_group_type_hash",
@@ -434,7 +434,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         )),
         Box::new(SendMultiSigSecpTxUseDepGroup::new(
             "send_multisig_secp_tx_use_dep_group_data_hash",
-            ScriptHashType::Data(0),
+            ScriptHashType::Data,
         )),
         Box::new(SendMultiSigSecpTxUseDepGroup::new(
             "send_multisig_secp_tx_use_dep_group_type_hash",

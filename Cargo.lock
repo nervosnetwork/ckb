@@ -722,7 +722,6 @@ dependencies = [
 name = "ckb-jsonrpc-types"
 version = "0.44.0-pre"
 dependencies = [
- "ckb-constant",
  "ckb-types",
  "faster-hex",
  "lazy_static",
@@ -1430,7 +1429,6 @@ dependencies = [
  "bitflags",
  "bytes 1.0.1",
  "ckb-channel",
- "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",

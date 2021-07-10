@@ -179,14 +179,14 @@ fn finalize_reward() {
     let bob = ScriptBuilder::default()
         .args(bob_args)
         .code_hash(always_success_script.code_hash())
-        .hash_type(ScriptHashType::Data(0).into())
+        .hash_type(ScriptHashType::Data.into())
         .build();
 
     let alice_args: packed::Bytes = Bytes::from(b"a11ce".to_vec()).pack();
     let alice = ScriptBuilder::default()
         .args(alice_args)
         .code_hash(always_success_script.code_hash())
-        .hash_type(ScriptHashType::Data(0).into())
+        .hash_type(ScriptHashType::Data.into())
         .build();
 
     for i in 1..23 {

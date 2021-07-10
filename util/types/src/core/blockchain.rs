@@ -1,21 +1,22 @@
-use ckb_constant::MAX_VM_VERSION;
 use ckb_error::OtherError;
 use std::convert::{TryFrom, TryInto};
 
 use crate::packed;
 
-/// TODO(doc): @quake
+/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptHashType {
-    /// TODO(doc): @quake
-    Data(u8),
-    /// TODO(doc): @quake
-    Type,
+    /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    Data = 0,
+    /// Type "type" matches script code via cell type script hash.
+    Type = 1,
+    /// Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
+    Data1 = 2,
 }
 
 impl Default for ScriptHashType {
     fn default() -> Self {
-        ScriptHashType::Data(0)
+        ScriptHashType::Data
     }
 }
 
@@ -24,18 +25,9 @@ impl TryFrom<u8> for ScriptHashType {
 
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
-            x if x % 2 == 0 => {
-                let vm_version = x / 2;
-                if vm_version > MAX_VM_VERSION {
-                    Err(OtherError::new(format!(
-                        "The maximum vm version currently supported is {}, but got {}",
-                        MAX_VM_VERSION, vm_version
-                    )))
-                } else {
-                    Ok(ScriptHashType::Data(vm_version))
-                }
-            }
+            0 => Ok(ScriptHashType::Data),
             1 => Ok(ScriptHashType::Type),
+            2 => Ok(ScriptHashType::Data1),
             _ => Err(OtherError::new(format!("Invalid script hash type {}", v))),
         }
     }
@@ -52,7 +44,7 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 impl ScriptHashType {
     #[inline]
     pub(crate) fn verify_value(v: u8) -> bool {
-        v == 1 || ((v % 2 == 0) && (v / 2 <= MAX_VM_VERSION))
+        v <= 2
     }
 }
 
@@ -60,8 +52,9 @@ impl Into<u8> for ScriptHashType {
     #[inline]
     fn into(self) -> u8 {
         match self {
-            Self::Data(v) => v * 2,
+            Self::Data => 0,
             Self::Type => 1,
+            Self::Data1 => 2,
         }
     }
 }
