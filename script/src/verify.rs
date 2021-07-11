@@ -1024,8 +1024,8 @@ mod tests {
     use ckb_types::{
         core::{
             capacity_bytes, cell::CellMetaBuilder, hardfork::HardForkSwitch, Capacity, Cycle,
-            DepType, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder,
-            TransactionInfo,
+            DepType, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
+            TransactionBuilder, TransactionInfo,
         },
         h256,
         packed::{
@@ -1060,24 +1060,12 @@ mod tests {
         output
     }
 
-    fn type_id_validation_failure(exit_code: i8) -> ScriptError {
-        ScriptError::ValidationFailure(format!("by-type-hash/{}", TYPE_ID_CODE_HASH), exit_code)
-    }
-
-    // NOTE: `verify` binary is outdated and most related unit tests are testing `script` crate functions
-    // I try to keep unit test code unmodified as much as possible, and may add it back in future PR.
-    // fn open_cell_verify() -> File {
-    //     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
-    // }
-
     fn open_cell_always_success() -> File {
-        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/always_success"))
-            .unwrap()
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/always_success")).unwrap()
     }
 
     fn open_cell_always_failure() -> File {
-        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/always_failure"))
-            .unwrap()
+        File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/always_failure")).unwrap()
     }
 
     fn new_store() -> ChainDB {
@@ -1121,6 +1109,77 @@ mod tests {
             .unpack()
     }
 
+    struct TransactionScriptsVerifierWithEnv {
+        store: ChainDB,
+        version_1_enabled_at: EpochNumber,
+        consensus: Consensus,
+    }
+
+    impl TransactionScriptsVerifierWithEnv {
+        fn new() -> Self {
+            let store = new_store();
+            let version_1_enabled_at = 10;
+            let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+                .as_builder()
+                .rfc_pr_0234(version_1_enabled_at)
+                .rfc_pr_0237(version_1_enabled_at)
+                .build()
+                .unwrap();
+            let consensus = ConsensusBuilder::default()
+                .hardfork_switch(hardfork_switch)
+                .build();
+            Self {
+                store,
+                version_1_enabled_at,
+                consensus,
+            }
+        }
+
+        fn verify_without_limit(
+            &self,
+            version: ScriptVersion,
+            rtx: &ResolvedTransaction,
+        ) -> Result<Cycle, Error> {
+            self.verify(version, rtx, u64::MAX)
+        }
+
+        // If the max cycles is meaningless, please use `verify_without_limit`,
+        // so reviewers or developers can understand the intentions easier.
+        fn verify(
+            &self,
+            version: ScriptVersion,
+            rtx: &ResolvedTransaction,
+            max_cycles: Cycle,
+        ) -> Result<Cycle, Error> {
+            self.verify_map(version, rtx, |verifier| verifier.verify(max_cycles))
+        }
+
+        fn verify_map<R, F>(
+            &self,
+            version: ScriptVersion,
+            rtx: &ResolvedTransaction,
+            mut verify_func: F,
+        ) -> R
+        where
+            F: FnMut(TransactionScriptsVerifier<'_, DataLoaderWrapper<'_, ChainDB>>) -> R,
+        {
+            let data_loader = DataLoaderWrapper::new(&self.store);
+
+            let epoch = match version {
+                ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
+                ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
+            };
+            let header = HeaderView::new_advanced_builder()
+                .epoch(epoch.pack())
+                .build();
+            let tx_env = TxVerifyEnv::new_commit(&header);
+
+            let verifier =
+                TransactionScriptsVerifier::new(rtx, &self.consensus, &data_loader, &tx_env);
+            verify_func(verifier)
+        }
+    }
+
     #[test]
     fn check_always_success_hash() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
@@ -1150,19 +1209,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-        assert!(verifier.verify(600).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1218,31 +1267,21 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
         };
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        assert!(verifier.verify(100_000_000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
 
         // Not enough cycles
+        let max_cycles = ALWAYS_SUCCESS_SCRIPT_CYCLE - 1;
+        let result = verifier.verify(ScriptVersion::V0, &rtx, max_cycles);
         assert_error_eq!(
-            verifier
-                .verify(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
-                .unwrap_err(),
-            ScriptError::ExceededMaximumCycles(ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
-                .input_lock_script(0),
+            result.unwrap_err(),
+            ScriptError::ExceededMaximumCycles(max_cycles).input_lock_script(0),
         );
 
-        assert!(verifier.verify(100_000_000).is_ok());
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1307,20 +1346,10 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
         };
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        assert!(verifier.verify(100_000_000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1407,21 +1436,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
         };
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(100_000_000).unwrap_err(),
+            result.unwrap_err(),
             ScriptError::MultipleMatches.input_lock_script(0),
         );
     }
@@ -1480,23 +1499,11 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(format!("by-data-hash/{:x}", script.code_hash()), -1)
-                .input_lock_script(0),
+            result.unwrap_err(),
+            ScriptError::validation_failure(&script, -1).input_lock_script(0),
         );
     }
 
@@ -1542,21 +1549,10 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(100_000_000).unwrap_err(),
+            result.unwrap_err(),
             ScriptError::InvalidCodeHash.input_lock_script(0),
         );
     }
@@ -1634,20 +1630,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        assert!(verifier.verify(100_000_000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1717,23 +1702,11 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(100_000_000).unwrap_err(),
-            ScriptError::ValidationFailure(format!("by-data-hash/{:x}", script.code_hash()), -1)
-                .output_type_script(0),
+            result.unwrap_err(),
+            ScriptError::validation_failure(&script, -1).output_type_script(0),
         );
     }
 
@@ -1791,24 +1764,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
         };
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
 
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
         // Cycles can tell that both lock and type scripts are executed
-        assert_eq!(
-            verifier.verify(100_000_000).ok(),
-            Some(ALWAYS_SUCCESS_SCRIPT_CYCLE * 2)
-        );
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert_eq!(result.ok(), Some(ALWAYS_SUCCESS_SCRIPT_CYCLE * 2));
     }
 
     #[test]
@@ -1863,22 +1823,14 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        if let Err(err) = verifier.verify(TYPE_ID_CYCLES * 2) {
-            panic!("expect verification ok, got: {:?}", err);
-        }
+        let max_cycles = TYPE_ID_CYCLES * 2;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify(ScriptVersion::V0, &rtx, max_cycles);
+        assert!(
+            result.is_ok(),
+            "expect ok, but got {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -1933,22 +1885,12 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let max_cycles = TYPE_ID_CYCLES - 1;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
         // two groups need exec, so cycles not TYPE_ID_CYCLES - 1
+        let result = verifier.verify(ScriptVersion::V0, &rtx, max_cycles);
         assert_error_eq!(
-            verifier.verify(TYPE_ID_CYCLES - 1).unwrap_err(),
+            result.unwrap_err(),
             ScriptError::ExceededMaximumCycles(TYPE_ID_CYCLES - ALWAYS_SUCCESS_SCRIPT_CYCLE - 1)
                 .input_type_script(0),
         );
@@ -2014,20 +1956,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        assert!(verifier.verify(1_001_000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -2081,20 +2012,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        assert!(verifier.verify(1_001_000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -2133,7 +2053,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script).pack())
+            .type_(Some(type_id_script.clone()).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -2163,22 +2083,11 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(1_001_000).unwrap_err(),
-            type_id_validation_failure(-3).output_type_script(0),
+            result.unwrap_err(),
+            ScriptError::validation_failure(&type_id_script, -3).output_type_script(0),
         );
     }
 
@@ -2221,7 +2130,7 @@ mod tests {
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script).pack())
+            .type_(Some(type_id_script.clone()).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -2251,22 +2160,11 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V0, &rtx);
         assert_error_eq!(
-            verifier.verify(1_001_000).unwrap_err(),
-            type_id_validation_failure(-1).output_type_script(0),
+            result.unwrap_err(),
+            ScriptError::validation_failure(&type_id_script, -1).output_type_script(0),
         );
     }
 
@@ -2297,7 +2195,7 @@ mod tests {
         let output_cell2 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990).pack())
             .lock(always_success_script.clone())
-            .type_(Some(type_id_script).pack())
+            .type_(Some(type_id_script.clone()).pack())
             .build();
 
         let transaction = TransactionBuilder::default()
@@ -2328,22 +2226,12 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
+        let max_cycles = TYPE_ID_CYCLES * 2;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify(ScriptVersion::V0, &rtx, max_cycles);
         assert_error_eq!(
-            verifier.verify(TYPE_ID_CYCLES * 2).unwrap_err(),
-            type_id_validation_failure(-2).input_type_script(0),
+            result.unwrap_err(),
+            ScriptError::validation_failure(&type_id_script, -2).input_type_script(0),
         );
     }
 
@@ -2493,20 +2381,11 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        let cycle = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
+        let max_cycles = TWO_IN_TWO_OUT_CYCLES;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify(ScriptVersion::V0, &rtx, max_cycles);
+        assert!(result.is_ok());
+        let cycle = result.unwrap();
         assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
         assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
@@ -2547,28 +2426,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let fork_at = 10;
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_pr_0237(fork_at)
-            .rfc_pr_0234(fork_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
-            let header = HeaderView::new_advanced_builder()
-                .epoch(epoch.pack())
-                .build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-        assert!(verifier.verify(6000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V1, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -2623,28 +2483,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let fork_at = 10;
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_pr_0237(fork_at)
-            .rfc_pr_0234(fork_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
-            let header = HeaderView::new_advanced_builder()
-                .epoch(epoch.pack())
-                .build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-        assert!(verifier.verify(600000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V1, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -2695,28 +2536,9 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let fork_at = 10;
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_pr_0237(fork_at)
-            .rfc_pr_0234(fork_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
-            let header = HeaderView::new_advanced_builder()
-                .epoch(epoch.pack())
-                .build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-        assert!(verifier.verify(600000).is_ok());
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(ScriptVersion::V1, &rtx);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -2771,67 +2593,58 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        let mut groups: Vec<_> = verifier.groups().collect();
         let mut cycles = 0;
-        let mut tmp: Option<ResumableMachine<'_>> = None;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
 
-        loop {
-            if let Some(mut vm) = tmp.take() {
-                cycles += vm.cycles();
-                vm.set_cycles(0);
-                match vm.machine.run() {
-                    Ok(code) => {
-                        if code == 0 {
-                            cycles += vm.cycles();
-                        } else {
-                            unreachable!()
+        verifier.verify_map(ScriptVersion::V0, &rtx, |verifier| {
+            let mut groups: Vec<_> = verifier.groups().collect();
+            let mut tmp: Option<ResumableMachine<'_>> = None;
+
+            loop {
+                if let Some(mut vm) = tmp.take() {
+                    cycles += vm.cycles();
+                    vm.set_cycles(0);
+                    match vm.machine.run() {
+                        Ok(code) => {
+                            if code == 0 {
+                                cycles += vm.cycles();
+                            } else {
+                                unreachable!()
+                            }
                         }
+                        Err(error) => match error {
+                            VMInternalError::InvalidCycles => {
+                                tmp = Some(vm);
+                                continue;
+                            }
+                            _ => unreachable!(),
+                        },
                     }
-                    Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                }
+                while let Some((ty, _, group)) = groups.pop() {
+                    let max = match ty {
+                        ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
+                        ScriptGroupType::Type => TYPE_ID_CYCLES,
+                    };
+                    match verifier
+                        .verify_group_with_chunk(&group, max, &None)
+                        .unwrap()
+                    {
+                        ChunkState::Completed(used_cycles) => {
+                            cycles += used_cycles;
+                        }
+                        ChunkState::Suspended(vm) => {
                             tmp = Some(vm);
-                            continue;
+                            break;
                         }
-                        _ => unreachable!(),
-                    },
-                }
-            }
-            while let Some((ty, _, group)) = groups.pop() {
-                let max = match ty {
-                    ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
-                    ScriptGroupType::Type => TYPE_ID_CYCLES,
-                };
-                match verifier
-                    .verify_group_with_chunk(&group, max, &None)
-                    .unwrap()
-                {
-                    ChunkState::Completed(used_cycles) => {
-                        cycles += used_cycles;
-                    }
-                    ChunkState::Suspended(vm) => {
-                        tmp = Some(vm);
-                        break;
                     }
                 }
-            }
 
-            if tmp.is_none() {
-                break;
+                if tmp.is_none() {
+                    break;
+                }
             }
-        }
+        });
 
         assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
     }
@@ -2982,66 +2795,57 @@ mod tests {
             resolved_dep_groups: vec![],
         };
 
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-        let tx_env = {
-            let header = HeaderView::new_advanced_builder().build();
-            TxVerifyEnv::new_commit(&header)
-        };
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-
-        let mut groups: Vec<_> = verifier.groups().collect();
         let mut cycles = 0;
-        let mut tmp: Option<ResumableMachine<'_>> = None;
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_map(ScriptVersion::V0, &rtx, |verifier| {
+            let mut groups: Vec<_> = verifier.groups().collect();
+            let mut tmp: Option<ResumableMachine<'_>> = None;
 
-        loop {
-            if let Some(mut vm) = tmp.take() {
-                cycles += vm.cycles();
-                vm.set_cycles(0);
-                match vm.machine.run() {
-                    Ok(code) => {
-                        if code == 0 {
-                            cycles += vm.cycles();
-                        } else {
-                            unreachable!()
+            loop {
+                if let Some(mut vm) = tmp.take() {
+                    cycles += vm.cycles();
+                    vm.set_cycles(0);
+                    match vm.machine.run() {
+                        Ok(code) => {
+                            if code == 0 {
+                                cycles += vm.cycles();
+                            } else {
+                                unreachable!()
+                            }
                         }
+                        Err(error) => match error {
+                            VMInternalError::InvalidCycles => {
+                                tmp = Some(vm);
+                                continue;
+                            }
+                            _ => unreachable!(),
+                        },
                     }
-                    Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                }
+                while let Some((_, _, group)) = groups.pop() {
+                    match verifier
+                        .verify_group_with_chunk(&group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
+                        .unwrap()
+                    {
+                        ChunkState::Completed(used_cycles) => {
+                            cycles += used_cycles;
+                        }
+                        ChunkState::Suspended(vm) => {
                             tmp = Some(vm);
-                            continue;
+                            break;
                         }
-                        _ => unreachable!(),
-                    },
+                    }
                 }
-            }
-            while let Some((_, _, group)) = groups.pop() {
-                match verifier
-                    .verify_group_with_chunk(&group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
-                    .unwrap()
-                {
-                    ChunkState::Completed(used_cycles) => {
-                        cycles += used_cycles;
-                    }
-                    ChunkState::Suspended(vm) => {
-                        tmp = Some(vm);
-                        break;
-                    }
+
+                if tmp.is_none() {
+                    break;
                 }
             }
 
-            if tmp.is_none() {
-                break;
-            }
-        }
+            verifier.verify(TWO_IN_TWO_OUT_CYCLES)
+        });
 
-        let cycles_once = verifier.verify(TWO_IN_TWO_OUT_CYCLES).unwrap();
-
+        let cycles_once = result.unwrap();
         assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
         assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
         assert_eq!(cycles, cycles_once);
