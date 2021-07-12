@@ -2276,7 +2276,7 @@ Submits a new transaction into the transaction pool.
 
 *   `transaction` - The transaction.
 
-*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
 
 ##### Errors
 
@@ -3787,7 +3787,7 @@ Transaction output validators that prevent common mistakes.
 
 `OutputsValidator` is equivalent to `"well_known_scripts_only" | "passthrough"`.
 
-*   "well_known_scripts_only": The default validator which restricts the lock script and type script usage.
+*   "well_known_scripts_only": The default validator which restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
 *   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
 
 

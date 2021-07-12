@@ -13,7 +13,7 @@ use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_types::core::FeeRate;
+use ckb_types::{core::FeeRate, packed::Script};
 use ckb_util::Mutex;
 use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
@@ -52,9 +52,17 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         min_fee_rate: FeeRate,
         reject_ill_transactions: bool,
+        extra_well_known_lock_scripts: Vec<Script>,
+        extra_well_known_type_scripts: Vec<Script>,
     ) -> Self {
-        let rpc_methods =
-            PoolRpcImpl::new(shared, min_fee_rate, reject_ill_transactions).to_delegate();
+        let rpc_methods = PoolRpcImpl::new(
+            shared,
+            min_fee_rate,
+            reject_ill_transactions,
+            extra_well_known_lock_scripts,
+            extra_well_known_type_scripts,
+        )
+        .to_delegate();
         if self.config.pool_enable() {
             self.add_methods(rpc_methods);
         } else {
