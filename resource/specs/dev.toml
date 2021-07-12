@@ -1,11 +1,5 @@
 name = "ckb_dev"
 
-# Choose the edition, possible values:
-# - "2019"
-# - "2021"
-# The default is "2019", the latest is "2021".
-edition = "2021"
-
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"

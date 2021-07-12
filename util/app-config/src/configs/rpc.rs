@@ -18,6 +18,7 @@ pub enum Module {
 
 /// RPC config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// RPC server listen addresses.
     pub listen_address: String,

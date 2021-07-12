@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::ChainEdition;
 pub use ckb_logger_config::Config as LogConfig;
 pub use ckb_metrics_config::Config as MetricsConfig;
 use ckb_resource::Resource;
@@ -35,11 +34,9 @@ pub enum AppConfig {
 /// directory.
 ///
 /// **Attention:** Changing the order of fields will break integration test, see module doc.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CKBAppConfig {
-    /// The edition of CKB AppConfig
-    pub edition: ChainEdition,
-
     /// The data directory.
     pub data_dir: PathBuf,
     /// freezer files path
@@ -91,11 +88,9 @@ pub struct CKBAppConfig {
 /// directory.
 ///
 /// **Attention:** Changing the order of fields will break integration test, see module doc.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MinerAppConfig {
-    /// The edition of Miner AppConfig
-    pub edition: ChainEdition,
-
     /// The data directory.
     pub data_dir: PathBuf,
     /// Chain config options.
@@ -122,6 +117,7 @@ pub struct MinerAppConfig {
 
 /// The chain config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChainConfig {
     /// Specifies the chain spec.
     pub spec: Resource,
@@ -194,14 +190,10 @@ impl AppConfig {
             AppConfig::CKB(config) => &config.chain.spec,
             AppConfig::Miner(config) => &config.chain.spec,
         };
-        let spec = ChainSpec::load_from(spec_resource).map_err(|err| {
+        ChainSpec::load_from(spec_resource).map_err(|err| {
             eprintln!("{}", err);
             ExitCode::Config
-        })?;
-        if !spec.is_public_chain() && spec.is_legacy() {
-            eprintln!("WARN: your chain specification file is in a legacy edition");
-        }
-        Ok(spec)
+        })
     }
 
     /// Unpacks the parsed ckb.toml config file.
@@ -243,15 +235,14 @@ impl AppConfig {
 impl CKBAppConfig {
     /// Load a new instance from a file
     pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
-        let partial_config: legacy::PartialAppConfig = toml::from_slice(&slice)?;
-
-        match partial_config.edition {
-            None | Some(ChainEdition::V2019) => {
-                let legacy_config: legacy::v2019::CKBAppConfig = toml::from_slice(&slice)?;
-                Ok(legacy_config.into())
-            }
-            Some(ChainEdition::V2021) => toml::from_slice(&slice).map_err(Into::into),
+        let legacy_config: legacy::CKBAppConfig = toml::from_slice(&slice)?;
+        for field in legacy_config.deprecated_fields() {
+            eprintln!(
+                "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
+                field.path, field.since
+            );
         }
+        Ok(legacy_config.into())
     }
 
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
@@ -295,15 +286,14 @@ impl CKBAppConfig {
 impl MinerAppConfig {
     /// Load a new instance from a file.
     pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
-        let partial_config: legacy::PartialAppConfig = toml::from_slice(&slice)?;
-
-        match partial_config.edition {
-            None | Some(ChainEdition::V2019) => {
-                let legacy_config: legacy::v2019::MinerAppConfig = toml::from_slice(&slice)?;
-                Ok(legacy_config.into())
-            }
-            Some(ChainEdition::V2021) => toml::from_slice(&slice).map_err(Into::into),
+        let legacy_config: legacy::MinerAppConfig = toml::from_slice(&slice)?;
+        for field in legacy_config.deprecated_fields() {
+            eprintln!(
+                "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
+                field.path, field.since
+            );
         }
+        Ok(legacy_config.into())
     }
 
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {

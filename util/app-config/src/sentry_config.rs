@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SentryConfig {
     pub dsn: String,
     pub org_ident: Option<String>,

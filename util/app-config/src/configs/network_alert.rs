@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Network alert config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// The minimual number of required signatures to send a network alert.
     pub signatures_threshold: usize,
