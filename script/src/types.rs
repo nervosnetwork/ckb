@@ -46,6 +46,11 @@ pub enum ScriptVersion {
 }
 
 impl ScriptVersion {
+    /// Returns the latest version.
+    pub const fn latest() -> Self {
+        Self::V1
+    }
+
     /// Returns the ISA set of CKB VM in current script version.
     pub fn vm_isa(self) -> VmIsa {
         match self {
