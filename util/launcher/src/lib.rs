@@ -64,7 +64,7 @@ impl Launcher {
             self.args.config.rpc.miner_enable(),
             self.args.config.block_assembler.clone(),
         ) {
-            (true, Some(block_assembler)) => {
+            (true, Some(mut block_assembler)) => {
                 let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
                     let secp_cell_data =
                         Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
@@ -96,6 +96,9 @@ impl Launcher {
                         && block_assembler.args.len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
                         && check_lock_code_hash(&block_assembler.code_hash.pack())?)
                 {
+                    if block_assembler.use_binary_version_as_message_prefix {
+                        block_assembler.binary_version = self.version.long();
+                    }
                     Some(block_assembler)
                 } else {
                     info!(

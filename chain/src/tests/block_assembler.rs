@@ -35,8 +35,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         code_hash: h256!("0x0"),
         args: Default::default(),
         hash_type: ScriptHashType::Data,
-        message_prefix: None,
         message: Default::default(),
+        use_binary_version_as_message_prefix: true,
+        binary_version: "TEST".to_string(),
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))
@@ -185,7 +186,7 @@ fn test_block_template_message() {
     )
     .expect("should be valid CellbaseWitness slice");
 
-    assert_eq!("RF2021".as_bytes(), cellbase_witness.message().raw_data());
+    assert_eq!("TEST".as_bytes(), cellbase_witness.message().raw_data());
 }
 
 #[test]

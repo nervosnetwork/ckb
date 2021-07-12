@@ -128,8 +128,9 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             code_hash: script.code_hash,
             hash_type: script.hash_type,
             args: script.args,
-            message_prefix: None,
             message: block_assembler_message.unwrap_or_default(),
+            use_binary_version_as_message_prefix: false,
+            binary_version: "TEST".to_string(),
         });
         let block_template = tx_pool
             .get_block_template_with_block_assembler_config(

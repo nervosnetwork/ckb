@@ -183,3 +183,5 @@ block_uncles_cache_size    = 30
 # # {{
 # _ => {block_assembler}
 # }}
+# # CKB will prepend the binary version to message, to identify the block miner client. (default true, false to disable it)
+# use_binary_version_as_message_prefix = true

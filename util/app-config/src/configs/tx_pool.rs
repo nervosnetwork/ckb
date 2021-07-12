@@ -48,10 +48,18 @@ pub struct BlockAssemblerConfig {
     pub code_hash: H256,
     /// The miner lock script args.
     pub args: JsonBytes,
-    /// A message prefix used to identify the block miner client, miner can disable this prefix by setting it to empty string.
-    pub message_prefix: Option<JsonBytes>,
     /// An arbitrary message to be added into the cellbase transaction.
     pub message: JsonBytes,
     /// The miner lock script hash type.
     pub hash_type: ScriptHashType,
+    /// Use ckb binary version as message prefix to identify the block miner client (default true, false to disable it).
+    #[serde(default = "default_use_binary_version_as_message_prefix")]
+    pub use_binary_version_as_message_prefix: bool,
+    /// A field to store the block miner client version, non-configurable options.
+    #[serde(skip)]
+    pub binary_version: String,
+}
+
+const fn default_use_binary_version_as_message_prefix() -> bool {
+    true
 }
