@@ -324,6 +324,20 @@ impl Launcher {
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
                 self.args.config.rpc.reject_ill_transactions,
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_lock_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_type_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
             )
             .enable_miner(
                 shared.clone(),

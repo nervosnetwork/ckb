@@ -270,11 +270,13 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         reject_ill_transactions: true,
         // enable deprecated rpc in unit test
         enable_deprecated_rpc: true,
+        extra_well_known_lock_scripts: vec![],
+        extra_well_known_type_scripts: vec![],
     };
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), true)
+        .enable_pool(shared.clone(), FeeRate::zero(), true, vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
