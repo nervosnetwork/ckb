@@ -449,7 +449,8 @@ enum DefaultOutputsValidatorError {
     CodeHash,
     ArgsLen,
     ArgsSince,
-    NotWellKnown,
+    NotWellKnownLockScript,
+    NotWellKnownTypeScript,
 }
 
 impl<'a> WellKnownScriptsOnlyValidator<'a> {
@@ -556,7 +557,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
         {
             Ok(())
         } else {
-            Err(DefaultOutputsValidatorError::NotWellKnown)
+            Err(DefaultOutputsValidatorError::NotWellKnownLockScript)
         }
     }
 
@@ -602,7 +603,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
             {
                 Ok(())
             } else {
-                Err(DefaultOutputsValidatorError::NotWellKnown)
+                Err(DefaultOutputsValidatorError::NotWellKnownTypeScript)
             }
         } else {
             Ok(())
