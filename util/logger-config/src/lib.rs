@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// [`Logger`]: ../ckb_logger_service/struct.Logger.html
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// An optional string which is used to build [env_logger::Filter] for the main logger.
     ///

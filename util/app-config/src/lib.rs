@@ -28,7 +28,6 @@ use std::{path::PathBuf, str::FromStr};
 
 // 500_000 total difficulty
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
-// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// A struct including all the informations to start the ckb process.
 pub struct Setup {

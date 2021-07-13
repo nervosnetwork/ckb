@@ -11,6 +11,7 @@ const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
 /// Network config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Only connect to whitelist peers.
     #[serde(default)]
@@ -82,6 +83,7 @@ pub struct Config {
 
 /// Chain synchronization config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SyncConfig {
     /// Header map config options.
     #[serde(default)]
@@ -98,6 +100,7 @@ pub struct SyncConfig {
 ///
 /// Header map stores the block headers before fully verifying the block.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeaderMapConfig {
     /// The maximum size of data in memory
     pub primary_limit: usize,

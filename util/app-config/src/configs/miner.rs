@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Miner config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// RPC client config options.
     ///
@@ -13,6 +14,7 @@ pub struct Config {
 
 /// RPC client config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClientConfig {
     /// CKB node RPC endpoint.
     pub rpc_url: String,
@@ -69,6 +71,7 @@ pub enum DummyConfig {
 
 /// Eaglesong worker config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EaglesongSimpleConfig {
     /// Number of worker threads.
     pub threads: usize,
