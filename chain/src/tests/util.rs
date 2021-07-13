@@ -117,6 +117,8 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         args: Default::default(),
         hash_type: ScriptHashType::Data,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "TEST".to_string(),
     };
 
     let (shared, mut pack) = builder

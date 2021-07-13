@@ -52,4 +52,14 @@ pub struct BlockAssemblerConfig {
     pub message: JsonBytes,
     /// The miner lock script hash type.
     pub hash_type: ScriptHashType,
+    /// Use ckb binary version as message prefix to identify the block miner client (default true, false to disable it).
+    #[serde(default = "default_use_binary_version_as_message_prefix")]
+    pub use_binary_version_as_message_prefix: bool,
+    /// A field to store the block miner client version, non-configurable options.
+    #[serde(skip)]
+    pub binary_version: String,
+}
+
+const fn default_use_binary_version_as_message_prefix() -> bool {
+    true
 }

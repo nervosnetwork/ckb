@@ -43,6 +43,8 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         hash_type: hash_type.into(),
         args,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "BENCH".to_string(),
     }
 }
 

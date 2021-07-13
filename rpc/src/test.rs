@@ -142,7 +142,9 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
             hash_type: ckb_jsonrpc_types::ScriptHashType::Type,
             args: json_bytes("0xb2e61ff569acf041b3c2c17724e2379c581eeac3"),
-            message: Default::default(),
+            message: "message".pack().into(),
+            use_binary_version_as_message_prefix: true,
+            binary_version: "TEST".to_string(),
         }))
         .build()
         .unwrap();

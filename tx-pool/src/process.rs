@@ -129,9 +129,24 @@ impl TxPoolService {
             .code_hash(config.code_hash.pack())
             .hash_type(hash_type.into())
             .build();
+        let message = if config.use_binary_version_as_message_prefix {
+            if config.message.is_empty() {
+                config.binary_version.as_bytes().pack()
+            } else {
+                [
+                    config.binary_version.as_bytes(),
+                    b" ",
+                    config.message.as_bytes(),
+                ]
+                .concat()
+                .pack()
+            }
+        } else {
+            config.message.as_bytes().pack()
+        };
         let cellbase_witness = CellbaseWitness::new_builder()
             .lock(cellbase_lock)
-            .message(config.message.as_bytes().pack())
+            .message(message)
             .build();
 
         BlockAssembler::build_cellbase(snapshot, snapshot.tip_header(), cellbase_witness)
