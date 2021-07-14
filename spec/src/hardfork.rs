@@ -11,26 +11,25 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HardForkConfig {
-    // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 221](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0221-change-since-relative-timestamp/0221-change-since-relative-timestamp.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0221: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 222](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0222-allow-script-multiple-matches-on-identical-code/0222-allow-script-multiple-matches-on-identical-code.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0222: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 223](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0223-ensure-index-less-than-length-in-since/0223-ensure-index-less-than-length-in-since.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0223: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 224](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0224: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 232](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0232-ckb-vm-version-selection/0232-ckb-vm-version-selection.md)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rfc_pr_0232: Option<EpochNumber>,
+    /// Ref: [CKB RFC 234](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0234-ckb2021-p2p-protocol-upgrade/0234-ckb2021-p2p-protocol-upgrade.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0234: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rfc_pr_0237: Option<EpochNumber>,
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 240](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0240-remove-header-deps-immature-rule/0240-remove-header-deps-immature-rule.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0240: Option<EpochNumber>,
 }
@@ -77,8 +76,8 @@ impl HardForkConfig {
             .rfc_pr_0222(check_default!(self, rfc_pr_0222, ckb2021))
             .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021))
             .rfc_pr_0224(check_default!(self, rfc_pr_0224, ckb2021))
+            .rfc_pr_0232(check_default!(self, rfc_pr_0232, ckb2021))
             .rfc_pr_0234(check_default!(self, rfc_pr_0234, ckb2021))
-            .rfc_pr_0237(check_default!(self, rfc_pr_0237, ckb2021))
             .rfc_pr_0240(check_default!(self, rfc_pr_0240, ckb2021));
         Ok(builder)
     }
@@ -92,8 +91,8 @@ impl HardForkConfig {
             .rfc_pr_0222(self.rfc_pr_0222.unwrap_or(default))
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .rfc_pr_0224(self.rfc_pr_0224.unwrap_or(default))
+            .rfc_pr_0232(self.rfc_pr_0232.unwrap_or(default))
             .rfc_pr_0234(self.rfc_pr_0234.unwrap_or(default))
-            .rfc_pr_0237(self.rfc_pr_0237.unwrap_or(default))
             .rfc_pr_0240(self.rfc_pr_0240.unwrap_or(default))
             .build()
     }

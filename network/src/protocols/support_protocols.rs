@@ -28,7 +28,7 @@ pub enum SupportProtocols {
     Identify,
     /// Feeler: used to detect whether the address is valid.
     ///
-    /// [RFC](https://github.com/nervosnetwork/rfcs/blob/v2020.01.15/rfcs/0007-scoring-system-and-network-security/0007-scoring-system-and-network-security.md#feeler-connection)
+    /// [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0007-scoring-system-and-network-security/0007-scoring-system-and-network-security.md#feeler-connection)
     /// [Eclipse Attacks on Bitcoin's Peer-to-Peer Network](https://cryptographylab.bitbucket.io/slides/Eclipse%20Attacks%20on%20Bitcoin%27s%20Peer-to-Peer%20Network.pdf)
     Feeler,
     /// Disconnect message: used to give the remote node a debug message when the node decides to disconnect.
