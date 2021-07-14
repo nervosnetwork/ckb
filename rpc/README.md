@@ -3420,7 +3420,15 @@ The dep cell type. Allowed values: "code" and "dep_group".
 `DepType` is equivalent to `"code" | "dep_group"`.
 
 *   Type "code".
+
+    Use the cell itself as the dep cell.
+
 *   Type "dep_group".
+
+    The cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.
+
+    The dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.
+
 
 
 ### Type `DryRunResult`
