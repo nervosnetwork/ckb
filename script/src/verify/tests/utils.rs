@@ -84,7 +84,7 @@ impl TransactionScriptsVerifierWithEnv {
         let version_1_enabled_at = 10;
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
-            .rfc_pr_0232(version_1_enabled_at)
+            .rfc_0232(version_1_enabled_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
