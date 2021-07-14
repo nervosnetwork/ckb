@@ -100,7 +100,7 @@ impl Spec for CheckVmVersion {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0237 = Some(CKB2021_START_EPOCH);
+            switch.rfc_pr_0232 = Some(CKB2021_START_EPOCH);
             switch.rfc_pr_0234 = Some(CKB2021_START_EPOCH);
         }
     }

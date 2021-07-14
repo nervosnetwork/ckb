@@ -98,8 +98,8 @@ pub struct HardForkSwitch {
     rfc_pr_0222: EpochNumber,
     rfc_pr_0223: EpochNumber,
     rfc_pr_0224: EpochNumber,
+    rfc_pr_0232: EpochNumber,
     rfc_pr_0234: EpochNumber,
-    rfc_pr_0237: EpochNumber,
     rfc_pr_0240: EpochNumber,
 }
 
@@ -108,36 +108,35 @@ pub struct HardForkSwitch {
 /// [`HardForkSwitch`]:  struct.HardForkSwitch.html
 #[derive(Debug, Clone, Default)]
 pub struct HardForkSwitchBuilder {
-    // TODO ckb2021 Update all rfc numbers and fix all links, after all proposals are merged.
     /// Use the input cell creation block timestamp as start time in the
     /// "relative since timestamp".
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 221](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0221-change-since-relative-timestamp/0221-change-since-relative-timestamp.md)
     pub rfc_pr_0221: Option<EpochNumber>,
     /// Allow script multiple matches on identical data for type hash-type scripts.
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 222](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0222-allow-script-multiple-matches-on-identical-code/0222-allow-script-multiple-matches-on-identical-code.md)
     pub rfc_pr_0222: Option<EpochNumber>,
     /// In the "since epoch", the index should be less than length and
     /// the length should be greater than zero.
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 223](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0223-ensure-index-less-than-length-in-since/0223-ensure-index-less-than-length-in-since.md)
     pub rfc_pr_0223: Option<EpochNumber>,
     /// Reuse `uncles_hash` in the header as `extra_hash`.
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 224](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md)
     pub rfc_pr_0224: Option<EpochNumber>,
-    /// P2P network switch.
-    ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
-    pub rfc_pr_0234: Option<EpochNumber>,
     /// CKB VM version selection, vm version 1 and syscalls 2.
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
-    pub rfc_pr_0237: Option<EpochNumber>,
+    /// Ref: [CKB RFC 232](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0232-ckb-vm-version-selection/0232-ckb-vm-version-selection.md)
+    pub rfc_pr_0232: Option<EpochNumber>,
+    /// P2P network switch.
+    ///
+    /// Ref: [CKB RFC 234](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0234-ckb2021-p2p-protocol-upgrade/0234-ckb2021-p2p-protocol-upgrade.md)
+    pub rfc_pr_0234: Option<EpochNumber>,
     /// Remove the header deps immature rule.
     ///
-    /// Ref: [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title)
+    /// Ref: [CKB RFC 240](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0240-remove-header-deps-immature-rule/0240-remove-header-deps-immature-rule.md)
     pub rfc_pr_0240: Option<EpochNumber>,
 }
 
@@ -154,8 +153,8 @@ impl HardForkSwitch {
             .rfc_pr_0222(self.rfc_pr_0222())
             .rfc_pr_0223(self.rfc_pr_0223())
             .rfc_pr_0224(self.rfc_pr_0224())
+            .rfc_pr_0232(self.rfc_pr_0232())
             .rfc_pr_0234(self.rfc_pr_0234())
-            .rfc_pr_0237(self.rfc_pr_0237())
             .rfc_pr_0240(self.rfc_pr_0240())
     }
 
@@ -167,8 +166,8 @@ impl HardForkSwitch {
             .disable_rfc_pr_0222()
             .disable_rfc_pr_0223()
             .disable_rfc_pr_0224()
+            .disable_rfc_pr_0232()
             .disable_rfc_pr_0234()
-            .disable_rfc_pr_0237()
             .disable_rfc_pr_0240()
             .build()
             .unwrap()
@@ -177,7 +176,7 @@ impl HardForkSwitch {
     /// Returns a vector of epoch numbers, and there are new features which
     /// require refrese tx-pool caches will be enabled at those epochs.
     pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {
-        let mut epochs = vec![self.rfc_pr_0237()];
+        let mut epochs = vec![self.rfc_pr_0232()];
         // In future, there could be more than one epoch,
         // we should merge the same epochs and sort all epochs.
         //epochs.sort_unstable();
@@ -216,11 +215,18 @@ define_methods!(
     "RFC PR 0224"
 );
 define_methods!(
-    rfc_pr_0237,
+    rfc_pr_0232,
     vm_version_1_and_syscalls_2,
     is_vm_version_1_and_syscalls_2_enabled,
-    disable_rfc_pr_0237,
-    "RFC PR 0237"
+    disable_rfc_pr_0232,
+    "RFC PR 0232"
+);
+define_methods!(
+    rfc_pr_0234,
+    p2p_network_switch,
+    is_p2p_network_switch_enabled,
+    disable_rfc_pr_0234,
+    "RFC PR 0234"
 );
 define_methods!(
     rfc_pr_0240,
@@ -228,14 +234,6 @@ define_methods!(
     is_remove_header_deps_immature_rule_enabled,
     disable_rfc_pr_0240,
     "RFC PR 0240"
-);
-
-define_methods!(
-    rfc_pr_0234,
-    p2p_network_switch,
-    is_p2p_network_switch_enabled,
-    disable_rfc_pr_0234,
-    "RFC PR 0234"
 );
 
 impl HardForkSwitchBuilder {
@@ -257,14 +255,14 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0222 = try_find!(rfc_pr_0222);
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
         let rfc_pr_0224 = try_find!(rfc_pr_0224);
+        let rfc_pr_0232 = try_find!(rfc_pr_0232);
         let rfc_pr_0234 = try_find!(rfc_pr_0234);
-        let rfc_pr_0237 = try_find!(rfc_pr_0237);
         let rfc_pr_0240 = try_find!(rfc_pr_0240);
 
-        if rfc_pr_0234 != rfc_pr_0237 {
+        if rfc_pr_0234 != rfc_pr_0232 {
             return Err(format!(
                 "net fork epoch {} must eq vm fork epoch {}",
-                rfc_pr_0234, rfc_pr_0237
+                rfc_pr_0234, rfc_pr_0232
             ));
         }
 
@@ -273,8 +271,8 @@ impl HardForkSwitchBuilder {
             rfc_pr_0222,
             rfc_pr_0223,
             rfc_pr_0224,
+            rfc_pr_0232,
             rfc_pr_0234,
-            rfc_pr_0237,
             rfc_pr_0240,
         })
     }

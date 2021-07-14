@@ -3562,7 +3562,7 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
     ### Notice
 
-    This field is renamed from `uncles_hash` since 0.44.0. More details can be found in [CKB RFC xxxx](https://github.com/nervosnetwork/rfcs/tree/master/rfcs/xxxx-rfc-title).
+    This field is renamed from `uncles_hash` since 0.44.0. More details can be found in [CKB RFC 224](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md).
 
 *   `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
