@@ -219,13 +219,19 @@ impl PeerStore {
                     .or_default()
                     .push(addr);
             }
+            let len = peers_by_network_group.len();
+            let mut peers = peers_by_network_group
+                .drain()
+                .map(|(_, v)| v)
+                .collect::<Vec<Vec<_>>>();
+
+            peers.sort_unstable_by_key(|k| std::cmp::Reverse(k.len()));
             let ban_score = self.score_config.ban_score;
-            // find the largest network group
-            peers_by_network_group
-                .values()
-                .max_by_key(|peers| peers.len())
-                .expect("largest network group")
-                .iter()
+            // evict nodes on the same network segment first
+            peers
+                .into_iter()
+                .take(len / 2)
+                .flatten()
                 .filter_map(move |addr| {
                     if addr.is_terrible(now_ms) || addr.score <= ban_score {
                         Some(addr.addr.clone())
