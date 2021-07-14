@@ -99,7 +99,6 @@ pub struct HardForkSwitch {
     rfc_pr_0223: EpochNumber,
     rfc_pr_0224: EpochNumber,
     rfc_pr_0232: EpochNumber,
-    rfc_pr_0234: EpochNumber,
     rfc_pr_0240: EpochNumber,
 }
 
@@ -130,10 +129,6 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: [CKB RFC 232](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0232-ckb-vm-version-selection/0232-ckb-vm-version-selection.md)
     pub rfc_pr_0232: Option<EpochNumber>,
-    /// P2P network switch.
-    ///
-    /// Ref: [CKB RFC 234](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0234-ckb2021-p2p-protocol-upgrade/0234-ckb2021-p2p-protocol-upgrade.md)
-    pub rfc_pr_0234: Option<EpochNumber>,
     /// Remove the header deps immature rule.
     ///
     /// Ref: [CKB RFC 240](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0240-remove-header-deps-immature-rule/0240-remove-header-deps-immature-rule.md)
@@ -154,7 +149,6 @@ impl HardForkSwitch {
             .rfc_pr_0223(self.rfc_pr_0223())
             .rfc_pr_0224(self.rfc_pr_0224())
             .rfc_pr_0232(self.rfc_pr_0232())
-            .rfc_pr_0234(self.rfc_pr_0234())
             .rfc_pr_0240(self.rfc_pr_0240())
     }
 
@@ -167,7 +161,6 @@ impl HardForkSwitch {
             .disable_rfc_pr_0223()
             .disable_rfc_pr_0224()
             .disable_rfc_pr_0232()
-            .disable_rfc_pr_0234()
             .disable_rfc_pr_0240()
             .build()
             .unwrap()
@@ -222,13 +215,6 @@ define_methods!(
     "RFC PR 0232"
 );
 define_methods!(
-    rfc_pr_0234,
-    p2p_network_switch,
-    is_p2p_network_switch_enabled,
-    disable_rfc_pr_0234,
-    "RFC PR 0234"
-);
-define_methods!(
     rfc_pr_0240,
     remove_header_deps_immature_rule,
     is_remove_header_deps_immature_rule_enabled,
@@ -256,15 +242,7 @@ impl HardForkSwitchBuilder {
         let rfc_pr_0223 = try_find!(rfc_pr_0223);
         let rfc_pr_0224 = try_find!(rfc_pr_0224);
         let rfc_pr_0232 = try_find!(rfc_pr_0232);
-        let rfc_pr_0234 = try_find!(rfc_pr_0234);
         let rfc_pr_0240 = try_find!(rfc_pr_0240);
-
-        if rfc_pr_0234 != rfc_pr_0232 {
-            return Err(format!(
-                "net fork epoch {} must eq vm fork epoch {}",
-                rfc_pr_0234, rfc_pr_0232
-            ));
-        }
 
         Ok(HardForkSwitch {
             rfc_pr_0221,
@@ -272,7 +250,6 @@ impl HardForkSwitchBuilder {
             rfc_pr_0223,
             rfc_pr_0224,
             rfc_pr_0232,
-            rfc_pr_0234,
             rfc_pr_0240,
         })
     }

@@ -26,9 +26,6 @@ pub struct HardForkConfig {
     /// Ref: [CKB RFC 232](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0232-ckb-vm-version-selection/0232-ckb-vm-version-selection.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0232: Option<EpochNumber>,
-    /// Ref: [CKB RFC 234](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0234-ckb2021-p2p-protocol-upgrade/0234-ckb2021-p2p-protocol-upgrade.md)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rfc_pr_0234: Option<EpochNumber>,
     /// Ref: [CKB RFC 240](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0240-remove-header-deps-immature-rule/0240-remove-header-deps-immature-rule.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_pr_0240: Option<EpochNumber>,
@@ -77,7 +74,6 @@ impl HardForkConfig {
             .rfc_pr_0223(check_default!(self, rfc_pr_0223, ckb2021))
             .rfc_pr_0224(check_default!(self, rfc_pr_0224, ckb2021))
             .rfc_pr_0232(check_default!(self, rfc_pr_0232, ckb2021))
-            .rfc_pr_0234(check_default!(self, rfc_pr_0234, ckb2021))
             .rfc_pr_0240(check_default!(self, rfc_pr_0240, ckb2021));
         Ok(builder)
     }
@@ -92,7 +88,6 @@ impl HardForkConfig {
             .rfc_pr_0223(self.rfc_pr_0223.unwrap_or(default))
             .rfc_pr_0224(self.rfc_pr_0224.unwrap_or(default))
             .rfc_pr_0232(self.rfc_pr_0232.unwrap_or(default))
-            .rfc_pr_0234(self.rfc_pr_0234.unwrap_or(default))
             .rfc_pr_0240(self.rfc_pr_0240.unwrap_or(default))
             .build()
     }

@@ -248,7 +248,7 @@ impl Launcher {
             shared
                 .consensus()
                 .hardfork_switch
-                .is_p2p_network_switch_enabled(epoch)
+                .is_vm_version_1_and_syscalls_2_enabled(epoch)
         };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
