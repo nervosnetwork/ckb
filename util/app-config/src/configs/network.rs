@@ -272,5 +272,10 @@ impl Config {
 /// By default, using reuse port can make any outbound connection of the node become a potential
 /// listen address, which will help the robustness of our network
 const fn default_reuse() -> bool {
-    true
+    #[cfg(target_os = "linux")]
+    {
+        true
+    }
+    #[cfg(not(target_os = "linux"))]
+    false
 }

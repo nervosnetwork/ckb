@@ -42,6 +42,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.check_assume_valid_target(&shared);
 
+    check_reuse_port(launcher.args.config.network.reuse)?;
+
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
     let (network_controller, rpc_server) = launcher.start_network_and_rpc(
@@ -65,5 +67,16 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     info!("Finishing work, please wait...");
     drop(rpc_server);
 
+    Ok(())
+}
+
+// To prevent users from misusing the feature, check the configuration items before starting
+#[allow(clippy::unnecessary_wraps)]
+fn check_reuse_port(_enable: bool) -> Result<(), ExitCode> {
+    #[cfg(not(target_os = "linux"))]
+    if _enable {
+        eprintln!("The reuse port feature is not supported, please modify `network.reuse` in `ckb.toml` to false ");
+        return Err(ExitCode::Config);
+    }
     Ok(())
 }
