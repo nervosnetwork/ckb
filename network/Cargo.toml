@@ -41,7 +41,7 @@ with_dns_seeding = ["lazy_static", "bs58", "faster-hex", "trust-dns-resolver", "
 [dev-dependencies]
 tempfile = "3.0"
 criterion = "0.3"
-proptest = "0.9"
+proptest = "1.0"
 num_cpus = "1.10"
 
 [[bench]]

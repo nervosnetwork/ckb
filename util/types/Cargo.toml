@@ -25,4 +25,4 @@ once_cell = "1.8.0"
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 
 [dev-dependencies]
-proptest = "0.9"
+proptest = "1.0"
