@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.44.0-pre"
+version = "0.100.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,22 +9,22 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.44.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.44.0-pre" }
-ckb-store = { path = "../store", version = "= 0.44.0-pre" }
-ckb-db = { path = "../db", version = "= 0.44.0-pre" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.44.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.100.0-pre" }
+ckb-chain-spec = { path = "../spec", version = "= 0.100.0-pre" }
+ckb-store = { path = "../store", version = "= 0.100.0-pre" }
+ckb-db = { path = "../db", version = "= 0.100.0-pre" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.100.0-pre" }
 arc-swap = "0.4"
-ckb-error = { path = "../error", version = "= 0.44.0-pre" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.44.0-pre" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.44.0-pre" }
-ckb-verification = { path = "../verification", version = "= 0.44.0-pre" }
-ckb-notify = { path = "../notify", version = "= 0.44.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.44.0-pre" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.44.0-pre" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.44.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.44.0-pre" }
-ckb-channel = { path = "../util/channel", version = "= 0.44.0-pre" }
-ckb-constant = { path = "../util/constant", version = "= 0.44.0-pre" }
+ckb-error = { path = "../error", version = "= 0.100.0-pre" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.100.0-pre" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.100.0-pre" }
+ckb-verification = { path = "../verification", version = "= 0.100.0-pre" }
+ckb-notify = { path = "../notify", version = "= 0.100.0-pre" }
+ckb-logger = { path = "../util/logger", version = "= 0.100.0-pre" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.100.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.100.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.100.0-pre" }
+ckb-channel = { path = "../util/channel", version = "= 0.100.0-pre" }
+ckb-constant = { path = "../util/constant", version = "= 0.100.0-pre" }
 p2p = { version="0.4.0-alpha.1", package="tentacle" }
 faketime = "0.2.0"

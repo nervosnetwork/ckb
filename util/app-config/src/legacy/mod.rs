@@ -174,10 +174,15 @@ impl CKBAppConfig {
     pub(crate) fn deprecated_fields(&self) -> Vec<DeprecatedField> {
         let mut v = Vec::new();
         deprecate!(self, v, indexer, "0.40.0");
-        deprecate!(self, v, store.cellbase_cache_size, "0.44.0");
-        deprecate!(self, v, tx_pool.max_verify_cache_size, "0.44.0");
-        deprecate!(self, v, tx_pool.max_conflict_cache_size, "0.44.0");
-        deprecate!(self, v, tx_pool.max_committed_txs_hash_cache_size, "0.44.0");
+        deprecate!(self, v, store.cellbase_cache_size, "0.100.0");
+        deprecate!(self, v, tx_pool.max_verify_cache_size, "0.100.0");
+        deprecate!(self, v, tx_pool.max_conflict_cache_size, "0.100.0");
+        deprecate!(
+            self,
+            v,
+            tx_pool.max_committed_txs_hash_cache_size,
+            "0.100.0"
+        );
         v
     }
 }
