@@ -558,7 +558,7 @@ fn test_fraction_epoch_since_verify_v2021() {
         // Test CKB v2019
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
-            .rfc_pr_0223(fork_at + 1)
+            .rfc_0223(fork_at + 1)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
@@ -575,7 +575,7 @@ fn test_fraction_epoch_since_verify_v2021() {
         // Test CKB v2021
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
-            .rfc_pr_0223(fork_at)
+            .rfc_0223(fork_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
