@@ -69,9 +69,9 @@ pub trait PoolRpc {
     ///         {
     ///           "capacity": "0x2540be400",
     ///           "lock": {
-    ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": "data"
+    ///             "hash_type": "data",
+    ///             "args": "0x"
     ///           },
     ///           "type": null
     ///         }
