@@ -178,9 +178,8 @@ fn run() -> App<'static, 'static> {
             \
             It should be noted that when this option is enabled, the header is first synchronized to \
             the highest currently found. During this period, if the assume valid target is found, \
-            the download of the block starts; \
-            If the timestamp of the best known header is already within 24 hours of the current time
-            and the assume valid target is not found, the target will automatically become invalid,
+            the download of the block starts; If the assume valid target is not found or it's \
+            timestamp within 24 hours of the current time, the target will automatically become invalid, \
             and the download of the block will be started with verify")
     )
 }
