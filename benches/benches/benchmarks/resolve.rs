@@ -3,14 +3,15 @@ use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
+use ckb_launcher::SharedBuilder;
 use ckb_resource::Resource;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{resolve_transaction, setup_system_cell_cache},
+        cell::{resolve_transaction, setup_system_cell_cache, ResolveOptions},
         BlockView, Capacity, DepType, FeeRate, ScriptHashType, TransactionView,
     },
     h160, h256,
@@ -63,6 +64,8 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         hash_type: hash_type.into(),
         args,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "BENCH".to_string(),
     }
 }
 
@@ -142,6 +145,7 @@ fn bench(c: &mut Criterion) {
         )
     });
 
+    let resolve_opts = ResolveOptions::empty().set_skip_immature_header_deps_check(false);
     group.bench_with_input(
         BenchmarkId::new("check_resolve", SIZE),
         &SIZE,
@@ -165,7 +169,8 @@ fn bench(c: &mut Criterion) {
                     while i > 0 {
                         let mut seen_inputs = HashSet::new();
                         for rtx in &rtxs {
-                            rtx.check(&mut seen_inputs, &provider, snapshot).unwrap();
+                            rtx.check(&mut seen_inputs, &provider, snapshot, resolve_opts)
+                                .unwrap();
                         }
                         i -= 1;
                     }

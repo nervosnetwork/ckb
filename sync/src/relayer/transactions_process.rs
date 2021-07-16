@@ -1,16 +1,21 @@
 use crate::relayer::Relayer;
 use crate::Status;
-use ckb_logger::{debug_target, error};
-use ckb_network::PeerIndex;
+use ckb_logger::error;
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed,
     prelude::*,
 };
+use std::sync::Arc;
+use std::time::Duration;
+
+const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionsProcess<'a> {
     message: packed::RelayTransactionsReader<'a>,
     relayer: &'a Relayer,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -18,11 +23,13 @@ impl<'a> TransactionsProcess<'a> {
     pub fn new(
         message: packed::RelayTransactionsReader<'a>,
         relayer: &'a Relayer,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         TransactionsProcess {
             message,
             relayer,
+            nc,
             peer,
         }
     }
@@ -49,44 +56,37 @@ impl<'a> TransactionsProcess<'a> {
             return Status::ok();
         }
 
-        // Insert tx_hash into `already_known`
-        // Remove tx_hash from `inflight_transactions`
+        let max_block_cycles = self.relayer.shared().consensus().max_block_cycles();
+        if txs
+            .iter()
+            .any(|(_, declared_cycles)| declared_cycles > &max_block_cycles)
         {
-            shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
+            self.nc.ban_peer(
+                self.peer,
+                DEFAULT_BAN_TIME,
+                String::from("relay declared cycles greater than max_block_cycles"),
+            );
+            return Status::ok();
         }
 
-        // Remove tx_hash from `tx_ask_for_set`
-        {
-            if let Some(peer_state) = shared_state.peers().state.write().get_mut(&self.peer) {
-                for (tx, _) in txs.iter() {
-                    peer_state.remove_ask_for_tx(&tx.hash());
-                }
-            }
-        }
+        shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
-        let relayer = self.relayer.clone();
         let peer = self.peer;
-        self.relayer.shared.shared().async_handle().spawn(
-            async move {
-                for (tx, declared_cycle) in txs {
-                    if declared_cycle > relayer.max_tx_verify_cycles {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "ignore tx {} which declared cycles({}) is large than max tx verify cycles {}",
-                            tx.hash(),
-                            declared_cycle,
-                            relayer.max_tx_verify_cycles
-                        );
-                        continue;
-                    }
-
-                    if let Err(e) = tx_pool.submit_remote_tx(tx.clone(), declared_cycle, peer).await {
+        self.relayer
+            .shared
+            .shared()
+            .async_handle()
+            .spawn(async move {
+                for (tx, declared_cycles) in txs {
+                    if let Err(e) = tx_pool
+                        .submit_remote_tx(tx.clone(), declared_cycles, peer)
+                        .await
+                    {
                         error!("submit_tx error {}", e);
                     }
                 }
-            }
-        );
+            });
 
         Status::ok()
     }

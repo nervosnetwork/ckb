@@ -193,8 +193,8 @@ fn test_eviction() {
     let mut peer_store = PeerStore::default();
     let now = faketime::unix_time_as_millis();
     let tried_ms = now - 61_000;
-    // add addrs
-    for i in 0..(ADDR_COUNT_LIMIT - 2) {
+    // add addrs, make the peer store has 4 groups addrs
+    for i in 0..(ADDR_COUNT_LIMIT - 5) {
         let addr: Multiaddr = format!(
             "/ip4/225.0.0.1/tcp/{}/p2p/{}",
             i,
@@ -204,27 +204,47 @@ fn test_eviction() {
         .unwrap();
         peer_store.add_addr(addr).unwrap();
     }
+    let addr: Multiaddr = format!(
+        "/ip4/192.163.1.1/tcp/43/p2p/{}",
+        PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+    peer_store.add_addr(addr).unwrap();
+    let addr: Multiaddr = format!(
+        "/ip4/255.255.0.1/tcp/43/p2p/{}",
+        PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+    peer_store.add_addr(addr).unwrap();
+    let addr: Multiaddr = format!("/ip4/239.0.0.1/tcp/43/p2p/{}", PeerId::random().to_base58())
+        .parse()
+        .unwrap();
+    peer_store.add_addr(addr).unwrap();
+
     // this peer will be evict from peer store
     let evict_addr: Multiaddr =
         format!("/ip4/225.0.0.2/tcp/42/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
     peer_store.add_addr(evict_addr.clone()).unwrap();
-    // this peer will reserve in peer store
-    let reserved_addr: Multiaddr = format!(
+    // this peer will be evict from peer store
+    let evict_addr_2: Multiaddr = format!(
         "/ip4/192.163.1.1/tcp/42/p2p/{}",
         PeerId::random().to_base58()
     )
     .parse()
     .unwrap();
-    peer_store.add_addr(reserved_addr.clone()).unwrap();
+    peer_store.add_addr(evict_addr_2.clone()).unwrap();
     // mark two peers as terrible peer
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&evict_addr) {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
+        assert!(paddr.is_terrible(now));
     }
-    if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&reserved_addr) {
+    if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&evict_addr_2) {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
@@ -237,9 +257,9 @@ fn test_eviction() {
             .unwrap();
     peer_store.add_addr(new_peer_addr.clone()).unwrap();
     // check addrs
-    // peer store will only evict peers from largest network group
-    // the evict_addr should be evict, other two addrs will remain in peer store
+    // peer store will evict peers from largest network group to low group
+    // the two evict_addrs should be evict, other addrs will remain in peer store
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
-    assert!(peer_store.mut_addr_manager().get(&reserved_addr).is_some());
+    assert!(peer_store.mut_addr_manager().get(&evict_addr_2).is_none());
     assert!(peer_store.mut_addr_manager().get(&evict_addr).is_none());
 }

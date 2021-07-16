@@ -6,10 +6,11 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
@@ -55,6 +56,7 @@ fn always_success_consensus() -> Consensus {
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
         .compact_target(GENESIS_TARGET.pack())
+        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -140,7 +142,9 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
             hash_type: ckb_jsonrpc_types::ScriptHashType::Type,
             args: json_bytes("0xb2e61ff569acf041b3c2c17724e2379c581eeac3"),
-            message: Default::default(),
+            message: "message".pack().into(),
+            use_binary_version_as_message_prefix: true,
+            binary_version: "TEST".to_string(),
         }))
         .build()
         .unwrap();
@@ -266,11 +270,13 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         reject_ill_transactions: true,
         // enable deprecated rpc in unit test
         enable_deprecated_rpc: true,
+        extra_well_known_lock_scripts: vec![],
+        extra_well_known_type_scripts: vec![],
     };
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), true)
+        .enable_pool(shared.clone(), FeeRate::zero(), true, vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),

@@ -1,13 +1,14 @@
 use ckb_app_config::{ExitCode, MinerArgs, MinerConfig};
+use ckb_async_runtime::Handle;
 use ckb_channel::unbounded;
 use ckb_miner::{Client, Miner};
 use std::thread;
 
-pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
+pub fn miner(args: MinerArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let (new_work_tx, new_work_rx) = unbounded();
     let MinerConfig { client, workers } = args.config;
 
-    let mut client = Client::new(new_work_tx, client);
+    let mut client = Client::new(new_work_tx, client, async_handle);
     let mut miner = Miner::new(
         args.pow_engine,
         client.clone(),

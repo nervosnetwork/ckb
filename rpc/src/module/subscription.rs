@@ -2,7 +2,7 @@ use ckb_channel::select;
 use ckb_jsonrpc_types::Topic;
 use ckb_logger::error;
 use ckb_notify::NotifyController;
-use jsonrpc_core::{futures::Future, Metadata, Result};
+use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
@@ -299,14 +299,14 @@ impl SubscriptionRpcImpl {
                                 let header: ckb_jsonrpc_types::HeaderView  = block.header().into();
                                 let json_string = Ok(serde_json::to_string(&header).expect("serialization should be ok"));
                                 for sink in new_tip_header_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone()).wait();
+                                    let _ = sink.notify(json_string.clone());
                                 }
                             }
                             if let Some(new_tip_block_subscribers) = subscribers.get(&Topic::NewTipBlock) {
                                 let block: ckb_jsonrpc_types::BlockView  = block.into();
                                 let json_string = Ok(serde_json::to_string(&block).expect("serialization should be ok"));
                                 for sink in new_tip_block_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone()).wait();
+                                    let _ = sink.notify(json_string.clone());
                                 }
                             }
                         },
@@ -322,7 +322,7 @@ impl SubscriptionRpcImpl {
                                 let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
                                 let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone()).wait();
+                                    let _ = sink.notify(json_string.clone());
                                 }
                             }
                         },
@@ -338,7 +338,7 @@ impl SubscriptionRpcImpl {
                                 let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
                                 let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone()).wait();
+                                    let _ = sink.notify(json_string.clone());
                                 }
                             }
                         },
@@ -356,7 +356,7 @@ impl SubscriptionRpcImpl {
                                 let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
                                 let json_string = Ok(serde_json::to_string(&(entry, reject)).expect("serialization should be ok"));
                                 for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone()).wait();
+                                    let _ = sink.notify(json_string.clone());
                                 }
                             }
                         },

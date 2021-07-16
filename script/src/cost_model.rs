@@ -19,6 +19,7 @@ pub fn transferred_byte_cycles(bytes: u64) -> u64 {
 /// Returns the spent cycles to execute the secific instruction.
 pub fn instruction_cycles(i: Instruction) -> u64 {
     match extract_opcode(i) {
+        // IMC
         insts::OP_JALR => 3,
         insts::OP_LD => 2,
         insts::OP_LW => 3,
@@ -40,21 +41,6 @@ pub fn instruction_cycles(i: Instruction) -> u64 {
         insts::OP_EBREAK => 500,
         insts::OP_ECALL => 500,
         insts::OP_JAL => 3,
-        insts::OP_RVC_LW => 3,
-        insts::OP_RVC_LD => 2,
-        insts::OP_RVC_SW => 3,
-        insts::OP_RVC_SD => 2,
-        insts::OP_RVC_LWSP => 3,
-        insts::OP_RVC_LDSP => 2,
-        insts::OP_RVC_SWSP => 3,
-        insts::OP_RVC_SDSP => 2,
-        insts::OP_RVC_BEQZ => 3,
-        insts::OP_RVC_BNEZ => 3,
-        insts::OP_RVC_JAL => 3,
-        insts::OP_RVC_J => 3,
-        insts::OP_RVC_JR => 3,
-        insts::OP_RVC_JALR => 3,
-        insts::OP_RVC_EBREAK => 500,
         insts::OP_MUL => 5,
         insts::OP_MULW => 5,
         insts::OP_MULH => 5,
@@ -68,6 +54,14 @@ pub fn instruction_cycles(i: Instruction) -> u64 {
         insts::OP_REMW => 32,
         insts::OP_REMU => 32,
         insts::OP_REMUW => 32,
+        // MOP
+        insts::OP_WIDE_MUL => 5,
+        insts::OP_WIDE_MULU => 5,
+        insts::OP_WIDE_MULSU => 5,
+        insts::OP_WIDE_DIV => 32,
+        insts::OP_WIDE_DIVU => 32,
+        insts::OP_FAR_JUMP_REL => 3,
+        insts::OP_FAR_JUMP_ABS => 3,
         _ => 1,
     }
 }

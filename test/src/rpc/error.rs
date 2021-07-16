@@ -1,4 +1,4 @@
-use ckb_jsonrpc_types::error::Error as JsonRpcError;
+use jsonrpc_core::error::Error as JsonRpcError;
 use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]

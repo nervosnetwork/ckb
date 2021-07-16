@@ -77,7 +77,7 @@ struct RawHeader {
     parent_hash:            Byte32,
     transactions_root:      Byte32,
     proposals_hash:         Byte32,
-    uncles_hash:            Byte32,
+    extra_hash:             Byte32,
     dao:                    Byte32,
 }
 
@@ -96,6 +96,14 @@ table Block {
     uncles:                 UncleBlockVec,
     transactions:           TransactionVec,
     proposals:              ProposalShortIdVec,
+}
+
+table BlockV1 {
+    header:                 Header,
+    uncles:                 UncleBlockVec,
+    transactions:           TransactionVec,
+    proposals:              ProposalShortIdVec,
+    extension:              Bytes,
 }
 
 table CellbaseWitness {

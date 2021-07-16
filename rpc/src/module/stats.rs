@@ -69,7 +69,14 @@ impl StatsRpc for StatsRpcImpl {
             );
             (tip_header, median_time)
         };
-        let epoch = tip_header.epoch();
+        let epoch = if tip_header.is_genesis() {
+            self.shared
+                .consensus()
+                .genesis_epoch_ext()
+                .number_with_fraction(0)
+        } else {
+            tip_header.epoch()
+        };
         let difficulty = tip_header.difficulty();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let alerts: Vec<AlertMessage> = {

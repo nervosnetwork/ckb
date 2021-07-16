@@ -112,7 +112,7 @@ impl<'a> HeadersProcess<'a> {
             let ibd = self.active_chain.is_initial_block_download();
             if !ibd {
                 if let Some(ref mut peer_state) =
-                    self.synchronizer.peers().state.write().get_mut(&self.peer)
+                    self.synchronizer.peers().state.get_mut(&self.peer)
                 {
                     peer_state.stop_headers_sync();
                 }
@@ -188,7 +188,6 @@ impl<'a> HeadersProcess<'a> {
             .synchronizer
             .peers()
             .state
-            .read()
             .get(&self.peer)
             .map(|state| state.peer_flags)
             .unwrap_or_default();

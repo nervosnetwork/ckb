@@ -1,6 +1,6 @@
 use ckb_types::{core, packed};
 use ckb_util::shrink_to_fit;
-use ckb_util::RwLock;
+use dashmap::DashMap;
 use std::collections::{HashMap, VecDeque};
 
 pub type ParentHash = packed::Byte32;
@@ -10,18 +10,15 @@ const SHRINK_THRESHOLD: usize = 100;
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>>,
-    parents: RwLock<HashMap<packed::Byte32, ParentHash>>,
+    blocks: DashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>,
+    parents: DashMap<packed::Byte32, ParentHash>,
 }
 
 impl OrphanBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         OrphanBlockPool {
-            blocks: RwLock::new(HashMap::with_capacity_and_hasher(
-                capacity,
-                Default::default(),
-            )),
-            parents: RwLock::new(Default::default()),
+            blocks: DashMap::with_capacity(capacity),
+            parents: DashMap::new(),
         }
     }
 
@@ -30,48 +27,43 @@ impl OrphanBlockPool {
         let hash = block.header().hash();
         let parent_hash = block.data().header().raw().parent_hash();
         self.blocks
-            .write()
             .entry(parent_hash.clone())
             .or_insert_with(HashMap::default)
             .insert(hash.clone(), block);
-        self.parents.write().insert(hash, parent_hash);
+        self.parents.insert(hash, parent_hash);
     }
 
     pub fn remove_blocks_by_parent(&self, hash: &packed::Byte32) -> Vec<core::BlockView> {
-        let mut blocks_map = self.blocks.write();
-        let mut parents_map = self.parents.write();
         let mut queue: VecDeque<packed::Byte32> = VecDeque::new();
         queue.push_back(hash.to_owned());
 
         let mut removed: Vec<core::BlockView> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
-            if let Some(orphaned) = blocks_map.remove(&parent_hash) {
+            if let Some((_, orphaned)) = self.blocks.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
                 for hash in hashes.iter() {
-                    parents_map.remove(hash);
+                    self.parents.remove(hash);
                 }
                 queue.extend(hashes);
                 removed.extend(blocks);
             }
         }
 
-        shrink_to_fit!(blocks_map, SHRINK_THRESHOLD);
-        shrink_to_fit!(parents_map, SHRINK_THRESHOLD);
+        shrink_to_fit!(self.blocks, SHRINK_THRESHOLD);
+        shrink_to_fit!(self.parents, SHRINK_THRESHOLD);
         removed
     }
 
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
-        // acquire the `blocks` read lock first, guarantee ordering of acquisition is same as `remove_blocks_by_parent`, avoids deadlocking
-        let guard = self.blocks.read();
-        self.parents.read().get(hash).and_then(|parent_hash| {
-            guard
-                .get(parent_hash)
-                .and_then(|value| value.get(hash).cloned())
+        self.parents.get(hash).and_then(|parent_hash| {
+            self.blocks
+                .get(&parent_hash)
+                .and_then(|blocks| blocks.get(hash).cloned())
         })
     }
 
     pub fn len(&self) -> usize {
-        self.parents.read().len()
+        self.parents.len()
     }
 }
 

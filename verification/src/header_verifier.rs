@@ -1,5 +1,5 @@
 use crate::{
-    BlockVersionError, NumberError, PowError, TimestampError, UnknownParentError,
+    BlockVersionError, EpochError, NumberError, PowError, TimestampError, UnknownParentError,
     ALLOWED_FUTURE_BLOCKTIME,
 };
 use ckb_chain_spec::consensus::Consensus;
@@ -41,6 +41,7 @@ impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
                 parent_hash: header.parent_hash(),
             })?;
         NumberVerifier::new(&parent, header).verify()?;
+        EpochVerifier::new(&parent, header).verify()?;
         TimestampVerifier::new(
             self.data_loader,
             header,
@@ -137,6 +138,34 @@ impl<'a> NumberVerifier<'a> {
             return Err(NumberError {
                 expected: self.parent.number() + 1,
                 actual: self.header.number(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+}
+
+pub struct EpochVerifier<'a> {
+    parent: &'a HeaderView,
+    header: &'a HeaderView,
+}
+
+impl<'a> EpochVerifier<'a> {
+    pub fn new(parent: &'a HeaderView, header: &'a HeaderView) -> Self {
+        EpochVerifier { parent, header }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        if !self.header.epoch().is_well_formed() {
+            return Err(EpochError::Malformed {
+                value: self.header.epoch(),
+            }
+            .into());
+        }
+        if !self.parent.is_genesis() && !self.header.epoch().is_successor_of(self.parent.epoch()) {
+            return Err(EpochError::NonContinuous {
+                current: self.header.epoch(),
+                parent: self.parent.epoch(),
             }
             .into());
         }

@@ -6,8 +6,9 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
 use ckb_verification::{
-    cache::CacheEntry, ContextualTransactionVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier,
+    cache::{CacheEntry, Completed},
+    ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use tokio::task::block_in_place;
 
@@ -74,35 +75,36 @@ pub(crate) fn non_contextual_verify(
 pub(crate) fn verify_rtx(
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,
-    cache_entry: Option<CacheEntry>,
+    tx_env: &TxVerifyEnv,
+    cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
-) -> Result<CacheEntry, Reject> {
-    let tip_header = snapshot.tip_header();
-    let tip_number = tip_header.number();
-    let epoch = tip_header.epoch();
+) -> Result<Completed, Reject> {
     let consensus = snapshot.consensus();
 
-    if let Some(cached) = cache_entry {
-        TimeRelativeTransactionVerifier::new(
-            &rtx,
-            snapshot,
-            tip_number + 1,
-            epoch,
-            tip_header.hash(),
-            consensus,
-        )
-        .verify()
-        .map(|_| cached)
-        .map_err(Reject::Verification)
+    if let Some(ref cached) = cache_entry {
+        match cached {
+            CacheEntry::Completed(completed) => {
+                TimeRelativeTransactionVerifier::new(&rtx, consensus, snapshot, tx_env)
+                    .verify()
+                    .map(|_| *completed)
+                    .map_err(Reject::Verification)
+            }
+            CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
+                &rtx,
+                consensus,
+                &snapshot.as_data_provider(),
+                tx_env,
+            )
+            .complete(max_tx_verify_cycles, false, &suspended.snap)
+            .map_err(Reject::Verification),
+        }
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(
                 &rtx,
-                tip_number + 1,
-                epoch,
-                tip_header.hash(),
                 consensus,
                 &snapshot.as_data_provider(),
+                tx_env,
             )
             .verify(max_tx_verify_cycles, false)
             .map_err(Reject::Verification)

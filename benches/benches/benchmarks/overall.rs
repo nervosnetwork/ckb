@@ -5,8 +5,9 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
@@ -42,6 +43,8 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         hash_type: hash_type.into(),
         args,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "BENCH".to_string(),
     }
 }
 

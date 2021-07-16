@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 
-/// Specifies how the script `code_hash` is used to match the script code.
+/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 ///
-/// Allowed values: "data" and "type".
+/// Allowed kinds: "data", "type" and "data1".
 ///
 /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
@@ -18,10 +18,12 @@ use std::fmt;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
-    /// Type "data" matches script code via cell data hash.
-    Data,
+    /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    Data = 0,
     /// Type "type" matches script code via cell type script hash.
-    Type,
+    Type = 1,
+    /// Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
+    Data1 = 2,
 }
 
 impl Default for ScriptHashType {
@@ -35,6 +37,7 @@ impl From<ScriptHashType> for core::ScriptHashType {
         match json {
             ScriptHashType::Data => core::ScriptHashType::Data,
             ScriptHashType::Type => core::ScriptHashType::Type,
+            ScriptHashType::Data1 => core::ScriptHashType::Data1,
         }
     }
 }
@@ -44,6 +47,7 @@ impl From<core::ScriptHashType> for ScriptHashType {
         match core {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
+            core::ScriptHashType::Data1 => ScriptHashType::Data1,
         }
     }
 }
@@ -51,8 +55,9 @@ impl From<core::ScriptHashType> for ScriptHashType {
 impl fmt::Display for ScriptHashType {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            ScriptHashType::Data => write!(f, "data"),
-            ScriptHashType::Type => write!(f, "type"),
+            Self::Data => write!(f, "data"),
+            Self::Type => write!(f, "type"),
+            Self::Data1 => write!(f, "data1"),
         }
     }
 }
@@ -64,9 +69,9 @@ impl fmt::Display for ScriptHashType {
 /// ```
 /// # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#"
 /// {
-///   "args": "0x",
 ///   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///   "hash_type": "data"
+///   "hash_type": "data",
+///   "args": "0x"
 /// }
 /// # "#).unwrap();
 /// ```
@@ -118,9 +123,9 @@ impl From<packed::Script> for Script {
 /// {
 ///   "capacity": "0x2540be400",
 ///   "lock": {
-///     "args": "0x",
 ///     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///     "hash_type": "data"
+///     "hash_type": "data",
+///     "args": "0x"
 ///   },
 ///   "type": null
 /// }
@@ -432,9 +437,9 @@ pub struct Transaction {
 ///     {
 ///       "capacity": "0x2540be400",
 ///       "lock": {
-///         "args": "0x",
 ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///         "hash_type": "data"
+///         "hash_type": "data",
+///         "args": "0x"
 ///       },
 ///       "type": null
 ///     }
@@ -637,10 +642,20 @@ pub struct Header {
     ///
     /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
     pub proposals_hash: H256,
-    /// The hash on `uncles` in the block body.
+    // TODO ckb2021 Update the rfc number and fix the link, after the proposal is merged.
+    /// The hash on `uncles` and extension in the block body.
     ///
-    /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
-    pub uncles_hash: H256,
+    /// The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    /// The extension hash is the hash of the extension.
+    /// The extra hash is the hash on uncles hash and extension hash concatenated together.
+    ///
+    /// # Notice
+    ///
+    /// This field is renamed from `uncles_hash` since 0.100.0.
+    /// More details can be found in [CKB RFC 224].
+    ///
+    /// [CKB RFC 224]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md
+    pub extra_hash: H256,
     /// DAO fields.
     ///
     /// See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
@@ -670,7 +685,7 @@ pub struct Header {
 ///   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "timestamp": "0x5cd2b117",
 ///   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-///   "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+///   "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "version": "0x0"
 /// }
 /// # "#).unwrap();
@@ -696,7 +711,7 @@ impl From<packed::Header> for Header {
             transactions_root: raw.transactions_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             compact_target: raw.compact_target().unpack(),
-            uncles_hash: raw.uncles_hash().unpack(),
+            extra_hash: raw.extra_hash().unpack(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
         }
@@ -730,7 +745,7 @@ impl From<Header> for packed::Header {
             transactions_root,
             proposals_hash,
             compact_target,
-            uncles_hash,
+            extra_hash,
             dao,
             nonce,
         } = json;
@@ -743,7 +758,7 @@ impl From<Header> for packed::Header {
             .transactions_root(transactions_root.pack())
             .proposals_hash(proposals_hash.pack())
             .compact_target(compact_target.pack())
-            .uncles_hash(uncles_hash.pack())
+            .extra_hash(extra_hash.pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()
@@ -843,6 +858,12 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 /// The JSON view of a Block including header and body.
@@ -856,6 +877,12 @@ pub struct BlockView {
     pub transactions: Vec<TransactionView>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 impl From<packed::Block> for Block {
@@ -865,6 +892,7 @@ impl From<packed::Block> for Block {
             uncles: input.uncles().into_iter().map(Into::into).collect(),
             transactions: input.transactions().into_iter().map(Into::into).collect(),
             proposals: input.proposals().into_iter().map(Into::into).collect(),
+            extension: input.extension().map(Into::into),
         }
     }
 }
@@ -905,6 +933,7 @@ impl From<core::BlockView> for BlockView {
             uncles,
             transactions,
             proposals: block.proposals().into_iter().map(Into::into).collect(),
+            extension: block.extension().map(Into::into),
         }
     }
 }
@@ -916,13 +945,26 @@ impl From<Block> for packed::Block {
             uncles,
             transactions,
             proposals,
+            extension,
         } = json;
-        packed::Block::new_builder()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).pack())
-            .transactions(transactions.into_iter().map(Into::into).pack())
-            .proposals(proposals.into_iter().map(Into::into).pack())
-            .build()
+        if let Some(extension) = extension {
+            let extension: packed::Bytes = extension.into();
+            packed::BlockV1::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .build()
+        }
     }
 }
 
@@ -933,6 +975,7 @@ impl From<BlockView> for core::BlockView {
             uncles,
             transactions,
             proposals,
+            extension,
         } = input;
         let block = Block {
             header: header.inner,
@@ -948,6 +991,7 @@ impl From<BlockView> for core::BlockView {
                 .collect(),
             transactions: transactions.into_iter().map(|tx| tx.inner).collect(),
             proposals,
+            extension,
         };
         let block: packed::Block = block.into();
         block.into_view()
@@ -1204,7 +1248,7 @@ pub struct Consensus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, h256, packed::Byte32, H256};
     use lazy_static::lazy_static;
     use proptest::{collection::size_range, prelude::*};
     use regex::Regex;
@@ -1253,6 +1297,95 @@ mod tests {
             .build()
     }
 
+    #[test]
+    fn test_script_serialization() {
+        for (original, entity) in &[
+            (
+                "{\
+                    \"code_hash\":\"0x00000000000000000000000000000000\
+                                    00000000000000000000000000000000\",\
+                    \"hash_type\":\"data\",\
+                    \"args\":\"0x\"\
+                }",
+                Script {
+                    code_hash: h256!("0x0"),
+                    hash_type: ScriptHashType::Data,
+                    args: JsonBytes::default(),
+                },
+            ),
+            (
+                "{\
+                    \"code_hash\":\"0x00000000000000000000000000000000\
+                                    00000000000000000000000000000000\",\
+                    \"hash_type\":\"type\",\
+                    \"args\":\"0x\"\
+                }",
+                Script {
+                    code_hash: h256!("0x0"),
+                    hash_type: ScriptHashType::Type,
+                    args: JsonBytes::default(),
+                },
+            ),
+            (
+                "{\
+                    \"code_hash\":\"0x00000000000000000000000000000000\
+                                      00000000000000000000000000000001\",\
+                    \"hash_type\":\"data1\",\
+                    \"args\":\"0x\"\
+                }",
+                Script {
+                    code_hash: h256!("0x1"),
+                    hash_type: ScriptHashType::Data1,
+                    args: JsonBytes::default(),
+                },
+            ),
+        ] {
+            let decoded: Script = serde_json::from_str(&original).unwrap();
+            assert_eq!(&decoded, entity);
+            let encoded = serde_json::to_string(&decoded).unwrap();
+            assert_eq!(&encoded, original);
+        }
+        for malformed in &[
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                00000000000000000000000000000000\",\
+                \"args\":\"0x\"\
+            }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                00000000000000000000000000000000\",\
+                \"hash_type\":null,\
+                \"args\":\"0x\"\
+            }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                00000000000000000000000000000000\",\
+                \"hash_type\":type,\
+                \"args\":\"0x\"\
+            }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                00000000000000000000000000000000\",\
+                \"hash_type\":\"data2\",\
+                \"args\":\"0x\"\
+            }",
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                00000000000000000000000000000000\",\
+                \"hash_type\":\"data\",\
+                \"unknown_field\":0,\
+                \"args\":\"0x\"\
+            }",
+        ] {
+            let result: Result<Script, _> = serde_json::from_str(&malformed);
+            assert!(
+                result.is_err(),
+                "should reject malformed json: [{}]",
+                malformed
+            )
+        }
+    }
+
     fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {
         let block = mock_full_block(data, arg);
         let json_block: BlockView = block.clone().into();
@@ -1267,7 +1400,7 @@ mod tests {
 
     fn header_field_format_check(json: &str) {
         lazy_static! {
-            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|uncles_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
+            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|extra_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
         }
         for caps in RE.captures_iter(json) {
             assert!(&caps["value"].starts_with("0x"));

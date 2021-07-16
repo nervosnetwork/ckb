@@ -1,7 +1,7 @@
 //! Rocksdb snapshot wrapper
 
 use arc_swap::{ArcSwap, Guard};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
 use ckb_db::{
     iter::{DBIter, IteratorMode},
     DBPinnableSlice,
@@ -208,5 +208,11 @@ impl HeaderChecker for Snapshot {
 impl HeaderProvider for Snapshot {
     fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
         self.store.get_block_header(hash)
+    }
+}
+
+impl ConsensusProvider for Snapshot {
+    fn get_consensus(&self) -> &Consensus {
+        self.consensus()
     }
 }

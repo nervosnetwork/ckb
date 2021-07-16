@@ -1,7 +1,10 @@
-use crate::util::mining::mine_until_out_bootstrap_period;
+use crate::util::mining::{mine_until_epoch, mine_until_out_bootstrap_period};
 use crate::utils::now_ms;
 use crate::{Node, Spec};
-use ckb_types::prelude::*;
+use ckb_types::{
+    core::{EpochNumberWithFraction, HeaderView},
+    prelude::*,
+};
 
 pub struct RpcSubmitBlock;
 
@@ -43,9 +46,18 @@ impl Spec for RpcSubmitBlock {
         );
 
         // build block with wrong epoch
+        let tip_header: HeaderView = node0.rpc_client().get_tip_header().into();
+        let tip_epoch = tip_header.epoch();
+        mine_until_epoch(
+            node0,
+            tip_epoch.number(),
+            tip_epoch.length() - 1,
+            tip_epoch.length(),
+        );
+        let epoch = EpochNumberWithFraction::new(tip_epoch.number() + 1, 0, 100);
         let block = node0
             .new_block_builder(None, None, None)
-            .epoch(42.pack())
+            .epoch(epoch.pack())
             .build();
         let block_err = node0
             .rpc_client()

@@ -11,9 +11,9 @@ pub enum DaoError {
 
     /// When withdraws from NervosDAO, it requires the deposited header and withdrawing header to help calculating interest.
     /// This error occurs at [withdrawing phase 2] for the below cases:
-    ///   - The [`HeaderDeps`] does not include the withdrawing block hash. The withdrawing block hash
+    ///   - The `HeaderDeps` does not include the withdrawing block hash. The withdrawing block hash
     ///     indicates the block which packages the target transaction at [withdrawing phase 1].
-    ///   - The [`HeaderDeps`] does not include the deposited block hash. The deposited block hash
+    ///   - The `HeaderDeps` does not include the deposited block hash. The deposited block hash
     ///     indicates the block which packages the target transaction at [deposit phase]. Please see
     ///     [withdrawing phase 2] for more details.
     ///

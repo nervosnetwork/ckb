@@ -143,6 +143,9 @@ struct TestNetworkContext {
 }
 
 impl CKBProtocolContext for TestNetworkContext {
+    fn ckb2021(&self) -> bool {
+        false
+    }
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.timer_senders.get(&(self.protocol, token)) {

@@ -3,7 +3,7 @@
 //! By default, when simply running CKB, CKB will connect to the official public Nervos network.
 //!
 //! In order to run a chain different to the official public one,
-//! with a config file specifying chain = "path" under [ckb].
+//! with a config file specifying `spec = { file = "<the-path-of-spec-file>" }` under `[chain]`.
 //!
 
 // Because the limitation of toml library,
@@ -14,6 +14,7 @@ use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
     SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TYPE_ID_CODE_HASH,
 };
+use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
@@ -25,8 +26,9 @@ use ckb_resource::{
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
-        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity,
+        Cycle, EpochNumber, EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder,
+        TransactionView,
     },
     h256, packed,
     prelude::*,
@@ -40,9 +42,11 @@ use std::fmt;
 use std::sync::Arc;
 
 pub use error::SpecError;
+pub use hardfork::HardForkConfig;
 
 pub mod consensus;
 mod error;
+mod hardfork;
 
 // Just a random secp256k1 secret key for dep group input cell's lock
 const SPECIAL_CELL_PRIVKEY: H256 =
@@ -59,6 +63,7 @@ pub const OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL: u64 = 4;
 
 /// The CKB block chain specification
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChainSpec {
     /// The spec name, also used identify network
     pub name: String,
@@ -164,6 +169,7 @@ pub mod default_params {
 
 /// Parameters for CKB block chain
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Params {
     /// The initial_primary_epoch_reward
     ///
@@ -220,6 +226,11 @@ pub struct Params {
     /// See [`orphan_rate_target`](consensus/struct.Consensus.html#structfield.orphan_rate_target)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orphan_rate_target: Option<(u32, u32)>,
+    /// The parameters for hard fork features.
+    ///
+    /// See [`hardfork_switch`](consensus/struct.Consensus.html#structfield.hardfork_switch)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hardfork: Option<HardForkConfig>,
 }
 
 impl Params {
@@ -293,6 +304,7 @@ impl Params {
 /// The genesis information
 /// Load from config file.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Genesis {
     /// The genesis block version
     pub version: u32,
@@ -338,6 +350,7 @@ pub struct Genesis {
 
 /// The system cell information
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemCell {
     // NOTE: must put `create_type_id` before `file` otherwise this struct can not serialize
     /// whether crate type script
@@ -350,6 +363,7 @@ pub struct SystemCell {
 
 /// The genesis cell information
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GenesisCell {
     /// The genesis cell message
     pub message: String,
@@ -359,6 +373,7 @@ pub struct GenesisCell {
 
 /// Initial token supply cell
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IssuedCell {
     /// The cell capacity
     pub capacity: Capacity,
@@ -368,6 +383,7 @@ pub struct IssuedCell {
 
 /// The genesis dep_group file resources
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DepGroupResource {
     /// The dep_group name
     pub name: String,
@@ -377,6 +393,7 @@ pub struct DepGroupResource {
 
 /// The burned 25% of Nervos CKBytes in genesis block
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SatoshiGift {
     /// The lock pubkey hash
     pub satoshi_pubkey_hash: H160,
@@ -431,16 +448,16 @@ impl ChainSpec {
             return Err(SpecLoadError::file_not_found());
         }
         let config_bytes = resource.get()?;
-        let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
 
+        let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
         if let Some(parent) = resource.parent() {
             for r in spec.genesis.system_cells.iter_mut() {
                 r.file.absolutize(parent)
             }
         }
-
         // leverage serialize for sanitizing
         spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
+
         Ok(spec)
     }
 
@@ -459,10 +476,25 @@ impl ChainSpec {
         Ok(())
     }
 
+    /// Completes all parameters for hard fork features and creates a hard fork switch.
+    ///
+    /// Verify the parameters for mainnet and testnet, because all start epoch numbers
+    /// for mainnet and testnet are fixed.
+    fn build_hardfork_switch(&self) -> Result<HardForkSwitch, Box<dyn Error>> {
+        let config = self.params.hardfork.as_ref().cloned().unwrap_or_default();
+        match self.name.as_str() {
+            mainnet::CHAIN_SPEC_NAME => config.complete_mainnet(),
+            testnet::CHAIN_SPEC_NAME => config.complete_testnet(),
+            _ => config.complete_with_default(EpochNumber::MAX),
+        }
+        .map_err(Into::into)
+    }
+
     /// Build consensus instance
     ///
     /// [Consensus](consensus/struct.Consensus.html)
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
+        let hardfork_switch = self.build_hardfork_switch()?;
         let genesis_epoch_ext = build_genesis_epoch_ext(
             self.params.initial_primary_epoch_reward(),
             self.genesis.compact_target,
@@ -492,6 +524,7 @@ impl ChainSpec {
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
             .max_block_proposals_limit(self.params.max_block_proposals_limit())
             .orphan_rate_target(self.params.orphan_rate_target())
+            .hardfork_switch(hardfork_switch)
             .build();
 
         Ok(consensus)
@@ -539,7 +572,8 @@ impl ChainSpec {
             .parent_hash(self.genesis.parent_hash.pack())
             .timestamp(self.genesis.timestamp.pack())
             .compact_target(self.genesis.compact_target.pack())
-            .uncles_hash(self.genesis.uncles_hash.pack())
+            .extra_hash(self.genesis.uncles_hash.pack())
+            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
             .dao(dao)
             .nonce(u128::from_le_bytes(self.genesis.nonce.to_le_bytes()).pack())
             .transaction(cellbase_transaction)
@@ -607,6 +641,15 @@ impl ChainSpec {
                     if !type_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=type",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+                ScriptHashType::Data1 => {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data1",
                             lock_script.code_hash(),
                         )
                         .into());

@@ -48,7 +48,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         let in_block_assembler_code_hash = prompt("code hash: ");
         let in_args = prompt("args: ");
         let in_hash_type = prompt("hash_type: ");
-        let in_message = prompt("message: ");
 
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
@@ -58,12 +57,17 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        args.block_assembler_message = Some(in_message.trim().to_string());
+        args.block_assembler_hash_type =
+            match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
+                Some(hash_type) => hash_type,
+                None => {
+                    eprintln!("Invalid block assembler hash type");
+                    return Err(ExitCode::Failure);
+                }
+            };
 
-        match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
-            Some(hash_type) => args.block_assembler_hash_type = hash_type,
-            None => eprintln!("Invalid block assembler hash type"),
-        }
+        let in_message = prompt("message: ");
+        args.block_assembler_message = Some(in_message.trim().to_string());
     }
 
     // Try to find the default secp256k1 from bundled chain spec.
@@ -119,7 +123,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  message = \"{}\"",
                 hash,
                 args.block_assembler_args.join("\", \""),
-                serde_plain::to_string(&args.block_assembler_hash_type).unwrap(),
+                args.block_assembler_hash_type,
                 args.block_assembler_message
                     .unwrap_or_else(|| "0x".to_string()),
             )

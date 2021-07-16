@@ -32,7 +32,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for LoadScript {
         let data = self.script.as_slice();
         let wrote_size = store_data(machine, &data)?;
 
-        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

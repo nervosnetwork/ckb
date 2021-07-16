@@ -4,16 +4,21 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+pub(crate) mod legacy;
 #[cfg(feature = "with_sentry")]
 mod sentry_config;
 
-pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
+pub use app_config::{
+    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
+};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
+#[cfg(feature = "with_sentry")]
+pub use sentry_config::SentryConfig;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
@@ -23,7 +28,6 @@ use std::{path::PathBuf, str::FromStr};
 
 // 500_000 total difficulty
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
-// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// A struct including all the informations to start the ckb process.
 pub struct Setup {

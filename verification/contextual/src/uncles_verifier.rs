@@ -36,23 +36,12 @@ where
         UnclesVerifier { provider, block }
     }
 
-    // -  uncles_hash
     // -  uncles_num
     // -  depth
     // -  uncle not in main chain
     // -  uncle duplicate
     pub fn verify(&self) -> Result<(), Error> {
         let uncles_count = self.block.data().uncles().len() as u32;
-
-        // verify uncles_hash
-        let actual_uncles_hash = self.block.calc_uncles_hash();
-        if actual_uncles_hash != self.block.uncles_hash() {
-            return Err(UnclesError::InvalidHash {
-                expected: self.block.uncles_hash(),
-                actual: actual_uncles_hash,
-            }
-            .into());
-        }
 
         // if self.block.uncles is empty, return
         if uncles_count == 0 {

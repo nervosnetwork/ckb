@@ -24,12 +24,13 @@ impl<'a> InIBDProcess<'a> {
 
     pub fn execute(self) -> Status {
         info!("getheader with ibd peer {:?}", self.peer);
-        if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
+        if let Some(mut kv_pair) = self.synchronizer.peers().state.get_mut(&self.peer) {
+            let state = kv_pair.value_mut();
             // Don't assume that the peer is sync_started.
             // It is possible that a not-sync-started peer sends us `InIBD` messages:
             //   - Malicious behavior
             //   - Peer sends multiple `InIBD` messages
-            if !state.sync_started {
+            if !state.sync_started() {
                 return Status::ignored();
             }
 

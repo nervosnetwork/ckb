@@ -13,7 +13,7 @@ use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_types::core::FeeRate;
+use ckb_types::{core::FeeRate, packed::Script};
 use ckb_util::Mutex;
 use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
@@ -52,9 +52,17 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         min_fee_rate: FeeRate,
         reject_ill_transactions: bool,
+        extra_well_known_lock_scripts: Vec<Script>,
+        extra_well_known_type_scripts: Vec<Script>,
     ) -> Self {
-        let rpc_methods =
-            PoolRpcImpl::new(shared, min_fee_rate, reject_ill_transactions).to_delegate();
+        let rpc_methods = PoolRpcImpl::new(
+            shared,
+            min_fee_rate,
+            reject_ill_transactions,
+            extra_well_known_lock_scripts,
+            extra_well_known_type_scripts,
+        )
+        .to_delegate();
         if self.config.pool_enable() {
             self.add_methods(rpc_methods);
         } else {
@@ -186,7 +194,7 @@ impl<'a> ServiceBuilder<'a> {
     {
         rpc_methods.into_iter().for_each(|(name, _method)| {
             let error = Err(RPCError::rpc_module_is_disabled(module));
-            self.io_handler.add_method(
+            self.io_handler.add_sync_method(
                 name.split("deprecated.")
                     .collect::<Vec<&str>>()
                     .last()
@@ -209,7 +217,7 @@ impl<'a> ServiceBuilder<'a> {
                         if enable_deprecated_rpc {
                             method
                         } else {
-                            RemoteProcedure::Method(Arc::new(|_param, _meta| {
+                            RemoteProcedure::Method(Arc::new(|_param, _meta| async {
                                 Err(RPCError::rpc_method_is_deprecated())
                             }))
                         },
@@ -223,7 +231,7 @@ impl<'a> ServiceBuilder<'a> {
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
-        io_handler.add_method("ping", |_| futures::future::ok("pong".into()));
+        io_handler.add_sync_method("ping", |_| Ok("pong".into()));
 
         io_handler
     }

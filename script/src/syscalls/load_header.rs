@@ -156,7 +156,7 @@ impl<'a, DL: HeaderProvider + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHea
             self.load_full(machine, &header)?
         };
 
-        machine.add_cycles(transferred_byte_cycles(len))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(len))?;
         machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }

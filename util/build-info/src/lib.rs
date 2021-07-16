@@ -128,12 +128,12 @@ pub fn get_commit_describe() -> Option<String> {
 pub fn get_commit_date() -> Option<String> {
     std::process::Command::new("git")
         .env("TZ", "UTC")
-        .args(&["log", "-1", "--date=short-local", "--pretty=format:%cd"])
+        .args(&["log", "-1", "--date=iso", "--pretty=format:%cd"])
         .output()
         .ok()
         .and_then(|r| {
             String::from_utf8(r.stdout)
                 .ok()
-                .map(|s| s.trim().to_string())
+                .map(|s| s.trim()[..10].to_string())
         })
 }

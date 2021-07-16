@@ -340,10 +340,17 @@ impl Synchronizer {
     }
 
     fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let (is_outbound, is_whitelist) = nc
+        let pid = SupportProtocols::Sync.protocol_id();
+        let (is_outbound, is_whitelist, is_2021edition) = nc
             .get_peer(peer)
-            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
-            .unwrap_or((false, false));
+            .map(|peer| {
+                (
+                    peer.is_outbound(),
+                    peer.is_whitelist,
+                    peer.protocols.get(&pid).map(|v| v == "2").unwrap_or(false),
+                )
+            })
+            .unwrap_or((false, false, false));
 
         let sync_state = self.shared().state();
         let protect_outbound = is_outbound
@@ -364,6 +371,7 @@ impl Synchronizer {
                 is_outbound,
                 is_whitelist,
                 is_protect: protect_outbound,
+                is_2021edition,
             },
         );
     }
@@ -378,19 +386,18 @@ impl Synchronizer {
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
     pub fn eviction(&self, nc: &dyn CKBProtocolContext) {
-        let mut peer_states = self.peers().state.write();
         let active_chain = self.shared.active_chain();
         let mut eviction = Vec::new();
         let better_tip_header = self.better_tip_header();
-        for (peer, state) in peer_states.iter_mut() {
+        for mut kv_pair in self.peers().state.iter_mut() {
+            let (peer, state) = kv_pair.pair_mut();
             let now = unix_time_as_millis();
 
             if let Some(ref mut controller) = state.headers_sync_controller {
                 let better_tip_ts = better_tip_header.timestamp();
                 if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
-                    if is_timeout && !state.disconnect {
+                    if is_timeout {
                         eviction.push(*peer);
-                        state.disconnect = true;
                         continue;
                     }
                 } else {
@@ -434,12 +441,11 @@ impl Synchronizer {
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
                         if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
-                            if state.sync_started {
+                            if state.sync_started() {
                                 self.shared().state().suspend_sync(state);
                             }
                         } else {
                             eviction.push(*peer);
-                            state.disconnect = true;
                         }
                     } else {
                         state.chain_sync.sent_getheaders = true;
@@ -472,11 +478,9 @@ impl Synchronizer {
         let peers: Vec<PeerIndex> = self
             .peers()
             .state
-            .read()
             .iter()
-            .filter(|(_, state)| state.can_sync(now, ibd))
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
+            .filter(|kv_pair| kv_pair.value().can_start_sync(now, ibd))
+            .map(|kv_pair| *kv_pair.key())
             .collect();
 
         if peers.is_empty() {
@@ -498,9 +502,8 @@ impl Synchronizer {
                 break;
             }
             {
-                let mut state = self.peers().state.write();
-                if let Some(peer_state) = state.get_mut(&peer) {
-                    if !peer_state.sync_started {
+                if let Some(mut peer_state) = self.peers().state.get_mut(&peer) {
+                    if !peer_state.sync_started() {
                         peer_state.start_sync(HeadersSyncController::from_header(&tip));
                         self.shared()
                             .state()
@@ -529,9 +532,9 @@ impl Synchronizer {
         let mut peers: Vec<PeerIndex> = self
             .peers()
             .state
-            .read()
             .iter()
-            .filter(|(id, state)| {
+            .filter(|kv_pair| {
+                let (id, state) = kv_pair.pair();
                 if disconnect_list.contains(id) {
                     return false;
                 };
@@ -541,11 +544,10 @@ impl Synchronizer {
                             || state.peer_flags.is_whitelist
                             || state.peer_flags.is_protect
                     }
-                    IBDState::Out => state.sync_started,
+                    IBDState::Out => state.sync_started(),
                 }
             })
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
+            .map(|kv_pair| *kv_pair.key())
             .collect();
         peers.sort_by_key(|id| {
             ::std::cmp::Reverse(
@@ -677,8 +679,50 @@ impl CKBProtocolHandler for Synchronizer {
         peer_index: PeerIndex,
         data: Bytes,
     ) {
-        let msg = match packed::SyncMessage::from_slice(&data) {
-            Ok(msg) => msg.to_enum(),
+        let msg = match packed::SyncMessageReader::from_compatible_slice(&data) {
+            Ok(msg) => {
+                let item = msg.to_enum();
+                if let packed::SyncMessageUnionReader::SendBlock(ref reader) = item {
+                    if reader.count_extra_fields() > 1 {
+                        info!(
+                            "Peer {} sends us a malformed message: \
+                             too many fields in SendBlock",
+                            peer_index
+                        );
+                        nc.ban_peer(
+                            peer_index,
+                            BAD_MESSAGE_BAN_TIME,
+                            String::from(
+                                "send us a malformed message: \
+                                 too many fields in SendBlock",
+                            ),
+                        );
+                        return;
+                    } else {
+                        item
+                    }
+                } else {
+                    match packed::SyncMessageReader::from_slice(&data) {
+                        Ok(msg) => msg.to_enum(),
+                        _ => {
+                            info!(
+                                "Peer {} sends us a malformed message: \
+                                 too many fields",
+                                peer_index
+                            );
+                            nc.ban_peer(
+                                peer_index,
+                                BAD_MESSAGE_BAN_TIME,
+                                String::from(
+                                    "send us a malformed message: \
+                                     too many fields",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
             _ => {
                 info!("Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(
@@ -702,7 +746,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
 
         let start_time = Instant::now();
-        self.process(nc.as_ref(), peer_index, msg.as_reader());
+        self.process(nc.as_ref(), peer_index, msg);
         debug!(
             "process message={}, peer={}, cost={:?}",
             msg.item_name(),
@@ -726,7 +770,7 @@ impl CKBProtocolHandler for Synchronizer {
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);
 
-            if peer_state.sync_started {
+            if peer_state.sync_started() {
                 // It shouldn't happen
                 // fetch_sub wraps around on overflow, we still check manually
                 // panic here to prevent some bug be hidden silently.
@@ -751,7 +795,7 @@ impl CKBProtocolHandler for Synchronizer {
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
-        if !self.peers().state.read().is_empty() {
+        if !self.peers().state.is_empty() {
             let start_time = Instant::now();
             trace!("start notify token={}", token);
             match token {
@@ -808,11 +852,12 @@ mod tests {
     use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
     use ckb_error::InternalErrorKind;
+    use ckb_launcher::SharedBuilder;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
-    use ckb_shared::{Shared, SharedBuilder, Snapshot};
+    use ckb_shared::{Shared, Snapshot};
     use ckb_store::ChainStore;
     use ckb_types::{
         core::{
@@ -1218,6 +1263,9 @@ mod tests {
     }
 
     impl CKBProtocolContext for DummyNetworkContext {
+        fn ckb2021(&self) -> bool {
+            false
+        }
         // Interact with underlying p2p service
         fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();
@@ -1447,7 +1495,6 @@ mod tests {
             let not_timeout =
                 HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
 
-            let mut state = peers.state.write();
             let mut state_0 = PeerState::default();
             state_0.peer_flags.is_protect = true;
             state_0.peer_flags.is_outbound = true;
@@ -1466,10 +1513,10 @@ mod tests {
             state_3.peer_flags.is_outbound = true;
             state_3.headers_sync_controller = Some(not_timeout);
 
-            state.insert(0.into(), state_0);
-            state.insert(1.into(), state_1);
-            state.insert(2.into(), state_2);
-            state.insert(3.into(), state_3);
+            peers.state.insert(0.into(), state_0);
+            peers.state.insert(1.into(), state_1);
+            peers.state.insert(2.into(), state_2);
+            peers.state.insert(3.into(), state_3);
         }
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
@@ -1502,7 +1549,6 @@ mod tests {
         let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
         let sync_protected_peer = 0.into();
         {
-            let mut state = peers.state.write();
             let mut state_0 = PeerState::default();
             state_0.peer_flags.is_protect = true;
             state_0.peer_flags.is_outbound = true;
@@ -1535,13 +1581,13 @@ mod tests {
             state_6.peer_flags.is_outbound = true;
             state_6.headers_sync_controller = Some(not_timeout);
 
-            state.insert(0.into(), state_0);
-            state.insert(1.into(), state_1);
-            state.insert(2.into(), state_2);
-            state.insert(3.into(), state_3);
-            state.insert(4.into(), state_4);
-            state.insert(5.into(), state_5);
-            state.insert(6.into(), state_6);
+            peers.state.insert(0.into(), state_0);
+            peers.state.insert(1.into(), state_1);
+            peers.state.insert(2.into(), state_2);
+            peers.state.insert(3.into(), state_3);
+            peers.state.insert(4.into(), state_4);
+            peers.state.insert(5.into(), state_5);
+            peers.state.insert(6.into(), state_6);
         }
         peers.may_set_best_known_header(0.into(), mock_header_view(1));
         peers.may_set_best_known_header(2.into(), mock_header_view(3));
@@ -1551,7 +1597,6 @@ mod tests {
             // Protected peer 0 start sync
             peers
                 .state
-                .write()
                 .get_mut(&sync_protected_peer)
                 .unwrap()
                 .start_sync(not_timeout);
@@ -1563,10 +1608,13 @@ mod tests {
         }
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
             // Protected peer 0 still in sync state
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
                 true
             );
             assert_eq!(
@@ -1581,7 +1629,8 @@ mod tests {
             assert!({ network_context.disconnected.lock().is_empty() });
             // start sync with protected peer
             //protect peer is protected from disconnection
-            assert!(peer_state
+            assert!(peers
+                .state
                 .get(&2.into())
                 .unwrap()
                 .chain_sync
@@ -1598,11 +1647,12 @@ mod tests {
                 (header, total_difficulty)
             };
             assert_eq!(
-                peer_state.get(&3.into()).unwrap().chain_sync.work_header,
+                peers.state.get(&3.into()).unwrap().chain_sync.work_header,
                 Some(tip.clone())
             );
             assert_eq!(
-                peer_state
+                peers
+                    .state
                     .get(&3.into())
                     .unwrap()
                     .chain_sync
@@ -1610,11 +1660,12 @@ mod tests {
                 Some(total_difficulty.clone())
             );
             assert_eq!(
-                peer_state.get(&4.into()).unwrap().chain_sync.work_header,
+                peers.state.get(&4.into()).unwrap().chain_sync.work_header,
                 Some(tip)
             );
             assert_eq!(
-                peer_state
+                peers
+                    .state
                     .get(&4.into())
                     .unwrap()
                     .chain_sync
@@ -1623,7 +1674,8 @@ mod tests {
             );
             for proto_id in &[0usize, 1, 3, 4, 6] {
                 assert_eq!(
-                    peer_state
+                    peers
+                        .state
                         .get(&(*proto_id).into())
                         .unwrap()
                         .chain_sync
@@ -1635,17 +1687,16 @@ mod tests {
         faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
             // No evidence yet that our peer has synced to a chain with work equal to that
             // of our tip, when we first detected it was behind. Send a single getheaders
             // message to give the peer a chance to update us.
             assert!({ network_context.disconnected.lock().is_empty() });
             assert_eq!(
-                peer_state.get(&3.into()).unwrap().chain_sync.timeout,
+                peers.state.get(&3.into()).unwrap().chain_sync.timeout,
                 unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
             );
             assert_eq!(
-                peer_state.get(&4.into()).unwrap().chain_sync.timeout,
+                peers.state.get(&4.into()).unwrap().chain_sync.timeout,
                 unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
             );
         }
@@ -1656,10 +1707,13 @@ mod tests {
         .expect("write millis");
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
             // Protected peer 0 chain_sync timeout
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
                 false
             );
             assert_eq!(
@@ -1785,14 +1839,7 @@ mod tests {
                     .total_difficulty;
                 HeaderView::new(header, total_difficulty)
             };
-            if let Some(state) = synchronizer
-                .shared
-                .state()
-                .peers()
-                .state
-                .write()
-                .get_mut(&peer)
-            {
+            if let Some(mut state) = synchronizer.shared.state().peers().state.get_mut(&peer) {
                 state.last_common_header = last_common_header;
                 state.best_known_header = Some(best_known_header.clone());
             }

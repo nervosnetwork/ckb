@@ -55,7 +55,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
 
     match app_matches.subcommand() {
         (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version, handle),
-        (cli::CMD_MINER, Some(matches)) => subcommand::miner(setup.miner(&matches)?),
+        (cli::CMD_MINER, Some(matches)) => subcommand::miner(setup.miner(&matches)?, handle),
         (cli::CMD_REPLAY, Some(matches)) => subcommand::replay(setup.replay(&matches)?, handle),
         (cli::CMD_EXPORT, Some(matches)) => subcommand::export(setup.export(&matches)?, handle),
         (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?, handle),

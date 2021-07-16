@@ -4,9 +4,9 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
 use ckb_shared::shared::Shared;
-use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 pub use ckb_test_chain_utils::MockStore;
 use ckb_test_chain_utils::{
@@ -117,6 +117,8 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         args: Default::default(),
         hash_type: ScriptHashType::Data,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "TEST".to_string(),
     };
 
     let (shared, mut pack) = builder

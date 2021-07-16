@@ -1,6 +1,6 @@
 //! TODO(doc): @quake
 use ckb_db::{ReadOnlyDB, RocksDB};
-use ckb_db_schema::MIGRATION_VERSION_KEY;
+use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
 use console::Term;
@@ -43,7 +43,11 @@ impl Migrations {
             Some(version_bytes) => {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
-            None => return false,
+            None => {
+                // if version is none, but db is not empty
+                // patch 220464f
+                return self.is_non_empty_rdb(db);
+            }
         };
 
         self.migrations
@@ -62,7 +66,11 @@ impl Migrations {
             Some(version_bytes) => {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
-            None => return false,
+            None => {
+                // if version is none, but db is not empty
+                // patch 220464f
+                return self.is_non_empty_rdb(db);
+            }
         };
 
         self.migrations
@@ -71,17 +79,80 @@ impl Migrations {
             .any(|m| m.expensive())
     }
 
-    /// TODO(doc): @quake
-    pub fn migrate(&self, mut db: RocksDB) -> Result<RocksDB, Error> {
-        let db_version = db
+    fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
+        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
+            if v.is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_non_empty_db(&self, db: &RocksDB) -> bool {
+        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
+            if v.is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn run_migrate(&self, mut db: RocksDB, v: &str) -> Result<RocksDB, Error> {
+        let mpb = Arc::new(MultiProgress::new());
+        let migrations: BTreeMap<_, _> = self
+            .migrations
+            .iter()
+            .filter(|(mv, _)| mv.as_str() > v)
+            .collect();
+        let migrations_count = migrations.len();
+        for (idx, (_, m)) in migrations.iter().enumerate() {
+            let mpbc = Arc::clone(&mpb);
+            let pb = move |count: u64| -> ProgressBar {
+                let pb = mpbc.add(ProgressBar::new(count));
+                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
+                pb.set_prefix(format!("[{}/{}]", idx + 1, migrations_count));
+                pb
+            };
+            db = m.migrate(db, Arc::new(pb))?;
+            db.put_default(MIGRATION_VERSION_KEY, m.version())
+                .map_err(|err| {
+                    internal_error(format!("failed to migrate the database: {}", err))
+                })?;
+        }
+        mpb.join_and_clear().expect("MultiProgress join");
+        Ok(db)
+    }
+
+    fn get_migration_verson(&self, db: &RocksDB) -> Result<Option<String>, Error> {
+        let raw = db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .map_err(|err| {
                 internal_error(format!("failed to get the version of database: {}", err))
-            })?
-            .map(|version_bytes| {
-                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
-            });
+            })?;
 
+        Ok(raw.map(|version_bytes| {
+            String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+        }))
+    }
+
+    /// Initial db verison
+    pub fn init_db_version(&self, db: &RocksDB) -> Result<(), Error> {
+        let db_version = self.get_migration_verson(&db)?;
+        if db_version.is_none() {
+            if let Some(m) = self.migrations.values().last() {
+                info!("Init database version {}", m.version());
+                db.put_default(MIGRATION_VERSION_KEY, m.version())
+                    .map_err(|err| {
+                        internal_error(format!("failed to migrate the database: {}", err))
+                    })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// TODO(doc): @quake
+    pub fn migrate(&self, db: RocksDB) -> Result<RocksDB, Error> {
+        let db_version = self.get_migration_verson(&db)?;
         match db_version {
             Some(ref v) => {
                 info!("Current database version {}", v);
@@ -98,41 +169,23 @@ impl Migrations {
                     }
                 }
 
-                let mpb = Arc::new(MultiProgress::new());
-                let migrations: BTreeMap<_, _> = self
-                    .migrations
-                    .iter()
-                    .filter(|(mv, _)| mv.as_str() > v.as_str())
-                    .collect();
-                let migrations_count = migrations.len();
-                for (idx, (_, m)) in migrations.iter().enumerate() {
-                    let mpbc = Arc::clone(&mpb);
-                    let pb = move |count: u64| -> ProgressBar {
-                        let pb = mpbc.add(ProgressBar::new(count));
-                        pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
-                        pb.set_prefix(format!("[{}/{}]", idx + 1, migrations_count));
-                        pb
-                    };
-                    db = m.migrate(db, Arc::new(pb))?;
-                    db.put_default(MIGRATION_VERSION_KEY, m.version())
-                        .map_err(|err| {
-                            internal_error(format!("failed to migrate the database: {}", err))
-                        })?;
-                }
-                mpb.join_and_clear().expect("MultiProgress join");
+                let db = self.run_migrate(db, v.as_str())?;
                 Ok(db)
             }
             None => {
-                if let Some(m) = self.migrations.values().last() {
-                    info!("Init database version {}", m.version());
-                    db.put_default(MIGRATION_VERSION_KEY, m.version())
-                        .map_err(|err| {
-                            internal_error(format!("failed to migrate the database: {}", err))
-                        })?;
+                // if version is none, but db is not empty
+                // patch 220464f
+                if self.is_non_empty_db(&db) {
+                    return self.patch_220464f(db);
                 }
                 Ok(db)
             }
         }
+    }
+
+    fn patch_220464f(&self, db: RocksDB) -> Result<RocksDB, Error> {
+        const V: &str = "20210609195048"; // AddExtraDataHash - 1
+        self.run_migrate(db, V)
     }
 }
 
@@ -206,7 +259,9 @@ mod tests {
         {
             let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
+            let db = RocksDB::open(&config, 1);
+            migrations.init_db_version(&db).unwrap();
+            let r = migrations.migrate(db).unwrap();
             assert_eq!(
                 b"20191116225943".to_vec(),
                 r.get_pinned_default(MIGRATION_VERSION_KEY)
@@ -272,7 +327,10 @@ mod tests {
         {
             let mut migrations = Migrations::default();
             migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-            let db = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
+            let db = RocksDB::open(&config, 1);
+            migrations.init_db_version(&db).unwrap();
+            let db = migrations.migrate(db).unwrap();
+
             let txn = db.transaction();
             txn.put(COLUMN, &[1, 1], &[1, 1, 1]).unwrap();
             txn.put(COLUMN, &[2, 2], &[2, 2, 2]).unwrap();

@@ -11,14 +11,14 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
-use ckb_logger_config::Config as LogConfig;
-use ckb_metrics_config::Config as MetricsConfig;
+pub use ckb_logger_config::Config as LogConfig;
+pub use ckb_metrics_config::Config as MetricsConfig;
 use ckb_resource::Resource;
 
 use super::configs::*;
 #[cfg(feature = "with_sentry")]
 use super::sentry_config::SentryConfig;
-use super::{cli, ExitCode};
+use super::{cli, legacy, ExitCode};
 
 /// The parsed config file.
 ///
@@ -34,7 +34,8 @@ pub enum AppConfig {
 /// directory.
 ///
 /// **Attention:** Changing the order of fields will break integration test, see module doc.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CKBAppConfig {
     /// The data directory.
     pub data_dir: PathBuf,
@@ -87,7 +88,8 @@ pub struct CKBAppConfig {
 /// directory.
 ///
 /// **Attention:** Changing the order of fields will break integration test, see module doc.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MinerAppConfig {
     /// The data directory.
     pub data_dir: PathBuf,
@@ -115,6 +117,7 @@ pub struct MinerAppConfig {
 
 /// The chain config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChainConfig {
     /// Specifies the chain spec.
     pub spec: Resource,
@@ -132,7 +135,7 @@ impl AppConfig {
         match subcommand_name {
             cli::CMD_MINER => {
                 let resource = ensure_ckb_dir(Resource::miner_config(root_dir.as_ref()))?;
-                let config: MinerAppConfig = toml::from_slice(&resource.get()?)?;
+                let config = MinerAppConfig::load_from_slice(&resource.get()?)?;
 
                 Ok(AppConfig::with_miner(
                     config.derive_options(root_dir.as_ref())?,
@@ -140,7 +143,7 @@ impl AppConfig {
             }
             _ => {
                 let resource = ensure_ckb_dir(Resource::ckb_config(root_dir.as_ref()))?;
-                let config: CKBAppConfig = toml::from_slice(&resource.get()?)?;
+                let config = CKBAppConfig::load_from_slice(&resource.get()?)?;
                 Ok(AppConfig::with_ckb(
                     config.derive_options(root_dir.as_ref(), subcommand_name)?,
                 ))
@@ -230,6 +233,18 @@ impl AppConfig {
 }
 
 impl CKBAppConfig {
+    /// Load a new instance from a file
+    pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
+        let legacy_config: legacy::CKBAppConfig = toml::from_slice(&slice)?;
+        for field in legacy_config.deprecated_fields() {
+            eprintln!(
+                "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
+                field.path, field.since
+            );
+        }
+        Ok(legacy_config.into())
+    }
+
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir);
 
@@ -269,6 +284,18 @@ impl CKBAppConfig {
 }
 
 impl MinerAppConfig {
+    /// Load a new instance from a file.
+    pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
+        let legacy_config: legacy::MinerAppConfig = toml::from_slice(&slice)?;
+        for field in legacy_config.deprecated_fields() {
+            eprintln!(
+                "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
+                field.path, field.since
+            );
+        }
+        Ok(legacy_config.into())
+    }
+
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
         self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir))?;
         self.logger.log_dir = self.data_dir.join("logs");
@@ -342,11 +369,11 @@ mod tests {
     #[test]
     fn test_bundled_config_files() {
         let resource = Resource::bundled_ckb_config();
-        toml::from_slice::<CKBAppConfig>(&resource.get().expect("read bundled file"))
+        CKBAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
             .expect("deserialize config");
 
         let resource = Resource::bundled_miner_config();
-        toml::from_slice::<MinerAppConfig>(&resource.get().expect("read bundled file"))
+        MinerAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
             .expect("deserialize config");
     }
 

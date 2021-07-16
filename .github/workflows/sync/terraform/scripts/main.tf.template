@@ -58,7 +58,7 @@ ap-northeast-1:
     instance-ap-northeast-1:
       ansible_host: ${aws_instance.instance-ap-northeast-1.public_ip}
       instance_type: ${aws_instance.instance-ap-northeast-1.instance_type}
-      region: ap-southeast-1
+      region: ap-northeast-1
       prefix: ${var.prefix}
       ansible_user: ${var.username}
 EOF

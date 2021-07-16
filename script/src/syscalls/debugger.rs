@@ -42,7 +42,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
             addr += 1;
         }
 
-        machine.add_cycles(transferred_byte_cycles(buffer.len() as u64))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
         (self.printer)(&self.hash, s.as_str());
 

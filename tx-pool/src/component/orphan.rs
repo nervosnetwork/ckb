@@ -1,7 +1,7 @@
 use ckb_logger::trace;
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::TransactionView,
+    core::{Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_util::shrink_to_fit;
@@ -17,15 +17,18 @@ pub struct Entry {
     pub tx: TransactionView,
     // peer id
     pub peer: PeerIndex,
+    /// Declared cycles
+    pub cycle: Cycle,
     // Expire timestamp
     pub expires_at: u64,
 }
 
 impl Entry {
-    pub fn new(tx: TransactionView, peer: PeerIndex) -> Entry {
+    pub fn new(tx: TransactionView, peer: PeerIndex, cycle: Cycle) -> Entry {
         Entry {
             tx,
             peer,
+            cycle,
             expires_at: faketime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
         }
     }
@@ -116,13 +119,15 @@ impl OrphanPool {
         evicted
     }
 
-    pub fn add_orphan_tx(&mut self, tx: TransactionView, peer: PeerIndex) {
+    pub fn add_orphan_tx(&mut self, tx: TransactionView, peer: PeerIndex, declared_cycle: Cycle) {
         if self.entries.contains_key(&tx.proposal_short_id()) {
             return;
         }
 
-        self.entries
-            .insert(tx.proposal_short_id(), Entry::new(tx.clone(), peer));
+        self.entries.insert(
+            tx.proposal_short_id(),
+            Entry::new(tx.clone(), peer, declared_cycle),
+        );
 
         for out_point in tx.input_pts_iter() {
             self.by_out_point.insert(out_point, tx.proposal_short_id());

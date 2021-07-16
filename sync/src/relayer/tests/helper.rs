@@ -2,12 +2,13 @@ use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, DefaultExitHandler, Error,
     NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
     TargetSession,
 };
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
@@ -229,6 +230,9 @@ impl MockProtocolContext {
 }
 
 impl CKBProtocolContext for MockProtocolContext {
+    fn ckb2021(&self) -> bool {
+        false
+    }
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }

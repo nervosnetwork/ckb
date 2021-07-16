@@ -39,6 +39,7 @@ dsn = "" # {{
 # please leave a way to contact you when we have troubles to reproduce the errors.
 # org_contact = ""
 
+# # **Experimental** Monitor memory changes.
 # [memory_tracker]
 # # Seconds between checking the process, 0 is disable, default is 0.
 # interval = 600

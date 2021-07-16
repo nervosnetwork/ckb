@@ -70,7 +70,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
         let data = witness.raw_data();
         let wrote_size = store_data(machine, &data)?;
 
-        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

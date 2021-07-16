@@ -495,12 +495,15 @@ class EnumSchema(HTMLParser):
             if tag == 'div' and attrs == [("class", "docblock")]:
                 self.variant_parser = MarkdownParser(title_level=3)
                 self.variant_parser.indent_level = 4
+        else:
+            self.variant_parser.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
         if self.variant_parser is not None:
             self.variant_parser.handle_endtag(tag)
             if self.variant_parser.completed():
-                self.variants.append((self.next_variant, self.variant_parser))
+                if self.next_variant not in [v[0] for v in self.variants]:
+                    self.variants.append((self.next_variant, self.variant_parser))
                 self.next_variant = None
                 self.variant_parser = None
 
@@ -520,8 +523,11 @@ class EnumSchema(HTMLParser):
             file.write('*   ')
             out = io.StringIO()
             v.write(out)
-            file.write(out.getvalue().lstrip())
+            variant_doc = out.getvalue().lstrip()
+            file.write(variant_doc)
             file.write('\n')
+            if '\n' in variant_doc:
+                file.write('\n')
 
     # PoolTransactionReject
     def write_pool_transaction_reject(self, file):

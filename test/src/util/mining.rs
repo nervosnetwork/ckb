@@ -1,7 +1,9 @@
 use crate::util::chain::forward_main_blocks;
 use crate::Node;
-use ckb_types::core::{BlockBuilder, BlockView};
-use ckb_types::packed;
+use ckb_types::{
+    core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView},
+    packed,
+};
 
 pub fn out_bootstrap_period(nodes: &[Node]) {
     if let Some(node0) = nodes.first() {
@@ -57,6 +59,21 @@ pub fn mine_until_out_bootstrap_period(node: &Node) {
     let out_bootstrap_period = farthest + 2;
     let predicate = || node.get_tip_block_number() >= out_bootstrap_period;
     mine_until_bool(node, predicate)
+}
+
+pub fn mine_until_epoch(node: &Node, number: u64, index: u64, length: u64) {
+    let target_epoch = EpochNumberWithFraction::new(number, index, length);
+    mine_until_bool(node, || {
+        let tip_header: HeaderView = node.rpc_client().get_tip_header().into();
+        let tip_epoch = tip_header.epoch();
+        if tip_epoch > target_epoch {
+            panic!(
+                "expect mine until epoch {} but already be epoch {}",
+                target_epoch, tip_epoch
+            );
+        }
+        tip_epoch == target_epoch
+    });
 }
 
 pub fn mine(node: &Node, count: u64) {

@@ -5,17 +5,15 @@
 // declare here for mute ./devtools/ci/check-cargotoml.sh error
 extern crate num_cpus;
 
+pub mod migrate;
 mod migrations;
+mod shared_builder;
 
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
-use ckb_db::{ReadOnlyDB, RocksDB};
-use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::COLUMNS;
-use ckb_error::Error;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
@@ -26,64 +24,17 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
-use ckb_shared::{Shared, SharedBuilder, SharedPackage};
+use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_types::{packed::Byte32, prelude::*};
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-const INIT_DB_VERSION: &str = "20191127135521";
+pub use crate::shared_builder::{SharedBuilder, SharedPackage};
+
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
-
-/// Wrapper contains migration and db
-pub struct DatabaseMigration {
-    migrations: Migrations,
-    path: PathBuf,
-}
-
-impl DatabaseMigration {
-    /// Open db with bulk loading parameters, init migration
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
-        let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
-        migrations.add_migration(Box::new(migrations::CellMigration));
-        migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
-        migrations.add_migration(Box::new(migrations::AddExtraDataHash));
-
-        DatabaseMigration {
-            migrations,
-            path: path.into(),
-        }
-    }
-
-    /// Return true if migration is required
-    pub fn migration_check(&self) -> bool {
-        ReadOnlyDB::open(&self.path)
-            .unwrap_or_else(|err| panic!("{}", err))
-            .map(|db| self.migrations.check(&db))
-            .unwrap_or(false)
-    }
-
-    /// Check whether database requires expensive migrations.
-    pub fn require_expensive_migrations(&self) -> bool {
-        ReadOnlyDB::open(&self.path)
-            .unwrap_or_else(|err| panic!("{}", err))
-            .map(|db| self.migrations.expensive(&db))
-            .unwrap_or(false)
-    }
-
-    /// Perform migrate.
-    pub fn migrate(self) -> Result<(), Error> {
-        if let Some(db) = RocksDB::prepare_for_bulk_load_open(&self.path, COLUMNS)? {
-            self.migrations.migrate(db)?;
-        }
-        Ok(())
-    }
-}
 
 /// Ckb launcher is helps to launch ckb node.
 pub struct Launcher {
@@ -113,7 +64,7 @@ impl Launcher {
             self.args.config.rpc.miner_enable(),
             self.args.config.block_assembler.clone(),
         ) {
-            (true, Some(block_assembler)) => {
+            (true, Some(mut block_assembler)) => {
                 let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
                     let secp_cell_data =
                         Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
@@ -145,6 +96,9 @@ impl Launcher {
                         && block_assembler.args.len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
                         && check_lock_code_hash(&block_assembler.code_hash.pack())?)
                 {
+                    if block_assembler.use_binary_version_as_message_prefix {
+                        block_assembler.binary_version = self.version.long();
+                    }
                     Some(block_assembler)
                 } else {
                     info!(
@@ -165,22 +119,6 @@ impl Launcher {
         Ok(block_assembler_config)
     }
 
-    /// Migrate prompt
-    pub fn migrate_guard(&self) -> Result<(), ExitCode> {
-        let migration = DatabaseMigration::new(&self.args.config.db.path);
-        if migration.require_expensive_migrations() {
-            eprintln!(
-                "For optimal performance, CKB wants to migrate the data into new format.\n\
-                You can use the old version CKB if you don't want to do the migration.\n\
-                We strongly recommended you to use the latest stable version of CKB, \
-                since the old versions may have unfixed vulnerabilities.\n\
-                Run `ckb migrate --help` for more information about migration."
-            );
-            return Err(ExitCode::Failure);
-        }
-        Ok(())
-    }
-
     fn write_chain_spec_hash(&self, store: &ChainDB) -> Result<(), ExitCode> {
         store
             .put_chain_spec_hash(&self.args.chain_spec_hash)
@@ -191,6 +129,13 @@ impl Launcher {
                 );
                 ExitCode::IO
             })
+    }
+
+    // internal check
+    // panic immediately if migration_verson is none
+    fn assert_migrate_version_is_some(&self, shared: &Shared) {
+        let store = shared.store();
+        assert!(store.get_migration_verson().is_some());
     }
 
     fn check_spec(&self, shared: &Shared) -> Result<(), ExitCode> {
@@ -242,21 +187,22 @@ impl Launcher {
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
-        let (shared, pack) = SharedBuilder::new(
+        let shared_builder = SharedBuilder::new(
             &self.args.config.db,
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
-        )
-        .consensus(self.args.consensus.clone())
-        .tx_pool_config(self.args.config.tx_pool)
-        .notify_config(self.args.config.notify.clone())
-        .store_config(self.args.config.store)
-        .block_assembler_config(block_assembler_config)
-        .build()
-        .map_err(|err| {
-            eprintln!("Build shared error: {:?}", err);
-            ExitCode::Failure
-        })?;
+        )?;
+
+        let (shared, pack) = shared_builder
+            .consensus(self.args.consensus.clone())
+            .tx_pool_config(self.args.config.tx_pool)
+            .notify_config(self.args.config.notify.clone())
+            .store_config(self.args.config.store)
+            .block_assembler_config(block_assembler_config)
+            .build()?;
+
+        // internal check migrate_version
+        self.assert_migrate_version_is_some(&shared);
 
         // Verify genesis every time starting node
         self.verify_genesis(&shared)?;
@@ -289,7 +235,7 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        relay_tx_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
@@ -297,8 +243,16 @@ impl Launcher {
             self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
+        let fork_enable = {
+            let epoch = shared.snapshot().tip_header().epoch().number();
+            shared
+                .consensus()
+                .hardfork_switch
+                .is_vm_version_1_and_syscalls_2_enabled(epoch)
+        };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
+                .map(|t| NetworkState::ckb2021(t, fork_enable))
                 .expect("Init network state failed"),
         );
         let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
@@ -320,15 +274,15 @@ impl Launcher {
         let alert_notifier = Arc::clone(alert_relayer.notifier());
         let alert_verifier = Arc::clone(alert_relayer.verifier());
 
-        let protocols = vec![
+        let mut protocols = vec![
             CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Sync,
                 Box::new(synchronizer),
                 Arc::clone(&network_state),
             ),
             CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Relay,
-                Box::new(relayer),
+                SupportProtocols::RelayV2,
+                Box::new(relayer.clone().v2()),
                 Arc::clone(&network_state),
             ),
             CKBProtocol::new_with_support_protocol(
@@ -342,6 +296,14 @@ impl Launcher {
                 Arc::clone(&network_state),
             ),
         ];
+
+        if !fork_enable {
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Relay,
+                Box::new(relayer),
+                Arc::clone(&network_state),
+            ))
+        }
 
         let required_protocol_ids = vec![SupportProtocols::Sync.protocol_id()];
 
@@ -362,6 +324,20 @@ impl Launcher {
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
                 self.args.config.rpc.reject_ill_transactions,
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_lock_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_type_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
             )
             .enable_miner(
                 shared.clone(),

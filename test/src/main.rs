@@ -400,6 +400,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
+        Box::new(NotifyLargeCyclesTx::new()),
+        Box::new(LoadProgramFailedTx::new()),
         Box::new(TxsRelayOrder),
         Box::new(SendTxChain),
         Box::new(DifferentTxsWithSameInput),
@@ -446,7 +448,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(WhitelistOnSessionLimit),
         // Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
-        Box::new(InsufficientReward),
+        // Box::new(InsufficientReward),
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),
         Box::new(PackUnclesIntoEpochStarting),
@@ -488,7 +490,16 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
-        Box::new(DuplicateCellDeps),
+        // Test hard fork features
+        Box::new(CheckAbsoluteEpochSince),
+        Box::new(CheckRelativeEpochSince),
+        Box::new(CheckBlockExtension),
+        Box::new(CheckVmVersion),
+        Box::new(ImmatureHeaderDeps),
+        Box::new(DuplicateCellDepsForDataHashTypeLockScript),
+        Box::new(DuplicateCellDepsForDataHashTypeTypeScript),
+        Box::new(DuplicateCellDepsForTypeHashTypeLockScript),
+        Box::new(DuplicateCellDepsForTypeHashTypeTypeScript),
     ];
     specs.shuffle(&mut thread_rng());
     specs

@@ -41,7 +41,7 @@ pub struct NotifyController {
 
 impl Drop for NotifyController {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 

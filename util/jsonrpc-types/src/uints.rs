@@ -15,7 +15,7 @@ pub trait Uint: Copy + fmt::LowerHex {
 }
 
 #[derive(Copy, Clone, Default, PartialEq, PartialOrd, Ord, Eq, Hash, Debug)]
-pub struct JsonUint<T: Uint>(T);
+pub struct JsonUint<T: Uint>(pub(crate) T);
 
 struct JsonUintVisitor<T: Uint>(marker::PhantomData<T>);
 

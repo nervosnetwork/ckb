@@ -146,8 +146,8 @@ mod tests {
 
     #[test]
     fn check_data() {
-        let ht_right = 1.into();
-        let ht_error = 2.into();
+        let ht_right = 2.into();
+        let ht_error = 3.into();
         let dt_right = 1.into();
         let dt_error = 2.into();
 

@@ -40,7 +40,7 @@
           wait_for:
             path: "{{ ckb_data_dir }}/logs/run.log"
             search_regex: "(?P<line>.* ChainService INFO ckb_chain::chain  block: {{ ckb_sync_target_number }}, .*)"
-            timeout: 18000 # 5 hours
+            timeout: 36000 # 10 hours
           register: wait_until_reach_explorer_tip
         - debug:
             msg: "{{ wait_until_reach_explorer_tip['match_groupdict']['line'] }}"
@@ -56,8 +56,6 @@
             format: xz
             dest: "{{ ckb_workspace }}/{{ inventory_hostname }}.tar.xz"
             path:
-              - "{{ ckb_workspace }}/ckb.toml"
-              - "{{ ckb_data_dir }}/logs/run.log"
               - "{{ ckb_data_dir }}/logs/report.yml"
       tags:
         - wait_ckb_synchronization

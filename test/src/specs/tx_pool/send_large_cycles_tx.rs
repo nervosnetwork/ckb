@@ -36,22 +36,12 @@ impl Spec for SendLargeCyclesTxInBlock {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        // high cycle limit node
-        let mut node0 = nodes.remove(0);
-        // low cycle limit node
-        let node1 = &nodes[0];
-        node0.stop();
-        node0.modify_app_config(|config| {
-            config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
-        });
-        node0.start();
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
 
         mine_until_out_bootstrap_period(node1);
         info!("Generate large cycles tx");
         let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
-        // send tx
-        let ret = node1.rpc_client().send_transaction_result(tx.data().into());
-        assert!(ret.is_err());
 
         info!("Node0 mine large cycles tx");
         node0.connect(&node1);
@@ -104,42 +94,125 @@ impl Spec for SendLargeCyclesTxToRelay {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        // high cycle limit node
-        let mut node0 = nodes.remove(0);
-        // low cycle limit node
-        let node1 = &nodes[0];
-        node0.stop();
-        node0.modify_app_config(|config| {
-            config.tx_pool.max_tx_verify_cycles = std::u32::MAX.into();
-        });
-        node0.start();
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
 
         mine_until_out_bootstrap_period(node1);
+        node0.connect(&node1);
         info!("Generate large cycles tx");
+
         let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
         // send tx
         let ret = node1.rpc_client().send_transaction_result(tx.data().into());
-        assert!(ret.is_err());
+        assert!(ret.is_ok());
 
-        info!("Node0 mine large cycles tx");
-        node0.connect(&node1);
+        info!("Node1 submit large cycles tx");
+
         let result = wait_until(60, || {
             node1.get_tip_block_number() == node0.get_tip_block_number()
         });
         assert!(result, "node0 can't sync with node1");
-        let ret = node0.rpc_client().send_transaction_result(tx.data().into());
-        ret.expect("package large cycles tx");
-        info!("Node1 do not accept tx");
-        let result = wait_until(5, || {
-            node1.rpc_client().get_transaction(tx.hash()).is_some()
+
+        let result = wait_until(60, || {
+            node0.rpc_client().get_transaction(tx.hash()).is_some()
         });
-        assert!(!result, "Node1 should ignore tx");
+        assert!(result, "Node0 should accept tx");
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         let lock_arg = self.lock_arg.clone();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
+    }
+}
+
+pub struct NotifyLargeCyclesTx {
+    privkey: Privkey,
+    lock_arg: Bytes,
+}
+
+impl NotifyLargeCyclesTx {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut generator = Generator::new();
+        let privkey = generator.gen_privkey();
+        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        NotifyLargeCyclesTx { privkey, lock_arg }
+    }
+}
+
+impl Spec for NotifyLargeCyclesTx {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        mine_until_out_bootstrap_period(node0);
+        info!("Generate large cycles tx");
+        let tx = build_tx(&node0, &self.privkey, self.lock_arg.clone());
+        // send tx
+        let _ = node0.rpc_client().notify_transaction(tx.data().into());
+
+        info!("Node0 receive notify large cycles tx");
+
+        let result = wait_until(60, || {
+            node0.rpc_client().get_transaction(tx.hash()).is_some()
+        });
+        assert!(result, "Node0 should accept tx");
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        let lock_arg = self.lock_arg.clone();
+        config.network.connect_outbound_interval_secs = 0;
+        config.tx_pool.max_tx_verify_cycles = 13_000u64; // transferred_byte_cycles 12678
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
+    }
+}
+
+pub struct LoadProgramFailedTx {
+    privkey: Privkey,
+    lock_arg: Bytes,
+}
+
+impl LoadProgramFailedTx {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut generator = Generator::new();
+        let privkey = generator.gen_privkey();
+        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        LoadProgramFailedTx { privkey, lock_arg }
+    }
+}
+
+impl Spec for LoadProgramFailedTx {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        mine_until_out_bootstrap_period(node0);
+        info!("Generate large cycles tx");
+        let tx = build_tx(&node0, &self.privkey, self.lock_arg.clone());
+        // send tx
+        let _ = node0.rpc_client().notify_transaction(tx.data().into());
+
+        info!("Node0 receive notify large cycles tx");
+
+        let result = wait_until(60, || {
+            node0.rpc_client().get_transaction(tx.hash()).is_some()
+        });
+        assert!(result, "Node0 should accept tx");
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        let lock_arg = self.lock_arg.clone();
+        config.network.connect_outbound_interval_secs = 0;
+        config.tx_pool.max_tx_verify_cycles = 1_300u64; // transferred_byte_cycles 12678
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
     }

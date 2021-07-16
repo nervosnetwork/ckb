@@ -1,3 +1,4 @@
+use ckb_jsonrpc_types::Script;
 use serde::{Deserialize, Serialize};
 
 /// RPC modules.
@@ -18,6 +19,7 @@ pub enum Module {
 
 /// RPC config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// RPC server listen addresses.
     pub listen_address: String,
@@ -45,6 +47,12 @@ pub struct Config {
     /// Deprecated RPC methods are disabled by default.
     #[serde(default)]
     pub enable_deprecated_rpc: bool,
+    /// Customized extra well known lock scripts.
+    #[serde(default)]
+    pub extra_well_known_lock_scripts: Vec<Script>,
+    /// Customized extra well known type scripts.
+    #[serde(default)]
+    pub extra_well_known_type_scripts: Vec<Script>,
 }
 
 impl Config {

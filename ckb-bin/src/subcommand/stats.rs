@@ -1,6 +1,7 @@
 use ckb_app_config::{ExitCode, StatsArgs};
 use ckb_async_runtime::Handle;
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_launcher::SharedBuilder;
+use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 
@@ -18,13 +19,8 @@ struct Statics {
 
 impl Statics {
     pub fn build(args: StatsArgs, async_handle: Handle) -> Result<Self, ExitCode> {
-        let (shared, _) = SharedBuilder::new(&args.config.db, None, async_handle)
-            .consensus(args.consensus)
-            .build()
-            .map_err(|err| {
-                eprintln!("Stats error: {:?}", err);
-                ExitCode::Failure
-            })?;
+        let shared_builder = SharedBuilder::new(&args.config.db, None, async_handle)?;
+        let (shared, _) = shared_builder.consensus(args.consensus).build()?;
 
         let tip_number = shared.snapshot().tip_number();
 

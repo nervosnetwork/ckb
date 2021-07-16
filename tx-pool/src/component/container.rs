@@ -184,6 +184,10 @@ impl TxLinksMap {
             .get_mut(short_id)
             .map(|links| links.children.insert(child))
     }
+
+    fn clear(&mut self) {
+        self.inner.clear();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -394,6 +398,13 @@ impl SortedTxMap {
             .iter()
             .rev()
             .map(move |key| self.entries.get(&key.id).expect("consistent"))
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.sorted_index.clear();
+        self.deps.clear();
+        self.links.clear();
+        self.entries.clear();
     }
 }
 

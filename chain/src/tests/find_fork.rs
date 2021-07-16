@@ -1,7 +1,7 @@
 use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-use ckb_shared::SharedBuilder;
+use ckb_launcher::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockBuilder, BlockExt, BlockView},

@@ -36,12 +36,12 @@ macro_rules! jsonrpc {
                     req_json.insert("params".to_owned(), params);
 
                     let resp = $selff.client.post($selff.url.clone()).json(&req_json).send()?;
-                    let output = resp.json::<ckb_jsonrpc_types::response::Output>()?;
+                    let output = resp.json::<jsonrpc_core::response::Output>()?;
                     match output {
-                        ckb_jsonrpc_types::response::Output::Success(success) => {
+                        jsonrpc_core::response::Output::Success(success) => {
                             serde_json::from_value(success.result).map_err(Into::into)
                         },
-                        ckb_jsonrpc_types::response::Output::Failure(failure) => {
+                        jsonrpc_core::response::Output::Failure(failure) => {
                             Err($crate::rpc::error::Error{ inner: failure.error }.into())
                         }
                     }

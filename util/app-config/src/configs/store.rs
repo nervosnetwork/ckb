@@ -1,7 +1,8 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+// The default values are set in the legacy version.
 /// Store config options.
-#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Serialize, Eq, PartialEq, Hash, Debug)]
 pub struct Config {
     /// The maximum number of cached block headers.
     pub header_cache_size: usize,
@@ -13,27 +14,8 @@ pub struct Config {
     pub block_tx_hashes_cache_size: usize,
     /// The maximum number of blocks which uncles section is cached.
     pub block_uncles_cache_size: usize,
-    /// The maximum number of blocks which cellbase transaction is cached.
-    pub cellbase_cache_size: usize,
+    /// The maximum number of blocks which extension section is cached.
+    pub block_extensions_cache_size: usize,
     /// whether enable freezer
-    #[serde(default = "default_freezer_enable")]
     pub freezer_enable: bool,
-}
-
-fn default_freezer_enable() -> bool {
-    false
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            header_cache_size: 4096,
-            cell_data_cache_size: 128,
-            block_proposals_cache_size: 30,
-            block_tx_hashes_cache_size: 30,
-            block_uncles_cache_size: 30,
-            cellbase_cache_size: 30,
-            freezer_enable: false,
-        }
-    }
 }

@@ -18,6 +18,7 @@ set +e
 test_id=$(date +"%Y%m%d-%H%M%S")
 test_tmp_dir=${CKB_INTEGRATION_TEST_TMP:-$(pwd)/target/ckb-test/${test_id}}
 export CKB_INTEGRATION_TEST_TMP="${test_tmp_dir}"
+echo "CKB_INTEGRATION_TEST_TMP=$CKB_INTEGRATION_TEST_TMP" >> $GITHUB_ENV
 mkdir -p "${test_tmp_dir}"
 test_log_file="${test_tmp_dir}/integration.log"
 
@@ -49,6 +50,22 @@ if [ "$EXIT_CODE" != 0 ] && [ "${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}" = "nervos
 
   if [ -n "${TRAVIS_BUILD_ID:-}" ] && [ -n "${LOGBAK_SERVER:-}" ]; then
     upload_id="travis-${test_id}-${TRAVIS_BUILD_ID:-0}-${TRAVIS_JOB_ID:-0}-${TRAVIS_OS_NAME:-unknown}"
+    cd "${test_tmp_dir}"/..
+    tar -czf "${upload_id}.tgz" "${test_id}"
+    expect <<EOF
+spawn sftp -o "StrictHostKeyChecking=no" "${LOGBAK_USER}@${LOGBAK_SERVER}"
+expect "assword:"
+send "${LOGBAK_PASSWORD}\r"
+expect "sftp>"
+send "put ${upload_id}.tgz ci/travis/\r"
+expect "sftp>"
+send "bye\r"
+EOF
+    cd -
+  fi
+# upload github actions log if test failed
+  if [ -n "${BUILD_BUILDID:-}" ] && [ -n "${LOGBAK_SERVER:-}" ]; then
+    upload_id="github-actions-${test_id}-${BUILD_BUILDID:-0}-${ImageOS:-unknown}"
     cd "${test_tmp_dir}"/..
     tar -czf "${upload_id}.tgz" "${test_id}"
     expect <<EOF

@@ -55,9 +55,12 @@ impl Freezer {
                 .retrieve(freezer_number - 1)
                 .map_err(internal_error)?
                 .ok_or_else(|| internal_error("freezer inconsistent"))?;
-            let block = packed::BlockReader::from_slice(&raw_block)
+            let block = packed::BlockReader::from_compatible_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
+            if block.count_extra_fields() > 1 {
+                return Err(internal_error("block has more than one extra fields"));
+            }
             tip = Some(block.header().into_view());
         }
 
@@ -147,9 +150,12 @@ impl Freezer {
                 .retrieve(item)
                 .map_err(internal_error)?
                 .expect("frozen number sync with files");
-            let block = packed::BlockReader::from_slice(&raw_block)
+            let block = packed::BlockReader::from_compatible_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
+            if block.count_extra_fields() > 1 {
+                return Err(internal_error("block has more than one extra fields"));
+            }
             inner.tip = Some(block.header().into_view());
         }
         Ok(())
