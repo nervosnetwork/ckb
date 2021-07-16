@@ -4,16 +4,22 @@ on:
   # Submit your review with a comment body containing "#benchmark"
   pull_request_review:
     types: [ submitted ]
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   build_modified_ckb:
     name: Build Modified CKB
-    runs-on: [ self-hosted, Linux, X64, building ]
+    runs-on: ubuntu-latest
     if: |
-      github.repository_owner == 'nervosnetwork' &&
-      contains(github.event.review.body, '#benchmark') &&
-      contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
-
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.review.body, '#benchmark') &&
+        contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+      ) || (
+        github.event_name == 'schedule' &&
+        github.repository_owner == 'nervosnetwork'
+      )
     env:
       CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
     steps:
@@ -30,15 +36,10 @@ jobs:
         with:
           name: ckb.tar.xz
           path: ckb.tar.xz
-      - uses: doitian/available-space@v1
-        if: ${{ always() }}
-        with:
-          clean-threshold: 40000
-          clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   benchmark:
     name: Benchmark
-    runs-on: [ self-hosted, Linux, X64, operating ]
+    runs-on: ubuntu-latest
     needs: [ build_modified_ckb ]
     env:
       TERRAFORM_DIR:     ${{ github.workspace }}/.github/workflows/benchmark/terraform
@@ -125,10 +126,16 @@ jobs:
           echo 'BENCHMARK_REPORT<<EOF'  >> $GITHUB_ENV
           cat ${ANSIBLE_DIR}/report.yml >> $GITHUB_ENV
           echo 'EOF'                    >> $GITHUB_ENV
+
+          if [ ${{ github.event_name }} = 'pull_request_review' ] ; then
+            echo 'ISSUE_NUMBER=${{ github.event.pull_request.number }}' >>
+          else
+            echo 'ISSUE_NUMBER=2372' >> $GITHUB_ENV
+          fi
       - name: Post Run - Comment Report
         uses: peter-evans/create-or-update-comment@v1
         with:
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
           body: |
             **Benchmark Report**: https://www.github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
