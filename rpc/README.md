@@ -321,9 +321,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -437,9 +437,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -682,9 +682,9 @@ Response
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -866,9 +866,9 @@ Response
       "output": {
         "capacity": "0x802665800",
         "lock": {
-          "args": "0x",
           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-          "hash_type": "data"
+          "hash_type": "data",
+          "args": "0x"
         },
         "type": null
       }
@@ -1223,9 +1223,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -1418,9 +1418,9 @@ Request
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -1570,9 +1570,9 @@ Response
           {
             "capacity": "0x18e64efc04",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -1680,9 +1680,9 @@ Request
             {
               "capacity": "0x18e64b61cf",
               "lock": {
-                "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
+                "hash_type": "data",
+                "args": "0x"
               },
               "type": null
             }
@@ -2332,9 +2332,9 @@ Request
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -3223,9 +3223,9 @@ The fields of an output cell except the cell data.
 {
   "capacity": "0x2540be400",
   "lock": {
-    "args": "0x",
     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    "hash_type": "data"
+    "hash_type": "data",
+    "args": "0x"
   },
   "type": null
 }
@@ -4055,9 +4055,9 @@ Describes the lock script and type script for a cell.
 
 ```
 {
-  "args": "0x",
   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-  "hash_type": "data"
+  "hash_type": "data",
+  "args": "0x"
 }
 ```
 
@@ -4068,9 +4068,9 @@ Describes the lock script and type script for a cell.
 
 *   `code_hash`: [`H256`](#type-h256) - The hash used to match the script code.
 
-*   `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
-
 *   `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
+
+*   `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
 
 
 ### Type `ScriptHashType`
@@ -4276,9 +4276,9 @@ This structure is serialized into a JSON object with field `hash` and all the fi
     {
       "capacity": "0x2540be400",
       "lock": {
-        "args": "0x",
         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-        "hash_type": "data"
+        "hash_type": "data",
+        "args": "0x"
       },
       "type": null
     }

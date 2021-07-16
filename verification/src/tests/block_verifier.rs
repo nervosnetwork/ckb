@@ -481,7 +481,7 @@ fn test_block_extension_verifier() {
         // Test CKB v2019
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
-            .rfc_pr_0224(fork_at + 1)
+            .rfc_0224(fork_at + 1)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()
@@ -516,7 +516,7 @@ fn test_block_extension_verifier() {
         // Test CKB v2021
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
-            .rfc_pr_0224(fork_at)
+            .rfc_0224(fork_at)
             .build()
             .unwrap();
         let consensus = ConsensusBuilder::default()

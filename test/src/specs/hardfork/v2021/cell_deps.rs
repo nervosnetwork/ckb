@@ -126,7 +126,7 @@ impl Spec for DuplicateCellDepsForDataHashTypeLockScript {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0222 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0222 = Some(CKB2021_START_EPOCH);
         }
     }
 }
@@ -188,7 +188,7 @@ impl Spec for DuplicateCellDepsForDataHashTypeTypeScript {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0222 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0222 = Some(CKB2021_START_EPOCH);
         }
     }
 }
@@ -276,7 +276,7 @@ impl Spec for DuplicateCellDepsForTypeHashTypeLockScript {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0222 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0222 = Some(CKB2021_START_EPOCH);
         }
     }
 }
@@ -363,7 +363,7 @@ impl Spec for DuplicateCellDepsForTypeHashTypeTypeScript {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0222 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0222 = Some(CKB2021_START_EPOCH);
         }
     }
 }

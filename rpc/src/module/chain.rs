@@ -123,9 +123,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -242,9 +242,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -500,9 +500,9 @@ pub trait ChainRpc {
     ///         {
     ///           "capacity": "0x2540be400",
     ///           "lock": {
-    ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": "data"
+    ///             "hash_type": "data",
+    ///             "args": "0x"
     ///           },
     ///           "type": null
     ///         }
@@ -688,9 +688,9 @@ pub trait ChainRpc {
     ///       "output": {
     ///         "capacity": "0x802665800",
     ///         "lock": {
-    ///           "args": "0x",
     ///           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    ///           "hash_type": "data"
+    ///           "hash_type": "data",
+    ///           "args": "0x"
     ///         },
     ///         "type": null
     ///       }
@@ -1043,9 +1043,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }

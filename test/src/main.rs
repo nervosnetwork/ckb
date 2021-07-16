@@ -448,7 +448,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(WhitelistOnSessionLimit),
         // Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
-        // TODO ckb2021 update the import json file for new ScriptHashType
         // Box::new(InsufficientReward),
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),

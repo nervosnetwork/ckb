@@ -135,7 +135,7 @@ impl Spec for CheckAbsoluteEpochSince {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0223 = Some(2);
+            switch.rfc_0223 = Some(2);
         }
     }
 }
@@ -254,7 +254,7 @@ impl Spec for CheckRelativeEpochSince {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_pr_0223 = Some(7);
+            switch.rfc_0223 = Some(7);
         }
     }
 }

@@ -69,9 +69,9 @@ impl fmt::Display for ScriptHashType {
 /// ```
 /// # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#"
 /// {
-///   "args": "0x",
 ///   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///   "hash_type": "data"
+///   "hash_type": "data",
+///   "args": "0x"
 /// }
 /// # "#).unwrap();
 /// ```
@@ -80,10 +80,10 @@ impl fmt::Display for ScriptHashType {
 pub struct Script {
     /// The hash used to match the script code.
     pub code_hash: H256,
-    /// Arguments for script.
-    pub args: JsonBytes,
     /// Specifies how to use the `code_hash` to match the script code.
     pub hash_type: ScriptHashType,
+    /// Arguments for script.
+    pub args: JsonBytes,
 }
 
 impl From<Script> for packed::Script {
@@ -123,9 +123,9 @@ impl From<packed::Script> for Script {
 /// {
 ///   "capacity": "0x2540be400",
 ///   "lock": {
-///     "args": "0x",
 ///     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///     "hash_type": "data"
+///     "hash_type": "data",
+///     "args": "0x"
 ///   },
 ///   "type": null
 /// }
@@ -437,9 +437,9 @@ pub struct Transaction {
 ///     {
 ///       "capacity": "0x2540be400",
 ///       "lock": {
-///         "args": "0x",
 ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///         "hash_type": "data"
+///         "hash_type": "data",
+///         "args": "0x"
 ///       },
 ///       "type": null
 ///     }
@@ -1304,8 +1304,8 @@ mod tests {
                 "{\
                     \"code_hash\":\"0x00000000000000000000000000000000\
                                     00000000000000000000000000000000\",\
-                    \"args\":\"0x\",\
-                    \"hash_type\":\"data\"\
+                    \"hash_type\":\"data\",\
+                    \"args\":\"0x\"\
                 }",
                 Script {
                     code_hash: h256!("0x0"),
@@ -1317,8 +1317,8 @@ mod tests {
                 "{\
                     \"code_hash\":\"0x00000000000000000000000000000000\
                                     00000000000000000000000000000000\",\
-                    \"args\":\"0x\",\
-                    \"hash_type\":\"type\"\
+                    \"hash_type\":\"type\",\
+                    \"args\":\"0x\"\
                 }",
                 Script {
                     code_hash: h256!("0x0"),
@@ -1330,8 +1330,8 @@ mod tests {
                 "{\
                     \"code_hash\":\"0x00000000000000000000000000000000\
                                       00000000000000000000000000000001\",\
-                    \"args\":\"0x\",\
-                    \"hash_type\":\"data1\"\
+                    \"hash_type\":\"data1\",\
+                    \"args\":\"0x\"\
                 }",
                 Script {
                     code_hash: h256!("0x1"),
