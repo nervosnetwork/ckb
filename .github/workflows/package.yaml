@@ -54,8 +54,7 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        mkdir -p $HOME/.cargo
-        docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
+        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 $BUILDER_IMAGE make prod
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/release/ckb
@@ -91,8 +90,7 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        mkdir -p $HOME/.cargo
-        docker run --rm -i -w /ckb -v $(pwd):/ckb -v $HOME/.cargo:/root/.cargo $BUILDER_IMAGE scl enable llvm-toolset-7 make prod
+        docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make prod
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/release/ckb
