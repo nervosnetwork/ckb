@@ -1,3 +1,9 @@
+# [v0.43.1](https://github.com/nervosnetwork/ckb/compare/v0.43.0...v0.43.1) (2021-07-16)
+
+### Bug Fixes
+
+* #2829: Fix peer store evict (@driftluo)
+
 # [v0.43.0](https://github.com/nervosnetwork/ckb/compare/v0.42.0...v0.43.0) (2021-06-21)
 
 ### Features
