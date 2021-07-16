@@ -35,7 +35,7 @@ impl Migration for AddExtraDataHash {
         while !next_key.is_empty() {
             let mut wb = db.new_write_batch();
             let mut cell_data_migration = |key: &[u8], value: &[u8]| -> Result<()> {
-                let data_hash = if !value.as_ref().is_empty() {
+                let data_hash = if !value.is_empty() {
                     let reader = packed::CellDataEntryReader::from_slice_should_be_ok(value);
                     reader.output_data_hash().as_slice()
                 } else {
