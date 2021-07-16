@@ -1,6 +1,6 @@
 [package]
 name = "ckb-freezer"
-version = "0.100.0-rc1"
+version = "0.100.0-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,11 +10,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.100.0-rc1" }
-ckb-error = { path = "../error", version = "= 0.100.0-rc1" }
-ckb-logger = { path = "../util/logger", version = "= 0.100.0-rc1" }
-ckb-util = { path = "../util", version = "= 0.100.0-rc1" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.100.0-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.100.0-rc2" }
+ckb-error = { path = "../error", version = "= 0.100.0-rc2" }
+ckb-logger = { path = "../util/logger", version = "= 0.100.0-rc2" }
+ckb-util = { path = "../util", version = "= 0.100.0-rc2" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.100.0-rc2" }
 fs2 = "0.4.3"
 fail = "0.4"
 snap = "1"
