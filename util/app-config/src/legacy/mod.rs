@@ -165,7 +165,8 @@ impl DeprecatedField {
 macro_rules! deprecate {
     ($self:ident, $fields:ident, $field:ident $(. $path:ident)*, $since:literal) => {
         if $self. $field $(. $path)* .is_some() {
-            $fields.push(DeprecatedField::new(stringify!($field), $since));
+            let path = concat!(stringify!($field), $(".", stringify!($path),)*);
+            $fields.push(DeprecatedField::new(path, $since));
         }
     };
 }
@@ -195,7 +196,7 @@ impl MinerAppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{CKBAppConfig, MinerAppConfig};
+    use super::{CKBAppConfig, DeprecatedField, MinerAppConfig};
     use ckb_resource::{Resource, TemplateContext, AVAILABLE_SPECS};
 
     fn mkdir() -> tempfile::TempDir {
@@ -203,6 +204,40 @@ mod tests {
             .prefix("ckb_app_config_test")
             .tempdir()
             .unwrap()
+    }
+
+    #[test]
+    fn macro_deprecate_works_well() {
+        struct Config {
+            first: Option<usize>,
+            second: AConfig,
+        }
+        struct AConfig {
+            a_f1: Option<usize>,
+            a_f2: BConfig,
+        }
+        struct BConfig {
+            b_f1: Option<usize>,
+        }
+
+        let c = Config {
+            first: Some(0),
+            second: AConfig {
+                a_f1: Some(1),
+                a_f2: BConfig { b_f1: Some(2) },
+            },
+        };
+        let deprecated_fields = {
+            let mut v = Vec::new();
+            deprecate!(c, v, first, "0.1.0");
+            deprecate!(c, v, second.a_f1, "0.2.0");
+            deprecate!(c, v, second.a_f2.b_f1, "0.3.0");
+            v
+        };
+        assert_eq!(deprecated_fields.len(), 3);
+        assert_eq!(deprecated_fields[0].path, "first");
+        assert_eq!(deprecated_fields[1].path, "second.a_f1");
+        assert_eq!(deprecated_fields[2].path, "second.a_f2.b_f1");
     }
 
     #[test]
