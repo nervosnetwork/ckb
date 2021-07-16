@@ -209,6 +209,12 @@ impl PeerStore {
         if self.addr_manager.count() < ADDR_COUNT_LIMIT {
             return Ok(());
         }
+        // Evicting invalid data in the peer store is a relatively rare operation
+        // There are certain cleanup strategies here:
+        // 1. Group current data according to network segment
+        // 2. Sort according to the amount of data in the same network segment
+        // 3. Prioritize cleaning on the same network segment
+
         let now_ms = faketime::unix_time_as_millis();
         let candidate_peers: Vec<_> = {
             // find candidate peers by network group
@@ -227,7 +233,7 @@ impl PeerStore {
 
             peers.sort_unstable_by_key(|k| std::cmp::Reverse(k.len()));
             let ban_score = self.score_config.ban_score;
-            // evict nodes on the same network segment first
+
             peers
                 .into_iter()
                 .take(len / 2)
