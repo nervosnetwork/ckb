@@ -1,5 +1,12 @@
 name: Preflight Checks
 
+# Required secrets:
+#
+# * `REPO_ACCESS_TOKEN`: (optional) A repo scoped [GitHub Personal Access Token][pat]. See [token] for further details.
+#
+# [pat]: https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token
+# [token]: https://github.com/peter-evans/repository-dispatch#token
+
 on:
   push:
 
@@ -23,9 +30,28 @@ jobs:
       - name: Succeeded
         run: exit 0
 
+  repo-access-token:
+    name: Check whether REPO_ACCESS_TOKEN is set
+    needs: [ if-workflow-is-required ]
+    runs-on: ubuntu-latest
+    env:
+      REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+    outputs:
+      is-set: ${{ steps.is-set.outputs.is-set }}
+    steps:
+      - name: Check is set
+        id: is-set
+        run: |
+          if [ ${#REPO_ACCESS_TOKEN} = 0 ]; then
+            echo "::set-output name=is-set::false"
+          else
+            echo "::set-output name=is-set::true"
+          fi
+
   trigger-required-checks:
     name: Trigger Required Checks
-    needs: [ if-workflow-is-required ]
+    if: ${{ needs.repo-access-token.outputs.is-set == 'true' }}
+    needs: [ if-workflow-is-required, repo-access-token ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v4
