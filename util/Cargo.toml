@@ -12,6 +12,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 parking_lot = "0.11"
 linked-hash-map = "0.5"
 regex = "1.1.6"
+dotenv = "0.15.0"
 
 [dev-dependencies]
 ckb-fixed-hash = { path = "fixed-hash", version = "= 0.100.0-pre" }

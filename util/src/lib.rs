@@ -7,6 +7,7 @@ pub mod strings;
 
 use std::time::Duration;
 
+pub use dotenv;
 pub use linked_hash_map::{Entries as LinkedHashMapEntries, LinkedHashMap};
 pub use linked_hash_set::LinkedHashSet;
 

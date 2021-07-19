@@ -1446,6 +1446,7 @@ name = "ckb-util"
 version = "0.100.0-pre"
 dependencies = [
  "ckb-fixed-hash",
+ "dotenv",
  "linked-hash-map",
  "parking_lot",
  "regex",
@@ -1945,6 +1946,12 @@ checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
  "generic-array 0.14.4",
 ]
+
+[[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
 name = "dtoa"
@@ -3972,7 +3979,7 @@ dependencies = [
  "libc",
  "rand_chacha 0.3.1",
  "rand_core 0.6.3",
- "rand_hc 0.3.1",
+ "rand_hc 0.3.0",
 ]
 
 [[package]]
@@ -4068,9 +4075,9 @@ dependencies = [
 
 [[package]]
 name = "rand_hc"
-version = "0.3.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d51e9f596de227fda2ea6c84607f5558e196eeaf43c986b724ba4fb8fdf497e7"
+checksum = "3190ef7066a446f2e7f42e239d161e905420ccab01eb967c9eb27d21b2322a73"
 dependencies = [
  "rand_core 0.6.3",
 ]

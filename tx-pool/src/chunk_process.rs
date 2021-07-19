@@ -7,6 +7,7 @@ use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, HeaderProvider};
 use ckb_types::{core::Cycle, packed::Byte32};
+use ckb_util::dotenv;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptGroupType, ScriptVerifier,
@@ -37,15 +38,21 @@ pub(crate) struct TxChunkProcess {
     handle: Handle,
     recv: Receiver<Command>,
     p_state: ProcessState,
+    step_cycles: Cycle,
 }
 
 impl TxChunkProcess {
     pub fn new(service: TxPoolService, handle: Handle, recv: Receiver<Command>) -> Self {
+        let step_cycles = dotenv::var("CKB_STEP_CYCLES")
+            .ok()
+            .and_then(|var_string| var_string.parse::<Cycle>().ok())
+            .unwrap_or(MIN_STEP_CYCLE);
         TxChunkProcess {
             service,
             handle,
             recv,
             p_state: ProcessState::Normal,
+            step_cycles,
         }
     }
 
@@ -200,7 +207,7 @@ impl TxChunkProcess {
                     return Err(Reject::Verification(error));
                 }
 
-                let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                let (limit_cycles, last) = snap.next_limit_cycles(self.step_cycles, max_cycles);
                 last_step = last;
                 let ret = script_verifier.resume_from_snap(snap, limit_cycles);
                 init_snap = None;
@@ -223,11 +230,11 @@ impl TxChunkProcess {
                 // } else {
                 //     (remain, true)
                 // }
-                let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                let (limit_cycles, last) = state.next_limit_cycles(self.step_cycles, max_cycles);
                 last_step = last;
                 script_verifier.resume_from_state(state, limit_cycles)
             } else {
-                script_verifier.resumable_verify(MIN_STEP_CYCLE)
+                script_verifier.resumable_verify(self.step_cycles)
             }
             .map_err(Reject::Verification)?;
 
