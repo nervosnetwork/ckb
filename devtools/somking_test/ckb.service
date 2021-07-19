@@ -1,0 +1,14 @@
+[Unit]
+Description=CKB Service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=no
+User=ubuntu
+Environment="RUST_LOG=info"
+ExecStart=/home/ubuntu/actions-runner/linux-runner-0/_work/ckb/target/release/ckb run -C /home/ubuntu/actions-runner/linux-runner-0/_work/ckb/ckb
+StandardOutput=file:/home/ubuntu/actions-runner/linux-runner-0/_work/ckb/ckb/data/logs/run.log
+
+[Install]
+WantedBy=multi-user.target

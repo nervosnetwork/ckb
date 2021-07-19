@@ -4,9 +4,10 @@ concurrency:
   group: ci-${{ github.ref }}
 
 on:
-  pull_request:
-    types: [ opened, synchronize, reopened ]
-  push:
+  # pull_request:
+  #   types: [ opened, synchronize, reopened ]
+  # push:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,6 +30,7 @@ jobs:
                          refs/heads/staging', github.ref)
               || startsWith(github.ref, 'refs/heads/rc/')))
       || contains(github.event.head_commit.message, 'enable self-hosted ci')
+      || contains(github.event_name, 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Succeeded
@@ -44,6 +46,7 @@ jobs:
                    refs/heads/staging', github.ref)
       || (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]')
       || contains(github.event.head_commit.message, 'enable self-hosted ci')
+      || contains(github.event_name, 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Succeeded
@@ -69,7 +72,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Integration_Test:
@@ -93,7 +96,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
     - name: Post Run - Upload integration Result when failed
       if: ${{ failure() }}
@@ -120,7 +123,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Linters:
@@ -141,7 +144,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Quick_Check:
@@ -159,7 +162,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   WASM_build:
@@ -174,7 +177,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Security_Audit_Licenses:
@@ -191,7 +194,7 @@ jobs:
     - uses: doitian/available-space@v1
       if: ${{ always() }}
       with:
-        clean-threshold: 40000
+        clean-threshold: 10000
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   ci-success:
