@@ -413,7 +413,7 @@ dependencies = [
  "clap",
  "faketime",
  "path-clean",
- "rand 0.7.3",
+ "rand 0.8.4",
  "serde",
  "serde_json",
  "serde_plain",
@@ -457,7 +457,7 @@ dependencies = [
  "ckb-verification-traits",
  "criterion",
  "lazy_static",
- "rand 0.7.3",
+ "rand 0.8.4",
  "tempfile",
 ]
 
@@ -582,7 +582,7 @@ dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
  "lazy_static",
- "rand 0.7.3",
+ "rand 0.8.4",
  "secp256k1",
  "thiserror",
 ]
@@ -900,7 +900,7 @@ dependencies = [
  "indicatif",
  "jsonrpc-core",
  "lru",
- "rand 0.7.3",
+ "rand 0.8.4",
  "rand_distr",
  "serde",
  "serde_json",
@@ -915,7 +915,7 @@ dependencies = [
  "ckb-crypto",
  "ckb-error",
  "ckb-logger",
- "rand 0.7.3",
+ "rand 0.8.4",
 ]
 
 [[package]]
@@ -940,7 +940,7 @@ dependencies = [
  "lazy_static",
  "num_cpus",
  "proptest",
- "rand 0.7.3",
+ "rand 0.8.4",
  "secp256k1",
  "serde",
  "serde_json",
@@ -1353,7 +1353,7 @@ dependencies = [
  "governor",
  "keyed_priority_queue",
  "lru",
- "rand 0.7.3",
+ "rand 0.8.4",
  "tempfile",
 ]
 
@@ -1493,7 +1493,7 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "faketime",
- "rand 0.7.3",
+ "rand 0.8.4",
  "rayon",
  "tokio 1.8.1",
 ]
@@ -3944,7 +3944,7 @@ dependencies = [
  "rand_isaac",
  "rand_jitter",
  "rand_os",
- "rand_pcg 0.1.2",
+ "rand_pcg",
  "rand_xorshift",
  "winapi 0.3.8",
 ]
@@ -3960,7 +3960,6 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rand_core 0.5.1",
  "rand_hc 0.2.0",
- "rand_pcg 0.2.1",
 ]
 
 [[package]]
@@ -4117,15 +4116,6 @@ checksum = "abf9b09b01790cfe0364f52bf32995ea3c39f4d2dd011eac241d2914146d0b44"
 dependencies = [
  "autocfg 0.1.2",
  "rand_core 0.4.2",
-]
-
-[[package]]
-name = "rand_pcg"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
-dependencies = [
- "rand_core 0.5.1",
 ]
 
 [[package]]
