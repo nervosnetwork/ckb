@@ -147,6 +147,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 &mut HashSet::new(),
                 snapshot.as_ref(),
                 snapshot.as_ref(),
+                None,
             )
             .unwrap();
             let data_loader = snapshot.as_data_provider();
