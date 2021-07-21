@@ -44,7 +44,7 @@ pub struct Setup {
 
 impl Setup {
     /// Boots the ckb process by parsing the command line arguments and loading the config file.
-    pub fn from_matches(matches: &ArgMatches<'_>) -> Result<Setup, ExitCode> {
+    pub fn from_matches(bin_name: String, matches: &ArgMatches<'_>) -> Result<Setup, ExitCode> {
         let subcommand_name = match matches.subcommand_name() {
             Some(subcommand_name) => subcommand_name,
             None => {
@@ -54,7 +54,8 @@ impl Setup {
         };
 
         let root_dir = Self::root_dir_from_matches(matches)?;
-        let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        config.set_bin_name(bin_name);
         #[cfg(feature = "with_sentry")]
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 

@@ -37,6 +37,12 @@ pub enum AppConfig {
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CKBAppConfig {
+    /// The binary name.
+    #[serde(skip)]
+    pub bin_name: String,
+    /// The root directory.
+    #[serde(skip)]
+    pub root_dir: PathBuf,
     /// The data directory.
     pub data_dir: PathBuf,
     /// freezer files path
@@ -91,6 +97,12 @@ pub struct CKBAppConfig {
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MinerAppConfig {
+    /// The binary name.
+    #[serde(skip)]
+    pub bin_name: String,
+    /// The root directory.
+    #[serde(skip)]
+    pub root_dir: PathBuf,
     /// The data directory.
     pub data_dir: PathBuf,
     /// Chain config options.
@@ -144,6 +156,7 @@ impl AppConfig {
             _ => {
                 let resource = ensure_ckb_dir(Resource::ckb_config(root_dir.as_ref()))?;
                 let config = CKBAppConfig::load_from_slice(&resource.get()?)?;
+
                 Ok(AppConfig::with_ckb(
                     config.derive_options(root_dir.as_ref(), subcommand_name)?,
                 ))
@@ -221,6 +234,14 @@ impl AppConfig {
             }
         }
     }
+
+    /// Set the binary name with full path.
+    pub fn set_bin_name(&mut self, bin_name: String) {
+        match self {
+            AppConfig::CKB(config) => config.bin_name = bin_name,
+            AppConfig::Miner(config) => config.bin_name = bin_name,
+        }
+    }
 }
 
 impl AppConfig {
@@ -246,6 +267,8 @@ impl CKBAppConfig {
     }
 
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
+        self.root_dir = root_dir.to_path_buf();
+
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir);
 
         self.db.adjust(root_dir, &self.data_dir, "db");
@@ -297,6 +320,8 @@ impl MinerAppConfig {
     }
 
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
+        self.root_dir = root_dir.to_path_buf();
+
         self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir))?;
         self.logger.log_dir = self.data_dir.join("logs");
         self.logger.file = self.logger.log_dir.join("miner.log");
