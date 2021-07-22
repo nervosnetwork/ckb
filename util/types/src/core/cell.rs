@@ -268,13 +268,21 @@ impl ResolvedTransaction {
         header_checker: &HC,
         resolve_opts: ResolveOptions,
     ) -> Result<(), OutPointError> {
-        let check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
+        let mut checked_cells: HashSet<OutPoint> = HashSet::new();
+        let mut check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
 
+            if checked_cells.contains(out_point) {
+                return Ok(());
+            }
+
             match cell_checker.is_live(out_point) {
-                Some(true) => Ok(()),
+                Some(true) => {
+                    checked_cells.insert(out_point.clone());
+                    Ok(())
+                }
                 Some(false) => Err(OutPointError::Dead(out_point.clone())),
                 None => Err(OutPointError::Unknown(out_point.clone())),
             }
