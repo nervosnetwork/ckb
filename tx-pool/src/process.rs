@@ -969,11 +969,15 @@ impl TxPoolService {
         let total = txs.len();
         let mut count = 0usize;
         for tx in txs {
-            if self._process_tx(tx, None).await.is_err() {
+            let tx_hash = tx.hash();
+            if let Err(err) = self._process_tx(tx, None).await {
+                error!("failed to process {:#x}, error: {:?}", tx_hash, err);
                 count += 1;
             }
         }
-        info!("{}/{} transactions are failed to process", count, total);
+        if count != 0 {
+            info!("{}/{} transactions are failed to process", count, total);
+        }
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
