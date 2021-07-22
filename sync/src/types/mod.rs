@@ -1,5 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
+use crate::utils::is_ckb_db_error;
 use crate::{
     BLOCK_DOWNLOAD_TIMEOUT, FAST_INDEX, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
     HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
@@ -1319,10 +1320,12 @@ impl SyncShared {
         block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block));
-        if ret.is_err() {
+        if let Err(ref err) = ret {
             error!("accept block {:?} {:?}", block, ret);
-            self.state
-                .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+            if !is_ckb_db_error(err) {
+                self.state
+                    .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+            }
         } else {
             // Clear the newly inserted block from block_status_map.
             //

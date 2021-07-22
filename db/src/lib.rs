@@ -24,5 +24,10 @@ pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;
 
 fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Error {
-    InternalErrorKind::Database.reason(reason).into()
+    let message = reason.to_string();
+    if message.starts_with("Corruption:") {
+        InternalErrorKind::Database.reason(message).into()
+    } else {
+        InternalErrorKind::DataCorrupted.reason(message).into()
+    }
 }

@@ -1,5 +1,6 @@
 use crate::{
     synchronizer::{BlockStatus, Synchronizer},
+    utils::is_failure_db_error,
     Status, StatusCode,
 };
 use ckb_logger::debug;
@@ -37,12 +38,14 @@ impl<'a> BlockProcess<'a> {
 
         if state.new_block_received(&block) {
             if let Err(err) = self.synchronizer.process_new_block(block.clone()) {
-                state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
-                return StatusCode::BlockIsInvalid.with_context(format!(
-                    "{}, error: {}",
-                    block.hash(),
-                    err,
-                ));
+                if !is_failure_db_error(&err) {
+                    state.insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
+                    return StatusCode::BlockIsInvalid.with_context(format!(
+                        "{}, error: {}",
+                        block.hash(),
+                        err,
+                    ));
+                }
             }
         }
 
