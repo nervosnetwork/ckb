@@ -46,7 +46,7 @@ pub const NOT_IBD_BLOCK_FETCH_TOKEN: u64 = 2;
 pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 
-const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
+const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -496,13 +496,11 @@ impl Synchronizer {
             }
             {
                 if let Some(peer_state) = self.peers().state.write().get_mut(&peer) {
-                    if !peer_state.sync_started() {
-                        peer_state.start_sync(HeadersSyncController::from_header(&tip));
-                        self.shared()
-                            .state()
-                            .n_sync_started()
-                            .fetch_add(1, Ordering::Release);
-                    }
+                    peer_state.start_sync(HeadersSyncController::from_header(&tip));
+                    self.shared()
+                        .state()
+                        .n_sync_started()
+                        .fetch_add(1, Ordering::Release);
                 }
             }
 
@@ -537,7 +535,7 @@ impl Synchronizer {
                             || state.peer_flags.is_whitelist
                             || state.peer_flags.is_protect
                     }
-                    IBDState::Out => state.sync_started(),
+                    IBDState::Out => state.started_or_tip_synced(),
                 }
             })
             .map(|(peer_id, _)| peer_id)

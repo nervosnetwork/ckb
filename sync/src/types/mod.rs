@@ -85,7 +85,7 @@ impl ChainSyncState {
             HeadersSyncState::Initialized => false,
             HeadersSyncState::SyncProtocolConnected => true,
             HeadersSyncState::Started => false,
-            HeadersSyncState::Suspend(until) => until < now,
+            HeadersSyncState::Suspend(until) | HeadersSyncState::TipSynced(until) => until < now,
         }
     }
 
@@ -101,8 +101,21 @@ impl ChainSyncState {
         self.headers_sync_state = HeadersSyncState::Suspend(until)
     }
 
+    fn tip_synced(&mut self) {
+        let now = unix_time_as_millis();
+        // use avg block interval: (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2 = 28
+        self.headers_sync_state = HeadersSyncState::TipSynced(now + 28000);
+    }
+
     fn started(&self) -> bool {
         matches!(self.headers_sync_state, HeadersSyncState::Started)
+    }
+
+    fn started_or_tip_synced(&self) -> bool {
+        matches!(
+            self.headers_sync_state,
+            HeadersSyncState::Started | HeadersSyncState::TipSynced(_)
+        )
     }
 }
 
@@ -112,6 +125,7 @@ enum HeadersSyncState {
     SyncProtocolConnected,
     Started,
     Suspend(u64), // suspend headers sync until this timestamp (milliseconds since unix epoch)
+    TipSynced(u64), // already synced to the end, not as the sync target for the time being, until the pause time is exceeded
 }
 
 impl Default for HeadersSyncState {
@@ -293,22 +307,27 @@ impl PeerState {
         self.headers_sync_controller = Some(headers_sync_controller);
     }
 
-    pub fn suspend_sync(&mut self, suspend_time: u64) {
+    fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
         self.chain_sync.suspend(now + suspend_time);
-        self.stop_headers_sync();
+        self.headers_sync_controller = None;
+    }
+
+    fn tip_synced(&mut self) {
+        self.chain_sync.tip_synced();
+        self.headers_sync_controller = None;
     }
 
     pub(crate) fn sync_started(&self) -> bool {
         self.chain_sync.started()
     }
 
-    pub(crate) fn sync_connected(&mut self) {
-        self.chain_sync.connected()
+    pub(crate) fn started_or_tip_synced(&self) -> bool {
+        self.chain_sync.started_or_tip_synced()
     }
 
-    pub(crate) fn stop_headers_sync(&mut self) {
-        self.headers_sync_controller = None;
+    pub(crate) fn sync_connected(&mut self) {
+        self.chain_sync.connected()
     }
 
     pub fn add_ask_for_tx(
@@ -1632,11 +1651,12 @@ impl SyncState {
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
         peer_state.suspend_sync(SUSPEND_SYNC_TIME);
-        assert_ne!(
-            self.n_sync_started().fetch_sub(1, Ordering::Release),
-            0,
-            "n_sync_started overflow when suspend_sync"
-        );
+        self.n_sync_started().fetch_sub(1, Ordering::Release);
+    }
+
+    pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
+        peer_state.tip_synced();
+        self.n_sync_started().fetch_sub(1, Ordering::Release);
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
