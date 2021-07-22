@@ -174,7 +174,11 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        self.pending.add_entry(entry).is_none()
+        let inserted = self.pending.add_entry(entry).is_none();
+        if inserted {
+            self.touch_last_txs_updated_at();
+        }
+        inserted
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
@@ -186,8 +190,12 @@ impl TxPool {
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
-        self.touch_last_txs_updated_at();
-        self.proposed.add_entry(entry)
+        self.proposed.add_entry(entry).map(|inserted| {
+            if inserted {
+                self.touch_last_txs_updated_at();
+            }
+            inserted
+        })
     }
 
     pub(crate) fn touch_last_txs_updated_at(&self) {
