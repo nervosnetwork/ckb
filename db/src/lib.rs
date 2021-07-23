@@ -28,5 +28,10 @@ pub use rocksdb::{
 pub type Result<T> = result::Result<T, Error>;
 
 fn internal_error<S: fmt::Display>(reason: S) -> Error {
-    InternalErrorKind::Database.other(reason).into()
+    let message = reason.to_string();
+    if message.starts_with("Corruption:") {
+        InternalErrorKind::Database.other(message).into()
+    } else {
+        InternalErrorKind::DataCorrupted.other(message).into()
+    }
 }

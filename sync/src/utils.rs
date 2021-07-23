@@ -78,13 +78,22 @@ fn item_id<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> u32 {
 }
 
 /// return whether the error's kind is `InternalErrorKind::Database`
+///
+/// ### Panic
+///
+/// Panic if the error kind is `InternalErrorKind::DataCorrupted`.
+/// If the database is corrupted, panic is better than handle it silently.
 pub(crate) fn is_internal_db_error(error: &CKBError) -> bool {
     if error.kind() == ErrorKind::Internal {
-        return error
+        let error_kind = error
             .downcast_ref::<InternalError>()
             .expect("error kind checked")
-            .kind()
-            == InternalErrorKind::Database;
+            .kind();
+        if error_kind == InternalErrorKind::DataCorrupted {
+            panic!("{}", error)
+        } else {
+            return error_kind == InternalErrorKind::Database;
+        }
     }
     false
 }

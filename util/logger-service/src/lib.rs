@@ -482,6 +482,27 @@ pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, Se
     })
 }
 
+/// Initializes the [SilentLogger](struct.SilentLogger.html).
+pub fn init_silent() -> Result<LoggerInitGuard, SetLoggerError> {
+    log::set_boxed_logger(Box::new(SilentLogger)).map(|_| LoggerInitGuard)
+}
+
+/// The SilentLogger which implements [log::Log].
+///
+/// Silent logger that does nothing.
+#[derive(Debug)]
+pub struct SilentLogger;
+
+impl Log for SilentLogger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        false
+    }
+
+    fn log(&self, _record: &Record) {}
+
+    fn flush(&self) {}
+}
+
 /// Flushes any buffered records.
 pub fn flush() {
     log::logger().flush()
