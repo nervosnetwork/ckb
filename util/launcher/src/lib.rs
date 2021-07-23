@@ -188,6 +188,8 @@ impl Launcher {
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
         let shared_builder = SharedBuilder::new(
+            &self.args.config.bin_name,
+            self.args.config.root_dir.as_path(),
             &self.args.config.db,
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),

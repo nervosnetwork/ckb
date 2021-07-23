@@ -28,7 +28,7 @@ use ckb_types::packed::Byte32;
 use ckb_verification::cache::init_cache;
 use p2p::SessionId as PeerIndex;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -44,7 +44,11 @@ pub struct SharedBuilder {
     async_handle: Handle,
 }
 
-pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
+pub fn open_or_create_db(
+    bin_name: &str,
+    root_dir: &Path,
+    config: &DBConfig,
+) -> Result<RocksDB, ExitCode> {
     let migrate = Migrate::new(&config.path);
 
     let mut db_exist = false;
@@ -65,7 +69,10 @@ pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
                     You can use the old version CKB if you don't want to do the migration.\n\
                     We strongly recommended you to use the latest stable version of CKB, \
                     since the old versions may have unfixed vulnerabilities.\n\
-                    Run `ckb migrate --help` for more information about migration."
+                    Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
+                    We strongly recommend that you backup the data directory before migration.",
+                    bin_name,
+                    root_dir.display()
                 );
                 return Err(ExitCode::Failure);
             }
@@ -86,11 +93,13 @@ pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
 impl SharedBuilder {
     /// Generates the base SharedBuilder with ancient path and async_handle
     pub fn new(
+        bin_name: &str,
+        root_dir: &Path,
         db_config: &DBConfig,
         ancient: Option<PathBuf>,
         async_handle: Handle,
     ) -> Result<SharedBuilder, ExitCode> {
-        let db = open_or_create_db(db_config)?;
+        let db = open_or_create_db(bin_name, root_dir, db_config)?;
 
         Ok(SharedBuilder {
             db,

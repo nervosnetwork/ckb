@@ -27,7 +27,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
-    let app_matches = cli::get_matches(&version);
+    let (bin_name, app_matches) = cli::get_bin_name_and_matches(&version);
     match app_matches.subcommand() {
         (cli::CMD_INIT, Some(matches)) => {
             return subcommand::init(Setup::init(&matches)?);
@@ -52,7 +52,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     let is_silent_logging = is_silent_logging(cmd);
 
     let (handle, _stop) = new_global_runtime();
-    let setup = Setup::from_matches(&app_matches)?;
+    let setup = Setup::from_matches(bin_name, &app_matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
