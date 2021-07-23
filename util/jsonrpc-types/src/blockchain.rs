@@ -652,9 +652,9 @@ pub struct Header {
     /// # Notice
     ///
     /// This field is renamed from `uncles_hash` since 0.100.0.
-    /// More details can be found in [CKB RFC 224].
+    /// More details can be found in [CKB RFC 0031].
     ///
-    /// [CKB RFC 224]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
     pub extra_hash: H256,
     /// DAO fields.
     ///

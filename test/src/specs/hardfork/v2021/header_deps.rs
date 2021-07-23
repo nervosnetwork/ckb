@@ -121,7 +121,7 @@ impl Spec for ImmatureHeaderDeps {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0240 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0036 = Some(CKB2021_START_EPOCH);
         }
     }
 }
