@@ -31,7 +31,7 @@ ckb-chain-spec = { path = "../spec", version = "= 0.100.0-pre" }
 goblin = "0.2"
 
 [dev-dependencies]
-proptest = "0.9"
+proptest = "1.0"
 ckb-db = { path = "../db", version = "= 0.100.0-pre" }
 ckb-store = { path = "../store", version = "= 0.100.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.100.0-pre" }
