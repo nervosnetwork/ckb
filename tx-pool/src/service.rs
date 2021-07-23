@@ -10,6 +10,7 @@ use crate::process::PlugTarget;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_channel::oneshot;
 use ckb_error::{AnyError, Error};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
@@ -31,7 +32,8 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::watch;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, RwLock};
+use tokio::task::block_in_place;
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 
@@ -171,8 +173,7 @@ impl TxPoolController {
                 e
             })?;
 
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -221,8 +222,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -242,8 +242,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        response
-            .await
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -258,8 +257,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -285,8 +283,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -304,8 +301,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -320,8 +316,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -339,8 +334,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -358,8 +352,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -374,8 +367,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -390,8 +382,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
@@ -406,8 +397,7 @@ impl TxPoolController {
                 let (_m, e) = handle_try_send_error(e);
                 e
             })?;
-        self.handle
-            .block_on(response)
+        block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }

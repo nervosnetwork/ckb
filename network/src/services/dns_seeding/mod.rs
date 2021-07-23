@@ -63,7 +63,6 @@ impl DnsSeedingService {
             .map_err(|err| format!("create PublicKey failed: {:?}", err))?;
 
         let resolver = trust_dns_resolver::AsyncResolver::tokio_from_system_conf()
-            .await
             .map_err(|err| format!("Failed to create DNS resolver: {}", err))?;
 
         let mut addrs = Vec::new();

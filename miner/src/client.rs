@@ -10,9 +10,8 @@ use ckb_types::{packed::Block, H256};
 use futures::prelude::*;
 use hyper::{
     body::{Bytes, HttpBody},
-    error::Error as HyperError,
     header::{HeaderValue, CONTENT_TYPE},
-    Body, Client as HttpClient, Method, Request, Uri,
+    Body, Client as HttpClient, Error as HyperError, Method, Request, Uri,
 };
 use jsonrpc_core::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
@@ -24,7 +23,6 @@ use std::convert::Into;
 use std::thread;
 use std::time;
 use tokio::sync::{mpsc, oneshot};
-use tokio_compat_02::FutureExt;
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
 
@@ -69,7 +67,6 @@ impl Rpc {
                         }
                         let request = match client
                             .request(req)
-                            .compat()
                             .await
                             .map(|res|res.into_body())
                         {
