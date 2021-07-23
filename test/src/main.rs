@@ -490,6 +490,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
+        Box::new(HeaderSyncCycle),
         // Test hard fork features
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),

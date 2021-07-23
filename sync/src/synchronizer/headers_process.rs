@@ -109,13 +109,11 @@ impl<'a> HeadersProcess<'a> {
 
         if headers.is_empty() {
             debug!("HeadersProcess is_empty (synchronized)");
-            let ibd = self.active_chain.is_initial_block_download();
-            if !ibd {
-                if let Some(ref mut peer_state) =
-                    self.synchronizer.peers().state.get_mut(&self.peer)
-                {
-                    peer_state.stop_headers_sync();
-                }
+            if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
+                self.synchronizer
+                    .shared()
+                    .state()
+                    .tip_synced(state.value_mut());
             }
             return Status::ok();
         }
@@ -180,6 +178,11 @@ impl<'a> HeadersProcess<'a> {
             let start = headers.last().expect("empty checked");
             self.active_chain
                 .send_getheaders_to_peer(self.nc, self.peer, start);
+        } else if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
+            self.synchronizer
+                .shared()
+                .state()
+                .tip_synced(state.value_mut());
         }
 
         // If we're in IBD, we want outbound peers that will serve us a useful
@@ -187,9 +190,7 @@ impl<'a> HeadersProcess<'a> {
         let peer_flags = self
             .synchronizer
             .peers()
-            .state
-            .get(&self.peer)
-            .map(|state| state.peer_flags)
+            .get_flag(self.peer)
             .unwrap_or_default();
         if self.active_chain.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN
