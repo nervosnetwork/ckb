@@ -83,20 +83,19 @@ function run-setup-ckb-test {
   rm -Re -Fo -ErrorAction SilentlyContinue test/target
 
   New-Item -ItemType Junction -Path test/target -Value "$($env:CARGO_TARGET_DIR ?? "$(pwd)/target")"
-  # New-Item -ItemType Junction -Path test/target -Value "$(pwd)/target"
 }
 
 function run-integration-release {
   run-submodule-init
-  run-prod
   run-setup-ckb-test
+  run-prod
   run-integration-directly
 }
 
 function run-integration {
   run-submodule-init
-  cargo build --features deadlock_detection
   run-setup-ckb-test
+  cargo build --features deadlock_detection
   run-integration-directly
 }
 
