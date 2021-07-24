@@ -21,7 +21,6 @@ allow = [
 copyleft = "deny"
 default = "deny"
 exceptions = [
-    { allow = ["BSD-3-Clause", "Zlib"], name = "adler32", version = "*" },
     { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
     { allow = ["MIT", "ISC", "OpenSSL"], name = "ring", version = "*" },
 ]

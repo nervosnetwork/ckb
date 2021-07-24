@@ -31,13 +31,13 @@ ckb-logger-service = { path = "../util/logger-service", version = "= 0.100.0-pre
 ckb-error = { path = "../error", version = "= 0.100.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.100.0-pre" }
 tempfile = "3.0"
-reqwest = { version = "0.10.9", features = ["blocking", "json"] }
+reqwest = { version = "0.11.4", features = ["blocking", "json"] }
 rand = "0.7"
 faketime = "0.2"
 serde_json = "1.0"
 lazy_static = "1.4.0"
 byteorder = "1.3.1"
-jsonrpc-core = "17.1"
+jsonrpc-core = "18.0"
 
 # Prevent this from interfering with workspaces
 [workspace]

@@ -40,7 +40,7 @@ ckb-launcher = { path = "../util/launcher", version = "= 0.100.0-pre" }
 base64 = "0.13.0"
 tempfile = "3.0"
 rayon = "1.0"
-sentry = { package = "ckb-sentry", version = "0.21.0", optional = true }
+sentry = { version = "0.23.0", optional = true }
 atty = "0.2"
 fdlimit = "0.2.1"
 
