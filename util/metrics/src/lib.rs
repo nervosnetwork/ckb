@@ -1,9 +1,8 @@
 //! A lightweight metrics facade used in CKB.
 //!
-//! The `ckb-metrics` crate is a wrapper of [`metrics`]. The crate [`ckb-metrics-service`] is the
-//! runtime which handles the metrics data in CKB.
+//! The `ckb-metrics` crate is a set of tools for metrics.
+//! The crate [`ckb-metrics-service`] is the runtime which handles the metrics data in CKB.
 //!
-//! [`metrics`]: https://docs.rs/metrics/*/metrics/index.html
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 //!
 //! ## Use
@@ -13,26 +12,29 @@
 //! ### Examples
 //!
 //! ```rust
-//! use ckb_metrics::metrics;
+//! use ckb_metrics::{metrics, Timer};
 //!
-//! # use std::time::Instant;
-//! # pub fn run_query(_: &str) -> u64 { 42 }
+//! fn run_query(_: &str) -> u64 { 42 }
+//!
 //! pub fn process(query: &str) -> u64 {
-//!     let start = Instant::now();
+//!     let timer = Timer::start();
 //!     let row_count = run_query(query);
-//!     let end = Instant::now();
-//!
-//!     metrics!(timing, "process.query_time", start, end);
+//!     metrics!(timing, "process.query_time", timer.stop());
 //!     metrics!(counter, "process.query_row_count", row_count);
-//!
 //!     row_count
 //! }
-//! # fn main() {}
 //! ```
 
+use opentelemetry::metrics::Meter;
 use std::time::{Duration, Instant};
 
-pub use metrics::{self as internal, SetRecorderError};
+#[doc(hidden)]
+pub use opentelemetry as internal;
+
+/// Returns a global meter.
+pub fn global_meter() -> Meter {
+    opentelemetry::global::meter("ckb-metrics")
+}
 
 /// A simple timer which is used to time how much time elapsed.
 pub struct Timer(Instant);
@@ -49,12 +51,31 @@ impl Timer {
     }
 }
 
-/// Reexports the macros from the crate `metrics`.
+/// Out-of-the-box macros for metrics.
 ///
-/// See the list of available [metrics types](https://docs.rs/metrics/*/metrics/index.html#macros).
+/// - A counter is a cumulative metric that represents a monotonically increasing value which
+///   can only be increased or be reset to zero on restart.
+/// - A gauge is a metric that can go up and down, arbitrarily, over time.
+/// - A timing is a metric of time consumed.
+// Since the APIs of opentelemetry<=0.15.0 is not stable, so just let them be compatible with metrics=0.12.1.
 #[macro_export(local_inner_macros)]
 macro_rules! metrics {
-    ($type:ident, $( $args:tt )*) => {
-        $crate::internal::$type!($( $args )*);
-    }
+    (counter, $label:literal, $value:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
+        $crate::global_meter()
+            .u64_counter($label)
+            .init()
+            .add($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
+    };
+    (gauge, $label:literal, $value:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
+        $crate::global_meter()
+            .i64_value_recorder($label)
+            .init()
+            .record($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
+    };
+    (timing, $label:literal, $duration:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
+        $crate::global_meter()
+            .f64_value_recorder($label)
+            .init()
+            .record($duration.as_secs_f64(), &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
+    };
 }

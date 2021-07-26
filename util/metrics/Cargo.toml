@@ -9,4 +9,4 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-metrics = "0.12.1"
+opentelemetry = { version = "0.15", default-features=false, features = ["metrics"] }
