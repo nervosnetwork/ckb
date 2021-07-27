@@ -1,5 +1,6 @@
 use ckb_app_config::{ExitCode, MigrateArgs};
 use ckb_launcher::migrate::Migrate;
+use std::cmp::Ordering;
 
 use crate::helper::prompt;
 
@@ -13,15 +14,25 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         })?;
 
         if let Some(db) = read_only_db {
+            let db_status = migrate.check(&db);
+            if matches!(db_status, Ordering::Greater) {
+                eprintln!(
+                    "The database is created by a higher version CKB executable binary, \n\
+                     so that the current CKB executable binary couldn't open this database.\n\
+                     Please download the latest CKB executable binary."
+                );
+                return Err(ExitCode::Failure);
+            }
+
             if args.check {
-                if migrate.check(&db) {
+                if matches!(db_status, Ordering::Less) {
                     return Ok(());
                 } else {
                     return Err(ExitCode::Cli);
                 }
             }
 
-            if !migrate.check(&db) {
+            if matches!(db_status, Ordering::Equal) {
                 return Ok(());
             }
 
