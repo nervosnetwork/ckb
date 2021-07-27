@@ -2,9 +2,10 @@
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::{error, info};
+use ckb_logger::{debug, error, info};
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,10 +33,15 @@ impl Migrations {
             .insert(migration.version().to_string(), migration);
     }
 
-    /// Check whether database requires migration
+    /// Check if database's version is matched with the executable binary version.
     ///
-    /// Return true if migration is required
-    pub fn check(&self, db: &ReadOnlyDB) -> bool {
+    /// Returns
+    /// - Less: The database version is less than the matched version of the executable binary.
+    ///   Requires migration.
+    /// - Equal: The database version is matched with the executable binary version.
+    /// - Greater: The database version is greater than the matched version of the executable binary.
+    ///   Requires upgrade the executable binary.
+    pub fn check(&self, db: &ReadOnlyDB) -> Ordering {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -46,15 +52,24 @@ impl Migrations {
             None => {
                 // if version is none, but db is not empty
                 // patch 220464f
-                return self.is_non_empty_rdb(db);
+                if self.is_non_empty_rdb(db) {
+                    return Ordering::Less;
+                } else {
+                    return Ordering::Equal;
+                }
             }
         };
+        debug!("current database version [{}]", db_version);
 
-        self.migrations
+        let latest_version = self
+            .migrations
             .values()
             .last()
-            .map(|m| m.version() > db_version.as_str())
-            .unwrap_or(false)
+            .unwrap_or_else(|| panic!("should have at least one version"))
+            .version();
+        debug!("latest  database version [{}]", latest_version);
+
+        db_version.as_str().cmp(latest_version)
     }
 
     /// Check if the migrations will consume a lot of time.
