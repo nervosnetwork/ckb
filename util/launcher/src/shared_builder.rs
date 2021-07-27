@@ -13,6 +13,7 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
+use ckb_logger::info;
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
@@ -82,6 +83,20 @@ pub fn open_or_create_db(
                     );
                     Err(ExitCode::Failure)
                 } else {
+                    info!("process fast migrations ...");
+
+                    let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
+                        eprintln!("migrate error {}", e);
+                        ExitCode::Failure
+                    })?;
+
+                    if let Some(db) = bulk_load_db_db {
+                        migrate.migrate(db).map_err(|err| {
+                            eprintln!("Run error: {:?}", err);
+                            ExitCode::Failure
+                        })?;
+                    }
+
                     Ok(RocksDB::open(config, COLUMNS))
                 }
             }
