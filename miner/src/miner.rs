@@ -123,7 +123,11 @@ impl Miner {
                 .raw(raw_header)
                 .nonce(nonce.pack())
                 .build();
-            let block = work.block.as_builder().header(header).build().into_view();
+            let block = work
+                .block
+                .as_advanced_builder()
+                .header(header.into_view())
+                .build();
             let block_hash = block.hash();
             if self.stderr_is_tty {
                 debug!("Found! #{} {:#x}", block.number(), block_hash);
