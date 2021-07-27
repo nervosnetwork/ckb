@@ -170,7 +170,7 @@ impl Spec for CheckBlockExtension {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0224 = Some(2);
+            switch.rfc_0031 = Some(2);
         }
     }
 }

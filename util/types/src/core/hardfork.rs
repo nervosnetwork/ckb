@@ -94,12 +94,12 @@ macro_rules! define_methods {
 /// [`HardForkSwitchBuilder`]:  struct.HardForkSwitchBuilder.html
 #[derive(Debug, Clone)]
 pub struct HardForkSwitch {
-    rfc_0221: EpochNumber,
-    rfc_0222: EpochNumber,
-    rfc_0223: EpochNumber,
-    rfc_0224: EpochNumber,
-    rfc_0232: EpochNumber,
-    rfc_0240: EpochNumber,
+    rfc_0028: EpochNumber,
+    rfc_0029: EpochNumber,
+    rfc_0030: EpochNumber,
+    rfc_0031: EpochNumber,
+    rfc_0032: EpochNumber,
+    rfc_0036: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -107,32 +107,40 @@ pub struct HardForkSwitch {
 /// [`HardForkSwitch`]:  struct.HardForkSwitch.html
 #[derive(Debug, Clone, Default)]
 pub struct HardForkSwitchBuilder {
-    /// Use the input cell creation block timestamp as start time in the
-    /// "relative since timestamp".
+    /// Use input cell committing block timestamp as the start time for the relative timestamp in `since`.
     ///
-    /// Ref: [CKB RFC 221](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0221-change-since-relative-timestamp/0221-change-since-relative-timestamp.md)
-    pub rfc_0221: Option<EpochNumber>,
-    /// Allow script multiple matches on identical data for type hash-type scripts.
+    /// Ref: [CKB RFC 0028](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0028-change-since-relative-timestamp/0028-change-since-relative-timestamp.md)
+    pub rfc_0028: Option<EpochNumber>,
+    /// Allow Multiple Cell Dep Matches When There Is No Ambiguity.
     ///
-    /// Ref: [CKB RFC 222](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0222-allow-script-multiple-matches-on-identical-code/0222-allow-script-multiple-matches-on-identical-code.md)
-    pub rfc_0222: Option<EpochNumber>,
-    /// In the "since epoch", the index should be less than length and
-    /// the length should be greater than zero.
+    /// Ref: [CKB RFC 0029](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0029-allow-script-multiple-matches-on-identical-code/0029-allow-script-multiple-matches-on-identical-code.md)
+    pub rfc_0029: Option<EpochNumber>,
+    /// Ensure That Index Is Less Than Length In the Input Since Field Using Epoch With Fraction.
     ///
-    /// Ref: [CKB RFC 223](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0223-ensure-index-less-than-length-in-since/0223-ensure-index-less-than-length-in-since.md)
-    pub rfc_0223: Option<EpochNumber>,
-    /// Reuse `uncles_hash` in the header as `extra_hash`.
+    /// Ref: [CKB RFC 0030](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0030-ensure-index-less-than-length-in-since/0030-ensure-index-less-than-length-in-since.md)
+    pub rfc_0030: Option<EpochNumber>,
+    /// Add a variable length field in the block: reuse `uncles_hash` in the header as `extra_hash`.
     ///
-    /// Ref: [CKB RFC 224](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md)
-    pub rfc_0224: Option<EpochNumber>,
-    /// CKB VM version selection, vm version 1 and syscalls 2.
+    /// Ref: [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md)
+    pub rfc_0031: Option<EpochNumber>,
+    /// CKB VM Version Selection.
     ///
-    /// Ref: [CKB RFC 232](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0232-ckb-vm-version-selection/0232-ckb-vm-version-selection.md)
-    pub rfc_0232: Option<EpochNumber>,
-    /// Remove the header deps immature rule.
+    /// This feature include 4 parts:
+    /// - CKB VM Version Selection.
+    /// - CKB VM version 1.
+    /// - CKB VM Syscalls 2.
+    /// - P2P protocol upgrade.
     ///
-    /// Ref: [CKB RFC 240](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0240-remove-header-deps-immature-rule/0240-remove-header-deps-immature-rule.md)
-    pub rfc_0240: Option<EpochNumber>,
+    /// Ref:
+    /// - [CKB RFC 0032](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0032-ckb-vm-version-selection/0032-ckb-vm-version-selection.md)
+    /// - [CKB RFC 0033](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0033-ckb-vm-version-1/0033-ckb-vm-version-1.md)
+    /// - [CKB RFC 0034](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0034-vm-syscalls-2/0034-vm-syscalls-2.md)
+    /// - [CKB RFC 0035](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0035-ckb2021-p2p-protocol-upgrade/0035-ckb2021-p2p-protocol-upgrade.md)
+    pub rfc_0032: Option<EpochNumber>,
+    /// Remove Header Deps Immature Rule.
+    ///
+    /// Ref: [CKB RFC 0036](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0036-remove-header-deps-immature-rule/0036-remove-header-deps-immature-rule.md)
+    pub rfc_0036: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -144,24 +152,24 @@ impl HardForkSwitch {
     /// Creates a new builder based on the current instance.
     pub fn as_builder(&self) -> HardForkSwitchBuilder {
         Self::new_builder()
-            .rfc_0221(self.rfc_0221())
-            .rfc_0222(self.rfc_0222())
-            .rfc_0223(self.rfc_0223())
-            .rfc_0224(self.rfc_0224())
-            .rfc_0232(self.rfc_0232())
-            .rfc_0240(self.rfc_0240())
+            .rfc_0028(self.rfc_0028())
+            .rfc_0029(self.rfc_0029())
+            .rfc_0030(self.rfc_0030())
+            .rfc_0031(self.rfc_0031())
+            .rfc_0032(self.rfc_0032())
+            .rfc_0036(self.rfc_0036())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
     pub fn new_without_any_enabled() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
-            .disable_rfc_0221()
-            .disable_rfc_0222()
-            .disable_rfc_0223()
-            .disable_rfc_0224()
-            .disable_rfc_0232()
-            .disable_rfc_0240()
+            .disable_rfc_0028()
+            .disable_rfc_0029()
+            .disable_rfc_0030()
+            .disable_rfc_0031()
+            .disable_rfc_0032()
+            .disable_rfc_0036()
             .build()
             .unwrap()
     }
@@ -169,7 +177,7 @@ impl HardForkSwitch {
     /// Returns a vector of epoch numbers, and there are new features which
     /// require refrese tx-pool caches will be enabled at those epochs.
     pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {
-        let mut epochs = vec![self.rfc_0232()];
+        let mut epochs = vec![self.rfc_0032()];
         // In future, there could be more than one epoch,
         // we should merge the same epochs and sort all epochs.
         //epochs.sort_unstable();
@@ -180,46 +188,46 @@ impl HardForkSwitch {
 }
 
 define_methods!(
-    rfc_0221,
+    rfc_0028,
     block_ts_as_relative_since_start,
     is_block_ts_as_relative_since_start_enabled,
-    disable_rfc_0221,
-    "RFC PR 0221"
+    disable_rfc_0028,
+    "RFC PR 0028"
 );
 define_methods!(
-    rfc_0222,
+    rfc_0029,
     allow_multiple_matches_on_identical_data,
     is_allow_multiple_matches_on_identical_data_enabled,
-    disable_rfc_0222,
-    "RFC PR 0222"
+    disable_rfc_0029,
+    "RFC PR 0029"
 );
 define_methods!(
-    rfc_0223,
+    rfc_0030,
     check_length_in_epoch_since,
     is_check_length_in_epoch_since_enabled,
-    disable_rfc_0223,
-    "RFC PR 0223"
+    disable_rfc_0030,
+    "RFC PR 0030"
 );
 define_methods!(
-    rfc_0224,
+    rfc_0031,
     reuse_uncles_hash_as_extra_hash,
     is_reuse_uncles_hash_as_extra_hash_enabled,
-    disable_rfc_0224,
-    "RFC PR 0224"
+    disable_rfc_0031,
+    "RFC PR 0031"
 );
 define_methods!(
-    rfc_0232,
+    rfc_0032,
     vm_version_1_and_syscalls_2,
     is_vm_version_1_and_syscalls_2_enabled,
-    disable_rfc_0232,
-    "RFC PR 0232"
+    disable_rfc_0032,
+    "RFC PR 0032"
 );
 define_methods!(
-    rfc_0240,
+    rfc_0036,
     remove_header_deps_immature_rule,
     is_remove_header_deps_immature_rule_enabled,
-    disable_rfc_0240,
-    "RFC PR 0240"
+    disable_rfc_0036,
+    "RFC PR 0036"
 );
 
 impl HardForkSwitchBuilder {
@@ -237,20 +245,20 @@ impl HardForkSwitchBuilder {
                 })?;
             };
         }
-        let rfc_0221 = try_find!(rfc_0221);
-        let rfc_0222 = try_find!(rfc_0222);
-        let rfc_0223 = try_find!(rfc_0223);
-        let rfc_0224 = try_find!(rfc_0224);
-        let rfc_0232 = try_find!(rfc_0232);
-        let rfc_0240 = try_find!(rfc_0240);
+        let rfc_0028 = try_find!(rfc_0028);
+        let rfc_0029 = try_find!(rfc_0029);
+        let rfc_0030 = try_find!(rfc_0030);
+        let rfc_0031 = try_find!(rfc_0031);
+        let rfc_0032 = try_find!(rfc_0032);
+        let rfc_0036 = try_find!(rfc_0036);
 
         Ok(HardForkSwitch {
-            rfc_0221,
-            rfc_0222,
-            rfc_0223,
-            rfc_0224,
-            rfc_0232,
-            rfc_0240,
+            rfc_0028,
+            rfc_0029,
+            rfc_0030,
+            rfc_0031,
+            rfc_0032,
+            rfc_0036,
         })
     }
 }
