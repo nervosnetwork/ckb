@@ -670,7 +670,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
                             debug!(
-                                "evict peer (disonnect it), {} => {}",
+                                "evict peer (disconnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.connected_addr,
                             );
                             if let Err(err) = disconnect_with_message(

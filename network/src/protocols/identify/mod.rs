@@ -19,6 +19,7 @@ mod protocol;
 
 use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols};
 use ckb_types::{packed, prelude::*};
+use std::sync::atomic::Ordering;
 
 use protocol::IdentifyMessage;
 
@@ -59,7 +60,7 @@ impl MisbehaveResult {
 /// The trait to communicate with underlying peer storage
 pub trait Callback: Clone + Send {
     // Register open protocol
-    fn register(&self, id: SessionId, pid: ProtocolId, version: &str);
+    fn register(&self, context: &ProtocolContextMutRef, version: &str);
     // remove registered identify protocol
     fn unregister(&self, id: SessionId, pid: ProtocolId);
     /// Received custom message
@@ -229,8 +230,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             return;
         }
 
-        self.callback
-            .register(session.id, context.proto_id, version);
+        self.callback.register(&context, version);
 
         let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
         trace!("IdentifyProtocol sconnected from {:?}", remote_info.peer_id);
@@ -361,12 +361,23 @@ impl IdentifyCallback {
 }
 
 impl Callback for IdentifyCallback {
-    fn register(&self, id: SessionId, pid: ProtocolId, version: &str) {
+    fn register(&self, context: &ProtocolContextMutRef, version: &str) {
         self.network_state.with_peer_registry_mut(|reg| {
-            reg.get_peer_mut(id).map(|peer| {
-                peer.protocols.insert(pid, version.to_owned());
+            reg.get_peer_mut(context.session.id).map(|peer| {
+                peer.protocols.insert(context.proto_id, version.to_owned());
             })
         });
+        if self.network_state.ckb2021.load(Ordering::SeqCst) && version != "2" {
+            self.network_state
+                .peer_store
+                .lock()
+                .mut_addr_manager()
+                .remove(&context.session.address);
+        } else if context.session.ty.is_outbound() {
+            self.network_state.with_peer_store_mut(|peer_store| {
+                peer_store.add_outbound_addr(context.session.address.clone());
+            });
+        }
     }
 
     fn unregister(&self, id: SessionId, pid: ProtocolId) {
