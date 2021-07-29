@@ -46,7 +46,7 @@ pub const NOT_IBD_BLOCK_FETCH_TOKEN: u64 = 2;
 pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 
-const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
+const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -388,9 +388,8 @@ impl Synchronizer {
             if let Some(ref mut controller) = state.headers_sync_controller {
                 let better_tip_ts = better_tip_header.timestamp();
                 if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
-                    if is_timeout && !state.disconnect {
+                    if is_timeout {
                         eviction.push(*peer);
-                        state.disconnect = true;
                         continue;
                     }
                 } else {
@@ -434,12 +433,11 @@ impl Synchronizer {
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
                         if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
-                            if state.sync_started {
+                            if state.sync_started() {
                                 self.shared().state().suspend_sync(state);
                             }
                         } else {
                             eviction.push(*peer);
-                            state.disconnect = true;
                         }
                     } else {
                         state.chain_sync.sent_getheaders = true;
@@ -474,9 +472,8 @@ impl Synchronizer {
             .state
             .read()
             .iter()
-            .filter(|(_, state)| state.can_sync(now, ibd))
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
+            .filter(|kv_pair| kv_pair.1.can_start_sync(now, ibd))
+            .map(|kv_pair| *kv_pair.0)
             .collect();
 
         if peers.is_empty() {
@@ -498,15 +495,12 @@ impl Synchronizer {
                 break;
             }
             {
-                let mut state = self.peers().state.write();
-                if let Some(peer_state) = state.get_mut(&peer) {
-                    if !peer_state.sync_started {
-                        peer_state.start_sync(HeadersSyncController::from_header(&tip));
-                        self.shared()
-                            .state()
-                            .n_sync_started()
-                            .fetch_add(1, Ordering::Release);
-                    }
+                if let Some(peer_state) = self.peers().state.write().get_mut(&peer) {
+                    peer_state.start_sync(HeadersSyncController::from_header(&tip));
+                    self.shared()
+                        .state()
+                        .n_sync_started()
+                        .fetch_add(1, Ordering::Release);
                 }
             }
 
@@ -541,7 +535,7 @@ impl Synchronizer {
                             || state.peer_flags.is_whitelist
                             || state.peer_flags.is_protect
                     }
-                    IBDState::Out => state.sync_started,
+                    IBDState::Out => state.started_or_tip_synced(),
                 }
             })
             .map(|(peer_id, _)| peer_id)
@@ -726,7 +720,7 @@ impl CKBProtocolHandler for Synchronizer {
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);
 
-            if peer_state.sync_started {
+            if peer_state.sync_started() {
                 // It shouldn't happen
                 // fetch_sub wraps around on overflow, we still check manually
                 // panic here to prevent some bug be hidden silently.
@@ -1567,7 +1561,11 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 still in sync state
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
                 true
             );
             assert_eq!(
@@ -1660,7 +1658,11 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 chain_sync timeout
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
                 false
             );
             assert_eq!(

@@ -76,7 +76,62 @@ pub struct ChainSyncState {
     pub work_header: Option<core::HeaderView>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
-    pub not_sync_until: Option<u64>,
+    headers_sync_state: HeadersSyncState,
+}
+
+impl ChainSyncState {
+    fn can_start_sync(&self, now: u64) -> bool {
+        match self.headers_sync_state {
+            HeadersSyncState::Initialized => false,
+            HeadersSyncState::SyncProtocolConnected => true,
+            HeadersSyncState::Started => false,
+            HeadersSyncState::Suspend(until) | HeadersSyncState::TipSynced(until) => until < now,
+        }
+    }
+
+    fn connected(&mut self) {
+        self.headers_sync_state = HeadersSyncState::SyncProtocolConnected;
+    }
+
+    fn start(&mut self) {
+        self.headers_sync_state = HeadersSyncState::Started
+    }
+
+    fn suspend(&mut self, until: u64) {
+        self.headers_sync_state = HeadersSyncState::Suspend(until)
+    }
+
+    fn tip_synced(&mut self) {
+        let now = unix_time_as_millis();
+        // use avg block interval: (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2 = 28
+        self.headers_sync_state = HeadersSyncState::TipSynced(now + 28000);
+    }
+
+    fn started(&self) -> bool {
+        matches!(self.headers_sync_state, HeadersSyncState::Started)
+    }
+
+    fn started_or_tip_synced(&self) -> bool {
+        matches!(
+            self.headers_sync_state,
+            HeadersSyncState::Started | HeadersSyncState::TipSynced(_)
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+enum HeadersSyncState {
+    Initialized,
+    SyncProtocolConnected,
+    Started,
+    Suspend(u64), // suspend headers sync until this timestamp (milliseconds since unix epoch)
+    TipSynced(u64), // already synced to the end, not as the sync target for the time being, until the pause time is exceeded
+}
+
+impl Default for HeadersSyncState {
+    fn default() -> Self {
+        HeadersSyncState::Initialized
+    }
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -211,12 +266,8 @@ impl HeadersSyncController {
 
 #[derive(Clone, Default, Debug)]
 pub struct PeerState {
-    // only use on header sync
-    pub sync_started: bool,
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
-    sync_connected: bool,
-    pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
     tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
@@ -234,11 +285,8 @@ pub struct PeerState {
 impl PeerState {
     pub fn new(peer_flags: PeerFlags) -> PeerState {
         PeerState {
-            sync_started: false,
             headers_sync_controller: None,
             peer_flags,
-            sync_connected: false,
-            disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::new(),
@@ -248,33 +296,38 @@ impl PeerState {
         }
     }
 
-    pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
+    pub fn can_start_sync(&self, now: u64, ibd: bool) -> bool {
         // only sync with protect/whitelist peer in IBD
-        self.sync_connected
-            && ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
-            && !self.sync_started
-            && self
-                .chain_sync
-                .not_sync_until
-                .map(|ts| ts < now)
-                .unwrap_or(true)
+        ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
+            && self.chain_sync.can_start_sync(now)
     }
 
     pub fn start_sync(&mut self, headers_sync_controller: HeadersSyncController) {
-        self.sync_started = true;
-        self.chain_sync.not_sync_until = None;
+        self.chain_sync.start();
         self.headers_sync_controller = Some(headers_sync_controller);
     }
 
-    pub fn suspend_sync(&mut self, suspend_time: u64) {
+    fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
-        self.sync_started = false;
-        self.chain_sync.not_sync_until = Some(now + suspend_time);
-        self.stop_headers_sync();
+        self.chain_sync.suspend(now + suspend_time);
+        self.headers_sync_controller = None;
     }
 
-    pub(crate) fn stop_headers_sync(&mut self) {
+    fn tip_synced(&mut self) {
+        self.chain_sync.tip_synced();
         self.headers_sync_controller = None;
+    }
+
+    pub(crate) fn sync_started(&self) -> bool {
+        self.chain_sync.started()
+    }
+
+    pub(crate) fn started_or_tip_synced(&self) -> bool {
+        self.chain_sync.started_or_tip_synced()
+    }
+
+    pub(crate) fn sync_connected(&mut self) {
+        self.chain_sync.connected()
     }
 
     pub fn add_ask_for_tx(
@@ -879,11 +932,11 @@ impl Peers {
             .entry(peer)
             .and_modify(|state| {
                 state.peer_flags = peer_flags;
-                state.sync_connected = true;
+                state.sync_connected();
             })
             .or_insert_with(|| {
                 let mut state = PeerState::new(peer_flags);
-                state.sync_connected = true;
+                state.sync_connected();
                 state
             });
     }
@@ -1598,11 +1651,12 @@ impl SyncState {
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
         peer_state.suspend_sync(SUSPEND_SYNC_TIME);
-        assert_ne!(
-            self.n_sync_started().fetch_sub(1, Ordering::Release),
-            0,
-            "n_sync_started overflow when suspend_sync"
-        );
+        self.n_sync_started().fetch_sub(1, Ordering::Release);
+    }
+
+    pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
+        peer_state.tip_synced();
+        self.n_sync_started().fetch_sub(1, Ordering::Release);
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {

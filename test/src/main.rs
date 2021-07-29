@@ -489,6 +489,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
         Box::new(DuplicateCellDeps),
+        Box::new(HeaderSyncCycle),
     ];
     specs.shuffle(&mut thread_rng());
     specs

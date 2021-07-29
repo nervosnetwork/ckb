@@ -10,7 +10,7 @@ use ckb_logger::info;
 use ckb_network::{bytes::Bytes, extract_peer_id, SupportProtocols};
 use ckb_types::{
     core::BlockView,
-    packed::{self, Byte32, SyncMessage},
+    packed::{self, Byte32, SendHeaders, SyncMessage},
     prelude::*,
 };
 use std::time::Duration;
@@ -457,6 +457,48 @@ impl Spec for SyncTooNewBlock {
             header0 == header1 && header1.inner.number.value() == 8
         });
         assert!(ret, "Node1 should not ban Node0",);
+    }
+}
+
+pub struct HeaderSyncCycle;
+
+impl Spec for HeaderSyncCycle {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        out_ibd_mode(nodes);
+
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
+        net.connect(node0);
+
+        let send_headers = SendHeaders::new_builder()
+            .headers(Vec::new().pack())
+            .build();
+
+        let msg = SyncMessage::new_builder()
+            .set(send_headers)
+            .build()
+            .as_bytes();
+
+        let ret = net.should_receive(node0, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| matches!(message.to_enum(), packed::SyncMessageUnion::GetHeaders(_)))
+                .unwrap_or(false)
+        });
+        assert!(ret, "Test node should receive Getheader message from node");
+
+        net.send(node0, SupportProtocols::Sync, msg);
+
+        let ret = net.should_receive(node0, |data: &Bytes| {
+            SyncMessage::from_slice(&data)
+                .map(|message| matches!(message.to_enum(), packed::SyncMessageUnion::GetHeaders(_)))
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Test node should receive Getheader message from node twice"
+        );
     }
 }
 
