@@ -524,6 +524,7 @@ impl packed::Block {
                     .collect::<Vec<_>>(),
             )
             .proposals(self.proposals().into_iter().collect::<Vec<_>>())
+            .extension(self.extension())
     }
 }
 
