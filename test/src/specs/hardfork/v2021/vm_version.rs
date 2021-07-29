@@ -16,7 +16,6 @@ use ckb_types::{
 };
 use std::fmt;
 
-// TODO ckb2021 how to test malformed hash type?
 const RPC_MAX_VM_VERSION: u8 = 1;
 const MAX_VM_VERSION: u8 = 1;
 

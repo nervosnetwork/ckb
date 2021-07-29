@@ -642,7 +642,6 @@ pub struct Header {
     ///
     /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
     pub proposals_hash: H256,
-    // TODO ckb2021 Update the rfc number and fix the link, after the proposal is merged.
     /// The hash on `uncles` and extension in the block body.
     ///
     /// The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.

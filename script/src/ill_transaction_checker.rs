@@ -33,8 +33,9 @@ impl<'a> IllTransactionChecker<'a> {
         let proposal_window = self.consensus.tx_proposal_window();
         let epoch_number = self.tx_env.epoch_number(proposal_window);
         let hardfork_switch = self.consensus.hardfork_switch();
-        // TODO ckb2021 require-confirmation We couldn't known if user run the code in vm v0 or vm v1.
+        // Assume that after ckb2021 is activated, developers will only upload code for vm v1.
         if !hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number) {
+            // IllTransactionChecker is only for vm v0
             for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
                 IllScriptChecker::new(&data.raw_data(), i).check()?;
             }
