@@ -2,11 +2,18 @@ name: CI workflow
 
 concurrency:
   group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
   push:
+    branches:
+      - master
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,37 +27,19 @@ jobs:
   if-workflow-is-required:
     name: Check If Current Workflow is Required
     if: |
-      contains(github.event_name, 'pull_request')
-      || (github.repository_owner == 'nervosnetwork'
-          && ! contains(github.event.head_commit.message, 'disable self-hosted ci')
-          && ( contains('refs/heads/master,
-                         refs/heads/develop,
-                         refs/heads/trying,
-                         refs/heads/staging', github.ref)
-              || startsWith(github.ref, 'refs/heads/rc/')))
+      (  contains(github.event_name, 'pull_request')
+      || (  github.repository_owner == 'nervosnetwork'
+         && ! contains(github.event.head_commit.message, 'disable self-hosted ci')
+         )
       || contains(github.event.head_commit.message, 'enable self-hosted ci')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Succeeded
-        run: exit 0
-
-  if-simple-tests-enabled:
-    name: Check If Simple Tests is Enabled
-    needs: if-workflow-is-required
-    if: |
-      contains(github.event_name, 'pull_request')
-      || contains('refs/heads/master,
-                   refs/heads/trying,
-                   refs/heads/staging', github.ref)
-      || (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]')
-      || contains(github.event.head_commit.message, 'enable self-hosted ci')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Succeeded
         run: exit 0
 
   UnitTest:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -73,7 +62,7 @@ jobs:
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Integration_Test:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -107,7 +96,7 @@ jobs:
       BUILD_BUILDID: ${{ github.run_id }}
 
   Benchmarks_Test:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -124,7 +113,7 @@ jobs:
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Linters:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -145,7 +134,7 @@ jobs:
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Quick_Check:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -163,7 +152,7 @@ jobs:
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   WASM_build:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -178,7 +167,7 @@ jobs:
         clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Security_Audit_Licenses:
-    needs: if-simple-tests-enabled
+    needs: if-workflow-is-required
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
