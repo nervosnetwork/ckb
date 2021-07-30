@@ -108,7 +108,7 @@ fn net_service_start(name: String) -> Node {
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
         bootnode_mode: true,
-        reuse: true,
+        reuse_port_on_linux: true,
         ..Default::default()
     };
 

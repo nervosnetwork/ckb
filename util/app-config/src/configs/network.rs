@@ -78,7 +78,7 @@ pub struct Config {
     pub max_send_buffer: Option<usize>,
     /// Network use reuse port or not
     #[serde(default = "default_reuse")]
-    pub reuse: bool,
+    pub reuse_port_on_linux: bool,
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,

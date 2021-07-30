@@ -860,7 +860,7 @@ impl<T: ExitHandler> NetworkService<T> {
 
         #[cfg(target_os = "linux")]
         let p2p_service = {
-            if config.reuse {
+            if config.reuse_port_on_linux {
                 let iter = config.listen_addresses.iter();
 
                 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
