@@ -138,7 +138,7 @@ impl RocksDB {
                         See https://github.com/facebook/rocksdb/wiki/RocksDB-Repairer for detail",
                         err_str
                     );
-                    Err(internal_error("DB corrupted"))
+                    Err(internal_error(err_str))
                 } else {
                     Err(internal_error(format!(
                         "failed to open the database: {}",

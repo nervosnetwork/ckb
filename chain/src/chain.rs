@@ -730,6 +730,7 @@ impl ChainService {
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
+                                    None,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()

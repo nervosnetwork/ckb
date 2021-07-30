@@ -889,9 +889,14 @@ mod tests {
         let cellbase = create_cellbase(shared, parent_header, number);
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
-            let resolved_cellbase =
-                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
-                    .unwrap();
+            let resolved_cellbase = resolve_transaction(
+                cellbase.clone(),
+                &mut HashSet::new(),
+                snapshot,
+                snapshot,
+                None,
+            )
+            .unwrap();
             let data_loader = shared.store().as_data_provider();
             DaoCalculator::new(shared.consensus(), &data_loader)
                 .dao_field(&[resolved_cellbase], parent_header)

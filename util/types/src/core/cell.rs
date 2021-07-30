@@ -607,10 +607,10 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
     let dep_group_cell = cell_resolver(out_point, true)?;
     let data = dep_group_cell
         .mem_cell_data
-        .clone()
+        .as_ref()
         .expect("Load cell meta must with data");
 
-    let sub_out_points = parse_dep_group_data(&data)
+    let sub_out_points = parse_dep_group_data(data)
         .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
@@ -619,12 +619,13 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
     Ok((dep_group_cell, resolved_deps))
 }
 
-/// TODO(doc): @quake
+/// Resolve all cell meta from db base on the transaction
 pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
+    max_dep_expansion_count: Option<usize>,
 ) -> Result<ResolvedTransaction, OutPointError> {
     let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
@@ -671,6 +672,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
         &mut resolve_cell,
         &mut resolved_cell_deps,
         &mut resolved_dep_groups,
+        max_dep_expansion_count,
     )?;
 
     for block_hash in transaction.header_deps_iter() {
@@ -693,16 +695,26 @@ fn resolve_transaction_deps_with_system_cell_cache<
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
+    max_dep_expansion_count: Option<usize>,
 ) -> Result<(), OutPointError> {
+    let mut remaining_dep_slots = max_dep_expansion_count.unwrap_or(usize::MAX);
     if let Some(system_cell) = SYSTEM_CELL.get() {
         for cell_dep in transaction.cell_deps_iter() {
             if let Some(resolved_dep) = system_cell.get(&cell_dep) {
                 match resolved_dep {
-                    ResolvedDep::Cell(cell_meta) => resolved_cell_deps.push(cell_meta.clone()),
+                    ResolvedDep::Cell(cell_meta) => {
+                        resolved_cell_deps.push(cell_meta.clone());
+                        remaining_dep_slots = remaining_dep_slots
+                            .checked_sub(1)
+                            .ok_or(OutPointError::ReachMaxDepExpansionCount)?;
+                    }
                     ResolvedDep::Group(group) => {
                         let (dep_group, cell_deps) = group;
                         resolved_dep_groups.push(dep_group.clone());
                         resolved_cell_deps.extend(cell_deps.clone());
+                        remaining_dep_slots = remaining_dep_slots
+                            .checked_sub(cell_deps.len())
+                            .ok_or(OutPointError::ReachMaxDepExpansionCount)?;
                     }
                 }
             } else {
@@ -712,6 +724,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
                     resolved_cell_deps,
                     resolved_dep_groups,
                     false, // don't eager_load data
+                    &mut remaining_dep_slots,
                 )?;
             }
         }
@@ -723,6 +736,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
                 resolved_cell_deps,
                 resolved_dep_groups,
                 false, // don't eager_load data
+                &mut remaining_dep_slots,
             )?;
         }
     }
@@ -735,13 +749,31 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
     eager_load: bool,
+    remaining_dep_slots: &mut usize,
 ) -> Result<(), OutPointError> {
     if cell_dep.dep_type() == DepType::DepGroup.into() {
-        let (dep_group, cell_deps) =
-            resolve_dep_group(&cell_dep.out_point(), cell_resolver, eager_load)?;
+        let outpoint = cell_dep.out_point();
+        let dep_group = cell_resolver(&outpoint, true)?;
+        let data = dep_group
+            .mem_cell_data
+            .as_ref()
+            .expect("Load cell meta must with data");
+        let sub_out_points =
+            parse_dep_group_data(data).map_err(|_| OutPointError::InvalidDepGroup(outpoint))?;
+
+        *remaining_dep_slots = remaining_dep_slots
+            .checked_sub(sub_out_points.len())
+            .ok_or(OutPointError::ReachMaxDepExpansionCount)?;
+
+        for sub_out_point in sub_out_points.into_iter() {
+            resolved_cell_deps.push(cell_resolver(&sub_out_point, eager_load)?);
+        }
         resolved_dep_groups.push(dep_group);
-        resolved_cell_deps.extend(cell_deps);
     } else {
+        *remaining_dep_slots = remaining_dep_slots
+            .checked_sub(1)
+            .ok_or(OutPointError::ReachMaxDepExpansionCount)?;
+
         resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), eager_load)?);
     }
     Ok(())
@@ -970,6 +1002,7 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
+            None,
         )
         .unwrap();
 
@@ -1003,6 +1036,7 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
+            None,
         );
         assert_error_eq!(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
@@ -1032,6 +1066,7 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
+            None,
         );
         assert_error_eq!(result.unwrap_err(), OutPointError::Unknown(op_unknown),);
     }
@@ -1058,6 +1093,7 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
+            None,
         );
 
         assert!(result.is_ok());
@@ -1084,6 +1120,7 @@ mod tests {
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
+            None,
         );
 
         assert_error_eq!(
@@ -1176,8 +1213,8 @@ mod tests {
             .build();
 
         let mut seen_inputs = HashSet::new();
-        let rtx =
-            resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker).unwrap();
+        let rtx = resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker, None)
+            .unwrap();
 
         assert_eq!(rtx.resolved_cell_deps[0], dummy_cell_meta,);
     }
@@ -1205,11 +1242,11 @@ mod tests {
 
             let mut seen_inputs = HashSet::new();
             let result1 =
-                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker, None);
             assert!(result1.is_ok());
 
             let result2 =
-                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker, None);
             assert!(result2.is_ok());
         }
 
@@ -1226,12 +1263,12 @@ mod tests {
 
             let mut seen_inputs = HashSet::new();
             let result1 =
-                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker, None);
 
             assert!(result1.is_ok());
 
             let result2 =
-                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker, None);
 
             assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point));
         }

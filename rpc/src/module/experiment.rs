@@ -244,7 +244,7 @@ impl<'a> DryRunner<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
         let snapshot: &Snapshot = &self.shared.snapshot();
-        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
+        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self, Some(2048)) {
             Ok(resolved) => {
                 let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
