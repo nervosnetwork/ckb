@@ -1,16 +1,19 @@
 use crate::{
     util::{
         cell::gen_spendable,
-        check::{assert_epoch_should_be, assert_epoch_should_less_than, is_transaction_committed},
+        check::{
+            assert_epoch_should_greater_than, assert_epoch_should_less_than,
+            is_transaction_committed,
+        },
         mining::{mine, mine_until_bool, mine_until_epoch},
     },
     utils::assert_send_transaction_fail,
     Node, Spec,
 };
 use ckb_jsonrpc_types as rpc;
-use ckb_logger::{debug, info};
+use ckb_logger::{info, trace};
 use ckb_types::{
-    core::{Capacity, DepType, ScriptHashType, TransactionBuilder, TransactionView},
+    core::{self, TransactionView},
     packed,
     prelude::*,
 };
@@ -19,14 +22,18 @@ use std::fmt;
 const GENESIS_EPOCH_LENGTH: u64 = 10;
 const CKB2021_START_EPOCH: u64 = 10;
 
-const TEST_CASES_COUNT: usize = (8 + 4) * 3;
-const CELL_DEPS_COUNT: usize = 2 + 3 + 2;
-const INITIAL_INPUTS_COUNT: usize = 2 + CELL_DEPS_COUNT + TEST_CASES_COUNT;
+// In `CheckCellDepsTestRunner::create_celldep_set()`:
+// - Deploy 6 scripts.
+// - Deploy 4 transactions as code cell deps.
+// - Deploy 5 transactions as dep-group cell deps with 1 out point.
+// - Deploy 4 transactions as dep-group cell deps with 2 out points.
+// Each spends 1 input.
+const CELL_DEPS_COST_COUNT: usize = 19;
+// All test cases will truncate blocks after running, so we only require 1 transaction.
+const TEST_CASES_COUNT: usize = 1;
+const INITIAL_INPUTS_COUNT: usize = CELL_DEPS_COST_COUNT + TEST_CASES_COUNT;
 
-pub struct DuplicateCellDepsForDataHashTypeLockScript;
-pub struct DuplicateCellDepsForDataHashTypeTypeScript;
-pub struct DuplicateCellDepsForTypeHashTypeLockScript;
-pub struct DuplicateCellDepsForTypeHashTypeTypeScript;
+pub struct CheckCellDeps;
 
 struct NewScript {
     data: packed::Bytes,
@@ -39,84 +46,116 @@ struct NewScript {
 enum ExpectedResult {
     ShouldBePassed,
     DuplicateCellDeps,
-    MultipleMatchesLock,
-    MultipleMatchesType,
+    MultipleMatchesInputLock,
+    MultipleMatchesInputType,
+    MultipleMatchesOutputType,
 }
 
-const PASS: ExpectedResult = ExpectedResult::ShouldBePassed;
-const DUP: ExpectedResult = ExpectedResult::DuplicateCellDeps;
-const MML: ExpectedResult = ExpectedResult::MultipleMatchesLock;
-const MMT: ExpectedResult = ExpectedResult::MultipleMatchesType;
+// Use aliases to make the test cases matrix more readable.
+type ER = ExpectedResult;
+const PASS: ExpectedResult = ER::ShouldBePassed;
+const DUP: ExpectedResult = ER::DuplicateCellDeps;
+const MMIL: ExpectedResult = ER::MultipleMatchesInputLock;
+const MMIT: ExpectedResult = ER::MultipleMatchesInputType;
+const MMOT: ExpectedResult = ER::MultipleMatchesOutputType;
 
-// For all:
-//      - code1 and code2 are cell deps with same data
-//      - dep_group1 and dep_group2 are cell deps which point to different code cell deps with same data
-//      - dep_group2 and dep_group2_copy are cell deps which point to same code cell deps
-//  For type hash type only:
-//      - code3 has same type with code1 (code2) but different data
-//      - dep_group3 has same type with dep_group1 (dep_group2, dep_group2_copy) but different data
+// Use identifiers with same length to align the test cases matrix, to make it more readable.
+#[derive(Debug, Clone, Copy)]
+enum CellType {
+    // The cell which requires those cell deps is an input.
+    In,
+    // The cell which requires those cell deps is an output.
+    Ot,
+    // No cell requires those cell deps.
+    No,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScriptHashType {
+    Data,
+    Type,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScriptType {
+    Lock,
+    Type,
+}
+
+type CT = CellType;
+type HT = ScriptHashType;
+type ST = ScriptType;
+
+//  Description:
+//  - default_script:     a script has data a and type x.
+//  - code_ax1:           cell dep: code, data: a, type x.
+//  - code_ax2:           cell dep: code, data: a, type x.
+//  - code_ay0:           cell dep: code, data: a, type y.
+//  - code_bx0:           cell dep: code, data: b, type x.
+//  - group_ax1a:         cell dep: dep group, point: [code_ax1].
+//  - group_ax1b:         cell dep: dep group, point: [code_ax1].
+//  - group_ax2:          cell dep: dep group, point: [code_ax2].
+//  - group_ay0:          cell dep: dep group, point: [code_ay0].
+//  - group_bx0:          cell dep: dep group, point: [code_bx0].
+//  - group_ax1_ax1:      cell dep: dep group, point: [code_ax1, code_ax1].
+//  - group_ax1_ax2:      cell dep: dep group, point: [code_ax1, code_ax2].
+//  - group_ax1_ay0:      cell dep: dep group, point: [code_ax1, code_ay0].
+//  - group_ax1_bx0:      cell dep: dep group, point: [code_ax1, code_bx0].
 struct CellDepSet {
-    code1: packed::CellDep,
-    code2: packed::CellDep,
-    dep_group1: packed::CellDep,
-    dep_group2: packed::CellDep,
-    dep_group2_copy: packed::CellDep,
-    code3: packed::CellDep,
-    dep_group3: packed::CellDep,
+    default_script: NewScript,
+    code_ax1: packed::CellDep,
+    code_ax2: packed::CellDep,
+    code_ay0: packed::CellDep,
+    code_bx0: packed::CellDep,
+    group_ax1a: packed::CellDep,
+    group_ax1b: packed::CellDep,
+    group_ax2: packed::CellDep,
+    group_ay0: packed::CellDep,
+    group_bx0: packed::CellDep,
+    group_ax1_ax1: packed::CellDep,
+    group_ax1_ax2: packed::CellDep,
+    group_ax1_ay0: packed::CellDep,
+    group_ax1_bx0: packed::CellDep,
 }
 
-struct DuplicateCellDepsTestRunner {
-    tag: &'static str,
+#[derive(Debug, Clone, Copy)]
+enum RunnerState {
+    V2019,
+    OneBlockBeforeV2021,
+    FirstBlockOfV2021,
+    V2021,
 }
 
-impl Spec for DuplicateCellDepsForDataHashTypeLockScript {
+struct CheckCellDepsTestRunner<'a> {
+    node: &'a Node,
+    deps: CellDepSet,
+    inputs: Vec<packed::CellInput>,
+    start_at: core::BlockNumber,
+    checkpoint: core::BlockNumber,
+    state: RunnerState,
+}
+
+impl Spec for CheckCellDeps {
+    crate::setup!(num_nodes: 1);
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-        let runner = DuplicateCellDepsTestRunner::new("data-hash-type/lock-script");
-        let mut original_inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
+
+        let mut inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
             .into_iter()
             .map(|input| packed::CellInput::new(input.out_point, 0));
-        let script1 = NewScript::new_with_id(node, 1, &mut original_inputs, None);
-        let mut inputs = {
-            let txs = original_inputs.by_ref().take(TEST_CASES_COUNT).collect();
-            runner.use_new_data_script_replace_lock_script(node, txs, &script1)
-        };
-        let deps = runner.create_cell_dep_set(node, &mut original_inputs, &script1, None);
-        let tb = TransactionView::new_advanced_builder();
-        {
-            info!("CKB v2019:");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
+        let mut runner = CheckCellDepsTestRunner::new(node, &mut inputs);
 
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-        }
-        assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        {
-            info!("CKB v2019 (boundary):");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-        }
-        mine(node, 1);
-        {
-            info!("CKB v2021:");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
+        runner.switch_v2019();
+        runner.run_v2019_tests();
 
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-        }
+        runner.switch_one_block_before_v2021();
+        runner.run_v2019_tests();
+
+        runner.switch_first_block_of_v2021();
+        runner.run_v2021_tests();
+
+        runner.switch_v2021();
+        runner.run_v2021_tests();
     }
 
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
@@ -131,243 +170,9 @@ impl Spec for DuplicateCellDepsForDataHashTypeLockScript {
     }
 }
 
-impl Spec for DuplicateCellDepsForDataHashTypeTypeScript {
-    fn run(&self, nodes: &mut Vec<Node>) {
-        let node = &nodes[0];
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-        let runner = DuplicateCellDepsTestRunner::new("data-hash-type/type-script");
-        let mut original_inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
-            .into_iter()
-            .map(|input| packed::CellInput::new(input.out_point, 0));
-        let script1 = NewScript::new_with_id(node, 1, &mut original_inputs, None);
-        let mut inputs = {
-            let txs = original_inputs.by_ref().take(TEST_CASES_COUNT).collect();
-            runner.add_new_data_script_as_type_script(node, txs, &script1)
-        };
-        let deps = runner.create_cell_dep_set(node, &mut original_inputs, &script1, None);
-        let tb = TransactionView::new_advanced_builder().cell_dep(node.always_success_cell_dep());
-        {
-            info!("CKB v2019:");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-        }
-        assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        {
-            info!("CKB v2019 (boundary):");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-        }
-        mine(node, 1);
-        {
-            info!("CKB v2021:");
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-        }
-    }
-
-    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.permanent_difficulty_in_dummy = Some(true);
-        spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0029 = Some(CKB2021_START_EPOCH);
-        }
-    }
-}
-
-impl Spec for DuplicateCellDepsForTypeHashTypeLockScript {
-    fn run(&self, nodes: &mut Vec<Node>) {
-        let node = &nodes[0];
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-        let runner = DuplicateCellDepsTestRunner::new("type-hash-type/lock-script");
-        let mut original_inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
-            .into_iter()
-            .map(|input| packed::CellInput::new(input.out_point, 0));
-        let script0 = NewScript::new_with_id(node, 0, &mut original_inputs, None);
-        let script1 = NewScript::new_with_id(node, 1, &mut original_inputs, Some(&script0));
-        let mut inputs = {
-            let txs = original_inputs.by_ref().take(TEST_CASES_COUNT).collect();
-            runner.use_new_data_script_replace_type_script(node, txs, &script1)
-        };
-        let deps = runner.create_cell_dep_set(node, &mut original_inputs, &script1, Some(&script0));
-        let tb = TransactionView::new_advanced_builder();
-        {
-            info!("CKB v2019:");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-        }
-        assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        {
-            info!("CKB v2019 (boundary):");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-        }
-        assert_epoch_should_be(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine(node, 1);
-        {
-            info!("CKB v2021:");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MML);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MML);
-        }
-    }
-
-    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.permanent_difficulty_in_dummy = Some(true);
-        spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0029 = Some(CKB2021_START_EPOCH);
-        }
-    }
-}
-
-impl Spec for DuplicateCellDepsForTypeHashTypeTypeScript {
-    fn run(&self, nodes: &mut Vec<Node>) {
-        let node = &nodes[0];
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-        let runner = DuplicateCellDepsTestRunner::new("type-hash-type/type-script");
-        let mut original_inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
-            .into_iter()
-            .map(|input| packed::CellInput::new(input.out_point, 0));
-        let script0 = NewScript::new_with_id(node, 0, &mut original_inputs, None);
-        let script1 = NewScript::new_with_id(node, 1, &mut original_inputs, Some(&script0));
-        let mut inputs = {
-            let txs = original_inputs.by_ref().take(TEST_CASES_COUNT).collect();
-            runner.add_new_type_script_as_type_script(node, txs, &script1)
-        };
-        let deps = runner.create_cell_dep_set(node, &mut original_inputs, &script1, Some(&script0));
-        let tb = TransactionView::new_advanced_builder().cell_dep(node.always_success_cell_dep());
-        {
-            info!("CKB v2019:");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-        }
-        assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        {
-            info!("CKB v2019 (boundary):");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-        }
-        assert_epoch_should_be(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine(node, 1);
-        {
-            info!("CKB v2021:");
-            runner.test_same_data_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_hybrid_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_data_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_same_point_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-
-            runner.test_duplicate_code_type(node, &deps, &mut inputs, &tb, DUP);
-            runner.test_duplicate_dep_group_type(node, &deps, &mut inputs, &tb, DUP);
-
-            runner.test_single_code_type(node, &deps, &mut inputs, &tb, PASS);
-            runner.test_single_dep_group_type(node, &deps, &mut inputs, &tb, PASS);
-
-            // Type hash type only
-            runner.test_same_type_not_same_data_code_type(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v1(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_hybrid_type_v2(node, &deps, &mut inputs, &tb, MMT);
-            runner.test_same_type_not_same_data_dep_group_type(node, &deps, &mut inputs, &tb, MMT);
-        }
-    }
-
-    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
-        spec.params.permanent_difficulty_in_dummy = Some(true);
-        spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0029 = Some(CKB2021_START_EPOCH);
-        }
-    }
-}
-
+// Deploy a new always success script which has a different data hash with the default one.
+//
+// Append a byte to the default always success script.
 impl NewScript {
     fn new_with_id(
         node: &Node,
@@ -383,7 +188,7 @@ impl NewScript {
         let tx = Self::deploy(node, &data, inputs, type_script_opt);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(DepType::Code.into())
+            .dep_type(core::DepType::Code.into())
             .build();
         let data_hash = packed::CellOutput::calc_data_hash(&data.raw_data());
         let type_hash = tx
@@ -393,12 +198,20 @@ impl NewScript {
             .to_opt()
             .unwrap()
             .calc_script_hash();
-        Self {
+        trace!("NewScript({}) tx_hash    : {:#x}", id, tx.hash());
+        trace!("NewScript({}) data_hash  : {:#x}", id, data_hash);
+        trace!("NewScript({}) type_hash  : {:#x}", id, type_hash);
+        let ret = Self {
             data,
             cell_dep,
             data_hash,
             type_hash,
-        }
+        };
+        let data_script_hash = ret.as_data_script(0).calc_script_hash();
+        let type_script_hash = ret.as_type_script().calc_script_hash();
+        trace!("NewScript({}) data_script: {:#x}", id, data_script_hash);
+        trace!("NewScript({}) type_script: {:#x}", id, type_script_hash);
+        ret
     }
 
     fn deploy(
@@ -409,7 +222,7 @@ impl NewScript {
     ) -> TransactionView {
         let (type_script, tx_template) = if let Some(script) = type_script_opt {
             (
-                script.as_data_script(),
+                script.as_data_script(0),
                 TransactionView::new_advanced_builder().cell_dep(script.cell_dep()),
             )
         } else {
@@ -421,7 +234,7 @@ impl NewScript {
         let cell_input = inputs.next().unwrap();
         let cell_output = packed::CellOutput::new_builder()
             .type_(Some(type_script).pack())
-            .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
+            .build_exact_capacity(core::Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
             .cell_dep(node.always_success_cell_dep())
@@ -442,17 +255,22 @@ impl NewScript {
         self.cell_dep.clone()
     }
 
-    fn as_data_script(&self) -> packed::Script {
+    fn as_data_script(&self, vm_version: u8) -> packed::Script {
+        let hash_type = match vm_version {
+            0 => core::ScriptHashType::Data,
+            1 => core::ScriptHashType::Data1,
+            _ => panic!("unknown vm_version [{}]", vm_version),
+        };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(hash_type.into())
             .build()
     }
 
     fn as_type_script(&self) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.type_hash.clone())
-            .hash_type(ScriptHashType::Type.into())
+            .hash_type(core::ScriptHashType::Type.into())
             .build()
     }
 }
@@ -474,59 +292,263 @@ impl ExpectedResult {
                 "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
                  Verification failed Transaction(DuplicateCellDeps(",
             ),
-            Self::MultipleMatchesLock => Some(
+            Self::MultipleMatchesInputLock => Some(
                 "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
                  Verification failed Script(TransactionScriptError \
                  { source: Inputs[0].Lock, cause: MultipleMatches })",
             ),
-            Self::MultipleMatchesType => Some(
+            Self::MultipleMatchesInputType => Some(
                 "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
                  Verification failed Script(TransactionScriptError \
                  { source: Inputs[0].Type, cause: MultipleMatches })",
+            ),
+            Self::MultipleMatchesOutputType => Some(
+                "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
+                 Verification failed Script(TransactionScriptError \
+                 { source: Outputs[0].Type, cause: MultipleMatches })",
             ),
         }
     }
 }
 
-impl DuplicateCellDepsTestRunner {
-    fn new(tag: &'static str) -> Self {
-        Self { tag }
-    }
-
-    fn submit_transaction_until_committed(&self, node: &Node, tx: &TransactionView) {
-        debug!(
-            "[{}] >>> >>> submit: submit transaction {:#x}.",
-            self.tag,
-            tx.hash()
-        );
-        node.submit_transaction(tx);
-        mine_until_bool(node, || is_transaction_committed(node, tx));
+impl fmt::Display for CellType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::In => write!(f, "input"),
+            Self::Ot => write!(f, "output"),
+            Self::No => write!(f, "null"),
+        }
     }
 }
 
-// Convert Lock Script or Type Script
-impl DuplicateCellDepsTestRunner {
-    fn create_initial_inputs(
-        &self,
-        node: &Node,
-        txs: Vec<TransactionView>,
-    ) -> impl Iterator<Item = packed::CellInput> {
-        for tx in &txs {
-            node.rpc_client().send_transaction(tx.data().into());
+impl fmt::Display for ScriptHashType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Data => write!(f, "data"),
+            Self::Type => write!(f, "type"),
         }
-        mine_until_bool(node, || {
-            txs.iter().all(|tx| is_transaction_committed(node, &tx))
-        });
-        txs.into_iter().map(|tx| {
-            let out_point = packed::OutPoint::new(tx.hash(), 0);
-            packed::CellInput::new(out_point, 0)
-        })
+    }
+}
+
+impl fmt::Display for ScriptType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Lock => write!(f, "lock"),
+            Self::Type => write!(f, "type"),
+        }
+    }
+}
+
+impl fmt::Display for RunnerState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::V2019 => write!(f, "v2019"),
+            Self::OneBlockBeforeV2021 => write!(f, "v2021-"),
+            Self::FirstBlockOfV2021 => write!(f, "v2021"),
+            Self::V2021 => write!(f, "v2021+"),
+        }
+    }
+}
+
+impl<'a> CheckCellDepsTestRunner<'a> {
+    fn new(node: &'a Node, inputs: &mut impl Iterator<Item = packed::CellInput>) -> Self {
+        let deps = Self::create_celldep_set(node, inputs);
+        let start_at = node.get_tip_block_number();
+        let checkpoint = start_at;
+        let inputs = inputs.collect();
+        let state = RunnerState::V2019;
+        Self {
+            node,
+            deps,
+            inputs,
+            start_at,
+            checkpoint,
+            state,
+        }
     }
 
-    fn get_previous_output(node: &Node, cell_input: &packed::CellInput) -> rpc::CellOutput {
+    fn submit_transaction_until_committed_to(node: &Node, tx: &TransactionView) {
+        node.submit_transaction(tx);
+        mine_until_bool(node, || is_transaction_committed(node, tx));
+    }
+
+    fn submit_transaction_until_committed(&self, tx: &TransactionView) {
+        trace!(">> >>> submit: submit transaction {:#x}.", tx.hash());
+        Self::submit_transaction_until_committed_to(self.node, tx)
+    }
+
+    fn restore_to_checkpoint(&self) {
+        let block_hash = self.node.get_block_by_number(self.checkpoint).hash();
+        self.node.rpc_client().truncate(block_hash);
+    }
+
+    fn switch_v2019(&mut self) {
+        let block_hash = self.node.get_block_by_number(self.start_at).hash();
+        self.node.rpc_client().truncate(block_hash);
+
+        self.checkpoint = self.node.get_tip_block_number();
+        self.state = RunnerState::V2019;
+    }
+
+    fn switch_one_block_before_v2021(&mut self) {
+        self.switch_v2019();
+
+        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
+        let length = GENESIS_EPOCH_LENGTH;
+
+        assert_epoch_should_less_than(self.node, ckb2019_last_epoch, 0, length);
+        mine_until_epoch(self.node, ckb2019_last_epoch, 0, length);
+
+        self.checkpoint = self.node.get_tip_block_number();
+        self.state = RunnerState::OneBlockBeforeV2021;
+    }
+
+    fn switch_first_block_of_v2021(&mut self) {
+        self.switch_one_block_before_v2021();
+        mine(self.node, 1);
+
+        self.checkpoint = self.node.get_tip_block_number();
+        self.state = RunnerState::FirstBlockOfV2021;
+    }
+
+    fn switch_v2021(&mut self) {
+        self.switch_one_block_before_v2021();
+        mine(self.node, 1 + GENESIS_EPOCH_LENGTH * 2);
+
+        self.checkpoint = self.node.get_tip_block_number();
+        self.state = RunnerState::V2021;
+    }
+}
+
+// Create All Cell Deps for Test
+impl<'a> CheckCellDepsTestRunner<'a> {
+    fn create_celldep_set(
+        node: &'a Node,
+        inputs: &mut impl Iterator<Item = packed::CellInput>,
+    ) -> CellDepSet {
+        let script0 = NewScript::new_with_id(node, 0, inputs, None);
+        let data_a_script = NewScript::new_with_id(node, 1, inputs, Some(&script0));
+        let data_b_script = NewScript::new_with_id(node, 2, inputs, Some(&script0));
+        let type_x_script = NewScript::new_with_id(node, 3, inputs, Some(&script0));
+        let type_y_script = NewScript::new_with_id(node, 4, inputs, Some(&script0));
+        let default_script = NewScript::new_with_id(node, 1, inputs, Some(&type_x_script));
+        let code_ax1_tx =
+            Self::create_tx_as_code_celldep(node, inputs, &data_a_script, &type_x_script);
+        let code_ax2_tx =
+            Self::create_tx_as_code_celldep(node, inputs, &data_a_script, &type_x_script);
+        let code_ay0_tx =
+            Self::create_tx_as_code_celldep(node, inputs, &data_a_script, &type_y_script);
+        let code_bx0_tx =
+            Self::create_tx_as_code_celldep(node, inputs, &data_b_script, &type_x_script);
+        let code_ax1 = Self::convert_tx_to_code_cellep(&code_ax1_tx);
+        let code_ax2 = Self::convert_tx_to_code_cellep(&code_ax2_tx);
+        let code_ay0 = Self::convert_tx_to_code_cellep(&code_ay0_tx);
+        let code_bx0 = Self::convert_tx_to_code_cellep(&code_bx0_tx);
+        let group_ax1a = Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, None);
+        let group_ax1b = Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, None);
+        let group_ax2 = Self::create_depgroup_celldep(node, inputs, &code_ax2_tx, None);
+        let group_ay0 = Self::create_depgroup_celldep(node, inputs, &code_ay0_tx, None);
+        let group_bx0 = Self::create_depgroup_celldep(node, inputs, &code_bx0_tx, None);
+        let group_ax1_ax1 =
+            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ax1_tx));
+        let group_ax1_ax2 =
+            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ax2_tx));
+        let group_ax1_ay0 =
+            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_ay0_tx));
+        let group_ax1_bx0 =
+            Self::create_depgroup_celldep(node, inputs, &code_ax1_tx, Some(&code_bx0_tx));
+        CellDepSet {
+            default_script,
+            code_ax1,
+            code_ax2,
+            code_ay0,
+            code_bx0,
+            group_ax1a,
+            group_ax1b,
+            group_ax2,
+            group_ay0,
+            group_bx0,
+            group_ax1_ax1,
+            group_ax1_ax2,
+            group_ax1_ay0,
+            group_ax1_bx0,
+        }
+    }
+
+    fn create_tx_as_code_celldep(
+        node: &Node,
+        inputs: &mut impl Iterator<Item = packed::CellInput>,
+        data_script: &NewScript,
+        type_script: &NewScript,
+    ) -> TransactionView {
+        let output = packed::CellOutput::new_builder()
+            .type_(Some(type_script.as_data_script(0)).pack())
+            .build_exact_capacity(core::Capacity::bytes(data_script.data().len()).unwrap())
+            .unwrap();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(node.always_success_cell_dep())
+            .cell_dep(type_script.cell_dep())
+            .input(inputs.next().unwrap())
+            .output(output)
+            .output_data(data_script.data())
+            .build();
+        Self::submit_transaction_until_committed_to(node, &tx);
+        tx
+    }
+
+    fn convert_tx_to_code_cellep(tx: &TransactionView) -> packed::CellDep {
+        packed::CellDep::new_builder()
+            .out_point(packed::OutPoint::new(tx.hash(), 0))
+            .dep_type(core::DepType::Code.into())
+            .build()
+    }
+
+    fn create_depgroup_celldep(
+        node: &Node,
+        inputs: &mut impl Iterator<Item = packed::CellInput>,
+        dep_tx: &TransactionView,
+        dep_tx_opt: Option<&TransactionView>,
+    ) -> packed::CellDep {
+        let dep_op = packed::OutPoint::new(dep_tx.hash(), 0);
+        let dep_data = if let Some(dep_tx_2) = dep_tx_opt {
+            let dep_op_2 = packed::OutPoint::new(dep_tx_2.hash(), 0);
+            vec![dep_op, dep_op_2]
+        } else {
+            vec![dep_op]
+        }
+        .pack()
+        .as_bytes()
+        .pack();
+        let dep_output = packed::CellOutput::new_builder()
+            .build_exact_capacity(core::Capacity::bytes(dep_data.len()).unwrap())
+            .unwrap();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(node.always_success_cell_dep())
+            .input(inputs.next().unwrap())
+            .output(dep_output)
+            .output_data(dep_data)
+            .build();
+        Self::submit_transaction_until_committed_to(node, &tx);
+        packed::CellDep::new_builder()
+            .out_point(packed::OutPoint::new(tx.hash(), 0))
+            .dep_type(core::DepType::DepGroup.into())
+            .build()
+    }
+}
+
+// Create Cell Inputs for Test
+impl<'a> CheckCellDepsTestRunner<'a> {
+    fn create_initial_input(&self, tx: TransactionView) -> packed::CellInput {
+        self.submit_transaction_until_committed(&tx);
+        let out_point = packed::OutPoint::new(tx.hash(), 0);
+        packed::CellInput::new(out_point, 0)
+    }
+
+    fn get_previous_output(&self, cell_input: &packed::CellInput) -> rpc::CellOutput {
         let previous_output = cell_input.previous_output();
         let previous_output_index: usize = previous_output.index().unpack();
-        node.rpc_client()
+        self.node
+            .rpc_client()
             .get_transaction(previous_output.tx_hash())
             .unwrap()
             .transaction
@@ -535,563 +557,803 @@ impl DuplicateCellDepsTestRunner {
             .clone()
     }
 
-    fn use_new_data_script_replace_lock_script(
+    fn new_data_script_as_lock_script_input(
         &self,
-        node: &Node,
-        inputs: Vec<packed::CellInput>,
-        new_script: &NewScript,
-    ) -> impl Iterator<Item = packed::CellInput> {
-        let txs = inputs
-            .into_iter()
-            .map(|cell_input| {
-                let input_cell = Self::get_previous_output(node, &cell_input);
-                let cell_output = packed::CellOutput::new_builder()
-                    .capacity((input_cell.capacity.value() - 1).pack())
-                    .lock(new_script.as_data_script())
-                    .build();
-                TransactionView::new_advanced_builder()
-                    .cell_dep(node.always_success_cell_dep())
-                    .cell_dep(new_script.cell_dep())
-                    .input(cell_input)
-                    .output(cell_output)
-                    .output_data(Default::default())
-                    .build()
-            })
-            .collect::<Vec<_>>();
-        self.create_initial_inputs(node, txs)
+        cell_input: packed::CellInput,
+    ) -> packed::CellInput {
+        let new_script = &self.deps.default_script;
+        let input_cell = self.get_previous_output(&cell_input);
+        let cell_output = packed::CellOutput::new_builder()
+            .capacity(input_cell.capacity.value().pack())
+            .lock(new_script.as_data_script(0))
+            .build();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(self.node.always_success_cell_dep())
+            .cell_dep(new_script.cell_dep())
+            .input(cell_input)
+            .output(cell_output)
+            .output_data(Default::default())
+            .build();
+        self.create_initial_input(tx)
     }
 
-    fn add_new_data_script_as_type_script(
+    fn new_data_script_as_type_script_input(
         &self,
-        node: &Node,
-        inputs: Vec<packed::CellInput>,
-        new_script: &NewScript,
-    ) -> impl Iterator<Item = packed::CellInput> {
-        let txs = inputs
-            .into_iter()
-            .map(|cell_input| {
-                let input_cell = Self::get_previous_output(node, &cell_input);
-                let cell_output = packed::CellOutput::new_builder()
-                    .capacity((input_cell.capacity.value() - 1).pack())
-                    .lock(node.always_success_script())
-                    .type_(Some(new_script.as_data_script()).pack())
-                    .build();
-                TransactionView::new_advanced_builder()
-                    .cell_dep(node.always_success_cell_dep())
-                    .cell_dep(new_script.cell_dep())
-                    .input(cell_input)
-                    .output(cell_output)
-                    .output_data(Default::default())
-                    .build()
-            })
-            .collect::<Vec<_>>();
-        self.create_initial_inputs(node, txs)
+        cell_input: packed::CellInput,
+    ) -> packed::CellInput {
+        let new_script = &self.deps.default_script;
+        let input_cell = self.get_previous_output(&cell_input);
+        let cell_output = packed::CellOutput::new_builder()
+            .capacity(input_cell.capacity.value().pack())
+            .lock(self.node.always_success_script())
+            .type_(Some(new_script.as_data_script(0)).pack())
+            .build();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(self.node.always_success_cell_dep())
+            .cell_dep(new_script.cell_dep())
+            .input(cell_input)
+            .output(cell_output)
+            .output_data(Default::default())
+            .build();
+        self.create_initial_input(tx)
     }
 
-    fn use_new_data_script_replace_type_script(
+    fn new_type_script_as_lock_script_input(
         &self,
-        node: &Node,
-        inputs: Vec<packed::CellInput>,
-        new_script: &NewScript,
-    ) -> impl Iterator<Item = packed::CellInput> {
-        let txs = inputs
-            .into_iter()
-            .map(|cell_input| {
-                let input_cell = Self::get_previous_output(node, &cell_input);
-                let cell_output = packed::CellOutput::new_builder()
-                    .capacity((input_cell.capacity.value() - 1).pack())
-                    .lock(new_script.as_type_script())
-                    .build();
-                TransactionView::new_advanced_builder()
-                    .cell_dep(node.always_success_cell_dep())
-                    .cell_dep(new_script.cell_dep())
-                    .input(cell_input)
-                    .output(cell_output)
-                    .output_data(Default::default())
-                    .build()
-            })
-            .collect::<Vec<_>>();
-        self.create_initial_inputs(node, txs)
+        cell_input: packed::CellInput,
+    ) -> packed::CellInput {
+        let new_script = &self.deps.default_script;
+        let input_cell = self.get_previous_output(&cell_input);
+        let cell_output = packed::CellOutput::new_builder()
+            .capacity(input_cell.capacity.value().pack())
+            .lock(new_script.as_type_script())
+            .build();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(self.node.always_success_cell_dep())
+            .cell_dep(new_script.cell_dep())
+            .input(cell_input)
+            .output(cell_output)
+            .output_data(Default::default())
+            .build();
+        self.create_initial_input(tx)
     }
 
-    fn add_new_type_script_as_type_script(
+    fn new_type_script_as_type_script_input(
         &self,
-        node: &Node,
-        inputs: Vec<packed::CellInput>,
-        new_script: &NewScript,
-    ) -> impl Iterator<Item = packed::CellInput> {
-        let txs = inputs
-            .into_iter()
-            .map(|cell_input| {
-                let input_cell = Self::get_previous_output(node, &cell_input);
-                let cell_output = packed::CellOutput::new_builder()
-                    .capacity((input_cell.capacity.value() - 1).pack())
-                    .lock(node.always_success_script())
-                    .type_(Some(new_script.as_type_script()).pack())
-                    .build();
-                TransactionView::new_advanced_builder()
-                    .cell_dep(node.always_success_cell_dep())
-                    .cell_dep(new_script.cell_dep())
-                    .input(cell_input)
-                    .output(cell_output)
-                    .output_data(Default::default())
-                    .build()
-            })
-            .collect::<Vec<_>>();
-        self.create_initial_inputs(node, txs)
+        cell_input: packed::CellInput,
+    ) -> packed::CellInput {
+        let new_script = &self.deps.default_script;
+        let input_cell = self.get_previous_output(&cell_input);
+        let cell_output = packed::CellOutput::new_builder()
+            .capacity(input_cell.capacity.value().pack())
+            .lock(self.node.always_success_script())
+            .type_(Some(new_script.as_type_script()).pack())
+            .build();
+        let tx = TransactionView::new_advanced_builder()
+            .cell_dep(self.node.always_success_cell_dep())
+            .cell_dep(new_script.cell_dep())
+            .input(cell_input)
+            .output(cell_output)
+            .output_data(Default::default())
+            .build();
+        self.create_initial_input(tx)
+    }
+
+    fn new_input(&self, ct: CellType, ht: ScriptHashType, st: ScriptType) -> packed::CellInput {
+        let cell_input = self.inputs[0].clone();
+        match ct {
+            CT::In => match (ht, st) {
+                (HT::Data, ST::Lock) => self.new_data_script_as_lock_script_input(cell_input),
+                (HT::Data, ST::Type) => self.new_data_script_as_type_script_input(cell_input),
+                (HT::Type, ST::Lock) => self.new_type_script_as_lock_script_input(cell_input),
+                (HT::Type, ST::Type) => self.new_type_script_as_type_script_input(cell_input),
+            },
+            CT::Ot | CT::No => cell_input,
+        }
     }
 }
 
-// Create All Cell Deps for Test
-impl DuplicateCellDepsTestRunner {
-    fn create_cell_dep_set(
-        &self,
-        node: &Node,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        script: &NewScript,
-        type_script_opt: Option<&NewScript>,
-    ) -> CellDepSet {
-        let code_txs = {
-            let tx_template = {
-                let script_output = if let Some(type_script) = type_script_opt {
-                    packed::CellOutput::new_builder()
-                        .type_(Some(type_script.as_data_script()).pack())
-                } else {
-                    packed::CellOutput::new_builder()
+// Create Cell Outputs for Test
+impl<'a> CheckCellDepsTestRunner<'a> {
+    fn new_output(&self, ct: CellType, ht: ScriptHashType, st: ScriptType) -> packed::CellOutput {
+        let cob = packed::CellOutput::new_builder();
+        match ct {
+            CT::In | CT::No => cob,
+            CT::Ot => {
+                let new_script = &self.deps.default_script;
+                match (ht, st) {
+                    (HT::Data, ST::Lock) => cob.lock(new_script.as_data_script(0)),
+                    (HT::Data, ST::Type) => cob
+                        .lock(self.node.always_success_script())
+                        .type_(Some(new_script.as_data_script(0)).pack()),
+                    (HT::Type, ST::Lock) => cob.lock(new_script.as_type_script()),
+                    (HT::Type, ST::Type) => cob
+                        .lock(self.node.always_success_script())
+                        .type_(Some(new_script.as_type_script()).pack()),
                 }
-                .build_exact_capacity(Capacity::bytes(script.data().len()).unwrap())
-                .unwrap();
-                if let Some(type_script) = type_script_opt {
-                    TransactionView::new_advanced_builder().cell_dep(type_script.cell_dep())
-                } else {
-                    TransactionView::new_advanced_builder()
-                }
-                .output(script_output)
-                .output_data(script.data())
-            };
-            self.create_transactions_as_code_type_cell_deps(node, inputs, &tx_template)
-        };
-
-        let dep_group_txs = {
-            let tx_template = TransactionView::new_advanced_builder();
-            self.create_transactions_as_depgroup_type_cell_deps(
-                node,
-                inputs,
-                &tx_template,
-                &code_txs,
-            )
-        };
-        let incorrect_opt = type_script_opt.map(|type_script| {
-            self.create_transactions_as_incorrect_cell_deps(node, inputs, type_script)
-        });
-        self.combine_cell_deps(code_txs, dep_group_txs, incorrect_opt)
-    }
-
-    fn create_transactions_as_code_type_cell_deps(
-        &self,
-        node: &Node,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-    ) -> (TransactionView, TransactionView) {
-        info!(
-            "[{}] >>> warm up: create 2 transactions as code-type cell deps.",
-            self.tag
-        );
-        let tx_template = tx_template.clone().cell_dep(node.always_success_cell_dep());
-        let dep1_tx = tx_template.clone().input(inputs.next().unwrap()).build();
-        let dep2_tx = tx_template.input(inputs.next().unwrap()).build();
-        self.submit_transaction_until_committed(node, &dep1_tx);
-        self.submit_transaction_until_committed(node, &dep2_tx);
-        (dep1_tx, dep2_tx)
-    }
-
-    fn create_transactions_as_depgroup_type_cell_deps(
-        &self,
-        node: &Node,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        code_txs: &(TransactionView, TransactionView),
-    ) -> (TransactionView, TransactionView, TransactionView) {
-        info!(
-            "[{}] >>> warm up: create 3 transactions as depgroup-type cell deps.",
-            self.tag
-        );
-        let (ref dep1_tx, ref dep2_tx) = code_txs;
-        let tx_template = tx_template.clone().cell_dep(node.always_success_cell_dep());
-        let dep1_op = packed::OutPoint::new(dep1_tx.hash(), 0);
-        let dep2_op = packed::OutPoint::new(dep2_tx.hash(), 0);
-        let dep3_data = vec![dep1_op].pack().as_bytes().pack();
-        let dep4_data = vec![dep2_op].pack().as_bytes().pack();
-        let dep3_output = packed::CellOutput::new_builder()
-            .build_exact_capacity(Capacity::bytes(dep3_data.len()).unwrap())
-            .unwrap();
-        let dep4_output = packed::CellOutput::new_builder()
-            .build_exact_capacity(Capacity::bytes(dep4_data.len()).unwrap())
-            .unwrap();
-        let dep3_tx = tx_template
-            .clone()
-            .input(inputs.next().unwrap())
-            .output(dep3_output)
-            .output_data(dep3_data)
-            .build();
-        let dep4_tx = tx_template
-            .clone()
-            .input(inputs.next().unwrap())
-            .output(dep4_output.clone())
-            .output_data(dep4_data.clone())
-            .build();
-        let dep4b_tx = tx_template
-            .input(inputs.next().unwrap())
-            .output(dep4_output)
-            .output_data(dep4_data)
-            .build();
-        self.submit_transaction_until_committed(node, &dep3_tx);
-        self.submit_transaction_until_committed(node, &dep4_tx);
-        self.submit_transaction_until_committed(node, &dep4b_tx);
-        (dep3_tx, dep4_tx, dep4b_tx)
-    }
-
-    fn create_transactions_as_incorrect_cell_deps(
-        &self,
-        node: &Node,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        type_script: &NewScript,
-    ) -> (TransactionView, TransactionView) {
-        info!(
-            "[{}] >>> warm up: create 2 transactions as incorrect cell deps.",
-            self.tag
-        );
-        let original_data = node.always_success_raw_data();
-        let dep5_data = packed::Bytes::new_builder()
-            .extend(original_data.as_ref().iter().map(|x| (*x).into()))
-            .build();
-        let dep5_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script.as_data_script()).pack())
-            .build_exact_capacity(Capacity::bytes(dep5_data.len()).unwrap())
-            .unwrap();
-        let dep5_tx = TransactionView::new_advanced_builder()
-            .cell_dep(node.always_success_cell_dep())
-            .cell_dep(type_script.cell_dep())
-            .input(inputs.next().unwrap())
-            .output(dep5_output)
-            .output_data(dep5_data)
-            .build();
-        let dep5_op = packed::OutPoint::new(dep5_tx.hash(), 0);
-        let dep6_data = vec![dep5_op].pack().as_bytes().pack();
-        let dep6_output = packed::CellOutput::new_builder()
-            .build_exact_capacity(Capacity::bytes(dep6_data.len()).unwrap())
-            .unwrap();
-        let dep6_tx = TransactionView::new_advanced_builder()
-            .cell_dep(node.always_success_cell_dep())
-            .input(inputs.next().unwrap())
-            .output(dep6_output)
-            .output_data(dep6_data)
-            .build();
-        self.submit_transaction_until_committed(node, &dep5_tx);
-        self.submit_transaction_until_committed(node, &dep6_tx);
-        (dep5_tx, dep6_tx)
-    }
-
-    fn combine_cell_deps(
-        &self,
-        code_txs: (TransactionView, TransactionView),
-        dep_group_txs: (TransactionView, TransactionView, TransactionView),
-        incorrect_opt: Option<(TransactionView, TransactionView)>,
-    ) -> CellDepSet {
-        info!("[{}] >>> warm up: create all cell deps for test.", self.tag);
-        let (dep1_tx, dep2_tx) = code_txs;
-        let dep1_op = packed::OutPoint::new(dep1_tx.hash(), 0);
-        let dep2_op = packed::OutPoint::new(dep2_tx.hash(), 0);
-        let code1 = packed::CellDep::new_builder()
-            .out_point(dep1_op)
-            .dep_type(DepType::Code.into())
-            .build();
-        let code2 = packed::CellDep::new_builder()
-            .out_point(dep2_op)
-            .dep_type(DepType::Code.into())
-            .build();
-        let (dep3_tx, dep4_tx, dep4b_tx) = dep_group_txs;
-        let dep_group1 = packed::CellDep::new_builder()
-            .out_point(packed::OutPoint::new(dep3_tx.hash(), 0))
-            .dep_type(DepType::DepGroup.into())
-            .build();
-        let dep_group2 = packed::CellDep::new_builder()
-            .out_point(packed::OutPoint::new(dep4_tx.hash(), 0))
-            .dep_type(DepType::DepGroup.into())
-            .build();
-        let dep_group2_copy = packed::CellDep::new_builder()
-            .out_point(packed::OutPoint::new(dep4b_tx.hash(), 0))
-            .dep_type(DepType::DepGroup.into())
-            .build();
-        let (code3, dep_group3) = if let Some((dep5_tx, dep6_tx)) = incorrect_opt {
-            let dep3_op = packed::OutPoint::new(dep5_tx.hash(), 0);
-            let code3 = packed::CellDep::new_builder()
-                .out_point(dep3_op)
-                .dep_type(DepType::Code.into())
-                .build();
-            let dep_group3 = packed::CellDep::new_builder()
-                .out_point(packed::OutPoint::new(dep6_tx.hash(), 0))
-                .dep_type(DepType::DepGroup.into())
-                .build();
-            (code3, dep_group3)
-        } else {
-            (Default::default(), Default::default())
-        };
-        CellDepSet {
-            code1,
-            code2,
-            dep_group1,
-            dep_group2,
-            dep_group2_copy,
-            code3,
-            dep_group3,
+            }
         }
+        .build_exact_capacity(core::Capacity::shannons(0))
+        .unwrap()
     }
 }
 
 // Implementation All Test Cases
-impl DuplicateCellDepsTestRunner {
-    fn test_result(
+impl<'a> CheckCellDepsTestRunner<'a> {
+    fn intro(
         &self,
-        node: &Node,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_builder: TransactionBuilder,
+        ct: CellType,
+        ht: ScriptHashType,
+        st: ScriptType,
         expected: ExpectedResult,
+        casename: &str,
     ) {
-        let empty_output = packed::CellOutput::new_builder()
-            .build_exact_capacity(Capacity::shannons(0))
-            .unwrap();
-        let tx = tx_builder
-            .input(inputs.next().unwrap())
-            .output(empty_output)
-            .output_data(Default::default())
-            .build();
-        if let Some(errmsg) = expected.error_message() {
-            assert_send_transaction_fail(node, &tx, &errmsg);
-        } else {
-            self.submit_transaction_until_committed(node, &tx);
+        match ct {
+            CT::No => {
+                info!(
+                    ">>> test {}/{}/----/----: {} should be {}.",
+                    self.state, ct, casename, expected,
+                );
+            }
+            _ => {
+                info!(
+                    ">>> test {}/{}/{}/{}: {} should be {}.",
+                    self.state, ct, ht, st, casename, expected,
+                );
+            }
         }
     }
 
-    fn test_single_code_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: duplicate code-type cell deps is {}.",
-            self.tag, expected
-        );
-        let tx = tx_template.clone().cell_dep(deps.code1.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn adjust_tip_before_test(&self) {
+        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
+        let length = GENESIS_EPOCH_LENGTH;
+        let blocks_to_commit_a_tx = self.node.consensus().tx_proposal_window().0 + 1;
+        let index = length - blocks_to_commit_a_tx;
+        match self.state {
+            RunnerState::V2019 => {
+                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
+            }
+            RunnerState::OneBlockBeforeV2021 => {
+                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
+
+                mine_until_epoch(self.node, ckb2019_last_epoch, index - 1, length);
+            }
+            RunnerState::FirstBlockOfV2021 => {
+                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
+
+                mine_until_epoch(self.node, ckb2019_last_epoch, index, length);
+            }
+            RunnerState::V2021 => {
+                assert_epoch_should_greater_than(self.node, CKB2021_START_EPOCH, 0, length);
+            }
+        }
     }
 
-    fn test_single_dep_group_type(
+    fn test_result(
         &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
+        ct: CellType,
+        ht: ScriptHashType,
+        st: ScriptType,
         expected: ExpectedResult,
+        deps: &[&packed::CellDep],
     ) {
-        info!(
-            "[{}] >>> test: duplicate code-type cell deps is {}.",
-            self.tag, expected
-        );
-        let tx = tx_template.clone().cell_dep(deps.dep_group1.clone());
-        self.test_result(node, inputs, tx, expected);
+        let cell_input = self.new_input(ct, ht, st);
+        let cell_output = self.new_output(ct, ht, st);
+        let tx = {
+            let mut tb = TransactionView::new_advanced_builder();
+            tb = match (ct, st) {
+                (CT::In, ST::Type) | (CT::Ot, _) | (CT::No, _) => {
+                    tb.cell_dep(self.node.always_success_cell_dep())
+                }
+                _ => tb,
+            };
+            for dep in deps {
+                tb = tb.cell_dep((*dep).to_owned());
+            }
+            tb
+        }
+        .input(cell_input)
+        .output(cell_output)
+        .output_data(Default::default())
+        .build();
+        self.adjust_tip_before_test();
+        if let Some(errmsg) = expected.error_message() {
+            assert_send_transaction_fail(self.node, &tx, &errmsg);
+        } else {
+            self.submit_transaction_until_committed(&tx);
+        }
+        self.restore_to_checkpoint();
     }
 
-    fn test_duplicate_code_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: duplicate code-type cell deps is {}.",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code1.clone())
-            .cell_dep(deps.code1.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn run_v2019_tests(&self) {
+        // Category: only one single code type cell dep
+        self.test_single_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_single_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_single_code_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_single_code_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_single_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_single_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_single_code_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: only one dep group type cell dep
+        self.test_single_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two duplicate code type cell deps
+        self.test_duplicate_code_type(CT::In, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Data, ST::Type, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Type, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_code_type(CT::No, HT::Data, ST::Lock, DUP);
+        // Category: two duplicate dep group type cell deps
+        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Type, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Type, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_depgroup_type(CT::No, HT::Data, ST::Lock, DUP);
+        // Category: two different code type cell deps have same data
+        self.test_same_data_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_code_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_data_code_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_data_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different dep group type cell deps have same out point
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_outpoint_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two dep group type cell deps have different out points which have same data
+        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_data_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have duplicate out points
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_duplicate_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same data and
+        // same type.
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same data and
+        // different type.
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same out point with a code type cell dep.
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_code_dep_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data and same type with
+        // a code type cell dep.
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_same_data_same_type_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data but different type
+        // with a code type cell dep, and the type in the code type cell dep is required.
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data but different type
+        // with a code type cell dep, and the type in the dep group type cell dep is required.
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different code type cell deps have same type but different data
+        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different code type cell deps have same data but different types
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same type but
+        // different data.
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same type with a code type cell dep but
+        // different data, and the data in the code type cell dep is required.
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same type with a code type cell dep but
+        // different data, and the data in the dep group type cell dep is required.
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
     }
 
-    fn test_same_data_code_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two code-type cell deps have same data is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code1.clone())
-            .cell_dep(deps.code2.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn run_v2021_tests(&self) {
+        // Category: only one single code type cell dep
+        self.test_single_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_single_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_single_code_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_single_code_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_single_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_single_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_single_code_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: only one dep group type cell dep
+        self.test_single_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_single_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two duplicate code type cell deps
+        self.test_duplicate_code_type(CT::In, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Data, ST::Type, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::In, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Type, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_code_type(CT::No, HT::Data, ST::Lock, DUP);
+        // Category: two duplicate dep group type cell deps
+        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Type, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Type, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Lock, DUP);
+        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Type, DUP);
+        //
+        self.test_duplicate_depgroup_type(CT::No, HT::Data, ST::Lock, DUP);
+        // Category: two different code type cell deps have same data
+        self.test_same_data_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_code_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different dep group type cell deps have same out point
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_outpoint_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two dep group type cell deps have different out points which have same data
+        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have duplicate out points
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_duplicate_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same data and
+        // same type.
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same data and
+        // different type.
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same out point with a code type cell dep.
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_code_dep_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data and same type with
+        // a code type cell dep.
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_same_type_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data but different type
+        // with a code type cell dep, and the type in the code type cell dep is required.
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have a dep which has same data but different type
+        // with a code type cell dep, and the type in the dep group type cell dep is required.
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, PASS);
+        //
+        self.test_same_data_diff_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different code type cell deps have same type but different data
+        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_code_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: two different code type cell deps have same data but different types
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have different out points which have same type but
+        // different data.
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same type with a code type cell dep but
+        // different data, and the data in the code type cell dep is required.
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
+        // Category: a dep group type cell dep have same type with a code type cell dep but
+        // different data, and the data in the dep group type cell dep is required.
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, MMIL);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, MMIT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, MMOT);
+        //
+        self.test_diff_data_same_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
     }
 
-    fn test_same_data_hybrid_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: hybrid-type cell deps have same data is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code1.clone())
-            .cell_dep(deps.dep_group1.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_single_code_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "single code-type dep");
+        let deps = &[&self.deps.code_ax1];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_duplicate_dep_group_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: duplicate dep_group-type cell deps is {}.",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.dep_group1.clone())
-            .cell_dep(deps.dep_group1.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_single_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "single dep_group-type dep");
+        let deps = &[&self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_data_dep_group_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two dep_group-type cell deps have same data is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.dep_group1.clone())
-            .cell_dep(deps.dep_group2.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_duplicate_code_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "duplicate code-type deps");
+        let deps = &[&self.deps.code_ax1, &self.deps.code_ax1];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_point_dep_group_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two dep_group-type cell deps have a same point is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.dep_group2.clone())
-            .cell_dep(deps.dep_group2_copy.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_duplicate_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "duplicate dep_group-type deps");
+        let deps = &[&self.deps.group_ax1a, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_type_not_same_data_code_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two code-type cell deps have same type but not same data is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code1.clone())
-            .cell_dep(deps.code3.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_same_data_code_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data same type code-type deps");
+        let deps = &[&self.deps.code_ax1, &self.deps.code_ax2];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_type_not_same_data_hybrid_type_v1(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two hybrid-type cell deps have same type but not same data v1 is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code1.clone())
-            .cell_dep(deps.dep_group3.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_same_outpoint_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same outpoint dep_group-type deps");
+        let deps = &[&self.deps.group_ax1a, &self.deps.group_ax1b];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_type_not_same_data_hybrid_type_v2(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two hybrid-type cell deps have same type but not same data v2 is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.code3.clone())
-            .cell_dep(deps.dep_group1.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_same_data_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data same type dep_group-type deps");
+        let deps = &[&self.deps.group_ax1a, &self.deps.group_ax2];
+        self.test_result(ct, ht, st, er, deps);
     }
 
-    fn test_same_type_not_same_data_dep_group_type(
-        &self,
-        node: &Node,
-        deps: &CellDepSet,
-        inputs: &mut impl Iterator<Item = packed::CellInput>,
-        tx_template: &TransactionBuilder,
-        expected: ExpectedResult,
-    ) {
-        info!(
-            "[{}] >>> test: two dep_group-type cell deps have same type but not same data is {}",
-            self.tag, expected
-        );
-        let tx = tx_template
-            .clone()
-            .cell_dep(deps.dep_group1.clone())
-            .cell_dep(deps.dep_group3.clone());
-        self.test_result(node, inputs, tx, expected);
+    fn test_duplicate_in_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "duplicate in dep_group-type dep");
+        let deps = &[&self.deps.group_ax1_ax1];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_data_same_type_in_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data same type in dep_group-type dep");
+        let deps = &[&self.deps.group_ax1_ax2];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_data_diff_type_in_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data diff type in dep_group-type dep");
+        let deps = &[&self.deps.group_ax1_ay0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_code_dep_for_hybrid_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same code dep for hybrid-type deps");
+        let deps = &[&self.deps.code_ax1, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_data_same_type_for_hybrid_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data same type for hybrid-type deps");
+        let deps = &[&self.deps.code_ax2, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_data_diff_type_for_hybrid_type_v1(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data diff type for hybrid-type deps 1");
+        let deps = &[&self.deps.code_ax1, &self.deps.group_ay0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_same_data_diff_type_for_hybrid_type_v2(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "same data diff type for hybrid-type deps 2");
+        let deps = &[&self.deps.code_ay0, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_diff_data_same_type_code_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "diff data same type code-type deps");
+        let deps = &[&self.deps.code_ax1, &self.deps.code_bx0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_diff_data_same_type_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "diff data same type depgroup-type deps");
+        let deps = &[&self.deps.group_ax1a, &self.deps.group_bx0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_diff_data_same_type_in_depgroup_type(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "diff data same type in dep_group-type dep");
+        let deps = &[&self.deps.group_ax1_bx0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_diff_data_same_type_for_hybrid_type_v1(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "diff data same type for hybrid-type deps 1");
+        let deps = &[&self.deps.code_ax1, &self.deps.group_bx0];
+        self.test_result(ct, ht, st, er, deps);
+    }
+
+    fn test_diff_data_same_type_for_hybrid_type_v2(&self, ct: CT, ht: HT, st: ST, er: ER) {
+        self.intro(ct, ht, st, er, "diff data same type for hybrid-type deps 2");
+        let deps = &[&self.deps.code_bx0, &self.deps.group_ax1a];
+        self.test_result(ct, ht, st, er, deps);
     }
 }

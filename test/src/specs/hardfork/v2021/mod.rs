@@ -5,10 +5,7 @@ mod since;
 mod vm_b_extension;
 mod vm_version;
 
-pub use cell_deps::{
-    DuplicateCellDepsForDataHashTypeLockScript, DuplicateCellDepsForDataHashTypeTypeScript,
-    DuplicateCellDepsForTypeHashTypeLockScript, DuplicateCellDepsForTypeHashTypeTypeScript,
-};
+pub use cell_deps::CheckCellDeps;
 pub use extension::CheckBlockExtension;
 pub use header_deps::ImmatureHeaderDeps;
 pub use since::{CheckAbsoluteEpochSince, CheckRelativeEpochSince};
