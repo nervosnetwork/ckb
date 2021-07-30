@@ -14,7 +14,7 @@ env:
   linux_os: ubuntu-20.04
   os_matrix: '[ "ubuntu-20.04", "macos-10.15", "windows-2019" ]'
   rust_toolchain: 1.51.0
-  molc_version: 0.7.1
+  molc_version: 0.7.2
   trigger_next_checks: true
 
 jobs:
