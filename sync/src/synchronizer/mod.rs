@@ -1566,11 +1566,7 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 still in sync state
             assert_eq!(
-                peers
-                    .state
-                    .get(&sync_protected_peer)
-                    .unwrap()
-                    .sync_started(),
+                peer_state.get(&sync_protected_peer).unwrap().sync_started(),
                 true
             );
             assert_eq!(
@@ -1663,11 +1659,7 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 chain_sync timeout
             assert_eq!(
-                peers
-                    .state
-                    .get(&sync_protected_peer)
-                    .unwrap()
-                    .sync_started(),
+                peer_state.get(&sync_protected_peer).unwrap().sync_started(),
                 false
             );
             assert_eq!(
