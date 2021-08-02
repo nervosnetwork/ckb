@@ -1650,13 +1650,25 @@ impl SyncState {
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
+        if peer_state.sync_started() {
+            assert_ne!(
+                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                0,
+                "n_sync_started overflow when suspend_sync"
+            );
+        }
         peer_state.suspend_sync(SUSPEND_SYNC_TIME);
-        self.n_sync_started().fetch_sub(1, Ordering::Release);
     }
 
     pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
+        if peer_state.sync_started() {
+            assert_ne!(
+                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                0,
+                "n_sync_started overflow when tip_synced"
+            );
+        }
         peer_state.tip_synced();
-        self.n_sync_started().fetch_sub(1, Ordering::Release);
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
