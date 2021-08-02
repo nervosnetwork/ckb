@@ -1732,6 +1732,99 @@ mod tests {
         }
     }
 
+    #[cfg(not(disable_faketime))]
+    #[test]
+    fn test_n_sync_started() {
+        let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+        faketime::enable(&faketime_file);
+
+        let consensus = Consensus::default();
+        let block = BlockBuilder::default()
+            .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
+            .transaction(consensus.genesis_block().transactions()[0].clone())
+            .build();
+        let consensus = ConsensusBuilder::default().genesis_block(block).build();
+
+        let (_, shared, synchronizer) = start_chain(Some(consensus));
+
+        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
+
+        let network_context = mock_network_context(1);
+        let peers = synchronizer.peers();
+        //6 peers do not trigger header sync timeout
+        let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
+        let sync_protected_peer = 0.into();
+
+        {
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_controller = Some(not_timeout);
+
+            peers.state.insert(0.into(), state_0);
+        }
+
+        {
+            // Protected peer 0 start sync
+            peers
+                .state
+                .get_mut(&sync_protected_peer)
+                .unwrap()
+                .start_sync(not_timeout);
+            synchronizer
+                .shared()
+                .state()
+                .n_sync_started()
+                .fetch_add(1, Ordering::Release);
+        }
+        synchronizer.eviction(&network_context);
+
+        assert!({ network_context.disconnected.lock().is_empty() });
+        faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
+        synchronizer.eviction(&network_context);
+        {
+            assert!({ network_context.disconnected.lock().is_empty() });
+            assert_eq!(
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .chain_sync
+                    .timeout,
+                unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
+            );
+        }
+
+        faketime::write_millis(
+            &faketime_file,
+            unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
+        )
+        .expect("write millis");
+        synchronizer.eviction(&network_context);
+        {
+            // Protected peer 0 chain_sync timeout
+            assert_eq!(
+                peers
+                    .state
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
+                false
+            );
+            assert_eq!(
+                synchronizer
+                    .shared()
+                    .state()
+                    .n_sync_started()
+                    .load(Ordering::Acquire),
+                0
+            );
+        }
+        // There may be competition between header sync and eviction, it will case assert panic
+        let mut state = peers.state.get_mut(&sync_protected_peer).unwrap();
+        synchronizer.shared().state().tip_synced(&mut state);
+    }
+
     #[test]
     // `peer.last_common_header` represents what's the fork point between the local main-chain
     // and the peer's mani-chain. It may be unmatched with the current state. So we expect that
