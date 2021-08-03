@@ -10,7 +10,7 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
 use ckb_types::{
-    core::{self, cell::CellProvider},
+    core::{self, cell::CellProvider, tx_pool::TxStatus},
     packed::{self, Block, Header},
     prelude::*,
     utilities::{merkle_root, MerkleProof, CBMT},
@@ -1328,12 +1328,10 @@ impl ChainRpc for ChainRpcImpl {
                 return Err(RPCError::ckb_internal_error(e));
             };
 
-            fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
-                if proposed {
-                    TransactionWithStatus::with_proposed(tx)
-                } else {
-                    TransactionWithStatus::with_pending(tx)
-                }
+            fetch_tx_for_rpc.unwrap().map(|(status, tx)| match status {
+                TxStatus::Pending => TransactionWithStatus::with_pending(tx),
+                TxStatus::Proposed => TransactionWithStatus::with_proposed(tx),
+                TxStatus::Reject(reject) => TransactionWithStatus::with_reject(reject.into()),
             })
         };
 

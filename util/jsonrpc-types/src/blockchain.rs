@@ -1,7 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    Timestamp, Uint128, Uint32, Uint64, Version,
+    BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
+    PoolTransactionReject, ProposalShortId, Timestamp, Uint128, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
@@ -519,25 +519,25 @@ impl From<Transaction> for packed::Transaction {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
     /// The transaction.
-    pub transaction: TransactionView,
+    pub transaction: Option<TransactionView>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: core::TransactionView) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::pending(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: core::TransactionView) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::proposed(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
@@ -545,7 +545,15 @@ impl TransactionWithStatus {
     pub fn with_committed(tx: core::TransactionView, hash: H256) -> Self {
         Self {
             tx_status: TxStatus::committed(hash),
-            transaction: tx.into(),
+            transaction: Some(tx.into()),
+        }
+    }
+
+    /// Build with reject status
+    pub fn with_reject(reject: PoolTransactionReject) -> Self {
+        Self {
+            tx_status: TxStatus::reject(reject),
+            transaction: None,
         }
     }
 }
@@ -560,6 +568,8 @@ pub enum Status {
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
+    /// Status "Reject". The transaction has been reject recently.
+    Reject(PoolTransactionReject),
 }
 
 /// Transaction status and the block hash if it is committed.
@@ -597,6 +607,18 @@ impl TxStatus {
         Self {
             status: Status::Committed,
             block_hash: Some(hash),
+        }
+    }
+
+    /// Transaction which has already been reject.
+    ///
+    /// ## Params
+    ///
+    /// * `reject` - the reject reason.
+    pub fn reject(reject: PoolTransactionReject) -> Self {
+        Self {
+            status: Status::Reject(reject),
+            block_hash: None,
         }
     }
 }

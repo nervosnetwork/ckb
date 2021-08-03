@@ -19,7 +19,7 @@ use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
-        tx_pool::{TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{TxPoolEntryInfo, TxPoolIds, TxStatus},
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
@@ -71,7 +71,7 @@ type BlockTemplateArgs = (
 
 pub(crate) type SubmitTxResult = Result<Completed, Error>;
 
-type FetchTxRPCResult = Option<(bool, TransactionView)>;
+type FetchTxRPCResult = Option<(TxStatus, Option<TransactionView>)>;
 
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
@@ -91,7 +91,7 @@ pub(crate) enum Message {
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
-    FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
+    FetchTxRPC(Request<ProposalShortId, FetchTxRPCResult>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
@@ -680,13 +680,21 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: id,
         }) => {
             let tx_pool = service.tx_pool.read().await;
-            let tx = tx_pool
-                .proposed()
-                .get(&id)
-                .map(|entry| (true, entry.transaction()))
-                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)))
-                .map(|(proposed, tx)| (proposed, tx.clone()));
-            if let Err(e) = responder.send(tx) {
+            let ret = if let Some(reject) = tx_pool.recent_reject.peek(&id) {
+                Some((TxStatus::Reject(reject.clone()), None))
+            } else {
+                tx_pool
+                    .proposed()
+                    .get(&id)
+                    .map(|entry| (TxStatus::Proposed, Some(entry.transaction().clone())))
+                    .or_else(|| {
+                        tx_pool
+                            .get_tx_from_pending(&id)
+                            .map(|tx| (TxStatus::Pending, Some(tx.clone())))
+                    })
+            };
+
+            if let Err(e) = responder.send(ret) {
                 error!("responder send fetch_tx_for_rpc failed {:?}", e)
             };
         }

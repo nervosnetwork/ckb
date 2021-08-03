@@ -4100,11 +4100,12 @@ This is a 0x-prefix hex string. It is the block header serialized by molecule us
 
 Status for transaction
 
-`Status` is equivalent to `"pending" | "proposed" | "committed"`.
+`Status` is equivalent to `"pending" | "proposed" | "committed" | "reject"`.
 
 *   Status "pending". The transaction is in the pool, and not proposed yet.
 *   Status "proposed". The transaction is in the pool and has been proposed.
 *   Status "committed". The transaction has been committed to the canonical chain.
+*   Status "Reject". The transaction has been reject recently.
 
 
 ### Type `SyncState`
@@ -4309,7 +4310,7 @@ The JSON view of a transaction as well as its status.
 
 `TransactionWithStatus` is a JSON object with the following fields.
 
-*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
+*   `transaction`: [`TransactionView`](#type-transactionview) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

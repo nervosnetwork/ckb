@@ -434,6 +434,9 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
 
     tx_pool_builder.register_committed(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+
+        // pop committed from recent reject
+        tx_pool.recent_reject.pop(&entry.proposal_short_id());
     }));
 
     let notify_reject = notify;
@@ -442,6 +445,10 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             // update statics
             tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
 
+            // record recent reject
+            tx_pool
+                .recent_reject
+                .put(entry.proposal_short_id(), reject.clone());
             // notify
             let notify_tx_entry = PoolTransactionEntry {
                 transaction: entry.rtx.transaction.clone(),

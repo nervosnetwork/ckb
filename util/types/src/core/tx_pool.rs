@@ -73,12 +73,14 @@ impl Reject {
 impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 
 /// Tx-pool transaction status
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum TxStatus {
     /// Status "pending". The transaction is in the pool, and not proposed yet.
     Pending,
     /// Status "proposed". The transaction is in the pool and has been proposed.
     Proposed,
+    /// Status "reject". The transaction is reject.
+    Reject(Reject),
 }
 
 /// Tx-pool entry info

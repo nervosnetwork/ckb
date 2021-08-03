@@ -49,6 +49,8 @@ pub struct TxPool {
     pub(crate) total_tx_cycles: Cycle,
     /// storage snapshot reference
     pub(crate) snapshot: Arc<Snapshot>,
+    /// record recent reject
+    pub recent_reject: LruCache<ProposalShortId, Reject>,
 }
 
 /// Transaction pool information.
@@ -91,6 +93,7 @@ impl TxPool {
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
         const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+        const RECENT_REJECT_SIZE: usize = 5_000;
 
         TxPool {
             config,
@@ -101,6 +104,7 @@ impl TxPool {
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            recent_reject: LruCache::new(RECENT_REJECT_SIZE),
             snapshot,
         }
     }
@@ -238,12 +242,9 @@ impl TxPool {
             .or_else(|| self.proposed.get_tx(id))
     }
 
-    /// Returns tx exclude conflict corresponding to the id. RPC
-    pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.pending
-            .get_tx(id)
-            .or_else(|| self.gap.get_tx(id))
-            .or_else(|| self.proposed.get_tx(id))
+    /// Returns tx from pending and gap corresponding to the id. RPC
+    pub fn get_tx_from_pending(&self, id: &ProposalShortId) -> Option<&TransactionView> {
+        self.pending.get_tx(id).or_else(|| self.gap.get_tx(id))
     }
 
     pub(crate) fn proposed(&self) -> &ProposedPool {
