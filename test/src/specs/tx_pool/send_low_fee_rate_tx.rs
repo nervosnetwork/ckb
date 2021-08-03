@@ -29,6 +29,7 @@ impl Spec for SendLowFeeRateTx {
                 .get_transaction(tx_hash_0.clone())
                 .unwrap()
                 .transaction
+                .unwrap()
                 .inner,
         )
         .into_view();

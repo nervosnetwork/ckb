@@ -1,5 +1,6 @@
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
+use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
@@ -49,7 +50,8 @@ impl Spec for DifferentTxsWithSameInput {
         assert!(!commit_txs_hash.contains(&tx2.hash()));
 
         // when tx1 was confirmed, tx2 should be discarded
-        let tx = node0.rpc_client().get_transaction(tx2.hash());
-        assert!(tx.is_none(), "tx2 should be discarded");
+        let ret = node0.rpc_client().get_transaction(tx2.hash());
+        assert!(ret.is_some(), "reject should be recorded");
+        assert!(matches!(ret.unwrap().tx_status.status, Status::Reject(_)));
     }
 }

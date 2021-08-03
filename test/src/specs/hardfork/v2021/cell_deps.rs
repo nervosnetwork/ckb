@@ -530,6 +530,7 @@ impl DuplicateCellDepsTestRunner {
             .get_transaction(previous_output.tx_hash())
             .unwrap()
             .transaction
+            .unwrap()
             .inner
             .outputs[previous_output_index]
             .clone()
