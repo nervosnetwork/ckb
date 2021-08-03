@@ -14,3 +14,4 @@ ckb-async-runtime = { path = "../runtime", version = "= 0.43.1" }
 ckb-util = { path = "..", version = "= 0.43.1" }
 metrics-runtime = { package = "ckb-metrics-runtime", version = "0.13.1" }
 metrics-core = "0.5.2"
+tokio-compat-02 = "0.2"

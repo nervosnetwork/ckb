@@ -8,6 +8,7 @@ use metrics_runtime::{
     observers::{JsonBuilder, PrometheusBuilder, YamlBuilder},
     Receiver,
 };
+use tokio_compat_02::FutureExt;
 
 use ckb_async_runtime::Handle;
 use ckb_metrics_config::{Config, Exporter, Format, Target};
@@ -86,17 +87,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = LogExporter::new(c, b, lv, dur);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
             };
         }
@@ -108,17 +109,17 @@ where
                 Format::Json { pretty } => {
                     let b = JsonBuilder::new().set_pretty_json(pretty);
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
                 Format::Yaml => {
                     let b = YamlBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
                 Format::Prometheus => {
                     let b = PrometheusBuilder::new();
                     let exporter = HttpExporter::new(c, b, addr);
-                    handle.spawn(exporter.async_run());
+                    handle.spawn(exporter.async_run().compat());
                 }
             };
         }
