@@ -501,6 +501,10 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(DuplicateCellDepsForDataHashTypeTypeScript),
         Box::new(DuplicateCellDepsForTypeHashTypeLockScript),
         Box::new(DuplicateCellDepsForTypeHashTypeTypeScript),
+        Box::new(InboundSync),
+        Box::new(OutboundSync),
+        Box::new(InboundMinedDuringSync),
+        Box::new(OutboundMinedDuringSync),
     ];
     specs.shuffle(&mut thread_rng());
     specs
