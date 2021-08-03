@@ -27,6 +27,7 @@ use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::TxVerifyCache;
 use p2p::SessionId as PeerIndex;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -49,40 +50,45 @@ pub struct SharedBuilder {
 pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
     let migrate = Migrate::new(&config.path);
 
-    let mut db_exist = false;
+    let read_only_db = migrate.open_read_only_db().map_err(|e| {
+        eprintln!("migrate error {}", e);
+        ExitCode::Failure
+    })?;
 
-    // migration prompt
-    {
-        let read_only_db = migrate.open_read_only_db().map_err(|e| {
-            eprintln!("migrate error {}", e);
-            ExitCode::Failure
-        })?;
-
-        if let Some(db) = read_only_db {
-            db_exist = true;
-
-            if migrate.require_expensive(&db) {
+    if let Some(db) = read_only_db {
+        match migrate.check(&db) {
+            Ordering::Greater => {
                 eprintln!(
-                    "For optimal performance, CKB wants to migrate the data into new format.\n\
-                    You can use the old version CKB if you don't want to do the migration.\n\
-                    We strongly recommended you to use the latest stable version of CKB, \
-                    since the old versions may have unfixed vulnerabilities.\n\
-                    Run `ckb migrate --help` for more information about migration."
+                    "The database is created by a higher version CKB executable binary, \n\
+                     so that the current CKB executable binary couldn't open this database.\n\
+                     Please download the latest CKB executable binary."
                 );
-                return Err(ExitCode::Failure);
+                Err(ExitCode::Failure)
+            }
+            Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
+            Ordering::Less => {
+                if migrate.require_expensive(&db) {
+                    eprintln!(
+                        "For optimal performance, CKB wants to migrate the data into new format.\n\
+                        You can use the old version CKB if you don't want to do the migration.\n\
+                        We strongly recommended you to use the latest stable version of CKB, \
+                        since the old versions may have unfixed vulnerabilities.\n\
+                        Run `ckb migrate --help` for more information about migration."
+                    );
+                    Err(ExitCode::Failure)
+                } else {
+                    Ok(RocksDB::open(config, COLUMNS))
+                }
             }
         }
-    }
-
-    let db = RocksDB::open(config, COLUMNS);
-    if !db_exist {
+    } else {
+        let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
             eprintln!("migrate init_db_version error {}", e);
             ExitCode::Failure
         })?;
+        Ok(db)
     }
-
-    Ok(db)
 }
 
 impl SharedBuilder {
