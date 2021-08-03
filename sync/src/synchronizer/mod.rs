@@ -1709,13 +1709,14 @@ mod tests {
             state_0.peer_flags.is_outbound = true;
             state_0.headers_sync_controller = Some(not_timeout);
 
-            peers.state.insert(0.into(), state_0);
+            peers.state.write().insert(0.into(), state_0);
         }
 
         {
             // Protected peer 0 start sync
             peers
                 .state
+                .write()
                 .get_mut(&sync_protected_peer)
                 .unwrap()
                 .start_sync(not_timeout);
@@ -1735,6 +1736,7 @@ mod tests {
             assert_eq!(
                 peers
                     .state
+                    .read()
                     .get(&sync_protected_peer)
                     .unwrap()
                     .chain_sync
@@ -1754,6 +1756,7 @@ mod tests {
             assert_eq!(
                 peers
                     .state
+                    .read()
                     .get(&sync_protected_peer)
                     .unwrap()
                     .sync_started(),
@@ -1769,8 +1772,9 @@ mod tests {
             );
         }
         // There may be competition between header sync and eviction, it will case assert panic
-        let mut state = peers.state.get_mut(&sync_protected_peer).unwrap();
-        synchronizer.shared().state().tip_synced(&mut state);
+        let mut state_guard = peers.state.write();
+        let state = state_guard.get_mut(&sync_protected_peer).unwrap();
+        synchronizer.shared().state().tip_synced(state);
     }
 
     #[test]
