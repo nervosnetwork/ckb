@@ -499,6 +499,10 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmVersion),
         Box::new(CheckVmBExtension),
         Box::new(ImmatureHeaderDeps),
+        Box::new(InboundSync),
+        Box::new(OutboundSync),
+        Box::new(InboundMinedDuringSync),
+        Box::new(OutboundMinedDuringSync),
     ];
     specs.shuffle(&mut thread_rng());
     specs
