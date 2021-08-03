@@ -19,10 +19,7 @@ fs2 = "0.4.3"
 fail = "0.4"
 snap = "1"
 lru = "0.6.0"
-
-[dev-dependencies]
 tempfile = "3.0"
-
 
 [[test]]
 name = "failpoints"

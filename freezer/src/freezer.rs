@@ -37,7 +37,7 @@ pub struct Freezer {
 }
 
 impl Freezer {
-    /// creates a freezer at specified path
+    /// Creates a freezer at specified path
     pub fn open(path: PathBuf) -> Result<Freezer, Error> {
         let lock_path = path.join(LOCKNAME);
         let lock = OpenOptions::new()
@@ -73,7 +73,13 @@ impl Freezer {
         })
     }
 
-    /// freeze background process that periodically checks the chain data for any
+    /// Creates a freezer at temporary path
+    pub fn open_tmp() -> Result<Freezer, Error> {
+        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+        Self::open(tmp_dir.path().to_path_buf())
+    }
+
+    /// Freeze background process that periodically checks the chain data for any
     /// import progress and moves ancient data from the kv-db into the freezer.
     pub fn freeze<F>(
         &self,
