@@ -1,5 +1,6 @@
 use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
 use ckb_crypto::secp::Generator;
+use ckb_error::assert_error_eq;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_test_chain_utils::{
     always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
@@ -11,9 +12,10 @@ use ckb_types::{
         TransactionBuilder,
     },
     h256,
-    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint, Script, WitnessArgs},
+    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script, WitnessArgs},
     H256,
 };
+use ckb_vm::Error as VmError;
 use std::path::Path;
 
 use super::SCRIPT_VERSION;
@@ -21,6 +23,63 @@ use crate::{
     type_id::TYPE_ID_CYCLES,
     verify::{tests::utils::*, *},
 };
+
+#[test]
+fn test_b_extension() {
+    let script_version = SCRIPT_VERSION;
+
+    let args: packed::Bytes = {
+        let num0 = 0x0102030405060708u64; // a random value
+        let num1 = u64::from(num0.count_ones());
+
+        let mut vec = Vec::with_capacity(8 * 2);
+        vec.extend_from_slice(&num0.to_le_bytes());
+        vec.extend_from_slice(&num1.to_le_bytes());
+        vec.pack()
+    };
+
+    let cpop_lock_cell_data = Bytes::from(
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/cpop_lock")).unwrap(),
+    );
+    let cpop_lock_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(cpop_lock_cell_data.len()).unwrap().pack())
+        .build();
+    let cpop_lock_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&cpop_lock_cell_data))
+        .args(args)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(cpop_lock_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let cpop_lock_cell = CellMetaBuilder::from_cell_output(cpop_lock_cell, cpop_lock_cell_data)
+        .transaction_info(default_transaction_info())
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![cpop_lock_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
+    if script_version < ScriptVersion::V1 {
+        let vm_error = VmError::InvalidInstruction(0x60291913);
+        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    }
+}
 
 #[test]
 fn check_vm_version() {
@@ -33,7 +92,7 @@ fn check_vm_version() {
         .capacity(Capacity::bytes(vm_version_cell_data.len()).unwrap().pack())
         .build();
     let vm_version_script = Script::new_builder()
-        .hash_type(ScriptHashType::Data1.into())
+        .hash_type(script_version.data_hash_type().into())
         .code_hash(CellOutput::calc_data_hash(&vm_version_cell_data))
         .build();
     let output = CellOutputBuilder::default()
@@ -85,7 +144,7 @@ fn check_exec_from_cell_data() {
         .build();
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(ScriptHashType::Data1.into())
+        .hash_type(script_version.data_hash_type().into())
         .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
         .build();
     let output = CellOutputBuilder::default()
@@ -141,7 +200,7 @@ fn check_exec_from_witness() {
     .pack();
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(ScriptHashType::Data1.into())
+        .hash_type(script_version.data_hash_type().into())
         .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
         .build();
     let output = CellOutputBuilder::default()
