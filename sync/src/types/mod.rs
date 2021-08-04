@@ -1348,7 +1348,7 @@ impl SyncShared {
         block: Arc<core::BlockView>,
     ) -> Result<bool, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
-        if !self.is_parent_stored(&block) {
+        if !self.is_stored(&block.parent_hash()) {
             debug!(
                 "insert new orphan block {} {}",
                 block.header().number(),
@@ -1367,38 +1367,44 @@ impl SyncShared {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        self.try_search_orphan_pool(chain, &block.as_ref().hash());
+        self.try_search_orphan_pool(chain);
         ret
     }
 
-    /// Try search orphan pool with current tip header hash
-    pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
-        let descendants = self.state.remove_orphan_by_parent(parent_hash);
-        debug!(
-            "try accepting {} descendant orphan blocks",
-            descendants.len()
-        );
-
-        for block in descendants {
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as an invalid block as well.
-            if !self.is_parent_stored(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {}, parent: {}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
+    /// Try to find blocks from the orphan block pool that may no longer be orphan
+    pub fn try_search_orphan_pool(&self, chain: &ChainController) {
+        for hash in self.state.orphan_pool().clone_leaders() {
+            if self.state.orphan_pool().is_empty() {
+                break;
             }
-
-            let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
+            if self.is_stored(&hash) {
+                let descendants = self.state.remove_orphan_by_parent(&hash);
                 debug!(
-                    "accept descendant orphan block {} error {:?}",
-                    block.header().hash(),
-                    err
+                    "try accepting {} descendant orphan blocks by exist parents hash",
+                    descendants.len()
                 );
+                for block in descendants {
+                    // If we can not find the block's parent in database, that means it was failed to accept
+                    // its parent, so we treat it as an invalid block as well.
+                    if !self.is_stored(&block.parent_hash()) {
+                        debug!(
+                            "parent-unknown orphan block, block: {}, {}, parent: {}",
+                            block.header().number(),
+                            block.header().hash(),
+                            block.header().parent_hash(),
+                        );
+                        continue;
+                    }
+
+                    let block = Arc::new(block);
+                    if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
+                        debug!(
+                            "accept descendant orphan block {} error {:?}",
+                            block.header().hash(),
+                            err
+                        );
+                    }
+                }
             }
         }
     }
@@ -1511,11 +1517,10 @@ impl SyncShared {
         }
     }
 
-    /// Check whether block's parent has been inserted to chain store
-    pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
-        self.store()
-            .get_block_header(&block.data().header().raw().parent_hash())
-            .is_some()
+    /// Check whether block has been inserted to chain store
+    pub fn is_stored(&self, hash: &packed::Byte32) -> bool {
+        let status = self.active_chain().get_block_status(&hash);
+        status.contains(BlockStatus::BLOCK_STORED)
     }
 
     /// Get epoch ext by block hash
