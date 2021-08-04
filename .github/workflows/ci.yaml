@@ -69,11 +69,11 @@ jobs:
         os: [Linux, macOS, Windows]
         include:
           - os: Linux
-            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration-release
           - os: macOS
-            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+            script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration-release
           - os: Windows
-            script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+            script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration-release
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
     steps:
     - uses: actions/checkout@v2
