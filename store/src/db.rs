@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_db::RocksDB;
-    use ckb_db_schema::COLUMNS;
+    use ckb_db_schema::{COLUMNS, COLUMN_BLOCK_HEADER};
 
     fn setup_db(columns: u32) -> RocksDB {
         RocksDB::open_tmp(columns)
@@ -261,5 +261,71 @@ mod tests {
         assert_eq!(block.number(), store.get_block_number(&hash).unwrap());
 
         assert_eq!(block.header(), store.get_tip_header().unwrap());
+    }
+
+    #[test]
+    fn freeze_blockv0() {
+        let db = RocksDB::open_tmp(COLUMNS);
+        let freezer = Freezer::open_tmp().expect("tmp freezer");
+        let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+
+        let raw = packed::RawHeader::new_builder().number(1u64.pack()).build();
+        let block = packed::Block::new_builder()
+            .header(packed::Header::new_builder().raw(raw).build())
+            .build()
+            .into_view();
+
+        let block_hash = block.hash();
+        let header = block.header();
+
+        let txn = store.begin_transaction();
+        txn.insert_raw(
+            COLUMN_BLOCK_HEADER,
+            block_hash.as_slice(),
+            header.pack().as_slice(),
+        )
+        .expect("insert header");
+        txn.commit().expect("commit");
+
+        freezer
+            .freeze(2, |_number| Some(block.clone()))
+            .expect("freeze");
+
+        assert_eq!(store.get_block(&block_hash), Some(block));
+    }
+
+    #[test]
+    fn freeze_blockv1_with_extension() {
+        let db = RocksDB::open_tmp(COLUMNS);
+        let freezer = Freezer::open_tmp().expect("tmp freezer");
+        let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+
+        let extension: packed::Bytes = vec![1u8; 96].pack();
+        let raw = packed::RawHeader::new_builder().number(1u64.pack()).build();
+        let block = packed::BlockV1::new_builder()
+            .header(packed::Header::new_builder().raw(raw).build())
+            .extension(extension)
+            .build()
+            .as_v0()
+            .into_view();
+
+        let block_hash = block.hash();
+        let header = block.header();
+
+        let txn = store.begin_transaction();
+        txn.insert_raw(
+            COLUMN_BLOCK_HEADER,
+            block_hash.as_slice(),
+            header.pack().as_slice(),
+        )
+        .expect("insert header");
+        txn.commit().expect("commit");
+
+        freezer
+            .freeze(2, |_number| Some(block.clone()))
+            .expect("freeze");
+
+        let block = store.get_block(&block_hash).expect("get_block");
+        assert_eq!(store.get_block(&block_hash), Some(block));
     }
 }
