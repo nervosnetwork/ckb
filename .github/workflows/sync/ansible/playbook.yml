@@ -42,6 +42,8 @@
             search_regex: "(?P<line>.* ChainService INFO ckb_chain::chain  block: {{ ckb_sync_target_number }}, .*)"
             timeout: 36000 # 10 hours
           register: wait_until_reach_explorer_tip
+          poll: 5
+          timeout: 18000
         - debug:
             msg: "{{ wait_until_reach_explorer_tip['match_groupdict']['line'] }}"
         - name: Calculate Synchronization Time Cost According to Logfiles
