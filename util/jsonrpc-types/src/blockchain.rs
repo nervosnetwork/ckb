@@ -1196,7 +1196,7 @@ pub struct ProposalWindow {
 }
 
 /// Consensus defines various parameters that influence chain consensus
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Consensus {
     /// Names the network.
     pub id: String,
@@ -1242,6 +1242,47 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: Uint64,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// Hardfork features
+    pub hardfork_features: Vec<HardForkFeature>,
+}
+
+/// The information about one hardfork feature.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct HardForkFeature {
+    /// The related RFC ID.
+    pub rfc: String,
+    /// The first epoch when the feature is enabled.
+    pub epoch_number: Option<EpochNumber>,
+}
+
+fn convert(number: core::EpochNumber) -> Option<EpochNumber> {
+    if number == core::EpochNumber::MAX {
+        None
+    } else {
+        Some(number.into())
+    }
+}
+
+impl HardForkFeature {
+    /// Creates a new struct.
+    pub fn new(rfc: &str, epoch_number: Option<EpochNumber>) -> Self {
+        Self {
+            rfc: rfc.to_owned(),
+            epoch_number,
+        }
+    }
+
+    /// Returns a list of hardfork features from a hardfork switch.
+    pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
+        vec![
+            Self::new("0028", convert(switch.rfc_0028())),
+            Self::new("0029", convert(switch.rfc_0029())),
+            Self::new("0030", convert(switch.rfc_0030())),
+            Self::new("0031", convert(switch.rfc_0031())),
+            Self::new("0032", convert(switch.rfc_0032())),
+            Self::new("0036", convert(switch.rfc_0036())),
+        ]
+    }
 }
 
 #[cfg(test)]

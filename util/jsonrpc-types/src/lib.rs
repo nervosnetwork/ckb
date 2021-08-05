@@ -22,8 +22,8 @@ pub use self::block_template::{
 };
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
-    DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow,
-    Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
+    DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof, MinerReward, OutPoint,
+    ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
     TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
