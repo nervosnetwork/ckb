@@ -6,6 +6,8 @@ on:
     types: [ submitted ]
   schedule:
     - cron: '0 0 * * *'
+  # Manurally trigger
+  workflow_dispatch:
 
 jobs:
   build_modified_ckb:
@@ -14,11 +16,12 @@ jobs:
     if: |
       (
         github.event_name == 'pull_request_review' &&
-        contains(github.event.review.body, '#benchmark') &&
-        contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+        contains(github.event.review.body, '#benchmark')
       ) || (
         github.event_name == 'schedule' &&
         github.repository_owner == 'nervosnetwork'
+      ) || (
+        github.event_name == 'workflow_dispatch'
       )
     env:
       CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
@@ -64,9 +67,6 @@ jobs:
           TF_VAR_access_key: ${{ secrets.AWS_ACCESS_KEY }}
           TF_VAR_secret_key: ${{ secrets.AWS_SECRET_KEY }}
           TF_VAR_prefix: benchmark-${{ github.repository }}-${{ github.run_id }}
-          TF_VAR_instances_count: 3
-          TF_VAR_instance_type: c5.xlarge
-          TF_VAR_instance_type_bastion: t2.xlarge
           TF_VAR_private_key_path: ${{ env.PRIVATE_KEY_PATH }}
           TF_VAR_public_key_path: ${{ env.PUBLIC_KEY_PATH }}
         with:
@@ -85,42 +85,20 @@ jobs:
         env:
           ANSIBLE_PRIVATE_KEY_FILE:  ${{ env.PRIVATE_KEY_PATH }}
         run: |
-          ansible-galaxy install --roles-path roles --role-file requirements.yml
+          ansible-galaxy install -r requirements.yml --force
 
           # Install CKB on group instance
           ansible-playbook playbook.yml \
             -e 'hostname=instances' \
             -e 'ckb_local_source=${{ github.workspace  }}/ckb.tar.xz' \
             -t ckb_install,ckb_configure
+          ansible-playbook playbook.yml -e 'hostname=instances' -t ckb_start
 
-          # Install CKB-Benchmark on hosts bastion-0
-          ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_install,ckb_benchmark_configure
+          ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_install
+          ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_prepare
+          ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_start
+          ansible-playbook playbook.yml -e 'hostname=bastions'  -t process_result
 
-          # Connect all CKB nodes into a network.
-          #
-          # In order to resolve network issues caused by IBD, we allowed instance-0 out
-          # of IBD, then restarted the other nodes to allow them to connect.
-          ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_stop
-          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_start
-          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_start
-          sleep 5
-          ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_stop
-          ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_start
-
-          # Start benchmark
-          ansible-playbook playbook.yml -e 'hostname=bastions'   -t ckb_benchmark_start
-
-          # Fetch and process result
-          # It will produce `report.yml`, `metrics.yml` and `result.tar.xz`
-          ansible-playbook playbook.yml -e 'hostname=bastions'   -t fetch_ckb_benchmark_logfiles
-          ansible-playbook playbook.yml -e 'hostname=instances'  -t fetch_ckb_logfiles
-          ansible-playbook playbook.yml -e 'hostname=instances'  -t process_result
-
-      - name: Post Run - Upload Result `result.tar.xz`
-        uses: actions/upload-artifact@v2
-        with:
-          name: result.tar.xz
-          path: ${{ env.ANSIBLE_DIR }}/result.tar.xz
       - name: Post Run - Construct Report
         run: |
           echo 'BENCHMARK_REPORT<<EOF'  >> $GITHUB_ENV
@@ -128,7 +106,7 @@ jobs:
           echo 'EOF'                    >> $GITHUB_ENV
 
           if [ ${{ github.event_name }} = 'pull_request_review' ] ; then
-            echo 'ISSUE_NUMBER=${{ github.event.pull_request.number }}' >>
+            echo 'ISSUE_NUMBER=${{ github.event.pull_request.number }}' >> $GITHUB_ENV
           else
             echo 'ISSUE_NUMBER=2372' >> $GITHUB_ENV
           fi
@@ -142,3 +120,12 @@ jobs:
             ```yaml
             ${{ env.BENCHMARK_REPORT }}
             ```
+        continue-on-error: true
+      - uses: actions/upload-artifact@v2
+        with:
+          name: report.yml
+          path: ${{ env.ANSIBLE_DIR }}/report.yml
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ckb-bench.log
+          path: ${{ env.ANSIBLE_DIR }}/ckb-bench.log
