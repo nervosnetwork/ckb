@@ -2,14 +2,14 @@
 #       Please Read `./scripts/render_main_tf.sh` for more information.
 
 provider "aws" {
-    region = "ap-southeast-1"
-    alias  = "ap-southeast-1"
+    region = "us-east-2"
+    alias  = "us-east-2"
     access_key = "${var.access_key}"
     secret_key = "${var.secret_key}"
 }
 
-data "aws_ami" "ubuntu-ap-southeast-1" {
-  provider = aws.ap-southeast-1
+data "aws_ami" "ubuntu-us-east-2" {
+  provider = aws.us-east-2
   most_recent = true
   owners      = ["099720109477"] # Canonical
   filter {
@@ -18,16 +18,16 @@ data "aws_ami" "ubuntu-ap-southeast-1" {
   }
 }
 
-resource "aws_key_pair" "key-ap-southeast-1" {
-  provider      = aws.ap-southeast-1
+resource "aws_key_pair" "key-us-east-2" {
+  provider      = aws.us-east-2
   key_name   = "${var.prefix}"
   public_key = file(var.public_key_path)
 }
 
-resource "aws_instance" "instance-ap-southeast-1" {
-  provider = aws.ap-southeast-1
-  ami           = data.aws_ami.ubuntu-ap-southeast-1.id
-  key_name      = aws_key_pair.key-ap-southeast-1.id
+resource "aws_instance" "instance-us-east-2" {
+  provider = aws.us-east-2
+  ami           = data.aws_ami.ubuntu-us-east-2.id
+  key_name      = aws_key_pair.key-us-east-2.id
   instance_type = "${var.instance_type}"
   root_block_device {
     volume_size = "60"
@@ -43,22 +43,22 @@ resource "aws_instance" "instance-ap-southeast-1" {
 
     connection {
         type        = "ssh"
-        host        = aws_instance.instance-ap-southeast-1.public_ip
+        host        = aws_instance.instance-us-east-2.public_ip
         user        = var.username
         private_key = file(var.private_key_path)
     }
   }
 }
 
-output "ansible-hosts-ap-southeast-1" {
+output "ansible-hosts-us-east-2" {
   value = <<EOF
 
-ap-southeast-1:
+us-east-2:
   hosts:
-    instance-ap-southeast-1:
-      ansible_host: ${aws_instance.instance-ap-southeast-1.public_ip}
-      instance_type: ${aws_instance.instance-ap-southeast-1.instance_type}
-      region: ap-southeast-1
+    instance-us-east-2:
+      ansible_host: ${aws_instance.instance-us-east-2.public_ip}
+      instance_type: ${aws_instance.instance-us-east-2.instance_type}
+      region: us-east-2
       prefix: ${var.prefix}
       ansible_user: ${var.username}
 EOF
