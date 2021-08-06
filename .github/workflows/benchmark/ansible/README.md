@@ -45,29 +45,11 @@ bastions:
 export ANSIBLE_INVENTORY=<path to your inventory file>
 export ANSIBLE_PRIVATE_KEY_FILE=<path to your privary key file>
 
-# Install CKB on group instances
 ansible-playbook playbook.yml -e 'hostname=instances' -t ckb_install,ckb_configure
+ansible-playbook playbook.yml -e 'hostname=instances' -t ckb_start
 
-# Install CKB-Benchmark on hosts bastion-0
-ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_install,ckb_benchmark_configure
-
-# Connect all CKB nodes into a network.
-#
-# In order to resolve network issues caused by IBD, we allowed instance-0 out
-# of IBD, then restarted the other nodes to allow them to connect.
-ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_stop
-ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_start
-ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_start
-sleep 5
-ansible-playbook playbook.yml -e 'hostname=instance-0' -t ckb_miner_stop
-ansible-playbook playbook.yml -e 'hostname=instances'  -t ckb_start
-
-# Start benchmark
-ansible-playbook playbook.yml -e 'hostname=bastions'   -t ckb_benchmark_start
-
-# Fetch and process result
-# It will produce `report.yml`, `metrics.yml` and `result.tar.xz`
-ansible-playbook playbook.yml -e 'hostname=bastions'   -t fetch_ckb_benchmark_logfiles
-ansible-playbook playbook.yml -e 'hostname=instances'  -t fetch_ckb_logfiles
-ansible-playbook playbook.yml -e 'hostname=instances'  -t process_result
+ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_install
+ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_prepare
+ansible-playbook playbook.yml -e 'hostname=bastions'  -t ckb_benchmark_start
+ansible-playbook playbook.yml -e 'hostname=bastions'  -t process_result
 ```
