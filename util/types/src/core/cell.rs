@@ -12,11 +12,11 @@ use ckb_occupied_capacity::Result as CapacityResult;
 use lazy_static::lazy_static;
 use lru::LruCache;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::Mutex;
 
 /// TODO(doc): @quake
 #[derive(Debug)]
@@ -631,6 +631,32 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     }
 }
 
+const DEPCACHE_SIZE: usize = 1000;
+lazy_static! {
+    static ref DEP_CACHE: Mutex<LruCache<OutPoint, (CellMeta, Vec<CellMeta>)>> =
+        Mutex::new(LruCache::new(DEPCACHE_SIZE));
+}
+fn resolve_dep_group_with_cache<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
+    out_point: &OutPoint,
+    cell_resolver: F,
+    eager_load: bool,
+) -> Result<(CellMeta, Vec<CellMeta>), OutPointError> {
+    // check dep_cache first
+    let mut dep_cache = DEP_CACHE.lock();
+
+    if let Some((dep_group_cell, resolved_deps)) = dep_cache.get(out_point) {
+        Ok((dep_group_cell.clone(), resolved_deps.clone()))
+    } else {
+        let (dep_group_cell, resolved_deps) =
+            resolve_dep_group(out_point, cell_resolver, eager_load)?;
+        dep_cache.put(
+            out_point.clone(),
+            (dep_group_cell.clone(), resolved_deps.clone()),
+        );
+        Ok((dep_group_cell, resolved_deps))
+    }
+}
+
 fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
     out_point: &OutPoint,
     mut cell_resolver: F,
@@ -788,11 +814,6 @@ fn resolve_transaction_deps_with_system_cell_cache<
     Ok(())
 }
 
-const DEPCACHE_SIZE: usize = 1000;
-lazy_static! {
-    static ref DEP_CACHE: Mutex<LruCache<CellDep, (CellMeta, Option<Vec<CellMeta>>)>> =
-        Mutex::new(LruCache::new(DEPCACHE_SIZE));
-}
 fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
     cell_dep: &CellDep,
     cell_resolver: &mut F,
@@ -800,34 +821,13 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     resolved_dep_groups: &mut Vec<CellMeta>,
     eager_load: bool,
 ) -> Result<(), OutPointError> {
-    // check dep_cache first
-    let mut dep_cache = DEP_CACHE.lock().expect("unlock DEP CACHE");
-
-    if let Some(value) = dep_cache.get(cell_dep) {
-        match value {
-            (dep_group, Some(cell_deps)) => {
-                resolved_dep_groups.push(dep_group.clone());
-                resolved_cell_deps.extend(cell_deps.clone());
-            }
-            (cell_dep, None) => {
-                resolved_cell_deps.push(cell_dep.clone());
-            }
-        }
+    if cell_dep.dep_type() == DepType::DepGroup.into() {
+        let (dep_group, cell_deps) =
+            resolve_dep_group_with_cache(&cell_dep.out_point(), cell_resolver, eager_load)?;
+        resolved_dep_groups.push(dep_group);
+        resolved_cell_deps.extend(cell_deps);
     } else {
-        if cell_dep.dep_type() == DepType::DepGroup.into() {
-            let (dep_group, cell_deps) =
-                resolve_dep_group(&cell_dep.out_point(), cell_resolver, eager_load)?;
-            dep_cache.put(
-                cell_dep.clone(),
-                (dep_group.clone(), Some(cell_deps.clone())),
-            );
-            resolved_dep_groups.push(dep_group);
-            resolved_cell_deps.extend(cell_deps);
-        } else {
-            let res = cell_resolver(&cell_dep.out_point(), eager_load)?;
-            dep_cache.put(cell_dep.clone(), (res.clone(), None));
-            resolved_cell_deps.push(res);
-        }
+        resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), eager_load)?);
     }
     Ok(())
 }
