@@ -9,9 +9,9 @@ use crate::{
 use bitflags::bitflags;
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
-use lazy_static::lazy_static;
 use lru::LruCache;
 use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::convert::TryInto;
@@ -632,10 +632,10 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
 }
 
 const DEPCACHE_SIZE: usize = 1000;
-lazy_static! {
-    static ref DEP_CACHE: Mutex<LruCache<OutPoint, (CellMeta, Vec<CellMeta>)>> =
-        Mutex::new(LruCache::new(DEPCACHE_SIZE));
-}
+static DEP_CACHE: Lazy<Mutex<LruCache<OutPoint, (CellMeta, Vec<CellMeta>)>>> = Lazy::new(|| {
+    Mutex::new(LruCache::new(DEPCACHE_SIZE))
+}); 
+
 fn resolve_dep_group_with_cache<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
     out_point: &OutPoint,
     cell_resolver: F,
