@@ -1,16 +1,19 @@
 name: CI workflow
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     types: [ opened, synchronize, reopened ]
   push:
     branches:
-      - "develop"
-      - "master"
-      - "trying"
-      - "staging"
-      - "staging2"
-      - "rc/*"
+      - master
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,75 +22,102 @@ env:
   LOGBAK_USER: ${{secrets.LOGBAK_USER}}  #LOCBAK_* for upload logs to server when test failed, for windows
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
+
 jobs:
+  if-workflow-is-required:
+    name: Check If Current Workflow is Required
+    if: |
+      (  contains(github.event_name, 'pull_request')
+      || (  github.repository_owner == 'nervosnetwork'
+         && ! contains(github.event.head_commit.message, 'disable self-hosted ci')
+         )
+      || contains(github.event.head_commit.message, 'enable self-hosted ci')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Succeeded
+        run: exit 0
+
   UnitTest:
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner,win-runner]
+        os: [Linux, macOS, Windows]
         include:
-          - os: Linux-runner
+          - os: Linux
             script_run: make test
-          - os:  mac-runner
+          - os:  macOS
             script_run: make test
-          - os: win-runner
+          - os: Windows
             script_run: devtools/windows/make test
-            CI: true
-            ImageOS: 'windows-2019'
-            BUILD_BUILDID: ${{ github.sha }}
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: UnitTest
       run: ${{ matrix.script_run }}
-    env:
-      CI: ${{ matrix.CI }}
-      SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
-      ImageOS:  ${{ matrix.ImageOS }}
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Integration_Test:
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner,win-runner]
+        os: [Linux, macOS, Windows]
         include:
-          - os: Linux-runner
+          - os: Linux
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - os:  mac-runner
+          - os: macOS
             script_run: make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-          - os: win-runner
+          - os: Windows
             script_run: devtools/windows/make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
-            CI: true
             SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
-    needs: Security_Audit_Licenses
     steps:
     - uses: actions/checkout@v2
     - name: Integration_Test
       run: ${{ matrix.script_run }}
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
+    - name: Post Run - Upload integration Result when failed
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.os }}_integration.log
+        path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
-      CI: ${{ matrix.CI }}
       SENTRY_DSN: ${{ matrix.SENTRY_DSN }}
+      ImageOS: ${{matrix.os}}
+      BUILD_BUILDID: ${{ github.run_id }}
 
   Benchmarks_Test:
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Security_Audit_Licenses
+        os: [Linux, macOS]
     steps:
     - uses: actions/checkout@v2
     - name: Benchmarks_Test
       run: |
         make bench-test
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Linters:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
+    needs: if-workflow-is-required
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Linux-runner, mac-runner]
+        os: [Linux, macOS]
     steps:
     - uses: actions/checkout@v2
     - name: Linters
@@ -97,16 +127,15 @@ jobs:
          make fmt
          make clippy
          git diff --exit-code Cargo.lock
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Quick_Check:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner]
-    needs: Linters
+    needs: if-workflow-is-required
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Quick_Check
@@ -116,32 +145,30 @@ jobs:
         make check-dirty-rpc-doc
         make check-dirty-hashes-toml
         devtools/ci/check-cyclic-dependencies.py
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   WASM_build:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner]
-    needs: Quick_Check
+    needs: if-workflow-is-required
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: WASM build
       run: |
         rustup target add wasm32-unknown-unknown
         make wasm-build-test
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   Security_Audit_Licenses:
-    if: |
-      contains(github.event_name, 'pull_request') ||
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner]
-    needs: WASM_build
+    needs: if-workflow-is-required
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Security Audit & Licenses
@@ -150,47 +177,11 @@ jobs:
         make security-audit
         make check-crates
         make check-licenses
-
-  Cyclic_dev_dependencies:
-    if: |
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-    needs: Security_Audit_Licenses
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v2
-    - name: Cyclic_dev_dependencies
-      run: |
-        devtools/ci/check-cyclic-dependencies.py --dev
-
-  Latest_Linters:
-    if: |
-      contains(fromJson('[ "refs/heads/master", "refs/heads/trying","refs/heads/staging", "refs/heads/staging2" ]'), github.ref)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [Linux-runner, mac-runner]
-        include:
-          - os: Linux-runner
-            script_run: rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu &&  rustup component add clippy --toolchain stable-x86_64-unknown-linux-gnu
-          - os:  mac-runner
-            script_run: rustup component add rustfmt-preview && rustup component add clippy-preview
-    needs: Cyclic_dev_dependencies
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v2
-    - name: Pre install
-      run: ${{ matrix.script_run }}
-    - name: Latest_Linters
-      run: |
-        mv rust-toolchain rust-toolchain.bak
-        echo "stable" > rust-toolchain
-        make fmt
-        make clippy
-        mv rust-toolchain.bak rust-toolchain
+    - uses: doitian/available-space@v1
+      if: ${{ always() }}
+      with:
+        clean-threshold: 40000
+        clean: cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
 
   ci-success:
     name: ci
