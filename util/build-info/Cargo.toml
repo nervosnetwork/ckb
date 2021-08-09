@@ -1,6 +1,6 @@
 [package]
 name = "ckb-build-info"
-version = "0.43.1"
+version = "0.43.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

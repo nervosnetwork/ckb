@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.43.1"
+version = "0.43.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,11 +11,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 resolver = "2"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.43.1" }
+ckb-build-info = { path = "util/build-info", version = "= 0.43.2" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.43.1" }
-ckb-bin = { path = "ckb-bin", version = "= 0.43.1" }
+ckb-build-info = { path = "util/build-info", version = "= 0.43.2" }
+ckb-bin = { path = "ckb-bin", version = "= 0.43.2" }
 
 [dev-dependencies]
 
