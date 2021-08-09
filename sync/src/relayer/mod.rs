@@ -737,12 +737,13 @@ impl CKBProtocolHandler for Relayer {
             }
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
-            SEARCH_ORPHAN_POOL_TOKEN => tokio::task::block_in_place(|| {
-                self.shared.try_search_orphan_pool(
-                    &self.chain,
-                    &self.shared.active_chain().tip_header().hash(),
-                )
-            }),
+            SEARCH_ORPHAN_POOL_TOKEN => {
+                if !self.shared.state().orphan_pool().is_empty() {
+                    tokio::task::block_in_place(|| {
+                        self.shared.try_search_orphan_pool(&self.chain);
+                    })
+                }
+            }
             _ => unreachable!(),
         }
         trace_target!(
