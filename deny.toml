@@ -7,8 +7,9 @@ ignore = [
     "RUSTSEC-2020-0043", # TODO ws allows remote attacker to run the process out of memory, since it is no longer actively maintained, we couldn't fix it in the short term
     "RUSTSEC-2020-0082", # TODO ordered_float:NotNan may contain NaN after panic in assignment operators
                          #      Could be removed after heim 0.1.0 released.
-    "RUSTSEC-2021-0013", # TODO We did not use heim-virt to get cpu information
     "RUSTSEC-2021-0020", # TODO JsonRPC unable to upgrade, considering that the trigger condition is too harsh(upstream proxy and proxy is wrong), ignore it for now
+    "RUSTSEC-2021-0079", # SKIP
+    "RUSTSEC-2021-0078", # SKIP
 ]
 
 [licenses]

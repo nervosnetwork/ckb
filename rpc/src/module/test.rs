@@ -185,6 +185,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 &mut seen_inputs,
                 &overlay_cell_provider,
                 snapshot,
+                Some(2048)
             ).map_err(|err| {
                 error!(
                     "resolve transactions error when generating block with block template, error: {:?}",

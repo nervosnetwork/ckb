@@ -970,13 +970,15 @@ impl<T: ExitHandler> NetworkService<T> {
                 .into_iter()
                 .map(|paddr| paddr.addr)
                 .collect();
-            addrs.extend(
-                self.network_state
-                    .bootnodes
-                    .iter()
-                    .take(count.saturating_sub(addrs.len()))
-                    .cloned(),
-            );
+            // Get bootnodes randomly
+            let bootnodes = self
+                .network_state
+                .bootnodes
+                .iter()
+                .choose_multiple(&mut rand::thread_rng(), count.saturating_sub(addrs.len()))
+                .into_iter()
+                .cloned();
+            addrs.extend(bootnodes);
             addrs
         });
 

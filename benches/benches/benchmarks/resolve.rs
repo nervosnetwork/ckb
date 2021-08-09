@@ -3,8 +3,9 @@ use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
+use ckb_launcher::SharedBuilder;
 use ckb_resource::Resource;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
@@ -132,7 +133,8 @@ fn bench(c: &mut Criterion) {
                     let mut seen_inputs = HashSet::new();
 
                     for tx in txs.clone() {
-                        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap();
+                        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot, None)
+                            .unwrap();
                     }
 
                     i -= 1;
@@ -158,7 +160,8 @@ fn bench(c: &mut Criterion) {
                     let rtxs: Vec<_> = txs
                         .into_iter()
                         .map(|tx| {
-                            resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap()
+                            resolve_transaction(tx, &mut seen_inputs, &provider, snapshot, None)
+                                .unwrap()
                         })
                         .collect();
 

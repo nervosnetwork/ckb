@@ -1,7 +1,8 @@
 use crate::SyncShared;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_launcher::SharedBuilder;
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_types::prelude::*;
@@ -63,6 +64,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
             &mut HashSet::new(),
             snapshot.as_ref(),
             snapshot.as_ref(),
+            None,
         )
         .unwrap();
         let data_loader = snapshot.as_data_provider();

@@ -27,6 +27,9 @@ use std::sync::{
     Arc,
 };
 
+// default max dep expansion count
+const DEFAULT_MAX_DEP_EXPANSION_COUNT: usize = 2048;
+
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
@@ -307,6 +310,7 @@ impl TxPool {
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
+            Some(DEFAULT_MAX_DEP_EXPANSION_COUNT),
         )
         .map_err(Reject::Resolve)
     }
@@ -332,7 +336,14 @@ impl TxPool {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
+        resolve_transaction(
+            tx,
+            &mut seen_inputs,
+            &cell_provider,
+            snapshot,
+            Some(DEFAULT_MAX_DEP_EXPANSION_COUNT),
+        )
+        .map_err(Reject::Resolve)
     }
 
     pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {

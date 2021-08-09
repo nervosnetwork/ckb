@@ -3,7 +3,8 @@ use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_launcher::SharedBuilder;
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
@@ -487,7 +488,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let snapshot: &Snapshot = &shared.snapshot();
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
     let rtxs = txs.iter().cloned().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot);
+        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot, None);
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);

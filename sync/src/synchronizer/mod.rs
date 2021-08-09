@@ -46,7 +46,7 @@ pub const NOT_IBD_BLOCK_FETCH_TOKEN: u64 = 2;
 pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 
-const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
+const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -388,9 +388,8 @@ impl Synchronizer {
             if let Some(ref mut controller) = state.headers_sync_controller {
                 let better_tip_ts = better_tip_header.timestamp();
                 if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
-                    if is_timeout && !state.disconnect {
+                    if is_timeout {
                         eviction.push(*peer);
-                        state.disconnect = true;
                         continue;
                     }
                 } else {
@@ -434,12 +433,11 @@ impl Synchronizer {
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
                         if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
-                            if state.sync_started {
+                            if state.sync_started() {
                                 self.shared().state().suspend_sync(state);
                             }
                         } else {
                             eviction.push(*peer);
-                            state.disconnect = true;
                         }
                     } else {
                         state.chain_sync.sent_getheaders = true;
@@ -474,9 +472,8 @@ impl Synchronizer {
             .state
             .read()
             .iter()
-            .filter(|(_, state)| state.can_sync(now, ibd))
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
+            .filter(|kv_pair| kv_pair.1.can_start_sync(now, ibd))
+            .map(|kv_pair| *kv_pair.0)
             .collect();
 
         if peers.is_empty() {
@@ -498,15 +495,12 @@ impl Synchronizer {
                 break;
             }
             {
-                let mut state = self.peers().state.write();
-                if let Some(peer_state) = state.get_mut(&peer) {
-                    if !peer_state.sync_started {
-                        peer_state.start_sync(HeadersSyncController::from_header(&tip));
-                        self.shared()
-                            .state()
-                            .n_sync_started()
-                            .fetch_add(1, Ordering::Release);
-                    }
+                if let Some(peer_state) = self.peers().state.write().get_mut(&peer) {
+                    peer_state.start_sync(HeadersSyncController::from_header(&tip));
+                    self.shared()
+                        .state()
+                        .n_sync_started()
+                        .fetch_add(1, Ordering::Release);
                 }
             }
 
@@ -541,7 +535,7 @@ impl Synchronizer {
                             || state.peer_flags.is_whitelist
                             || state.peer_flags.is_protect
                     }
-                    IBDState::Out => state.sync_started,
+                    IBDState::Out => state.started_or_tip_synced(),
                 }
             })
             .map(|(peer_id, _)| peer_id)
@@ -726,7 +720,7 @@ impl CKBProtocolHandler for Synchronizer {
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);
 
-            if peer_state.sync_started {
+            if peer_state.sync_started() {
                 // It shouldn't happen
                 // fetch_sub wraps around on overflow, we still check manually
                 // panic here to prevent some bug be hidden silently.
@@ -808,11 +802,12 @@ mod tests {
     use ckb_constant::sync::MAX_TIP_AGE;
     use ckb_dao::DaoCalculator;
     use ckb_error::InternalErrorKind;
+    use ckb_launcher::SharedBuilder;
     use ckb_network::{
         bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
         SessionType, TargetSession,
     };
-    use ckb_shared::{Shared, SharedBuilder, Snapshot};
+    use ckb_shared::{Shared, Snapshot};
     use ckb_store::ChainStore;
     use ckb_types::{
         core::{
@@ -894,9 +889,14 @@ mod tests {
         let cellbase = create_cellbase(shared, parent_header, number);
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
-            let resolved_cellbase =
-                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
-                    .unwrap();
+            let resolved_cellbase = resolve_transaction(
+                cellbase.clone(),
+                &mut HashSet::new(),
+                snapshot,
+                snapshot,
+                None,
+            )
+            .unwrap();
             let data_loader = shared.store().as_data_provider();
             DaoCalculator::new(shared.consensus(), &data_loader)
                 .dao_field(&[resolved_cellbase], parent_header)
@@ -1566,7 +1566,7 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 still in sync state
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peer_state.get(&sync_protected_peer).unwrap().sync_started(),
                 true
             );
             assert_eq!(
@@ -1659,7 +1659,7 @@ mod tests {
             let peer_state = peers.state.read();
             // Protected peer 0 chain_sync timeout
             assert_eq!(
-                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                peer_state.get(&sync_protected_peer).unwrap().sync_started(),
                 false
             );
             assert_eq!(
@@ -1678,6 +1678,103 @@ mod tests {
                 &vec![3, 4].into_iter().map(Into::into).collect()
             )
         }
+    }
+
+    #[cfg(not(disable_faketime))]
+    #[test]
+    fn test_n_sync_started() {
+        let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+        faketime::enable(&faketime_file);
+
+        let consensus = Consensus::default();
+        let block = BlockBuilder::default()
+            .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
+            .transaction(consensus.genesis_block().transactions()[0].clone())
+            .build();
+        let consensus = ConsensusBuilder::default().genesis_block(block).build();
+
+        let (_, shared, synchronizer) = start_chain(Some(consensus));
+
+        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
+
+        let network_context = mock_network_context(1);
+        let peers = synchronizer.peers();
+        //6 peers do not trigger header sync timeout
+        let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
+        let sync_protected_peer = 0.into();
+
+        {
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_controller = Some(not_timeout);
+
+            peers.state.write().insert(0.into(), state_0);
+        }
+
+        {
+            // Protected peer 0 start sync
+            peers
+                .state
+                .write()
+                .get_mut(&sync_protected_peer)
+                .unwrap()
+                .start_sync(not_timeout);
+            synchronizer
+                .shared()
+                .state()
+                .n_sync_started()
+                .fetch_add(1, Ordering::Release);
+        }
+        synchronizer.eviction(&network_context);
+
+        assert!({ network_context.disconnected.lock().is_empty() });
+        faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
+        synchronizer.eviction(&network_context);
+        {
+            assert!({ network_context.disconnected.lock().is_empty() });
+            assert_eq!(
+                peers
+                    .state
+                    .read()
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .chain_sync
+                    .timeout,
+                unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
+            );
+        }
+
+        faketime::write_millis(
+            &faketime_file,
+            unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
+        )
+        .expect("write millis");
+        synchronizer.eviction(&network_context);
+        {
+            // Protected peer 0 chain_sync timeout
+            assert_eq!(
+                peers
+                    .state
+                    .read()
+                    .get(&sync_protected_peer)
+                    .unwrap()
+                    .sync_started(),
+                false
+            );
+            assert_eq!(
+                synchronizer
+                    .shared()
+                    .state()
+                    .n_sync_started()
+                    .load(Ordering::Acquire),
+                0
+            );
+        }
+        // There may be competition between header sync and eviction, it will case assert panic
+        let mut state_guard = peers.state.write();
+        let state = state_guard.get_mut(&sync_protected_peer).unwrap();
+        synchronizer.shared().state().tip_synced(state);
     }
 
     #[test]

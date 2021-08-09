@@ -6,10 +6,11 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
@@ -110,8 +111,14 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     let dao = {
-        let resolved_cellbase =
-            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
+        let resolved_cellbase = resolve_transaction(
+            cellbase.clone(),
+            &mut HashSet::new(),
+            snapshot,
+            snapshot,
+            None,
+        )
+        .unwrap();
         let data_loader = shared.store().as_data_provider();
         DaoCalculator::new(shared.consensus(), &data_loader)
             .dao_field(&[resolved_cellbase], parent)

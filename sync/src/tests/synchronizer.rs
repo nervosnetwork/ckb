@@ -8,8 +8,9 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_launcher::SharedBuilder;
 use ckb_network::SupportProtocols;
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
@@ -146,6 +147,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 &mut HashSet::new(),
                 snapshot.as_ref(),
                 snapshot.as_ref(),
+                None,
             )
             .unwrap();
             let data_loader = snapshot.as_data_provider();

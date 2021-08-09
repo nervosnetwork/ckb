@@ -34,6 +34,10 @@ pub enum OutPointError {
     /// There is a dependency header that is immature yet.
     #[error("ImmatureHeader({0})")]
     ImmatureHeader(Byte32),
+
+    /// Reach max dep expansion Count
+    #[error("ReachMaxDepExpansionCount")]
+    ReachMaxDepExpansionCount,
 }
 
 impl From<OutPointError> for Error {

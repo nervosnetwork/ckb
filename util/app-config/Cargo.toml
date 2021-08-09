@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.43.0"
+version = "0.43.2"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -14,15 +14,15 @@ serde = { version = "1.0", features = ["derive"] }
 serde_plain = "0.3.0"
 toml = "0.5"
 path-clean = "0.1.0"
-ckb-logger = { path = "../../util/logger", version = "= 0.43.0" }
-ckb-logger-config = { path = "../../util/logger-config", version = "= 0.43.0" }
-ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.43.0" }
-ckb-chain-spec = {path = "../../spec", version = "= 0.43.0"}
-ckb-jsonrpc-types = {path = "../jsonrpc-types", version = "= 0.43.0"}
-ckb-pow = { path = "../../pow", version = "= 0.43.0" }
-ckb-resource = { path = "../../resource", version = "= 0.43.0"}
-ckb-build-info = { path = "../build-info", version = "= 0.43.0" }
-ckb-types = { path = "../types", version = "= 0.43.0" }
+ckb-logger = { path = "../../util/logger", version = "= 0.43.2" }
+ckb-logger-config = { path = "../../util/logger-config", version = "= 0.43.2" }
+ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.43.2" }
+ckb-chain-spec = {path = "../../spec", version = "= 0.43.2"}
+ckb-jsonrpc-types = {path = "../jsonrpc-types", version = "= 0.43.2"}
+ckb-pow = { path = "../../pow", version = "= 0.43.2" }
+ckb-resource = { path = "../../resource", version = "= 0.43.2"}
+ckb-build-info = { path = "../build-info", version = "= 0.43.2" }
+ckb-types = { path = "../types", version = "= 0.43.2" }
 secio = { version="0.5.0", package="tentacle-secio" }
 multiaddr = { version="0.3.0", package="tentacle-multiaddr" }
 rand = "0.7"

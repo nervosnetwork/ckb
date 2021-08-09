@@ -4,9 +4,9 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
 use ckb_shared::shared::Shared;
-use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 pub use ckb_test_chain_utils::MockStore;
 use ckb_test_chain_utils::{
@@ -531,7 +531,13 @@ pub fn dao_data(
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(tx.clone(), &mut seen_inputs, &overlay_cell_provider, store);
+        let rtx = resolve_transaction(
+            tx.clone(),
+            &mut seen_inputs,
+            &overlay_cell_provider,
+            store,
+            None,
+        );
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);
