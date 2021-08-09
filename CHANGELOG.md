@@ -1,3 +1,14 @@
+# [v0.43.2](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
+
+### Bug Fixes
+
+* #2847: Dial bootnode randomly (@driftluo)
+* #2871: Fix the status marking problem of header sync to 0.43 (@driftluo)
+* #2893: Don't panic when the database is created by a higher version executable binary (@yangby-cryptape)
+* #2897 **metrics:** There is no reactor running (@yangby-cryptape)
+* #2895: There may be competition between header sync and eviction (@driftluo)
+* #2917: Try traverse all unknown parent hash (@driftluo)
+
 # [v0.43.1](https://github.com/nervosnetwork/ckb/compare/v0.43.0...v0.43.1) (2021-07-16)
 
 ### Bug Fixes
