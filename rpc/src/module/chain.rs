@@ -1406,7 +1406,11 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
-        let cell_status = self.shared.snapshot().cell(&out_point.into(), with_data);
+        let cell_status = self
+            .shared
+            .snapshot()
+            .as_ref()
+            .cell(&out_point.into(), with_data);
         Ok(cell_status.into())
     }
 

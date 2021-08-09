@@ -177,13 +177,28 @@ impl<'a> ChainStore<'a> for Snapshot {
 
 impl CellProvider for Snapshot {
     fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
-        self.store.cell_provider().cell(out_point, eager_load)
+        match self.get_cell(out_point) {
+            Some(mut cell_meta) => {
+                if eager_load {
+                    if let Some((data, data_hash)) = self.get_cell_data(out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
+                }
+                CellStatus::live_cell(cell_meta)
+            }
+            None => CellStatus::Unknown,
+        }
     }
 }
 
 impl CellChecker for Snapshot {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        self.store.cell_provider().is_live(out_point)
+        if self.have_cell(out_point) {
+            Some(true)
+        } else {
+            None
+        }
     }
 }
 

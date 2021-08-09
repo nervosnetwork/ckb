@@ -5,7 +5,6 @@ use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
 use ckb_network::{DefaultExitHandler, ExitHandler};
-use ckb_store::ChainStore;
 use ckb_types::core::cell::setup_system_cell_cache;
 
 pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
@@ -26,7 +25,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
-        &shared.store().cell_provider(),
+        shared.snapshot().as_ref(),
     )
     .expect("SYSTEM_CELL cache init once");
 
