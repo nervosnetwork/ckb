@@ -1,6 +1,6 @@
 [package]
 name = "ckb-reward-calculator"
-version = "0.100.0-rc2"
+version = "0.100.0-beta3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,14 +9,14 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.100.0-rc2" }
-ckb-store = { path = "../../store", version = "= 0.100.0-rc2" }
-ckb-dao = { path = "../dao", version = "= 0.100.0-rc2" }
-ckb-logger = { path = "../logger", version = "= 0.100.0-rc2" }
-ckb-chain-spec = {path = "../../spec", version = "= 0.100.0-rc2"}
-ckb-error = { path = "../../error", version = "= 0.100.0-rc2" }
+ckb-types = { path = "../types", version = "= 0.100.0-beta3" }
+ckb-store = { path = "../../store", version = "= 0.100.0-beta3" }
+ckb-dao = { path = "../dao", version = "= 0.100.0-beta3" }
+ckb-logger = { path = "../logger", version = "= 0.100.0-beta3" }
+ckb-chain-spec = {path = "../../spec", version = "= 0.100.0-beta3"}
+ckb-error = { path = "../../error", version = "= 0.100.0-beta3" }
 
 [dev-dependencies]
-ckb-db = { path = "../../db", version = "= 0.100.0-rc2" }
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.100.0-rc2" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.100.0-rc2" }
+ckb-db = { path = "../../db", version = "= 0.100.0-beta3" }
+ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.100.0-beta3" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.100.0-beta3" }
