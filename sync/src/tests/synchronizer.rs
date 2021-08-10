@@ -6,6 +6,7 @@ use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_launcher::SharedBuilder;
@@ -25,9 +26,7 @@ use ckb_util::RwLock;
 use ckb_verification_traits::Switch;
 use faketime::{self, unix_time_as_millis};
 use std::collections::HashSet;
-use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-use std::thread;
 
 const DEFAULT_CHANNEL: usize = 128;
 
@@ -42,35 +41,28 @@ fn basic_sync() {
 
     node1.connect(&mut node2, SupportProtocols::Sync.protocol_id());
 
-    let (signal_tx1, signal_rx1) = sync_channel(DEFAULT_CHANNEL);
-    thread::Builder::new()
-        .name(thread_name.clone())
-        .spawn(move || {
-            node1.start(&signal_tx1, |data| {
-                let msg = packed::SyncMessage::from_slice(&data)
-                    .expect("sync message")
-                    .to_enum();
-                // terminate thread after 3 blocks
-                if let packed::SyncMessageUnionReader::SendBlock(reader) = msg.as_reader() {
-                    let block = reader.block().to_entity().into_view();
-                    block.header().number() == 3
-                } else {
-                    false
-                }
-            });
-        })
-        .expect("thread spawn");
+    let (signal_tx1, signal_rx1) = bounded(DEFAULT_CHANNEL);
+    node1.start(thread_name.clone(), signal_tx1, |data| {
+        let msg = packed::SyncMessage::from_slice(&data)
+            .expect("sync message")
+            .to_enum();
+        // terminate thread after 3 blocks
+        if let packed::SyncMessageUnionReader::SendBlock(reader) = msg.as_reader() {
+            let block = reader.block().to_entity().into_view();
+            block.header().number() == 3
+        } else {
+            false
+        }
+    });
 
-    let (signal_tx2, _) = sync_channel(DEFAULT_CHANNEL);
-    thread::Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            node2.start(&signal_tx2, |_| false);
-        })
-        .expect("thread spawn");
+    let (signal_tx2, _) = bounded(DEFAULT_CHANNEL);
+    node2.start(thread_name, signal_tx2, |_| false);
 
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
+
+    node1.stop();
+    node2.stop();
 
     assert_eq!(shared1.snapshot().tip_number(), 3);
     assert_eq!(
@@ -176,7 +168,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         pack.take_relay_tx_receiver(),
     ));
     let synchronizer = Synchronizer::new(chain_controller, sync_shared);
-    let mut node = TestNode::default();
+    let mut node = TestNode::new();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(
         SupportProtocols::Sync.protocol_id(),
