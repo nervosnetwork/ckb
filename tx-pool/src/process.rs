@@ -1077,18 +1077,28 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
+    let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
-            tx_pool.add_pending(entry.clone());
-            callbacks.call_pending(tx_pool, &entry);
+            if tx_pool.add_pending(entry.clone()) {
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
         TxStatus::Gap => {
-            tx_pool.add_gap(entry.clone());
-            callbacks.call_pending(tx_pool, &entry);
+            if tx_pool.add_gap(entry.clone()) {
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
         TxStatus::Proposed => {
-            tx_pool.add_proposed(entry.clone())?;
-            callbacks.call_proposed(tx_pool, &entry, true);
+            if tx_pool.add_proposed(entry.clone())? {
+                callbacks.call_proposed(tx_pool, &entry, true);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
     }
     Ok(())
