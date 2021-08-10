@@ -86,23 +86,23 @@ impl LazyData {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum Binaries {
-    Unique((Byte32, LazyData)),
-    Duplicate((Byte32, LazyData)),
+    Unique(Byte32, LazyData),
+    Duplicate(Byte32, LazyData),
     Multiple,
 }
 
 impl Binaries {
     fn new(data_hash: Byte32, data: LazyData) -> Self {
-        Self::Unique((data_hash, data))
+        Self::Unique(data_hash, data)
     }
 
     fn merge(&mut self, data_hash: &Byte32) {
         match self {
-            Self::Unique(ref old) | Self::Duplicate(ref old) => {
-                if old.0 != *data_hash {
+            Self::Unique(ref hash, data) | Self::Duplicate(ref hash, data) => {
+                if hash != data_hash {
                     *self = Self::Multiple;
                 } else {
-                    *self = Self::Duplicate(old.to_owned());
+                    *self = Self::Duplicate(hash.to_owned(), data.to_owned());
                 }
             }
             Self::Multiple => {
@@ -376,8 +376,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             ScriptHashType::Type => {
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
-                        Binaries::Unique((_, ref lazy)) => Ok(lazy.access(self.data_loader)),
-                        Binaries::Duplicate((_, ref lazy)) => {
+                        Binaries::Unique(_, ref lazy) => Ok(lazy.access(self.data_loader)),
+                        Binaries::Duplicate(_, ref lazy) => {
                             let proposal_window = self.consensus.tx_proposal_window();
                             let epoch_number = self.tx_env.epoch_number(proposal_window);
                             if self

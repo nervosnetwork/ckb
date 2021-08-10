@@ -24,7 +24,7 @@ pub enum ResolvedDep {
     /// TODO(doc): @quake
     Cell(CellMeta),
     /// TODO(doc): @quake
-    Group((CellMeta, Vec<CellMeta>)),
+    Group(CellMeta, Vec<CellMeta>),
 }
 
 /// type alias system cells map
@@ -307,7 +307,7 @@ impl ResolvedTransaction {
                     .build();
 
                 let dep_group = system_cell.get(&cell_dep);
-                if let Some(ResolvedDep::Group((_, cell_deps))) = dep_group {
+                if let Some(ResolvedDep::Group(_, cell_deps)) = dep_group {
                     resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
                 } else {
                     check_cell(&cell_meta.out_point)?;
@@ -848,8 +848,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
                             .checked_sub(1)
                             .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
                     }
-                    ResolvedDep::Group(group) => {
-                        let (dep_group, cell_deps) = group;
+                    ResolvedDep::Group(dep_group, cell_deps) => {
                         resolved_dep_groups.push(dep_group.clone());
                         resolved_cell_deps.extend(cell_deps.clone());
                         remaining_dep_slots = remaining_dep_slots
@@ -989,16 +988,20 @@ pub fn setup_system_cell_cache<CP: CellProvider>(
             build_cell_meta_from_out_point(cell_provider, out_point)
         };
 
-    let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell, true)
-        .expect("resolve secp_group_dep_cell");
-    cell_deps.insert(secp_group_dep, ResolvedDep::Group(secp_group_dep_cell));
+    let (secp_dep_group, secp_group_cells) =
+        resolve_dep_group(&secp_group_dep.out_point(), resolve_cell, true)
+            .expect("resolve secp_group_dep_cell");
+    cell_deps.insert(
+        secp_group_dep,
+        ResolvedDep::Group(secp_dep_group, secp_group_cells),
+    );
 
-    let multi_sign_secp_group_cell =
+    let (multi_sign_dep_group, multi_sign_group_cells) =
         resolve_dep_group(&multi_sign_secp_group.out_point(), resolve_cell, true)
             .expect("resolve multi_sign_secp_group");
     cell_deps.insert(
         multi_sign_secp_group,
-        ResolvedDep::Group(multi_sign_secp_group_cell),
+        ResolvedDep::Group(multi_sign_dep_group, multi_sign_group_cells),
     );
 
     SYSTEM_CELL.set(cell_deps)
