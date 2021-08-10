@@ -25,7 +25,7 @@ variable "prefix" {
 
 variable "instance_type" {
   type = string
-  default = "t3.micro"
+  default = "c5.xlarge"
   description = "instance type"
 }
 

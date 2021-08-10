@@ -1,0 +1,79 @@
+name: Smoking test suit
+
+on:
+  workflow_dispatch:
+    inputs:
+       CKB_linux_release_package:
+        description: 'Linux release package to somking test'
+        required: false
+  repository_dispatch:
+    types: [ smoking-test ]
+env:
+  RUSTFLAGS: "-D warnings"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  TESTNET_SNAPSHOT_URL: ${{secrets.TESTNET_DATA_SNAPSHOT}}
+  CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+
+jobs:
+   Start_and_sync:
+    runs-on: [self-hosted,Linux]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Download ckb release pkg and copy binary to github workspace
+      if: |
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.CKB_linux_release_package != '')
+        || contains(github.event_name, 'repository_dispatch')
+      run: |
+        if [ -z ${{ github.event.inputs.CKB_linux_release_package }} ]; then
+        curl -L ${{ github.event.client_payload.CKB_linux_release_package }} -o /tmp/ckb.7z
+        7za x "/tmp/ckb.7z" -r -o/tmp
+        fi
+        if [ -z ${{ github.event.client_payload.CKB_linux_release_package }} ]; then
+        curl -L ${{ github.event.inputs.CKB_linux_release_package }} -o /tmp/ckb.tar.gz
+        tar -zxf /tmp/ckb.tar.gz -C /tmp
+        fi
+        cp /tmp/ckb_*/ckb ${{ github.workspace }}/ckb
+    - name: Build CKB binary
+      if: |
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.CKB_linux_release_package == '')
+       && ! contains(github.event_name, 'repository_dispatch')
+      run: |
+        make build
+        cp ${CARGO_TARGET_DIR}/release/ckb ${{ github.workspace }}/ckb
+    - name: Download&Unzip testnet data sanpshot
+      run: |
+        if [ ! -f "/tmp/testnet-data.tar.gz" ]; then
+           curl -L ${TESTNET_SNAPSHOT_URL} -o /tmp/testnet-data.tar.gz
+        fi
+        tar -zxf /tmp/testnet-data.tar.gz -C /tmp
+    - name: Update ExecStart&StandardOutput
+      run: |
+          sed -i  "s#ExecStart=.*#ExecStart=${{github.workspace}}/ckb run -C ${{github.workspace}}#g" ${{ github.workspace }}/devtools/somking_test/ckb.service
+          sed -i  "s#StandardOutput=.*#StandardOutput=file:${{github.workspace}}/data/logs/run.log#g" ${{ github.workspace }}/devtools/somking_test/ckb.service
+    - name: Init testnet
+      run: ${{ github.workspace }}/ckb init -c testnet -C ${{ github.workspace }} --force
+    - name: copy snapshot data to ckb
+      run: |
+        cp -r /tmp/data  ${{ github.workspace }}
+    - name: Migration check
+      run: |
+        ${{ github.workspace }}/devtools/somking_test/check-migrate.sh
+    - name: Start ckb service.
+      if: ${{ success() }}
+      run: |
+            sudo cp ${{ github.workspace }}/devtools/smoking_test/ckb.service /etc/systemd/system/ckb.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable ckb
+            sudo service ckb start
+    - name: Ensure the ckb service is health.
+      run: ${{ github.workspace }}/devtools/smoking_test/tip_block_growth_check.sh
+    - name: Stop & clean ckb service.
+      if: ${{ always() }}
+      run: |
+         rm -rf /tmp/data
+         rm -rf /tmp/ckb_*
+         sudo service ckb stop
+         sudo rm /etc/systemd/system/ckb.service
+    env:
+      CKB_DIR: ${{ github.workspace }}

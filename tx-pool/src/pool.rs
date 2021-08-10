@@ -93,7 +93,6 @@ impl TxPool {
         const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
         TxPool {
-            config,
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
@@ -101,6 +100,7 @@ impl TxPool {
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            config,
             snapshot,
         }
     }
@@ -174,7 +174,11 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        self.pending.add_entry(entry).is_none()
+        let inserted = self.pending.add_entry(entry).is_none();
+        if inserted {
+            self.touch_last_txs_updated_at();
+        }
+        inserted
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
@@ -186,8 +190,12 @@ impl TxPool {
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
-        self.touch_last_txs_updated_at();
-        self.proposed.add_entry(entry)
+        self.proposed.add_entry(entry).map(|inserted| {
+            if inserted {
+                self.touch_last_txs_updated_at();
+            }
+            inserted
+        })
     }
 
     pub(crate) fn touch_last_txs_updated_at(&self) {
@@ -380,8 +388,7 @@ impl TxPool {
             let proposal_window = snapshot.consensus().tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
             let hardfork_switch = snapshot.consensus().hardfork_switch();
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
 
@@ -411,8 +418,7 @@ impl TxPool {
             let proposal_window = snapshot.consensus().tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
             let hardfork_switch = snapshot.consensus().hardfork_switch();
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         self.check_rtx_from_proposed(&rtx, resolve_opts)?;
 

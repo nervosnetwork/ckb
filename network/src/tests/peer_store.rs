@@ -11,9 +11,8 @@ fn test_add_connected_peer() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 0);
-    peer_store
-        .add_connected_peer(addr, SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr.clone(), SessionType::Outbound);
+    peer_store.add_addr(addr).unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
 }
 
@@ -39,9 +38,7 @@ fn test_report() {
 fn test_update_status() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    peer_store
-        .add_connected_peer(addr.clone(), SessionType::Inbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr.clone(), SessionType::Inbound);
     assert_eq!(
         peer_store.peer_status(&extract_peer_id(&addr).unwrap()),
         Status::Connected
@@ -52,9 +49,7 @@ fn test_update_status() {
 fn test_ban_peer() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    peer_store
-        .add_connected_peer(addr.clone(), SessionType::Inbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr.clone(), SessionType::Inbound);
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert!(peer_store.is_addr_banned(&addr));
 }
@@ -76,9 +71,7 @@ fn test_fetch_addrs_to_attempt() {
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
-    peer_store
-        .add_connected_peer(addr, SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr, SessionType::Outbound);
     assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
 }
 
@@ -111,12 +104,15 @@ fn test_fetch_addrs_to_feeler() {
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
 
     // ignores connected peers' addrs
-    peer_store
-        .add_connected_peer(addr.clone(), SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr.clone(), SessionType::Outbound);
     assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
 
     // peer does not need feeler if it connected to us recently
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr)
+        .unwrap()
+        .last_connected_at_ms = faketime::unix_time_as_millis();
     peer_store.remove_disconnected_peer(&addr);
     assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
 }
@@ -137,27 +133,21 @@ fn test_fetch_random_addrs() {
     // random should not return peer that we have never connected to
     assert!(peer_store.fetch_random_addrs(1).is_empty());
     // can't get peer addr from inbound
-    peer_store
-        .add_connected_peer(addr1.clone(), SessionType::Inbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr1.clone(), SessionType::Inbound);
     assert!(peer_store.fetch_random_addrs(1).is_empty());
     // get peer addr from outbound
-    peer_store
-        .add_connected_peer(addr1, SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
+    peer_store.add_addr(addr1).unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
     // get peer addrs by limit
-    peer_store
-        .add_connected_peer(addr2, SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
+    peer_store.add_addr(addr2).unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 2);
     assert_eq!(peer_store.fetch_random_addrs(1).len(), 1);
 
     // return old peer's addr
     peer_store.add_addr(addr3.clone()).unwrap();
-    peer_store
-        .add_connected_peer(addr3.clone(), SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr3.clone(), SessionType::Outbound);
     // set last_connected_at_ms to an expired timestamp
     // should still return peer's addr
     peer_store
@@ -173,18 +163,16 @@ fn test_fetch_random_addrs() {
 #[test]
 fn test_get_random_restrict_addrs_from_same_ip() {
     let mut peer_store: PeerStore = Default::default();
-    let addr1 = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
+    let addr1: Multiaddr = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
         .parse()
         .unwrap();
-    let addr2 = format!("/ip4/225.0.0.1/tcp/43/p2p/{}", PeerId::random().to_base58())
+    let addr2: Multiaddr = format!("/ip4/225.0.0.1/tcp/43/p2p/{}", PeerId::random().to_base58())
         .parse()
         .unwrap();
-    peer_store
-        .add_connected_peer(addr1, SessionType::Outbound)
-        .unwrap();
-    peer_store
-        .add_connected_peer(addr2, SessionType::Outbound)
-        .unwrap();
+    peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
+    peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
+    peer_store.add_addr(addr1).unwrap();
+    peer_store.add_addr(addr2).unwrap();
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 1);
 }
 

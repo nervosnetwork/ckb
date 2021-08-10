@@ -167,7 +167,7 @@ impl FreezerFiles {
         metrics!(
             gauge,
             "ckb-freezer.size",
-            (data_size as i64 + INDEX_ENTRY_SIZE as i64)
+            data_size as i64 + INDEX_ENTRY_SIZE as i64
         );
         Ok(())
     }
@@ -220,7 +220,7 @@ impl FreezerFiles {
             metrics!(
                 counter,
                 "ckb-freezer.read",
-                (size as u64 + 2 * INDEX_ENTRY_SIZE)
+                size as u64 + 2 * INDEX_ENTRY_SIZE
             );
             Ok(Some(data))
         } else {

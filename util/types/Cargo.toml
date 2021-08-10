@@ -10,7 +10,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 bitflags = "1.0"
-molecule = "=0.7.1"
+molecule = "=0.7.2"
 ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.100.0-rc2" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { version="1", features = ["serde"] }
@@ -25,4 +25,4 @@ once_cell = "1.8.0"
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 
 [dev-dependencies]
-proptest = "0.9"
+proptest = "1.0"

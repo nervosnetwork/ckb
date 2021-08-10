@@ -20,7 +20,7 @@ ckb-app-config = { path = "../app-config", version = "= 0.100.0-rc2" }
 ckb-error = { path = "../../error", version = "= 0.100.0-rc2" }
 faketime = "0.2.0"
 lru = "0.6"
-semver = "0.9"
+semver = "1.0"
 
 [dev-dependencies]
 ckb-crypto = { path = "../crypto", version = "= 0.100.0-rc2" }

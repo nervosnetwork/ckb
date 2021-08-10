@@ -13,6 +13,7 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
+use ckb_logger::info;
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
@@ -27,8 +28,9 @@ use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::init_cache;
 use p2p::SessionId as PeerIndex;
+use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -44,53 +46,81 @@ pub struct SharedBuilder {
     async_handle: Handle,
 }
 
-pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
+pub fn open_or_create_db(
+    bin_name: &str,
+    root_dir: &Path,
+    config: &DBConfig,
+) -> Result<RocksDB, ExitCode> {
     let migrate = Migrate::new(&config.path);
 
-    let mut db_exist = false;
+    let read_only_db = migrate.open_read_only_db().map_err(|e| {
+        eprintln!("migrate error {}", e);
+        ExitCode::Failure
+    })?;
 
-    // migration prompt
-    {
-        let read_only_db = migrate.open_read_only_db().map_err(|e| {
-            eprintln!("migrate error {}", e);
-            ExitCode::Failure
-        })?;
-
-        if let Some(db) = read_only_db {
-            db_exist = true;
-
-            if migrate.require_expensive(&db) {
+    if let Some(db) = read_only_db {
+        match migrate.check(&db) {
+            Ordering::Greater => {
                 eprintln!(
-                    "For optimal performance, CKB wants to migrate the data into new format.\n\
-                    You can use the old version CKB if you don't want to do the migration.\n\
-                    We strongly recommended you to use the latest stable version of CKB, \
-                    since the old versions may have unfixed vulnerabilities.\n\
-                    Run `ckb migrate --help` for more information about migration."
+                    "The database is created by a higher version CKB executable binary, \n\
+                     so that the current CKB executable binary couldn't open this database.\n\
+                     Please download the latest CKB executable binary."
                 );
-                return Err(ExitCode::Failure);
+                Err(ExitCode::Failure)
+            }
+            Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
+            Ordering::Less => {
+                if migrate.require_expensive(&db) {
+                    eprintln!(
+                        "For optimal performance, CKB wants to migrate the data into new format.\n\
+                        You can use the old version CKB if you don't want to do the migration.\n\
+                        We strongly recommended you to use the latest stable version of CKB, \
+                        since the old versions may have unfixed vulnerabilities.\n\
+                        Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
+                        We strongly recommend that you backup the data directory before migration.",
+                        bin_name,
+                        root_dir.display()
+                    );
+                    Err(ExitCode::Failure)
+                } else {
+                    info!("process fast migrations ...");
+
+                    let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
+                        eprintln!("migrate error {}", e);
+                        ExitCode::Failure
+                    })?;
+
+                    if let Some(db) = bulk_load_db_db {
+                        migrate.migrate(db).map_err(|err| {
+                            eprintln!("Run error: {:?}", err);
+                            ExitCode::Failure
+                        })?;
+                    }
+
+                    Ok(RocksDB::open(config, COLUMNS))
+                }
             }
         }
-    }
-
-    let db = RocksDB::open(config, COLUMNS);
-    if !db_exist {
+    } else {
+        let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
             eprintln!("migrate init_db_version error {}", e);
             ExitCode::Failure
         })?;
+        Ok(db)
     }
-
-    Ok(db)
 }
 
 impl SharedBuilder {
     /// Generates the base SharedBuilder with ancient path and async_handle
     pub fn new(
+        bin_name: &str,
+        root_dir: &Path,
         db_config: &DBConfig,
         ancient: Option<PathBuf>,
         async_handle: Handle,
     ) -> Result<SharedBuilder, ExitCode> {
-        let db = open_or_create_db(db_config)?;
+        let db = open_or_create_db(bin_name, root_dir, db_config)?;
 
         Ok(SharedBuilder {
             db,

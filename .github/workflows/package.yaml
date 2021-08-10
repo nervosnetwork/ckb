@@ -248,3 +248,20 @@ jobs:
         asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
         asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}.asc
         asset_content_type: application/octet-stream
+
+  Trigger_smoking_test:
+    name: Trigger_smoking_test
+    runs-on: ubuntu-latest
+    needs:
+      - Upload_File
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set tag
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+    - uses: peter-evans/repository-dispatch@v1
+      with:
+        token: ${{ secrets.REPO_ACCESS_TOKEN }}
+        event-type: smoking-test
+        client-payload: '{"CKB_linux_release_package": "${{secrets.QINIU_CDN_SITE}}/ckb_${{env.GIT_TAG_NAME}}_x86_64-unknown-linux-gnu.7z"}'

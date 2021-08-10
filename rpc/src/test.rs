@@ -676,6 +676,10 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_block_template" => {
             response.result["current_time"] = example.response.result["current_time"].clone()
         }
+        "tx_pool_info" => {
+            response.result["last_txs_updated_at"] =
+                example.response.result["last_txs_updated_at"].clone()
+        }
         "get_blockchain_info" => {
             response.result["chain"] = example.response.result["chain"].clone()
         }

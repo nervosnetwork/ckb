@@ -239,9 +239,8 @@ impl TxPoolService {
 
         let resolve_opts = {
             let hardfork_switch = snapshot.consensus().hardfork_switch();
-            let flag =
-                hardfork_switch.is_remove_header_deps_immature_rule_enabled(current_epoch.number());
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            let epoch_number = current_epoch.number();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
 
         let rtxs: Vec<_> = block_in_place(|| {
@@ -969,18 +968,29 @@ impl TxPoolService {
         let total = txs.len();
         let mut count = 0usize;
         for tx in txs {
-            if self._process_tx(tx, None).await.is_err() {
+            let tx_hash = tx.hash();
+            if let Err(err) = self._process_tx(tx, None).await {
+                error!("failed to process {:#x}, error: {:?}", tx_hash, err);
                 count += 1;
             }
         }
-        info!("{}/{} transactions are failed to process", count, total);
+        if count != 0 {
+            info!("{}/{} transactions are failed to process", count, total);
+        }
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
-        let config = tx_pool.config;
+        let config = tx_pool.config.clone();
         self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
         *tx_pool = TxPool::new(config, new_snapshot, Arc::clone(&self.last_txs_updated_at));
+    }
+
+    pub(crate) async fn save_pool(&mut self) {
+        let mut tx_pool = self.tx_pool.write().await;
+        if let Err(err) = tx_pool.save_into_file() {
+            error!("failed to save pool, error: {:?}", err)
+        }
     }
 }
 
@@ -1008,8 +1018,7 @@ fn check_rtx(
         let resolve_opts = {
             let tx_env = TxStatus::Proposed.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         tx_pool
             .check_rtx_from_proposed(rtx, resolve_opts)
@@ -1023,8 +1032,7 @@ fn check_rtx(
         let resolve_opts = {
             let tx_env = tx_status.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         tx_pool
             .check_rtx_from_pending_and_proposed(rtx, resolve_opts)
@@ -1041,8 +1049,7 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
         let resolve_opts = {
             let tx_env = TxStatus::Proposed.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         tx_pool
             .resolve_tx_from_proposed(tx, resolve_opts)
@@ -1056,8 +1063,7 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
         let resolve_opts = {
             let tx_env = tx_status.with_env(tip_header);
             let epoch_number = tx_env.epoch_number(proposal_window);
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         tx_pool
             .resolve_tx_from_pending_and_proposed(tx, resolve_opts)

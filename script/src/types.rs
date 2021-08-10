@@ -1,7 +1,7 @@
 use crate::ScriptError;
 use ckb_error::Error;
 use ckb_types::{
-    core::Cycle,
+    core::{Cycle, ScriptHashType},
     packed::{Byte32, Script},
 };
 use ckb_vm::{
@@ -64,6 +64,18 @@ impl ScriptVersion {
         match self {
             Self::V0 => VERSION0,
             Self::V1 => VERSION1,
+        }
+    }
+
+    /// Returns the specific data script hash type.
+    ///
+    /// Returns:
+    /// - `ScriptHashType::Data` for version 0;
+    /// - `ScriptHashType::Data1` for version 1;
+    pub fn data_hash_type(self) -> ScriptHashType {
+        match self {
+            Self::V0 => ScriptHashType::Data,
+            Self::V1 => ScriptHashType::Data1,
         }
     }
 

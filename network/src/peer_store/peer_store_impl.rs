@@ -12,15 +12,14 @@ use crate::{
     PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
-use std::cell::{Ref, RefCell};
 use std::collections::{hash_map::Entry, HashMap};
 
 /// Peer store
 #[derive(Default)]
 pub struct PeerStore {
     addr_manager: AddrManager,
-    ban_list: RefCell<BanList>,
-    peers: RefCell<HashMap<PeerId, PeerInfo>>,
+    ban_list: BanList,
+    peers: HashMap<PeerId, PeerInfo>,
     score_config: PeerScoreConfig,
 }
 
@@ -29,19 +28,17 @@ impl PeerStore {
     pub fn new(addr_manager: AddrManager, ban_list: BanList) -> Self {
         PeerStore {
             addr_manager,
-            ban_list: RefCell::new(ban_list),
+            ban_list,
             peers: Default::default(),
             score_config: Default::default(),
         }
     }
 
-    /// Add a peer and address into peer_store
     /// this method will assume peer is connected, which implies address is "verified".
-    pub fn add_connected_peer(&mut self, addr: Multiaddr, session_type: SessionType) -> Result<()> {
+    pub fn add_connected_peer(&mut self, addr: Multiaddr, session_type: SessionType) {
         let now_ms = faketime::unix_time_as_millis();
         match self
             .peers
-            .get_mut()
             .entry(extract_peer_id(&addr).expect("connected addr should have peer id"))
         {
             Entry::Occupied(mut entry) => {
@@ -55,20 +52,22 @@ impl PeerStore {
                 entry.insert(peer);
             }
         }
-        let score = self.score_config.default_score;
-        if session_type.is_outbound() {
-            self.addr_manager.add(AddrInfo::new(addr, now_ms, score));
-        }
-        Ok(())
     }
 
-    /// Add discovered peer addresses
+    /// Add discovered peer address
     /// this method will assume peer and addr is untrust since we have not connected to it.
     pub fn add_addr(&mut self, addr: Multiaddr) -> Result<()> {
         self.check_purge()?;
         let score = self.score_config.default_score;
         self.addr_manager.add(AddrInfo::new(addr, 0, score));
         Ok(())
+    }
+
+    /// Add outbound peer address
+    pub fn add_outbound_addr(&mut self, addr: Multiaddr) {
+        let score = self.score_config.default_score;
+        self.addr_manager
+            .add(AddrInfo::new(addr, faketime::unix_time_as_millis(), score));
     }
 
     /// Get address manager
@@ -100,12 +99,12 @@ impl PeerStore {
 
     /// Remove peer id
     pub fn remove_disconnected_peer(&mut self, addr: &Multiaddr) -> Option<PeerInfo> {
-        extract_peer_id(addr).and_then(|peer_id| self.peers.borrow_mut().remove(&peer_id))
+        extract_peer_id(addr).and_then(|peer_id| self.peers.remove(&peer_id))
     }
 
     /// Get peer status
     pub fn peer_status(&self, peer_id: &PeerId) -> Status {
-        if self.peers.borrow().contains_key(peer_id) {
+        if self.peers.contains_key(peer_id) {
             Status::Connected
         } else {
             Status::Disconnected
@@ -115,8 +114,8 @@ impl PeerStore {
     /// Get peers for outbound connection, this method randomly return non-connected peer addrs
     pub fn fetch_addrs_to_attempt(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
-        let ban_list = self.ban_list.borrow();
-        let peers = self.peers.borrow();
+        let ban_list = &self.ban_list;
+        let peers = &self.peers;
         // get addrs that can attempt.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
@@ -134,8 +133,8 @@ impl PeerStore {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
         // get expired or never successed addrs.
-        let ban_list = self.ban_list.borrow();
-        let peers = self.peers.borrow();
+        let ban_list = &self.ban_list;
+        let peers = &self.peers;
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 !ban_list.is_addr_banned(&peer_addr.addr)
@@ -151,8 +150,8 @@ impl PeerStore {
     pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
-        let ban_list = self.ban_list.borrow();
-        let peers = self.peers.borrow();
+        let ban_list = &self.ban_list;
+        let peers = &self.peers;
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
@@ -189,18 +188,18 @@ impl PeerStore {
     }
 
     /// Get ban list
-    pub fn ban_list(&self) -> Ref<BanList> {
-        self.ban_list.borrow()
+    pub fn ban_list(&self) -> &BanList {
+        &self.ban_list
     }
 
     /// Get mut ban list
     pub fn mut_ban_list(&mut self) -> &mut BanList {
-        self.ban_list.get_mut()
+        &mut self.ban_list
     }
 
     /// Clear ban list
-    pub fn clear_ban_list(&self) {
-        self.ban_list.replace(Default::default());
+    pub fn clear_ban_list(&mut self) {
+        std::mem::take(&mut self.ban_list);
     }
 
     /// Check and try delete addrs if reach limit

@@ -3,7 +3,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction,
+    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Cycle, JsonBytes, Script, Transaction,
 };
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
@@ -52,6 +52,9 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "generate_block_with_template")]
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
+
+    #[rpc(name = "calculate_dao_field")]
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -184,6 +187,15 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
     }
 
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
+        let dao_field = self.calculate_dao_field(block_template.clone())?;
+
+        let mut update_dao_template = block_template;
+        update_dao_template.dao = dao_field;
+        let block = update_dao_template.into();
+        self.process_and_announce_block(block)
+    }
+
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let parent_header = snapshot
@@ -200,11 +212,9 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
         let resolve_opts = {
-            let current_epoch_number = block_template.epoch.epoch_number();
-            let flag = consensus
-                .hardfork_switch()
-                .is_remove_header_deps_immature_rule_enabled(current_epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            let epoch_number = block_template.epoch.epoch_number();
+            let hardfork_switch = consensus.hardfork_switch();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
 
         let rtxs = txs
@@ -228,13 +238,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             })
             .collect::<Result<Vec<ResolvedTransaction>>>()?;
 
-        let mut update_dao_template = block_template;
-        update_dao_template.dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
+        Ok(DaoCalculator::new(consensus, &snapshot.as_data_provider())
             .dao_field(&rtxs, &parent_header)
             .expect("dao calculation should be OK")
-            .into();
-        let block = update_dao_template.into();
-        self.process_and_announce_block(block)
+            .into())
     }
 }
 

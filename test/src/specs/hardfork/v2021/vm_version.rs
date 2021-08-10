@@ -16,7 +16,6 @@ use ckb_types::{
 };
 use std::fmt;
 
-// TODO ckb2021 how to test malformed hash type?
 const RPC_MAX_VM_VERSION: u8 = 1;
 const MAX_VM_VERSION: u8 = 1;
 
@@ -100,7 +99,7 @@ impl Spec for CheckVmVersion {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0232 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0032 = Some(CKB2021_START_EPOCH);
         }
     }
 }

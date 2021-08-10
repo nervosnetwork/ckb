@@ -1,11 +1,12 @@
 //! The error type for Tx-pool operations
 
+use ckb_channel::oneshot::RecvError;
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, prelude::*, Error,
     InternalError, InternalErrorKind, OtherError,
 };
 pub use ckb_types::core::tx_pool::Reject;
-use tokio::sync::{mpsc::error::TrySendError, oneshot::error::RecvError};
+use tokio::sync::mpsc::error::TrySendError;
 
 /// The error type for block assemble related
 #[derive(Error, Debug, PartialEq, Clone, Eq)]

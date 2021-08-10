@@ -254,8 +254,7 @@ impl<'a> DryRunner<'a> {
             let proposal_window = consensus.tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);
             let hardfork_switch = consensus.hardfork_switch();
-            let flag = hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
         match resolve_transaction_with_options(
             tx.into_view(),

@@ -2,7 +2,10 @@
 use crate::{
     bytes::Bytes,
     core::error::OutPointError,
-    core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
+    core::{
+        hardfork::HardForkSwitch, BlockView, Capacity, DepType, EpochNumber, TransactionInfo,
+        TransactionView,
+    },
     packed::{Byte32, CellDep, CellOutput, CellOutputVec, OutPoint, OutPointVec},
     prelude::*,
 };
@@ -21,13 +24,15 @@ pub enum ResolvedDep {
     /// TODO(doc): @quake
     Cell(CellMeta),
     /// TODO(doc): @quake
-    Group((CellMeta, Vec<CellMeta>)),
+    Group(CellMeta, Vec<CellMeta>),
 }
 
 /// type alias system cells map
 pub type SystemCellMap = HashMap<CellDep, ResolvedDep>;
 /// system cell memory map cache
 pub static SYSTEM_CELL: OnceCell<SystemCellMap> = OnceCell::new();
+
+const MAX_DEP_EXPANSION_LIMIT: usize = 2048;
 
 /// TODO(doc): @quake
 #[derive(Clone, Eq, PartialEq, Default)]
@@ -268,13 +273,21 @@ impl ResolvedTransaction {
         header_checker: &HC,
         resolve_opts: ResolveOptions,
     ) -> Result<(), OutPointError> {
-        let check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
+        let mut checked_cells: HashSet<OutPoint> = HashSet::new();
+        let mut check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
             if seen_inputs.contains(out_point) {
                 return Err(OutPointError::Dead(out_point.clone()));
             }
 
+            if checked_cells.contains(out_point) {
+                return Ok(());
+            }
+
             match cell_checker.is_live(out_point) {
-                Some(true) => Ok(()),
+                Some(true) => {
+                    checked_cells.insert(out_point.clone());
+                    Ok(())
+                }
                 Some(false) => Err(OutPointError::Dead(out_point.clone())),
                 None => Err(OutPointError::Unknown(out_point.clone())),
             }
@@ -294,7 +307,7 @@ impl ResolvedTransaction {
                     .build();
 
                 let dep_group = system_cell.get(&cell_dep);
-                if let Some(ResolvedDep::Group((_, cell_deps))) = dep_group {
+                if let Some(ResolvedDep::Group(_, cell_deps)) = dep_group {
                     resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
                 } else {
                     check_cell(&cell_meta.out_point)?;
@@ -573,10 +586,40 @@ bitflags! {
     pub struct ResolveOptions: u8 {
         /// Skip the immature header deps check.
         const SKIP_IMMATURE_HEADER_DEPS_CHECK               = 0b00000001;
+        /// Ban when over max dep expansion limit.
+        const BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT         = 0b00000010;
+
+        /// Resolve for block verification.
+        const FOR_BLOCK_VERIFICATION                        = 0b10000000;
+    }
+}
+
+impl Default for ResolveOptions {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl ResolveOptions {
+    /// Create a default instance.
+    pub fn new() -> Self {
+        Self::empty()
+    }
+
+    /// Set flags for current features.
+    pub fn apply_current_features(
+        self,
+        hardfork_switch: &HardForkSwitch,
+        epoch_number: EpochNumber,
+    ) -> Self {
+        self.set_skip_immature_header_deps_check(
+            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number),
+        )
+        .set_disallow_over_max_dep_expansion_limit(
+            hardfork_switch.is_disallow_over_max_dep_expansion_limit_enabled(epoch_number),
+        )
+    }
+
     /// Get the flag whether skips the immature header deps check or not.
     pub fn if_skip_immature_header_deps_check(self) -> bool {
         self.contains(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK)
@@ -585,6 +628,28 @@ impl ResolveOptions {
     /// Set the flag whether skips the immature header deps check or not.
     pub fn set_skip_immature_header_deps_check(mut self, value: bool) -> Self {
         self.set(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK, value);
+        self
+    }
+
+    /// Get the flag whether ban when over the max dep expansion limit or not.
+    pub fn if_disallow_over_max_dep_expansion_limit(self) -> bool {
+        self.contains(Self::BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT)
+    }
+
+    /// Set the flag whether ban when over the max dep expansion limit or not.
+    pub fn set_disallow_over_max_dep_expansion_limit(mut self, value: bool) -> Self {
+        self.set(Self::BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT, value);
+        self
+    }
+
+    /// Get if resolve for block verification.
+    pub fn if_for_block_verification(self) -> bool {
+        self.contains(Self::FOR_BLOCK_VERIFICATION)
+    }
+
+    /// Set resolve for block verification.
+    pub fn set_for_block_verification(mut self, value: bool) -> Self {
+        self.set(Self::FOR_BLOCK_VERIFICATION, value);
         self
     }
 }
@@ -636,10 +701,10 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
     let dep_group_cell = cell_resolver(out_point, true)?;
     let data = dep_group_cell
         .mem_cell_data
-        .clone()
+        .as_ref()
         .expect("Load cell meta must with data");
 
-    let sub_out_points = parse_dep_group_data(&data)
+    let sub_out_points = parse_dep_group_data(data)
         .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
@@ -664,11 +729,11 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
         seen_inputs,
         cell_provider,
         header_checker,
-        ResolveOptions::empty().set_skip_immature_header_deps_check(false),
+        ResolveOptions::new(),
     )
 }
 
-/// TODO(doc): @quake
+/// Resolve all cell meta from db base on the transaction.
 pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
@@ -721,6 +786,7 @@ pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: 
         &mut resolve_cell,
         &mut resolved_cell_deps,
         &mut resolved_dep_groups,
+        &resolve_opts,
     )?;
 
     for block_hash in transaction.header_deps_iter() {
@@ -749,16 +815,45 @@ fn resolve_transaction_deps_with_system_cell_cache<
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
+    resolve_opts: &ResolveOptions,
 ) -> Result<(), OutPointError> {
+    // - If the dep expansion count of the transaction is not over the `MAX_DEP_EXPANSION_LIMIT`,
+    //   it will always be accepted.
+    //
+    // - If the dep expansion count of the transaction is over the `MAX_DEP_EXPANSION_LIMIT`, the
+    //   behavior is as follow:
+    //
+    //   |           |     |                    in_block                     |
+    //   | Edition   | ban |-------------------------------------------------|
+    //   |           |     |          true          |         false          |
+    //   |-----------+-----+------------------------+------------------------|
+    //   | ckb v2019 | no  | accept the transaction | reject the transaction |
+    //   | ckb v2021 | yes |             reject the transaction              |
+    let ban = resolve_opts.if_disallow_over_max_dep_expansion_limit();
+    let mut remaining_dep_slots = {
+        let in_block = resolve_opts.if_for_block_verification();
+        if in_block && !ban {
+            usize::MAX
+        } else {
+            MAX_DEP_EXPANSION_LIMIT
+        }
+    };
     if let Some(system_cell) = SYSTEM_CELL.get() {
         for cell_dep in transaction.cell_deps_iter() {
             if let Some(resolved_dep) = system_cell.get(&cell_dep) {
                 match resolved_dep {
-                    ResolvedDep::Cell(cell_meta) => resolved_cell_deps.push(cell_meta.clone()),
-                    ResolvedDep::Group(group) => {
-                        let (dep_group, cell_deps) = group;
+                    ResolvedDep::Cell(cell_meta) => {
+                        resolved_cell_deps.push(cell_meta.clone());
+                        remaining_dep_slots = remaining_dep_slots
+                            .checked_sub(1)
+                            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+                    }
+                    ResolvedDep::Group(dep_group, cell_deps) => {
                         resolved_dep_groups.push(dep_group.clone());
                         resolved_cell_deps.extend(cell_deps.clone());
+                        remaining_dep_slots = remaining_dep_slots
+                            .checked_sub(cell_deps.len())
+                            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
                     }
                 }
             } else {
@@ -768,6 +863,8 @@ fn resolve_transaction_deps_with_system_cell_cache<
                     resolved_cell_deps,
                     resolved_dep_groups,
                     false, // don't eager_load data
+                    &mut remaining_dep_slots,
+                    resolve_opts,
                 )?;
             }
         }
@@ -779,6 +876,8 @@ fn resolve_transaction_deps_with_system_cell_cache<
                 resolved_cell_deps,
                 resolved_dep_groups,
                 false, // don't eager_load data
+                &mut remaining_dep_slots,
+                resolve_opts,
             )?;
         }
     }
@@ -791,13 +890,33 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
     eager_load: bool,
+    remaining_dep_slots: &mut usize,
+    resolve_opts: &ResolveOptions,
 ) -> Result<(), OutPointError> {
+    let ban = resolve_opts.if_disallow_over_max_dep_expansion_limit();
     if cell_dep.dep_type() == DepType::DepGroup.into() {
-        let (dep_group, cell_deps) =
-            resolve_dep_group(&cell_dep.out_point(), cell_resolver, eager_load)?;
+        let outpoint = cell_dep.out_point();
+        let dep_group = cell_resolver(&outpoint, true)?;
+        let data = dep_group
+            .mem_cell_data
+            .as_ref()
+            .expect("Load cell meta must with data");
+        let sub_out_points =
+            parse_dep_group_data(data).map_err(|_| OutPointError::InvalidDepGroup(outpoint))?;
+
+        *remaining_dep_slots = remaining_dep_slots
+            .checked_sub(sub_out_points.len())
+            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+
+        for sub_out_point in sub_out_points.into_iter() {
+            resolved_cell_deps.push(cell_resolver(&sub_out_point, eager_load)?);
+        }
         resolved_dep_groups.push(dep_group);
-        resolved_cell_deps.extend(cell_deps);
     } else {
+        *remaining_dep_slots = remaining_dep_slots
+            .checked_sub(1)
+            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+
         resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), eager_load)?);
     }
     Ok(())
@@ -869,16 +988,20 @@ pub fn setup_system_cell_cache<CP: CellProvider>(
             build_cell_meta_from_out_point(cell_provider, out_point)
         };
 
-    let secp_group_dep_cell = resolve_dep_group(&secp_group_dep.out_point(), resolve_cell, true)
-        .expect("resolve secp_group_dep_cell");
-    cell_deps.insert(secp_group_dep, ResolvedDep::Group(secp_group_dep_cell));
+    let (secp_dep_group, secp_group_cells) =
+        resolve_dep_group(&secp_group_dep.out_point(), resolve_cell, true)
+            .expect("resolve secp_group_dep_cell");
+    cell_deps.insert(
+        secp_group_dep,
+        ResolvedDep::Group(secp_dep_group, secp_group_cells),
+    );
 
-    let multi_sign_secp_group_cell =
+    let (multi_sign_dep_group, multi_sign_group_cells) =
         resolve_dep_group(&multi_sign_secp_group.out_point(), resolve_cell, true)
             .expect("resolve multi_sign_secp_group");
     cell_deps.insert(
         multi_sign_secp_group,
-        ResolvedDep::Group(multi_sign_secp_group_cell),
+        ResolvedDep::Group(multi_sign_dep_group, multi_sign_group_cells),
     );
 
     SYSTEM_CELL.set(cell_deps)

@@ -10,7 +10,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 ckb-metrics-config = { path = "../metrics-config", version = "= 0.100.0-rc2" }
+ckb-logger = { path = "../logger", version = "= 0.100.0-rc2" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.100.0-rc2" }
 ckb-util = { path = "..", version = "= 0.100.0-rc2" }
-metrics-runtime = { package = "ckb-metrics-runtime", version = "0.13.1" }
-metrics-core = "0.5.2"
+opentelemetry-prometheus = "0.8"
+prometheus = "0.12"
+hyper = "0.14"

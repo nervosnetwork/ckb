@@ -5,6 +5,7 @@ use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMNS, COLUMN_META};
 use ckb_error::Error;
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 const INIT_DB_VERSION: &str = "20191127135521";
@@ -24,6 +25,7 @@ impl Migrate {
         migrations.add_migration(Box::new(migrations::CellMigration));
         migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
         migrations.add_migration(Box::new(migrations::AddExtraDataHash));
+        migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily));
 
         Migrate {
             migrations,
@@ -37,8 +39,15 @@ impl Migrate {
         ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META])
     }
 
-    /// Return true if migration is required
-    pub fn check(&self, db: &ReadOnlyDB) -> bool {
+    /// Check if database's version is matched with the executable binary version.
+    ///
+    /// Returns
+    /// - Less: The database version is less than the matched version of the executable binary.
+    ///   Requires migration.
+    /// - Equal: The database version is matched with the executable binary version.
+    /// - Greater: The database version is greater than the matched version of the executable binary.
+    ///   Requires upgrade the executable binary.
+    pub fn check(&self, db: &ReadOnlyDB) -> Ordering {
         self.migrations.check(&db)
     }
 

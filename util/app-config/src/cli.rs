@@ -3,6 +3,8 @@ use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
+pub(crate) const BIN_NAME: &str = "ckb";
+
 /// Subcommand `run`.
 pub const CMD_RUN: &str = "run";
 /// Subcommand `miner`.
@@ -113,7 +115,7 @@ pub const ARG_MIGRATE_CHECK: &str = "check";
 const GROUP_BA: &str = "ba";
 
 fn basic_app<'b>() -> App<'static, 'b> {
-    App::new("ckb")
+    App::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -144,11 +146,15 @@ fn basic_app<'b>() -> App<'static, 'b> {
 /// Parse the command line arguments by supplying the version information.
 ///
 /// The version is used to generate the help message and output for `--version`.
-pub fn get_matches(version: &Version) -> ArgMatches<'static> {
-    basic_app()
+pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches<'static>) {
+    let bin_name = std::env::args()
+        .next()
+        .unwrap_or_else(|| BIN_NAME.to_owned());
+    let matches = basic_app()
         .version(version.short().as_str())
         .long_version(version.long().as_str())
-        .get_matches()
+        .get_matches();
+    (bin_name, matches)
 }
 
 fn run() -> App<'static, 'static> {
@@ -544,7 +550,7 @@ mod tests {
     #[test]
     fn ba_message_requires_ba_arg_or_ba_code_hash() {
         let ok_ba_arg = basic_app().get_matches_from_safe(&[
-            "ckb",
+            BIN_NAME,
             "init",
             "--ba-message",
             "0x00",
@@ -552,14 +558,14 @@ mod tests {
             "0x00",
         ]);
         let ok_ba_code_hash = basic_app().get_matches_from_safe(&[
-            "ckb",
+            BIN_NAME,
             "init",
             "--ba-message",
             "0x00",
             "--ba-code-hash",
             "0x00",
         ]);
-        let err = basic_app().get_matches_from_safe(&["ckb", "init", "--ba-message", "0x00"]);
+        let err = basic_app().get_matches_from_safe(&[BIN_NAME, "init", "--ba-message", "0x00"]);
 
         assert!(
             ok_ba_arg.is_ok(),
@@ -588,7 +594,7 @@ mod tests {
     #[test]
     fn ba_arg_and_ba_code_hash() {
         let ok_matches = basic_app().get_matches_from_safe(&[
-            "ckb",
+            BIN_NAME,
             "init",
             "--ba-code-hash",
             "0x00",
@@ -605,7 +611,7 @@ mod tests {
     #[test]
     fn ba_advanced() {
         let matches = basic_app()
-            .get_matches_from_safe(&["ckb", "run", "--ba-advanced"])
+            .get_matches_from_safe(&[BIN_NAME, "run", "--ba-advanced"])
             .unwrap();
         let sub_matches = matches.subcommand().1.unwrap();
 

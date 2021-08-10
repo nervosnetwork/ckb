@@ -3,6 +3,8 @@
 use serde::Deserialize;
 use std::path::PathBuf;
 
+use crate::cli;
+
 mod store;
 mod tx_pool;
 
@@ -105,6 +107,8 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
         #[cfg(not(feature = "with_sentry"))]
         let _ = sentry;
         Self {
+            bin_name: cli::BIN_NAME.to_owned(),
+            root_dir: Default::default(),
             data_dir,
             ancient,
             tmp_dir,
@@ -140,6 +144,8 @@ impl From<MinerAppConfig> for crate::MinerAppConfig {
         #[cfg(not(feature = "with_sentry"))]
         let _ = sentry;
         Self {
+            bin_name: cli::BIN_NAME.to_owned(),
+            root_dir: Default::default(),
             data_dir,
             chain,
             logger,

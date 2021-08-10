@@ -27,7 +27,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
-    let app_matches = cli::get_matches(&version);
+    let (bin_name, app_matches) = cli::get_bin_name_and_matches(&version);
     match app_matches.subcommand() {
         (cli::CMD_INIT, Some(matches)) => {
             return subcommand::init(Setup::init(&matches)?);
@@ -47,22 +47,40 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         }
     }
 
+    let (cmd, matches) = app_matches.subcommand();
+    let matches = matches.expect("SubcommandRequiredElseHelp");
+    let is_silent_logging = is_silent_logging(cmd);
+
     let (handle, _stop) = new_global_runtime();
-    let setup = Setup::from_matches(&app_matches)?;
-    let _guard = SetupGuard::from_setup(&setup, &version, handle.clone())?;
+    let setup = Setup::from_matches(bin_name, &app_matches)?;
+    let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
 
-    match app_matches.subcommand() {
-        (cli::CMD_RUN, Some(matches)) => subcommand::run(setup.run(&matches)?, version, handle),
-        (cli::CMD_MINER, Some(matches)) => subcommand::miner(setup.miner(&matches)?, handle),
-        (cli::CMD_REPLAY, Some(matches)) => subcommand::replay(setup.replay(&matches)?, handle),
-        (cli::CMD_EXPORT, Some(matches)) => subcommand::export(setup.export(&matches)?, handle),
-        (cli::CMD_IMPORT, Some(matches)) => subcommand::import(setup.import(&matches)?, handle),
-        (cli::CMD_STATS, Some(matches)) => subcommand::stats(setup.stats(&matches)?, handle),
-        (cli::CMD_RESET_DATA, Some(matches)) => subcommand::reset_data(setup.reset_data(&matches)?),
-        (cli::CMD_MIGRATE, Some(matches)) => subcommand::migrate(setup.migrate(&matches)?),
-        (cli::CMD_DB_REPAIR, Some(matches)) => subcommand::db_repair(setup.db_repair(&matches)?),
+    match cmd {
+        cli::CMD_RUN => subcommand::run(setup.run(&matches)?, version, handle),
+        cli::CMD_MINER => subcommand::miner(setup.miner(&matches)?, handle),
+        cli::CMD_REPLAY => subcommand::replay(setup.replay(&matches)?, handle),
+        cli::CMD_EXPORT => subcommand::export(setup.export(&matches)?, handle),
+        cli::CMD_IMPORT => subcommand::import(setup.import(&matches)?, handle),
+        cli::CMD_STATS => subcommand::stats(setup.stats(&matches)?, handle),
+        cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(&matches)?),
+        cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(&matches)?),
+        cli::CMD_DB_REPAIR => subcommand::db_repair(setup.db_repair(&matches)?),
         _ => unreachable!(),
     }
+}
+
+type Silent = bool;
+
+fn is_silent_logging(cmd: &str) -> Silent {
+    matches!(
+        cmd,
+        cli::CMD_EXPORT
+            | cli::CMD_IMPORT
+            | cli::CMD_STATS
+            | cli::CMD_MIGRATE
+            | cli::CMD_DB_REPAIR
+            | cli::CMD_RESET_DATA
+    )
 }

@@ -999,6 +999,9 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 .primary_epoch_reward_halving_interval
                 .into(),
             permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
+            hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
+                &consensus.hardfork_switch,
+            ),
         }
     }
 }

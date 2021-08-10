@@ -77,6 +77,8 @@ bootnodes = [] # {{
 # whitelist_only = false
 ### Whitelist peers connecting from the given IP addresses
 # whitelist_peers = []
+### Enable `SO_REUSEPORT` feature to reuse port on Linux, not supported on other OS yet
+# reuse_port_on_linux = true
 
 max_peers = 125
 max_outbound_peers = 8

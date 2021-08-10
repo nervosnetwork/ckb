@@ -108,6 +108,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `H256`](#type-h256)
+    * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `JsonBytes`](#type-jsonbytes)
@@ -1260,6 +1261,10 @@ The response looks like below when `verbosity` is 0.
 
 Return various consensus parameters.
 
+##### Returns
+
+If any hardfork feature has `epoch=null`, it means the feature will never be activated.
+
 ##### Examples
 
 Request
@@ -1285,6 +1290,15 @@ Response
         "dao_type_hash": null,
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "hardfork_features": [
+            { "rfc": "0028", "epoch_number": null },
+            { "rfc": "0029", "epoch_number": null },
+            { "rfc": "0030", "epoch_number": null },
+            { "rfc": "0031", "epoch_number": null },
+            { "rfc": "0032", "epoch_number": null },
+            { "rfc": "0036", "epoch_number": null },
+            { "rfc": "0038", "epoch_number": null }
+        ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
         "max_block_bytes": "0x91c08",
@@ -3406,6 +3420,8 @@ Consensus defines various parameters that influence chain consensus
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
 
+*   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+
 
 ### Type `Cycle`
 
@@ -3512,6 +3528,19 @@ In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
 
 
+### Type `HardForkFeature`
+
+The information about one hardfork feature.
+
+#### Fields
+
+`HardForkFeature` is a JSON object with the following fields.
+
+*   `rfc`: `string` - The related RFC ID.
+
+*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled.
+
+
 ### Type `Header`
 
 The block header.
@@ -3562,7 +3591,7 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
     ### Notice
 
-    This field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 224](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0224-variable-length-header-field/0224-variable-length-header-field.md).
+    This field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
 
 *   `dao`: [`Byte32`](#type-byte32) - DAO fields.
 

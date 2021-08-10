@@ -91,7 +91,7 @@ impl SendLargeCyclesTxToRelay {
 }
 
 impl Spec for SendLargeCyclesTxToRelay {
-    crate::setup!(num_nodes: 2);
+    crate::setup!(num_nodes: 2, retry_failed: 5);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];

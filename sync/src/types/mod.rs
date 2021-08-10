@@ -84,7 +84,7 @@ impl ChainSyncState {
             HeadersSyncState::Initialized => false,
             HeadersSyncState::SyncProtocolConnected => true,
             HeadersSyncState::Started => false,
-            HeadersSyncState::Suspend(until) => until < now,
+            HeadersSyncState::Suspend(until) | HeadersSyncState::TipSynced(until) => until < now,
         }
     }
 
@@ -100,8 +100,21 @@ impl ChainSyncState {
         self.headers_sync_state = HeadersSyncState::Suspend(until)
     }
 
+    fn tip_synced(&mut self) {
+        let now = unix_time_as_millis();
+        // use avg block interval: (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2 = 28
+        self.headers_sync_state = HeadersSyncState::TipSynced(now + 28000);
+    }
+
     fn started(&self) -> bool {
         matches!(self.headers_sync_state, HeadersSyncState::Started)
+    }
+
+    fn started_or_tip_synced(&self) -> bool {
+        matches!(
+            self.headers_sync_state,
+            HeadersSyncState::Started | HeadersSyncState::TipSynced(_)
+        )
     }
 }
 
@@ -111,6 +124,7 @@ enum HeadersSyncState {
     SyncProtocolConnected,
     Started,
     Suspend(u64), // suspend headers sync until this timestamp (milliseconds since unix epoch)
+    TipSynced(u64), // already synced to the end, not as the sync target for the time being, until the pause time is exceeded
 }
 
 impl Default for HeadersSyncState {
@@ -287,22 +301,27 @@ impl PeerState {
         self.headers_sync_controller = Some(headers_sync_controller);
     }
 
-    pub fn suspend_sync(&mut self, suspend_time: u64) {
+    fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
         self.chain_sync.suspend(now + suspend_time);
-        self.stop_headers_sync();
+        self.headers_sync_controller = None;
+    }
+
+    fn tip_synced(&mut self) {
+        self.chain_sync.tip_synced();
+        self.headers_sync_controller = None;
     }
 
     pub(crate) fn sync_started(&self) -> bool {
         self.chain_sync.started()
     }
 
-    pub(crate) fn sync_connected(&mut self) {
-        self.chain_sync.connected()
+    pub(crate) fn started_or_tip_synced(&self) -> bool {
+        self.chain_sync.started_or_tip_synced()
     }
 
-    pub(crate) fn stop_headers_sync(&mut self) {
-        self.headers_sync_controller = None;
+    pub(crate) fn sync_connected(&mut self) {
+        self.chain_sync.connected()
     }
 }
 
@@ -1256,7 +1275,7 @@ impl SyncShared {
         block: Arc<core::BlockView>,
     ) -> Result<bool, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
-        if !self.is_parent_stored(&block) {
+        if !self.is_stored(&block.parent_hash()) {
             debug!(
                 "insert new orphan block {} {}",
                 block.header().number(),
@@ -1275,38 +1294,44 @@ impl SyncShared {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        self.try_search_orphan_pool(chain, &block.as_ref().hash());
+        self.try_search_orphan_pool(chain);
         ret
     }
 
-    /// Try search orphan pool with current tip header hash
-    pub fn try_search_orphan_pool(&self, chain: &ChainController, parent_hash: &Byte32) {
-        let descendants = self.state.remove_orphan_by_parent(parent_hash);
-        debug!(
-            "try accepting {} descendant orphan blocks",
-            descendants.len()
-        );
-
-        for block in descendants {
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as an invalid block as well.
-            if !self.is_parent_stored(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {}, parent: {}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
+    /// Try to find blocks from the orphan block pool that may no longer be orphan
+    pub fn try_search_orphan_pool(&self, chain: &ChainController) {
+        for hash in self.state.orphan_pool().clone_leaders() {
+            if self.state.orphan_pool().is_empty() {
+                break;
             }
-
-            let block = Arc::new(block);
-            if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
+            if self.is_stored(&hash) {
+                let descendants = self.state.remove_orphan_by_parent(&hash);
                 debug!(
-                    "accept descendant orphan block {} error {:?}",
-                    block.header().hash(),
-                    err
+                    "try accepting {} descendant orphan blocks by exist parents hash",
+                    descendants.len()
                 );
+                for block in descendants {
+                    // If we can not find the block's parent in database, that means it was failed to accept
+                    // its parent, so we treat it as an invalid block as well.
+                    if !self.is_stored(&block.parent_hash()) {
+                        debug!(
+                            "parent-unknown orphan block, block: {}, {}, parent: {}",
+                            block.header().number(),
+                            block.header().hash(),
+                            block.header().parent_hash(),
+                        );
+                        continue;
+                    }
+
+                    let block = Arc::new(block);
+                    if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
+                        debug!(
+                            "accept descendant orphan block {} error {:?}",
+                            block.header().hash(),
+                            err
+                        );
+                    }
+                }
             }
         }
     }
@@ -1419,11 +1444,10 @@ impl SyncShared {
         }
     }
 
-    /// Check whether block's parent has been inserted to chain store
-    pub fn is_parent_stored(&self, block: &core::BlockView) -> bool {
-        self.store()
-            .get_block_header(&block.data().header().raw().parent_hash())
-            .is_some()
+    /// Check whether block has been inserted to chain store
+    pub fn is_stored(&self, hash: &packed::Byte32) -> bool {
+        let status = self.active_chain().get_block_status(&hash);
+        status.contains(BlockStatus::BLOCK_STORED)
     }
 
     /// Get epoch ext by block hash
@@ -1610,12 +1634,25 @@ impl SyncState {
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
+        if peer_state.sync_started() {
+            assert_ne!(
+                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                0,
+                "n_sync_started overflow when suspend_sync"
+            );
+        }
         peer_state.suspend_sync(SUSPEND_SYNC_TIME);
-        assert_ne!(
-            self.n_sync_started().fetch_sub(1, Ordering::Release),
-            0,
-            "n_sync_started overflow when suspend_sync"
-        );
+    }
+
+    pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
+        if peer_state.sync_started() {
+            assert_ne!(
+                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                0,
+                "n_sync_started overflow when tip_synced"
+            );
+        }
+        peer_state.tip_synced();
     }
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {

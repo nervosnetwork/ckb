@@ -31,10 +31,4 @@ ckb_miner_workers:
     value: 500
 
 # ansible-ckb-benchmark variables
-ckb_benchmark_workspace: "/var/lib/ckb-benchmark"
-ckb_benchmark_data_dir: "{{ ckb_benchmark_workspace }}/data"
-ckb_benchmark_skip_best_tps_caculation: false
-ckb_benchmark_block_assembler: "{{ ckb_block_assembler }}"
-ckb_benchmark_benchmarks:
-  - transaction_type: In2Out2
-    send_delay: 100
+ckb_benchmark_owner_privkey: "{{ ckb_block_assembler.key }}"
