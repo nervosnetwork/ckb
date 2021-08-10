@@ -212,11 +212,9 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
         let resolve_opts = {
-            let current_epoch_number = block_template.epoch.epoch_number();
-            let flag = consensus
-                .hardfork_switch()
-                .is_remove_header_deps_immature_rule_enabled(current_epoch_number);
-            ResolveOptions::empty().set_skip_immature_header_deps_check(flag)
+            let epoch_number = block_template.epoch.epoch_number();
+            let hardfork_switch = consensus.hardfork_switch();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
         };
 
         let rtxs = txs

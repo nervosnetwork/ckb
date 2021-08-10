@@ -51,6 +51,12 @@ pub struct HardForkConfig {
     /// Ref: [CKB RFC 0036](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0036-remove-header-deps-immature-rule/0036-remove-header-deps-immature-rule.md)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_0036: Option<EpochNumber>,
+    // TODO ckb2021 update the description and the rfc link
+    /// Disallow over the max dep expansion limit.
+    ///
+    /// Ref: CKB RFC 0038
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rfc_0038: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -96,7 +102,8 @@ impl HardForkConfig {
             .rfc_0030(check_default!(self, rfc_0030, ckb2021))
             .rfc_0031(check_default!(self, rfc_0031, ckb2021))
             .rfc_0032(check_default!(self, rfc_0032, ckb2021))
-            .rfc_0036(check_default!(self, rfc_0036, ckb2021));
+            .rfc_0036(check_default!(self, rfc_0036, ckb2021))
+            .rfc_0038(check_default!(self, rfc_0038, ckb2021));
         Ok(builder)
     }
 
@@ -111,6 +118,7 @@ impl HardForkConfig {
             .rfc_0031(self.rfc_0031.unwrap_or(default))
             .rfc_0032(self.rfc_0032.unwrap_or(default))
             .rfc_0036(self.rfc_0036.unwrap_or(default))
+            .rfc_0038(self.rfc_0038.unwrap_or(default))
             .build()
     }
 }

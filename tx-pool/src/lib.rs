@@ -6,6 +6,7 @@ mod callback;
 mod chunk_process;
 mod component;
 pub mod error;
+mod persisted;
 pub mod pool;
 mod process;
 pub mod service;

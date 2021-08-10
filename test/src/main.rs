@@ -382,6 +382,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TemplateSizeLimit),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
+        #[cfg(not(target_os = "windows"))]
+        Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
         // TODO failed on poor CI server

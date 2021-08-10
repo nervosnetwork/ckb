@@ -19,7 +19,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
     )?;
     let (shared, _) = shared_builder
         .consensus(args.consensus.clone())
-        .tx_pool_config(args.config.tx_pool)
+        .tx_pool_config(args.config.tx_pool.clone())
         .build()?;
 
     if !args.tmp_target.is_dir() {

@@ -2,10 +2,11 @@ use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // The default values are set in the legacy version.
 /// Transaction pool configuration
-#[derive(Copy, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_mem_size> mb
     pub max_mem_size: usize,
@@ -18,6 +19,11 @@ pub struct TxPoolConfig {
     pub max_tx_verify_cycles: Cycle,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
+    /// The file to persist the tx pool on the disk when tx pool have been shutdown.
+    ///
+    /// By default, it is a file inside the data directory.
+    #[serde(default)]
+    pub persisted_data: PathBuf,
 }
 
 /// Block assembler config options.
@@ -44,4 +50,23 @@ pub struct BlockAssemblerConfig {
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
     true
+}
+
+impl TxPoolConfig {
+    /// Canonicalizes paths in the config options.
+    ///
+    /// If `self.persisted_data` is not set, set it to `data_dir / tx_pool_persisted_data`.
+    ///
+    /// If `self.path` is relative, convert them to absolute path using
+    /// `root_dir` as current working directory.
+    pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
+        if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
+            self.persisted_data = data_dir
+                .as_ref()
+                .to_path_buf()
+                .join("tx_pool_persisted_data");
+        } else if self.persisted_data.is_relative() {
+            self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
+        }
+    }
 }
