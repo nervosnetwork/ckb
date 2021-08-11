@@ -105,9 +105,7 @@ impl Binaries {
                     *self = Self::Duplicate(hash.to_owned(), data.to_owned());
                 }
             }
-            Self::Multiple => {
-                *self = Self::Multiple;
-            }
+            Self::Multiple => {}
         }
     }
 }
