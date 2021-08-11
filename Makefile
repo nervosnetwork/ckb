@@ -17,9 +17,9 @@ test: ## Run all tests.
 .PHONY: cov
 cov: ## Run code coverage.
 	rustup component add llvm-tools-preview --toolchain nightly
-	cargo +nightly install grcov
+	grcov --version || cargo +nightly install grcov
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="ckb-cov-%p-%m.profraw" cargo +nightly test --all
-	grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+	grcov . --binary-path "${CARGO_TARGET_DIR}/debug/" -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov-unit-test.info
 	find . -name "*.profraw" -type f -delete
 
 .PHONY: wasm-build-test
@@ -44,6 +44,15 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
+
+.PHONY: integration-cov
+integration-cov: submodule-init setup-ckb-test ## Run integration tests and genearte coverage report.
+	rustup component add llvm-tools-preview --toolchain nightly
+	grcov --version || cargo +nightly install grcov
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="ckb-cov-%p-%m.profraw" cargo +nightly build --features deadlock_detection
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
+	grcov . --binary-path "${CARGO_TARGET_DIR}/debug/" -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov-integration-test.info
+	find . -name "*.profraw" -type f -delete
 
 ##@ Document
 .PHONY: doc

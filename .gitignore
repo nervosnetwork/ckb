@@ -62,4 +62,5 @@ cobertura.xml
 
 # generated coverage report files
 *.profraw
-lcov.info
+lcov-unit-test.info
+lcov-integration-test.info
