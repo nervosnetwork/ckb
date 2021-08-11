@@ -46,7 +46,7 @@ Side effects
 ```release-note
 Please add a release note.
 
-- Exclude from the release node: fill this block with None.
-- Include only the title: delete this block or leave the block empty.
-- Include title and a note: fill the note in this block
+- Exclude from the release node: fill this block with "None".
+- Include only the title: fill this block with "Title Only".
+- Include title and a note: fill the note in this block.
 ```
