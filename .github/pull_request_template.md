@@ -41,9 +41,9 @@ Side effects
 - Performance regression
 - Breaking backward compatibility
 
-### Release note <!-- bugfixes or new feature need a release note -->
+### Release note <!-- bugfixes or new feature needs a release note -->
 
 ```release-note
 Please add a release note.
-If you don't think this PR needs a release note then fill it with None.
+If you don't think this PR needs a release note then fill it with None. Leave it empty to include only the title in the release note.
 ```
