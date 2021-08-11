@@ -59,3 +59,7 @@ cobertura.xml
 
 # proptest
 **/proptest-regressions
+
+# generated coverage report files
+*.profraw
+lcov.info

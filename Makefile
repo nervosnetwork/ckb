@@ -14,12 +14,13 @@ CARGO_TARGET_DIR ?= $(shell pwd)/target
 test: ## Run all tests.
 	cargo test ${VERBOSE} --all -- --nocapture
 
-# Tarpaulin only supports x86_64 processors running Linux.
-# https://github.com/xd009642/tarpaulin/issues/161
-# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
 .PHONY: cov
 cov: ## Run code coverage.
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files "*/generated/" "test/*" "*/tests/" --all -v --out Xml
+	rustup component add llvm-tools-preview --toolchain nightly
+	cargo +nightly install grcov
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="ckb-cov-%p-%m.profraw" cargo +nightly test --all
+	grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+	find . -name "*.profraw" -type f -delete
 
 .PHONY: wasm-build-test
 wasm-build-test: ## Build core packages for wasm target
