@@ -72,6 +72,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
     * [Module Subscription](#module-subscription)
@@ -2486,6 +2487,35 @@ Response
        },
        "proposed": {}
    }
+}
+```
+
+#### Method `tx_pool_ready`
+* `tx_pool_ready()`
+* result: `boolean`
+
+Returns whether tx-pool service is started, ready for request.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "tx_pool_ready",
+  "params": []
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
 }
 ```
 

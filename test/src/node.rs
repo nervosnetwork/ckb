@@ -419,6 +419,13 @@ impl Node {
         );
     }
 
+    pub fn wait_tx_pool_ready(&self) {
+        let rpc_client = self.rpc_client();
+        while !rpc_client.tx_pool_ready() {
+            sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
@@ -536,6 +543,8 @@ impl Node {
                 }
             }
         };
+
+        self.wait_tx_pool_ready();
 
         self.guard = Some(ProcessGuard {
             child: child_process,
