@@ -12,7 +12,7 @@ env:
   RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  TESTNET_SNAPSHOT_URL: ${{secrets.TESTNET_DATA_SNAPSHOT}}
+  TESTNET_SNAPSHOT_URL: ${{secrets.TESTNET_SNAPSHOT_URL}}
   CARGO_TARGET_DIR: ${{ github.workspace }}/../target
 
 jobs:
