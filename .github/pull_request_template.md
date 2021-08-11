@@ -45,5 +45,8 @@ Side effects
 
 ```release-note
 Please add a release note.
-If you don't think this PR needs a release note then fill it with None. Leave it empty to include only the title in the release note.
+
+- Exclude from the release node: fill this block with None.
+- Include only the title: delete this block or leave the block empty.
+- Include title and a note: fill the note in this block
 ```
