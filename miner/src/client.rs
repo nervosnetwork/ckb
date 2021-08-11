@@ -9,7 +9,7 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{packed::Block, H256};
 use futures::prelude::*;
 use hyper::{
-    body::{Bytes, HttpBody},
+    body::{to_bytes, Bytes},
     header::{HeaderValue, CONTENT_TYPE},
     Body, Client as HttpClient, Error as HyperError, Method, Request, Uri,
 };
@@ -19,9 +19,7 @@ use jsonrpc_core::{
 };
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::convert::Into;
-use std::thread;
-use std::time;
+use std::{convert::Into, thread, time};
 use tokio::sync::{mpsc, oneshot};
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
@@ -70,11 +68,7 @@ impl Rpc {
                             .await
                             .map(|res|res.into_body())
                         {
-                            Ok(mut body) => body
-                                .data()
-                                .await
-                                .ok_or(RpcError::NoRespData)
-                                .and_then(|res| res.map_err(RpcError::Http)),
+                            Ok(body) => to_bytes(body).await.map_err(RpcError::Http),
                             Err(err) => Err(RpcError::Http(err)),
                         };
                         if sender.send(request).is_err() {
