@@ -44,9 +44,8 @@ Side effects
 ### Release note <!-- bugfixes or new feature needs a release note -->
 
 ```release-note
-Please add a release note.
-
-- Exclude from the release node: fill this block with "None".
-- Include only the title: fill this block with "Title Only".
-- Include title and a note: fill the note in this block.
+None: Exclude this PR from the release note.
+Title Only: Include only the PR title in the release note.
+Note: Add a note under the PR title in the release note.
 ```
+
