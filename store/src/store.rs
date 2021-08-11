@@ -514,14 +514,27 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
         let uncles = self.get_block_uncles(hash)?;
         let proposals = self.get_block_proposal_txs_ids(hash)?;
-        Some(
+        let extension_opt = self.get_block_extension(hash);
+
+        let block = if let Some(extension) = extension_opt {
+            packed::BlockV1::new_builder()
+                .header(header)
+                .uncles(uncles.data())
+                .transactions(transactions)
+                .proposals(proposals)
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
             packed::Block::new_builder()
                 .header(header)
                 .uncles(uncles.data())
                 .transactions(transactions)
                 .proposals(proposals)
-                .build(),
-        )
+                .build()
+        };
+
+        Some(block)
     }
 
     /// TODO(doc): @quake
