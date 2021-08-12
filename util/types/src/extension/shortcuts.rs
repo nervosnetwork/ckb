@@ -385,6 +385,35 @@ impl packed::CompactBlock {
             .filter(|index| !prefilled_indexes.contains(&index))
             .collect()
     }
+
+    /// Gets the i-th extra field if it exists; i started from 0.
+    pub fn extra_field(&self, index: usize) -> Option<bytes::Bytes> {
+        let count = self.count_extra_fields();
+        if count > index {
+            let slice = self.as_slice();
+            let i = (1 + Self::FIELD_COUNT + index) * molecule::NUMBER_SIZE;
+            let start = molecule::unpack_number(&slice[i..]) as usize;
+            if count == index + 1 {
+                Some(self.as_bytes().slice(start..))
+            } else {
+                let j = i + molecule::NUMBER_SIZE;
+                let end = molecule::unpack_number(&slice[j..]) as usize;
+                Some(self.as_bytes().slice(start..end))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Gets the extension field if it existed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the first extra field exists but not a valid [`Bytes`](struct.Bytes.html).
+    pub fn extension(&self) -> Option<packed::Bytes> {
+        self.extra_field(0)
+            .map(|data| packed::Bytes::from_slice(&data).unwrap())
+    }
 }
 
 impl packed::CompactBlockV1 {
