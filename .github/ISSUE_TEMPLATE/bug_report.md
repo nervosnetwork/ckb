@@ -4,14 +4,23 @@ about: Create a report to help us improve
 labels: t:bug
 ---
 
-**Environment**
+## Bug Report
 
-- **CKB version**: output of `ckb --version`
-- **Chain**: dev / staging / testnet / mainnet ...
-- **Operating system**: Linux / macOS / Windows
+<!-- Thanks for your bug report! We appreciate your time to fill following sections to help us locate the root cause. -->
+
+### Environment
+
+- **CKB version**: <!-- output of `ckb --version` -->
+- **Chain**: dev / staging / testnet / mainnet
+- **Operating system**: Linux / macOS / Windows <!-- or output of `uname -a` -->
 - **Arch**: x64
 - **Installation**: GitHub Release / Built from source
 
-**Describe the bug**
+### Steps to reproduce
 
-_Your issue description goes here below. Try to include **actual** vs. **expected behavior** and **steps to reproduce** the issue._
+### Expected behavior
+
+### What actually happened
+
+### Attachments
+<!-- Attach links to transactions and blocks, or upload the JSON -->
