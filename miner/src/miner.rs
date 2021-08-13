@@ -1,4 +1,4 @@
-use crate::client::Client;
+use crate::client::{Client, Works};
 use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_app_config::MinerWorkerConfig;
@@ -28,7 +28,7 @@ pub struct Miner {
     /// TODO(doc): @quake
     pub worker_controllers: Vec<WorkerController>,
     /// TODO(doc): @quake
-    pub work_rx: Receiver<Work>,
+    pub work_rx: Receiver<Works>,
     /// TODO(doc): @quake
     pub nonce_rx: Receiver<(Byte32, Work, u128)>,
     /// TODO(doc): @quake
@@ -46,7 +46,7 @@ impl Miner {
     pub fn new(
         pow: Arc<dyn PowEngine>,
         client: Client,
-        work_rx: Receiver<Work>,
+        work_rx: Receiver<Works>,
         workers: &[MinerWorkerConfig],
         limit: u128,
     ) -> Miner {
@@ -87,7 +87,12 @@ impl Miner {
             select! {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
-                        self.submit_work(work);
+                        match work {
+                            Works::FailSubmit(hash) => {
+                                self.legacy_work.pop(&hash);
+                            },
+                            Works::New(work) => self.notify_new_work(work),
+                        }
                     },
                     _ => {
                         error!("work_rx closed");
@@ -110,7 +115,7 @@ impl Miner {
         }
     }
 
-    fn submit_work(&mut self, work: Work) {
+    fn notify_new_work(&mut self, work: Work) {
         let parent_hash = work.block.header().into_view().parent_hash();
         if !self.legacy_work.contains(&parent_hash) {
             let pow_hash = work.block.header().calc_pow_hash();
@@ -166,8 +171,13 @@ impl Miner {
 
         // submit block and poll new work
         {
-            self.client
-                .submit_block(&work.work_id.to_string(), block.data());
+            if let Err(e) = self
+                .client
+                .submit_block(&work.work_id.to_string(), block.data())
+            {
+                self.legacy_work.pop(&block.parent_hash());
+                error!("rpc call submit_block error: {:?}", e);
+            }
             self.client.try_update_block_template();
             self.notify_workers(WorkerMessage::Start);
         }
