@@ -14,12 +14,6 @@ labels: t:bug
 ### Expected Behavior
 <!-- A clear and concise description of what you expected to happen. -->
 
-### Steps to reproduce
-<!-- How you encounter the bug? Can you reproduce it now and summarize the steps? -->
-
-### Possible Solution
-<!-- Only if you have suggestions on a fix for the bug -->
-
 ### Environment
 
 - **CKB version**: [the output of `ckb --version`]
@@ -29,13 +23,4 @@ labels: t:bug
 - **Installation**: [GitHub Release, Built from source]
 
 ### Additional context/Screenshots
-<!-- Add any other context about the problem here. If applicable, add screenshots to help explain. -->
-
-#### Config files
-
-<details><summary>ckb.toml</summary>
-
-```toml
-```
-
-</details>
+<!-- Add any other context about the problem here. If applicable, add ckb.toml and screenshots to help explain. -->
