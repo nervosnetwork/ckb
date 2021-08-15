@@ -2285,7 +2285,7 @@ RPC Module Pool for transaction memory pool.
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new transaction into the transaction pool.
+Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
 ##### Params
 
