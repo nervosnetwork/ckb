@@ -29,7 +29,7 @@ use ckb_types::{
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{Byte32, CellbaseWitness, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -181,6 +181,7 @@ impl TxPoolService {
         max_block_cycles: Cycle,
         cellbase: &TransactionView,
         uncles: &[UncleBlockView],
+        extension_opt: Option<Bytes>,
     ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), AnyError> {
         let guard = self.tx_pool.read().await;
         let uncle_proposals = uncles
@@ -194,6 +195,7 @@ impl TxPoolService {
             cellbase.data(),
             uncles,
             &proposals,
+            extension_opt,
         )?;
 
         let (entries, size, cycles) =
@@ -376,6 +378,7 @@ impl TxPoolService {
                     cycles_limit,
                     &cellbase,
                     &uncles,
+                    None,
                 )
                 .await?;
 
