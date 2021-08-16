@@ -14,12 +14,13 @@ CARGO_TARGET_DIR ?= $(shell pwd)/target
 test: ## Run all tests.
 	cargo test ${VERBOSE} --all -- --nocapture
 
-# Tarpaulin only supports x86_64 processors running Linux.
-# https://github.com/xd009642/tarpaulin/issues/161
-# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
 .PHONY: cov
 cov: ## Run code coverage.
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files "*/generated/" "test/*" "*/tests/" --all -v --out Xml
+	rustup component add llvm-tools-preview --toolchain nightly
+	grcov --version || cargo +nightly install grcov
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="ckb-cov-%p-%m.profraw" cargo +nightly test --all
+	grcov . --binary-path "${CARGO_TARGET_DIR}/debug/" -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov-unit-test.info
+	find . -name "*.profraw" -type f -delete
 
 .PHONY: wasm-build-test
 wasm-build-test: ## Build core packages for wasm target
@@ -43,6 +44,15 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
+
+.PHONY: integration-cov
+integration-cov: submodule-init setup-ckb-test ## Run integration tests and genearte coverage report.
+	rustup component add llvm-tools-preview --toolchain nightly
+	grcov --version || cargo +nightly install grcov
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="ckb-cov-%p-%m.profraw" cargo +nightly build --features deadlock_detection
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
+	grcov . --binary-path "${CARGO_TARGET_DIR}/debug/" -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov-integration-test.info
+	find . -name "*.profraw" -type f -delete
 
 ##@ Document
 .PHONY: doc
