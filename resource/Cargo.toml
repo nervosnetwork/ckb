@@ -12,8 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 phf = "0.8.0"
 includedir = "0.6.0"
-# Lock tempfile so wasm-build-test will use getrandom 0.1.*
-tempfile = "=3.1.0"
 serde = { version = "1.0", features = ["derive"] }
 ckb-types = { path = "../util/types", version = "= 0.100.0-pre" }
 ckb-system-scripts = { version = "= 0.5.3" }
@@ -23,3 +21,7 @@ includedir_codegen = "0.6.0"
 walkdir = "2.1.4"
 ckb-types = { path = "../util/types", version = "= 0.100.0-pre" }
 ckb-system-scripts = { version = "= 0.5.3" }
+
+[dev-dependencies]
+# Lock tempfile so wasm-build-test will use getrandom 0.1.*
+tempfile = "=3.1.0"
