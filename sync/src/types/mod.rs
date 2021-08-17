@@ -1300,7 +1300,10 @@ impl SyncShared {
 
     /// Try to find blocks from the orphan block pool that may no longer be orphan
     pub fn try_search_orphan_pool(&self, chain: &ChainController) {
-        for hash in self.state.orphan_pool().clone_leaders() {
+        let leaders = self.state.orphan_pool().clone_leaders();
+        debug!("orphan pool leader parents hash len: {}", leaders.len());
+
+        for hash in leaders {
             if self.state.orphan_pool().is_empty() {
                 break;
             }
