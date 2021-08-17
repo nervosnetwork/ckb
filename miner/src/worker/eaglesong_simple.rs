@@ -1,4 +1,5 @@
 use super::{Worker, WorkerMessage};
+use crate::Work;
 use ckb_app_config::ExtraHashFunction;
 use ckb_channel::{Receiver, Sender};
 use ckb_hash::blake2b_256;
@@ -12,9 +13,9 @@ use std::time::{Duration, Instant};
 
 pub struct EaglesongSimple {
     start: bool,
-    pow_hash: Option<Byte32>,
+    pow_work: Option<(Byte32, Work)>,
     target: U256,
-    nonce_tx: Sender<(Byte32, u128)>,
+    nonce_tx: Sender<(Byte32, Work, u128)>,
     worker_rx: Receiver<WorkerMessage>,
     nonces_found: u128,
     pub(crate) extra_hash_function: Option<ExtraHashFunction>,
@@ -22,13 +23,13 @@ pub struct EaglesongSimple {
 
 impl EaglesongSimple {
     pub fn new(
-        nonce_tx: Sender<(Byte32, u128)>,
+        nonce_tx: Sender<(Byte32, Work, u128)>,
         worker_rx: Receiver<WorkerMessage>,
         extra_hash_function: Option<ExtraHashFunction>,
     ) -> Self {
         Self {
             start: true,
-            pow_hash: None,
+            pow_work: None,
             target: U256::zero(),
             nonce_tx,
             worker_rx,
@@ -38,10 +39,14 @@ impl EaglesongSimple {
     }
 
     fn poll_worker_message(&mut self) {
-        if let Ok(msg) = self.worker_rx.try_recv() {
+        while let Ok(msg) = self.worker_rx.try_recv() {
             match msg {
-                WorkerMessage::NewWork { pow_hash, target } => {
-                    self.pow_hash = Some(pow_hash);
+                WorkerMessage::NewWork {
+                    pow_hash,
+                    work,
+                    target,
+                } => {
+                    self.pow_work = Some((pow_hash, work));
                     self.target = target;
                 }
                 WorkerMessage::Stop => {
@@ -54,7 +59,7 @@ impl EaglesongSimple {
         }
     }
 
-    fn solve(&mut self, pow_hash: &Byte32, nonce: u128) {
+    fn solve(&mut self, pow_hash: Byte32, work: Work, nonce: u128) {
         debug!("solve, pow_hash {}, nonce {:?}", pow_hash, nonce);
         let input = pow_message(&pow_hash, nonce);
         let output = {
@@ -70,7 +75,7 @@ impl EaglesongSimple {
                 "send new found nonce, pow_hash {}, nonce {:?}",
                 pow_hash, nonce
             );
-            if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {
+            if let Err(err) = self.nonce_tx.send((pow_hash, work, nonce)) {
                 error!("nonce_tx send error {:?}", err);
             }
             self.nonces_found += 1;
@@ -87,8 +92,8 @@ impl Worker for EaglesongSimple {
         loop {
             self.poll_worker_message();
             if self.start {
-                if let Some(pow_hash) = self.pow_hash.clone() {
-                    self.solve(&pow_hash, rng());
+                if let Some((pow_hash, work)) = self.pow_work.clone() {
+                    self.solve(pow_hash, work, rng());
                     state_update_counter += 1;
 
                     let elapsed = start.elapsed();
