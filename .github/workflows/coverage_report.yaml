@@ -1,0 +1,35 @@
+name: coverage_report
+
+on:
+  schedule:
+    - cron: '0 0 * * 5'
+jobs:
+  coverage_report:
+    name: coverage_report
+    runs-on: [self-hosted,Linux]
+    if: |
+        github.event_name == 'schedule' &&
+        github.repository_owner == 'nervosnetwork'
+    steps:
+      - name: install nightly
+        run: |
+          rustup toolchain list | { grep 'nightly' || rustup install nightly; }
+      - uses: actions/checkout@v2
+      - name: unit coverage
+        run: make cov
+      - name: integration cov
+        run: make integration-cov
+      - name: upload unit cov result to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{github.workspace}}/lcov-unit-test.info
+          flags: unit
+          override_commit: ${{github.sha}}
+      - name: upload integration cov result to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{github.workspace}}/lcov-integration-test.info
+          flags: integration
+          override_commit: ${{github.sha}}
