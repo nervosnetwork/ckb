@@ -1,36 +1,33 @@
+use ckb_logger::debug;
 use ckb_types::{core, packed};
-use ckb_util::shrink_to_fit;
-use dashmap::{DashMap, DashSet};
-use std::collections::{HashMap, VecDeque};
+use ckb_util::{parking_lot::RwLock, shrink_to_fit};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type ParentHash = packed::Byte32;
 const SHRINK_THRESHOLD: usize = 100;
 
-// NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
-// orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
 #[derive(Default)]
-pub struct OrphanBlockPool {
+struct InnerPool {
     // Group by blocks in the pool by the parent hash.
-    blocks: DashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>,
+    blocks: HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>,
     // The map tells the parent hash when given the hash of a block in the pool.
     //
     // The block is in the orphan pool if and only if the block hash exists as a key in this map.
-    parents: DashMap<packed::Byte32, ParentHash>,
+    parents: HashMap<packed::Byte32, ParentHash>,
     // Leaders are blocks not in the orphan pool but having at least a child in the pool.
-    leaders: DashSet<ParentHash>,
+    leaders: HashSet<ParentHash>,
 }
 
-impl OrphanBlockPool {
-    pub fn with_capacity(capacity: usize) -> Self {
-        OrphanBlockPool {
-            blocks: DashMap::with_capacity(capacity),
-            parents: DashMap::new(),
-            leaders: DashSet::new(),
+impl InnerPool {
+    fn with_capacity(capacity: usize) -> Self {
+        InnerPool {
+            blocks: HashMap::with_capacity(capacity),
+            parents: HashMap::new(),
+            leaders: HashSet::new(),
         }
     }
 
-    /// Insert orphaned block, for which we have already requested its parent block
-    pub fn insert(&self, block: core::BlockView) {
+    fn insert(&mut self, block: core::BlockView) {
         let hash = block.header().hash();
         let parent_hash = block.data().header().raw().parent_hash();
         self.blocks
@@ -50,9 +47,9 @@ impl OrphanBlockPool {
         self.parents.insert(hash, parent_hash);
     }
 
-    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
+    pub fn remove_blocks_by_parent(&mut self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
         // try remove leaders first
-        if self.leaders.remove(parent_hash).is_none() {
+        if !self.leaders.remove(parent_hash) {
             return Vec::new();
         }
 
@@ -61,7 +58,7 @@ impl OrphanBlockPool {
 
         let mut removed: Vec<core::BlockView> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
-            if let Some((_, orphaned)) = self.blocks.remove(&parent_hash) {
+            if let Some(orphaned) = self.blocks.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
                 for hash in hashes.iter() {
                     self.parents.remove(hash);
@@ -70,6 +67,13 @@ impl OrphanBlockPool {
                 removed.extend(blocks);
             }
         }
+
+        debug!("orphan pool pop chain len: {}", removed.len());
+        debug_assert_ne!(
+            removed.len(),
+            0,
+            "orphan pool removed list must not be zero"
+        );
 
         shrink_to_fit!(self.blocks, SHRINK_THRESHOLD);
         shrink_to_fit!(self.parents, SHRINK_THRESHOLD);
@@ -84,9 +88,38 @@ impl OrphanBlockPool {
                 .and_then(|blocks| blocks.get(hash).cloned())
         })
     }
+}
+
+// NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
+// orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
+// RwLock ensures the consistency between maps. Using multiple concurrent maps does not work here.
+#[derive(Default)]
+pub struct OrphanBlockPool {
+    inner: RwLock<InnerPool>,
+}
+
+impl OrphanBlockPool {
+    pub fn with_capacity(capacity: usize) -> Self {
+        OrphanBlockPool {
+            inner: RwLock::new(InnerPool::with_capacity(capacity)),
+        }
+    }
+
+    /// Insert orphaned block, for which we have already requested its parent block
+    pub fn insert(&self, block: core::BlockView) {
+        self.inner.write().insert(block);
+    }
+
+    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
+        self.inner.write().remove_blocks_by_parent(parent_hash)
+    }
+
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
+        self.inner.read().get_block(hash)
+    }
 
     pub fn len(&self) -> usize {
-        self.parents.len()
+        self.inner.read().parents.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -94,7 +127,12 @@ impl OrphanBlockPool {
     }
 
     pub fn clone_leaders(&self) -> Vec<ParentHash> {
-        self.leaders.iter().map(|r| r.clone()).collect::<Vec<_>>()
+        self.inner.read().leaders.iter().cloned().collect()
+    }
+
+    #[cfg(test)]
+    fn leaders_len(&self) -> usize {
+        self.inner.read().leaders.len()
     }
 }
 
@@ -182,33 +220,33 @@ mod tests {
         }
 
         assert_eq!(pool.len(), 15);
-        assert_eq!(pool.leaders.len(), 4);
+        assert_eq!(pool.leaders_len(), 4);
 
         pool.insert(blocks[5].clone());
         assert_eq!(pool.len(), 16);
-        assert_eq!(pool.leaders.len(), 3);
+        assert_eq!(pool.leaders_len(), 3);
 
         pool.insert(blocks[10].clone());
         assert_eq!(pool.len(), 17);
-        assert_eq!(pool.leaders.len(), 2);
+        assert_eq!(pool.leaders_len(), 2);
 
         // index 0 doesn't in the orphan pool, so do nothing
         let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
         assert!(orphan.is_empty());
         assert_eq!(pool.len(), 17);
-        assert_eq!(pool.leaders.len(), 2);
+        assert_eq!(pool.leaders_len(), 2);
 
         pool.insert(blocks[0].clone());
         assert_eq!(pool.len(), 18);
-        assert_eq!(pool.leaders.len(), 2);
+        assert_eq!(pool.leaders_len(), 2);
 
         let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
         assert_eq!(pool.len(), 3);
-        assert_eq!(pool.leaders.len(), 1);
+        assert_eq!(pool.leaders_len(), 1);
 
         pool.insert(blocks[15].clone());
         assert_eq!(pool.len(), 4);
-        assert_eq!(pool.leaders.len(), 1);
+        assert_eq!(pool.leaders_len(), 1);
 
         let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].hash());
 
@@ -217,6 +255,6 @@ mod tests {
         let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
         assert_eq!(orphan_set, blocks_set);
         assert_eq!(pool.len(), 0);
-        assert_eq!(pool.leaders.len(), 0);
+        assert_eq!(pool.leaders_len(), 0);
     }
 }
