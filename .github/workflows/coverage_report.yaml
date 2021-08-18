@@ -3,12 +3,14 @@ name: coverage_report
 on:
   schedule:
     - cron: '0 0 * * 5'
+  workflow_dispatch:
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/../target
 jobs:
   coverage_report:
     name: coverage_report
-    runs-on: [self-hosted,Linux]
+    runs-on: self-hosted-coverage_report-ubuntu-20.04
     if: |
-        github.event_name == 'schedule' &&
         github.repository_owner == 'nervosnetwork'
     steps:
       - name: install nightly
@@ -22,14 +24,12 @@ jobs:
       - name: upload unit cov result to codecov.io
         uses: codecov/codecov-action@v2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{github.workspace}}/lcov-unit-test.info
           flags: unit
           override_commit: ${{github.sha}}
       - name: upload integration cov result to codecov.io
         uses: codecov/codecov-action@v2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{github.workspace}}/lcov-integration-test.info
           flags: integration
           override_commit: ${{github.sha}}
