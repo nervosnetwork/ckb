@@ -1607,6 +1607,7 @@ Response
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
+    "extension": null,
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -3102,6 +3103,10 @@ Miners optional pick transactions and then assemble the final block.
     *   `U_i`, bytes 24 to 31
 
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
+
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
+
+    This field is optional. It a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
 
 
 ### Type `BlockView`

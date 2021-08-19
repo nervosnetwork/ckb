@@ -87,8 +87,10 @@ pub struct BlockTemplate {
     /// The extension for the new block.
     ///
     /// This field is optional. It a reserved field, please leave it blank.
-    #[doc(hidden)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// More details can be found in [CKB RFC 0031].
+    ///
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
+    #[serde(default)]
     pub extension: Option<JsonBytes>,
 }
 
