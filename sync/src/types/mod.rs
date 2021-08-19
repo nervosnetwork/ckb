@@ -1294,14 +1294,34 @@ impl SyncShared {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        self.try_accept_descendant_in_orphan_pool(chain, &block.header().hash());
         self.try_search_orphan_pool(chain);
         ret
     }
 
+    /// Try to find blocks from the orphan block pool that be the sorted descendant of input node
+    /// which no longer be orphans
+    /// and insert the blocks recursively
+    pub fn try_accept_descendant_in_orphan_pool(&self, chain: &ChainController, hash: &Byte32) {
+        let descendants = self.state.remove_orphan_by_parent(&hash);
+        for block in descendants.into_iter() {
+            // If insert fail, we break loop and treat rest of blocks as an invalid.
+            let block = Arc::new(block);
+            if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
+                debug!(
+                    "accept descendant orphan block {} error {:?}",
+                    block.header().hash(),
+                    err
+                );
+                // TODO: choose "continue" or "break"
+                continue;
+            }
+        }
+    }
+
     /// Try to find blocks from the orphan block pool that may no longer be orphan
     pub fn try_search_orphan_pool(&self, chain: &ChainController) {
-        let leaders = self.state.orphan_pool().clone_leaders();
-        debug!("orphan pool leader parents hash len: {}", leaders.len());
+        let leaders = self.state.orphan_pool().get_leaders();
 
         for hash in leaders {
             if self.state.orphan_pool().is_empty() {
@@ -1767,7 +1787,9 @@ impl SyncState {
 
     pub fn insert_orphan_block(&self, block: core::BlockView) {
         self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-        self.orphan_block_pool.insert(block);
+        self.orphan_block_pool
+            .insert(block)
+            .expect("insert block error");
     }
 
     pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
