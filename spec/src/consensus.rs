@@ -7,6 +7,7 @@ use crate::{
     calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
+use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
@@ -930,6 +931,14 @@ impl Consensus {
     /// Returns the hardfork switch.
     pub fn hardfork_switch(&self) -> &HardForkSwitch {
         &self.hardfork_switch
+    }
+
+    /// If the CKB block chain specification is for an public chain.
+    pub fn is_public_chain(&self) -> bool {
+        matches!(
+            self.id.as_str(),
+            mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
+        )
     }
 }
 

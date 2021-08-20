@@ -227,6 +227,7 @@ impl TxPoolService {
         uncles: Vec<UncleBlockView>,
         bytes_limit: u64,
         version: Version,
+        extension: Option<Bytes>,
     ) -> Result<BlockTemplate, AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
@@ -303,7 +304,7 @@ impl TxPoolService {
             cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
             work_id: work_id.into(),
             dao: dao.into(),
-            extension: None,
+            extension: extension.map(Into::into),
         })
     }
 
@@ -371,6 +372,8 @@ impl TxPoolService {
                 .prepare_block_template_uncles(&snapshot, &block_assembler)
                 .await;
 
+            let extension = None;
+
             let (proposals, entries, txs_updated_at) = self
                 .package_txs_for_block_template(
                     bytes_limit,
@@ -378,7 +381,7 @@ impl TxPoolService {
                     cycles_limit,
                     &cellbase,
                     &uncles,
-                    None,
+                    extension.clone(),
                 )
                 .await?;
 
@@ -394,6 +397,7 @@ impl TxPoolService {
                 uncles,
                 bytes_limit,
                 version,
+                extension,
             )?;
 
             self.update_block_template_cache(
