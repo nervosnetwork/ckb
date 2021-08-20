@@ -235,6 +235,120 @@ fn check_exec_from_witness() {
 }
 
 #[test]
+fn check_exec_wrong_callee_format() {
+    let script_version = SCRIPT_VERSION;
+
+    let exec_caller_cell_data = Bytes::from(
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_cell_data"),
+        )
+        .unwrap(),
+    );
+    let exec_caller_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_callee_cell_data = Bytes::copy_from_slice(&vec![0x00, 0x01, 0x02, 0x03]);
+    let exec_callee_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let exec_caller_cell =
+        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let exec_callee_cell =
+        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn check_exec_big_offset_length() {
+    let script_version = SCRIPT_VERSION;
+
+    let exec_caller_cell_data = Bytes::from(
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_big_offset_length"),
+        )
+        .unwrap(),
+    );
+    let exec_caller_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_callee_cell_data = Bytes::copy_from_slice(&vec![0x00, 0x01, 0x02, 0x03]);
+    let exec_callee_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let exec_caller_cell =
+        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let exec_callee_cell =
+        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    if script_version >= ScriptVersion::V1 {
+        assert!(result.unwrap_err().to_string().contains("error code 3"));
+    }
+}
+
+#[test]
 fn check_type_id_one_in_one_out_chunk() {
     let script_version = SCRIPT_VERSION;
 
