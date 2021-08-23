@@ -1367,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.20.0-rc3"
+version = "0.20.0-rc4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6d693b3df4194177dc3b8b7dd93740331ef26258c7430e07a8638fd8b65a184"
+checksum = "2b21d09396c2dff735e9a70d83f21bf4408fb92b2f8eb665da0d3777c10710f3"
 dependencies = [
  "byteorder",
  "bytes 1.0.1",
@@ -1387,9 +1387,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.20.0-rc3"
+version = "0.20.0-rc4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb60346ea1de433fe2d467e50a9b8235b139dd9322ac4f1874490b531cab80bc"
+checksum = "b65f45b2bb6bac4e298f3672318a80dca970264759fc2a3339cdcc13b30bc9c9"
 
 [[package]]
 name = "clap"
