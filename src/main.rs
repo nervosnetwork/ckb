@@ -1,4 +1,4 @@
-//! CKB exectuble main entry.
+//! CKB executable main entry.
 use ckb_bin::run_app;
 use ckb_build_info::Version;
 
