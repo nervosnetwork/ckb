@@ -304,7 +304,7 @@ fn check_exec_big_offset_length() {
         .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
         .build();
 
-    let exec_callee_cell_data = Bytes::copy_from_slice(&vec![0x00, 0x01, 0x02, 0x03]);
+    let exec_callee_cell_data = Bytes::copy_from_slice(&[0x00, 0x01, 0x02, 0x03]);
     let exec_callee_cell = CellOutput::new_builder()
         .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
         .build();
