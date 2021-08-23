@@ -1,6 +1,6 @@
 [package]
 name = "ckb-metrics-service"
-version = "0.100.0-beta3"
+version = "0.100.0-rc3"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -9,10 +9,10 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-metrics-config = { path = "../metrics-config", version = "= 0.100.0-beta3" }
-ckb-logger = { path = "../logger", version = "= 0.100.0-beta3" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.100.0-beta3" }
-ckb-util = { path = "..", version = "= 0.100.0-beta3" }
+ckb-metrics-config = { path = "../metrics-config", version = "= 0.100.0-rc3" }
+ckb-logger = { path = "../logger", version = "= 0.100.0-rc3" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.100.0-rc3" }
+ckb-util = { path = "..", version = "= 0.100.0-rc3" }
 opentelemetry-prometheus = "0.8"
 prometheus = "0.12"
 hyper = "0.14"

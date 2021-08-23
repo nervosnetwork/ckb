@@ -1,6 +1,6 @@
 [package]
 name = "ckb-occupied-capacity-core"
-version = "0.100.0-beta3"
+version = "0.100.0-rc3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

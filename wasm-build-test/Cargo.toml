@@ -1,6 +1,6 @@
 [package]
 name = "ckb-wasm-test"
-version = "0.100.0-beta3"
+version = "0.100.0-rc3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,8 +9,8 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.100.0-beta3" }
-ckb-script = { path = "../script", version = "= 0.100.0-beta3", default-features = false, features = [] }
+ckb-types = { path = "../util/types", version = "= 0.100.0-rc3" }
+ckb-script = { path = "../script", version = "= 0.100.0-rc3", default-features = false, features = [] }
 
 # Prevent this from interfering with workspaces
 [workspace]
