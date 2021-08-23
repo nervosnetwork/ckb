@@ -1,13 +1,12 @@
 use crate::{
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,
-    network_group::Group,
     peer_store::{
         addr_manager::AddrManager,
         ban_list::BanList,
         types::{ip_to_network, AddrInfo, BannedAddr, PeerInfo},
         Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
-        ADDR_TIMEOUT_MS,
+        ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS,
     },
     PeerId, SessionType,
 };
@@ -15,6 +14,9 @@ use ipnetwork::IpNetwork;
 use std::collections::{hash_map::Entry, HashMap};
 
 /// Peer store
+///
+/// | -- choose to identify --| --- choose to feeler --- | --      delete     -- |
+/// | 1      | 2     | 3      | 4    | 5    | 6   | 7    | More than seven days  |
 #[derive(Default)]
 pub struct PeerStore {
     addr_manager: AddrManager,
@@ -43,12 +45,12 @@ impl PeerStore {
         {
             Entry::Occupied(mut entry) => {
                 let mut peer = entry.get_mut();
-                peer.connected_addr = addr.clone();
+                peer.connected_addr = addr;
                 peer.last_connected_at_ms = now_ms;
                 peer.session_type = session_type;
             }
             Entry::Vacant(entry) => {
-                let peer = PeerInfo::new(addr.clone(), session_type, now_ms);
+                let peer = PeerInfo::new(addr, session_type, now_ms);
                 entry.insert(peer);
             }
         }
@@ -111,11 +113,17 @@ impl PeerStore {
         }
     }
 
-    /// Get peers for outbound connection, this method randomly return non-connected peer addrs
+    /// Get peers for outbound connection, this method randomly return recently connected peer addrs
     pub fn fetch_addrs_to_attempt(&mut self, count: usize) -> Vec<AddrInfo> {
+        // Get info:
+        // 1. Not in ban list
+        // 2. Not already connected
+        // 3. Connected within 3 days
+
         let now_ms = faketime::unix_time_as_millis();
         let ban_list = &self.ban_list;
         let peers = &self.peers;
+        let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         // get addrs that can attempt.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
@@ -123,16 +131,21 @@ impl PeerStore {
                     && extract_peer_id(&peer_addr.addr)
                         .map(|peer_id| !peers.contains_key(&peer_id))
                         .unwrap_or_default()
-                    && !peer_addr.tried_in_last_minute(now_ms)
+                    && peer_addr.had_connected(addr_expired_ms)
             })
     }
 
     /// Get peers for feeler connection, this method randomly return peer addrs that we never
     /// connected to.
     pub fn fetch_addrs_to_feeler(&mut self, count: usize) -> Vec<AddrInfo> {
+        // Get info:
+        // 1. Not in ban list
+        // 2. Not already connected
+        // 3. Not already tried in a minute
+        // 4. Not connected within 3 days
+
         let now_ms = faketime::unix_time_as_millis();
-        let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
-        // get expired or never successed addrs.
+        let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         let ban_list = &self.ban_list;
         let peers = &self.peers;
         self.addr_manager
@@ -148,8 +161,12 @@ impl PeerStore {
 
     /// Return valid addrs that success connected, used for discovery.
     pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
+        // Get info:
+        // 1. Not in ban list
+        // 2. Already connected or Connected within 7 days
+
         let now_ms = faketime::unix_time_as_millis();
-        let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
+        let addr_expired_ms = now_ms.saturating_sub(ADDR_TIMEOUT_MS);
         let ban_list = &self.ban_list;
         let peers = &self.peers;
         // get success connected addrs.
@@ -208,43 +225,18 @@ impl PeerStore {
         if self.addr_manager.count() < ADDR_COUNT_LIMIT {
             return Ok(());
         }
-        // Evicting invalid data in the peer store is a relatively rare operation
-        // There are certain cleanup strategies here:
-        // 1. Group current data according to network segment
-        // 2. Sort according to the amount of data in the same network segment
-        // 3. Prioritize cleaning on the same network segment
 
         let now_ms = faketime::unix_time_as_millis();
         let candidate_peers: Vec<_> = {
-            // find candidate peers by network group
-            let mut peers_by_network_group: HashMap<Group, Vec<_>> = HashMap::default();
-            for addr in self.addr_manager.addrs_iter() {
-                peers_by_network_group
-                    .entry((&addr.addr).into())
-                    .or_default()
-                    .push(addr);
-            }
-            let len = peers_by_network_group.len();
-            let mut peers = peers_by_network_group
-                .drain()
-                .map(|(_, v)| v)
-                .collect::<Vec<Vec<_>>>();
-
-            peers.sort_unstable_by_key(|k| std::cmp::Reverse(k.len()));
+            // find candidate peers by terrible condition
             let ban_score = self.score_config.ban_score;
-
+            let mut peers = Vec::default();
+            for addr in self.addr_manager.addrs_iter() {
+                if addr.is_terrible(now_ms) || addr.score <= ban_score {
+                    peers.push(addr.addr.clone())
+                }
+            }
             peers
-                .into_iter()
-                .take(len / 2)
-                .flatten()
-                .filter_map(move |addr| {
-                    if addr.is_terrible(now_ms) || addr.score <= ban_score {
-                        Some(addr.addr.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
         };
 
         if candidate_peers.is_empty() {

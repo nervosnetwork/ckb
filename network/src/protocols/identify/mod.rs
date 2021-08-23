@@ -12,7 +12,7 @@ use p2p::{
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
-    ProtocolId, SessionId,
+    SessionId,
 };
 
 mod protocol;
@@ -62,7 +62,7 @@ pub trait Callback: Clone + Send {
     // Register open protocol
     fn register(&self, context: &ProtocolContextMutRef, version: &str);
     // remove registered identify protocol
-    fn unregister(&self, id: SessionId, pid: ProtocolId);
+    fn unregister(&self, context: &ProtocolContextMutRef);
     /// Received custom message
     fn received_identify(
         &mut self,
@@ -261,8 +261,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .remove(&context.session.id)
                 .expect("RemoteInfo must exists");
             trace!("IdentifyProtocol disconnected from {:?}", info.peer_id);
-            self.callback
-                .unregister(context.session.id, context.proto_id)
+            self.callback.unregister(&context)
         }
     }
 
@@ -374,18 +373,37 @@ impl Callback for IdentifyCallback {
                 .mut_addr_manager()
                 .remove(&context.session.address);
         } else if context.session.ty.is_outbound() {
+            // why don't set inbound here?
+            // because inbound address can't feeler during staying connected
+            // and if set it to peer store, it will be broadcast to the entire network,
+            // but this is an unverified address
             self.network_state.with_peer_store_mut(|peer_store| {
                 peer_store.add_outbound_addr(context.session.address.clone());
             });
         }
     }
 
-    fn unregister(&self, id: SessionId, pid: ProtocolId) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            let _ = reg.get_peer_mut(id).map(|peer| {
-                peer.protocols.remove(&pid);
+    fn unregister(&self, context: &ProtocolContextMutRef) {
+        let version = self
+            .network_state
+            .with_peer_registry_mut(|reg| {
+                reg.get_peer_mut(context.session.id)
+                    .map(|peer| peer.protocols.remove(&context.proto_id))
+            })
+            .flatten()
+            .map(|version| version != "2")
+            .unwrap_or_default();
+
+        if self.network_state.ckb2021.load(Ordering::SeqCst) && version {
+        } else if context.session.ty.is_outbound() {
+            // Due to the filtering strategy of the peer store, if the node is
+            // disconnected after a long connection is maintained for more than seven days,
+            // it is possible that the node will be accidentally evicted, so it is necessary
+            // to reset the information of the node when disconnected.
+            self.network_state.with_peer_store_mut(|peer_store| {
+                peer_store.add_outbound_addr(context.session.address.clone());
             });
-        });
+        }
     }
 
     fn identify(&mut self) -> &[u8] {

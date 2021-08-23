@@ -1,4 +1,12 @@
 //! Peer store manager
+//!
+//! This module implements a locally managed node information set, which is used for
+//! booting into the network when the node is started, real-time update detection/timing
+//! saving at runtime, and saving data when stopping
+//!
+//! The validity and screening speed of the data set are very important to the entire network,
+//! and the address information collected on the network cannot be blindly trusted
+
 pub mod addr_manager;
 pub mod ban_list;
 mod peer_store_db;
@@ -14,6 +22,8 @@ pub use peer_store_impl::PeerStore;
 pub(crate) const ADDR_COUNT_LIMIT: usize = 16384;
 /// Consider we never seen a peer if peer's last_connected_at beyond this timeout
 const ADDR_TIMEOUT_MS: u64 = 7 * 24 * 3600 * 1000;
+/// The timeout that peer's address should be added to the feeler list again
+pub(crate) const ADDR_TRY_TIMEOUT_MS: u64 = 3 * 24 * 3600 * 1000;
 const ADDR_MAX_RETRIES: u32 = 3;
 const ADDR_MAX_FAILURES: u32 = 10;
 

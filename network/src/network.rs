@@ -75,7 +75,7 @@ pub struct NetworkState {
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
-    bootnodes: Vec<Multiaddr>,
+    pub(crate) bootnodes: Vec<Multiaddr>,
     pub(crate) config: NetworkConfig,
     pub(crate) active: AtomicBool,
     /// Node supported protocols
@@ -856,7 +856,8 @@ impl<T: ExitHandler> NetworkService<T> {
             .yamux_config(yamux_config)
             .forever(true)
             .max_connection_number(1024)
-            .set_send_buffer_size(config.max_send_buffer());
+            .set_send_buffer_size(config.max_send_buffer())
+            .timeout(Duration::from_secs(5));
 
         #[cfg(target_os = "linux")]
         let p2p_service = {
