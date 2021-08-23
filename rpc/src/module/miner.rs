@@ -99,6 +99,7 @@ pub trait MinerRpc {
     ///     "cycles_limit": "0xd09dc300",
     ///     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     ///     "epoch": "0x7080019000001",
+    ///     "extension": null,
     ///     "number": "0x401",
     ///     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -270,9 +271,17 @@ impl MinerRpc for MinerRpcImpl {
             block.hash()
         );
 
-        // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
-        HeaderVerifier::new(snapshot, snapshot.consensus())
+        let consensus = snapshot.consensus();
+
+        // Reject block extension for public chain: mainnet and testnet.
+        if block.extension().is_some() && consensus.is_public_chain() {
+            let err = "the block extension should be null";
+            return Err(RPCError::custom_with_error(RPCError::Invalid, err));
+        }
+
+        // Verify header
+        HeaderVerifier::new(snapshot, consensus)
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 

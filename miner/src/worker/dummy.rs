@@ -1,4 +1,5 @@
 use super::{Worker, WorkerMessage};
+use crate::Work;
 use ckb_app_config::DummyConfig;
 use ckb_channel::{Receiver, Sender};
 use ckb_logger::error;
@@ -13,8 +14,8 @@ use std::time::Duration;
 pub struct Dummy {
     delay: Delay,
     start: bool,
-    pow_hash: Option<Byte32>,
-    nonce_tx: Sender<(Byte32, u128)>,
+    pow_work: Option<(Byte32, Work)>,
+    nonce_tx: Sender<(Byte32, Work, u128)>,
     worker_rx: Receiver<WorkerMessage>,
 }
 
@@ -66,12 +67,12 @@ impl Delay {
 impl Dummy {
     pub fn try_new(
         config: &DummyConfig,
-        nonce_tx: Sender<(Byte32, u128)>,
+        nonce_tx: Sender<(Byte32, Work, u128)>,
         worker_rx: Receiver<WorkerMessage>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Delay::try_from(config).map(|delay| Self {
             start: true,
-            pow_hash: None,
+            pow_work: None,
             delay,
             nonce_tx,
             worker_rx,
@@ -79,9 +80,11 @@ impl Dummy {
     }
 
     fn poll_worker_message(&mut self) {
-        if let Ok(msg) = self.worker_rx.recv() {
+        while let Ok(msg) = self.worker_rx.try_recv() {
             match msg {
-                WorkerMessage::NewWork { pow_hash, .. } => self.pow_hash = Some(pow_hash),
+                WorkerMessage::NewWork { pow_hash, work, .. } => {
+                    self.pow_work = Some((pow_hash, work))
+                }
                 WorkerMessage::Stop => {
                     self.start = false;
                 }
@@ -92,9 +95,9 @@ impl Dummy {
         }
     }
 
-    fn solve(&self, pow_hash: &Byte32, nonce: u128) {
+    fn solve(&self, pow_hash: Byte32, work: Work, nonce: u128) {
         thread::sleep(self.delay.duration());
-        if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {
+        if let Err(err) = self.nonce_tx.send((pow_hash, work, nonce)) {
             error!("nonce_tx send error {:?}", err);
         }
     }
@@ -102,16 +105,17 @@ impl Dummy {
 
 impl Worker for Dummy {
     fn run<G: FnMut() -> u128>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
-        let mut current = self.pow_hash.clone();
+        let mut current = self.pow_work.clone();
         loop {
             self.poll_worker_message();
-            if current != self.pow_hash && self.start {
-                if let Some(pow_hash) = &self.pow_hash {
-                    self.solve(pow_hash, rng());
+            if current.as_ref().map(|a| &a.0) != self.pow_work.as_ref().map(|a| &a.0) && self.start
+            {
+                if let Some((pow_hash, work)) = self.pow_work.clone() {
+                    self.solve(pow_hash, work, rng());
                 }
             }
 
-            current = self.pow_hash.clone();
+            current = self.pow_work.clone();
         }
     }
 }

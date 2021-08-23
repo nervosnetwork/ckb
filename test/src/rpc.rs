@@ -263,6 +263,12 @@ impl RpcClient {
             .expect("rpc call send_transaction")
             .pack()
     }
+
+    pub fn tx_pool_ready(&self) -> bool {
+        self.inner()
+            .tx_pool_ready()
+            .expect("rpc call tx_pool_ready")
+    }
 }
 
 jsonrpc!(pub struct Inner {
@@ -319,4 +325,5 @@ jsonrpc!(pub struct Inner {
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
     pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
+    pub fn tx_pool_ready(&self) -> bool;
 });

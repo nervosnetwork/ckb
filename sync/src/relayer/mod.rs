@@ -477,13 +477,24 @@ impl Relayer {
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
-            let block = packed::Block::new_builder()
-                .header(compact_block.header())
-                .uncles(uncles.pack())
-                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
-                .proposals(compact_block.proposals())
-                .build()
-                .into_view();
+            let block = if let Some(extension) = compact_block.extension() {
+                packed::BlockV1::new_builder()
+                    .header(compact_block.header())
+                    .uncles(uncles.pack())
+                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .proposals(compact_block.proposals())
+                    .extension(extension)
+                    .build()
+                    .as_v0()
+            } else {
+                packed::Block::new_builder()
+                    .header(compact_block.header())
+                    .uncles(uncles.pack())
+                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .proposals(compact_block.proposals())
+                    .build()
+            }
+            .into_view();
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,

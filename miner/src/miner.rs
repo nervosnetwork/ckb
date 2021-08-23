@@ -1,4 +1,4 @@
-use crate::client::Client;
+use crate::client::{Client, Works};
 use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_app_config::MinerWorkerConfig;
@@ -23,14 +23,14 @@ pub struct Miner {
     pub pow: Arc<dyn PowEngine>,
     /// TODO(doc): @quake
     pub client: Client,
-    /// TODO(doc): @quake
-    pub works: LruCache<Byte32, Work>,
+    /// Tasks's parent's hash that have already been submitted
+    pub legacy_work: LruCache<Byte32, ()>,
     /// TODO(doc): @quake
     pub worker_controllers: Vec<WorkerController>,
     /// TODO(doc): @quake
-    pub work_rx: Receiver<Work>,
+    pub work_rx: Receiver<Works>,
     /// TODO(doc): @quake
-    pub nonce_rx: Receiver<(Byte32, u128)>,
+    pub nonce_rx: Receiver<(Byte32, Work, u128)>,
     /// TODO(doc): @quake
     pub pb: ProgressBar,
     /// TODO(doc): @quake
@@ -46,7 +46,7 @@ impl Miner {
     pub fn new(
         pow: Arc<dyn PowEngine>,
         client: Client,
-        work_rx: Receiver<Work>,
+        work_rx: Receiver<Works>,
         workers: &[MinerWorkerConfig],
         limit: u128,
     ) -> Miner {
@@ -68,7 +68,7 @@ impl Miner {
         });
 
         Miner {
-            works: LruCache::new(WORK_CACHE_SIZE),
+            legacy_work: LruCache::new(WORK_CACHE_SIZE),
             nonces_found: 0,
             pow,
             client,
@@ -82,17 +82,17 @@ impl Miner {
     }
 
     /// TODO(doc): @quake
-    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
-    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn run(&mut self) {
         loop {
             select! {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
-                        let pow_hash= work.block.header().calc_pow_hash();
-                        let (target, _,) = compact_to_target(work.block.header().raw().compact_target().unpack());
-                        self.works.put(pow_hash.clone(), work);
-                        self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
+                        match work {
+                            Works::FailSubmit(hash) => {
+                                self.legacy_work.pop(&hash);
+                            },
+                            Works::New(work) => self.notify_new_work(work),
+                        }
                     },
                     _ => {
                         error!("work_rx closed");
@@ -100,8 +100,8 @@ impl Miner {
                     },
                 },
                 recv(self.nonce_rx) -> msg => match msg {
-                    Ok((pow_hash, nonce)) => {
-                        self.submit_nonce(pow_hash, nonce);
+                    Ok((pow_hash, work, nonce)) => {
+                        self.submit_nonce(pow_hash, work, nonce);
                         if self.limit != 0 && self.nonces_found >= self.limit {
                             break;
                         }
@@ -115,43 +115,81 @@ impl Miner {
         }
     }
 
-    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u128) {
-        if let Some(work) = self.works.get(&pow_hash).cloned() {
-            self.notify_workers(WorkerMessage::Stop);
-            let raw_header = work.block.header().raw();
-            let header = Header::new_builder()
-                .raw(raw_header)
-                .nonce(nonce.pack())
-                .build();
-            let block = work
-                .block
-                .as_advanced_builder()
-                .header(header.into_view())
-                .build();
-            let block_hash = block.hash();
-            if self.stderr_is_tty {
-                debug!("Found! #{} {:#x}", block.number(), block_hash);
-            } else {
-                info!("Found! #{} {:#x}", block.number(), block_hash);
-            }
+    fn notify_new_work(&mut self, work: Work) {
+        let parent_hash = work.block.header().into_view().parent_hash();
+        if !self.legacy_work.contains(&parent_hash) {
+            let pow_hash = work.block.header().calc_pow_hash();
+            let (target, _) =
+                compact_to_target(work.block.header().raw().compact_target().unpack());
+            self.notify_workers(WorkerMessage::NewWork {
+                pow_hash,
+                work,
+                target,
+            });
+        }
+    }
 
-            // submit block and poll new work
-            {
-                self.client
-                    .submit_block(&work.work_id.to_string(), block.data());
-                self.client.try_update_block_template();
-                self.notify_workers(WorkerMessage::Start);
-            }
+    fn submit_nonce(&mut self, pow_hash: Byte32, work: Work, nonce: u128) {
+        self.notify_workers(WorkerMessage::Stop);
+        let raw_header = work.block.header().raw();
+        let header = Header::new_builder()
+            .raw(raw_header)
+            .nonce(nonce.pack())
+            .build();
+        let block = work
+            .block
+            .as_advanced_builder()
+            .header(header.into_view())
+            .build();
+        let block_hash = block.hash();
+        let parent_hash = block.parent_hash();
 
-            // draw progress bar
+        if self.legacy_work.contains(&parent_hash) {
+            info!(
+                "uncle {} pow_hash: {:#x}, header: {}",
+                block.number(),
+                pow_hash,
+                block.header()
+            );
+            self.notify_workers(WorkerMessage::Start);
+            return;
+        } else {
+            info!(
+                "block {} pow_hash: {:#x}, header: {}",
+                block.number(),
+                pow_hash,
+                block.header()
+            );
+        }
+
+        self.legacy_work.put(parent_hash, ());
+        if self.stderr_is_tty {
+            debug!("Found! #{} {:#x}", block.number(), block_hash);
+        } else {
+            info!("Found! #{} {:#x}", block.number(), block_hash);
+        }
+
+        // submit block and poll new work
+        {
+            if let Err(e) = self
+                .client
+                .submit_block(&work.work_id.to_string(), block.data())
             {
-                self.nonces_found += 1;
-                self.pb
-                    .println(format!("Found! #{} {:#x}", block.number(), block_hash));
-                self.pb
-                    .set_message(format!("Total nonces found: {:>3}", self.nonces_found));
-                self.pb.inc(1);
+                self.legacy_work.pop(&block.parent_hash());
+                error!("rpc call submit_block error: {:?}", e);
             }
+            self.client.try_update_block_template();
+            self.notify_workers(WorkerMessage::Start);
+        }
+
+        // draw progress bar
+        {
+            self.nonces_found += 1;
+            self.pb
+                .println(format!("Found! #{} {:#x}", block.number(), block_hash));
+            self.pb
+                .set_message(format!("Total nonces found: {:>3}", self.nonces_found));
+            self.pb.inc(1);
         }
     }
 

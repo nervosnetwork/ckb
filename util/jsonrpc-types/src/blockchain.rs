@@ -859,7 +859,7 @@ pub struct Block {
     pub proposals: Vec<ProposalShortId>,
     /// The extension in the block body.
     ///
-    /// This field is optional. It a reserved field, please leave it blank.
+    /// This field is optional. It's a reserved field, please leave it blank.
     #[doc(hidden)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,
@@ -878,7 +878,7 @@ pub struct BlockView {
     pub proposals: Vec<ProposalShortId>,
     /// The extension in the block body.
     ///
-    /// This field is optional. It a reserved field, please leave it blank.
+    /// This field is optional. It's a reserved field, please leave it blank.
     #[doc(hidden)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,

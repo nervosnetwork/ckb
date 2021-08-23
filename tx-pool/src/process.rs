@@ -29,7 +29,7 @@ use ckb_types::{
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{Byte32, CellbaseWitness, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -181,6 +181,7 @@ impl TxPoolService {
         max_block_cycles: Cycle,
         cellbase: &TransactionView,
         uncles: &[UncleBlockView],
+        extension_opt: Option<Bytes>,
     ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), AnyError> {
         let guard = self.tx_pool.read().await;
         let uncle_proposals = uncles
@@ -194,6 +195,7 @@ impl TxPoolService {
             cellbase.data(),
             uncles,
             &proposals,
+            extension_opt,
         )?;
 
         let (entries, size, cycles) =
@@ -225,6 +227,7 @@ impl TxPoolService {
         uncles: Vec<UncleBlockView>,
         bytes_limit: u64,
         version: Version,
+        extension: Option<Bytes>,
     ) -> Result<BlockTemplate, AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
@@ -301,7 +304,7 @@ impl TxPoolService {
             cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
             work_id: work_id.into(),
             dao: dao.into(),
-            extension: None,
+            extension: extension.map(Into::into),
         })
     }
 
@@ -369,6 +372,8 @@ impl TxPoolService {
                 .prepare_block_template_uncles(&snapshot, &block_assembler)
                 .await;
 
+            let extension = None;
+
             let (proposals, entries, txs_updated_at) = self
                 .package_txs_for_block_template(
                     bytes_limit,
@@ -376,6 +381,7 @@ impl TxPoolService {
                     cycles_limit,
                     &cellbase,
                     &uncles,
+                    extension.clone(),
                 )
                 .await?;
 
@@ -391,6 +397,7 @@ impl TxPoolService {
                 uncles,
                 bytes_limit,
                 version,
+                extension,
             )?;
 
             self.update_block_template_cache(
@@ -1077,18 +1084,28 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
+    let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
-            tx_pool.add_pending(entry.clone());
-            callbacks.call_pending(tx_pool, &entry);
+            if tx_pool.add_pending(entry.clone()) {
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
         TxStatus::Gap => {
-            tx_pool.add_gap(entry.clone());
-            callbacks.call_pending(tx_pool, &entry);
+            if tx_pool.add_gap(entry.clone()) {
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
         TxStatus::Proposed => {
-            tx_pool.add_proposed(entry.clone())?;
-            callbacks.call_proposed(tx_pool, &entry, true);
+            if tx_pool.add_proposed(entry.clone())? {
+                callbacks.call_proposed(tx_pool, &entry, true);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
         }
     }
     Ok(())

@@ -32,7 +32,6 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
 
 use ckb_system_scripts::BUNDLED_CELL;
 
@@ -215,12 +214,11 @@ impl Resource {
         };
         let target = join_bundled_key(root_dir.as_ref().to_path_buf(), key);
         let template = Template::new(from_utf8(self.get()?)?);
-        let mut out = NamedTempFile::new_in(root_dir.as_ref())?;
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
         }
-        template.render_to(&mut out, context)?;
-        out.persist(target)?;
+        let mut f = fs::File::create(&target)?;
+        template.render_to(&mut f, context)?;
         Ok(())
     }
 }

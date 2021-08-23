@@ -51,9 +51,7 @@ rpc_url = "http://127.0.0.1:8114/" # {{
 block_on_submit = true
 
 # block template polling interval in milliseconds
-poll_interval = 1000 # {{
-# dev => poll_interval = 1_000_000_000_000
-# }}
+poll_interval = 1000
 
 [[miner.workers]]
 worker_type = "EaglesongSimple" # {{

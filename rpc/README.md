@@ -72,6 +72,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
     * [Module Subscription](#module-subscription)
@@ -1606,6 +1607,7 @@ Response
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
+    "extension": null,
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -2284,7 +2286,7 @@ RPC Module Pool for transaction memory pool.
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new transaction into the transaction pool.
+Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
 ##### Params
 
@@ -2486,6 +2488,35 @@ Response
        },
        "proposed": {}
    }
+}
+```
+
+#### Method `tx_pool_ready`
+* `tx_pool_ready()`
+* result: `boolean`
+
+Returns whether tx-pool service is started, ready for request.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "tx_pool_ready",
+  "params": []
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
 }
 ```
 
@@ -3072,6 +3103,10 @@ Miners optional pick transactions and then assemble the final block.
     *   `U_i`, bytes 24 to 31
 
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
+
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
+
+    This field is optional. It's a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
 
 
 ### Type `BlockView`

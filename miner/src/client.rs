@@ -4,12 +4,15 @@ use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
-use ckb_logger::{debug, error, warn};
+use ckb_logger::{debug, error};
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_types::{packed::Block, H256};
+use ckb_types::{
+    packed::{Block, Byte32},
+    H256,
+};
 use futures::prelude::*;
 use hyper::{
-    body::{Bytes, HttpBody},
+    body::{to_bytes, Bytes},
     header::{HeaderValue, CONTENT_TYPE},
     Body, Client as HttpClient, Error as HyperError, Method, Request, Uri,
 };
@@ -19,9 +22,7 @@ use jsonrpc_core::{
 };
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::convert::Into;
-use std::thread;
-use std::time;
+use std::{convert::Into, thread, time};
 use tokio::sync::{mpsc, oneshot};
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
@@ -49,6 +50,7 @@ impl Rpc {
 
         let https = hyper_tls::HttpsConnector::new();
         let client = HttpClient::builder().build(https);
+        let loop_handle = handle.clone();
         handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -65,21 +67,20 @@ impl Rpc {
                             req.headers_mut()
                                 .append(hyper::header::AUTHORIZATION, value);
                         }
-                        let request = match client
-                            .request(req)
-                            .await
-                            .map(|res|res.into_body())
-                        {
-                            Ok(mut body) => body
-                                .data()
+                        let client = client.clone();
+                        loop_handle.spawn(async move {
+                            let request = match client
+                                .request(req)
                                 .await
-                                .ok_or(RpcError::NoRespData)
-                                .and_then(|res| res.map_err(RpcError::Http)),
-                            Err(err) => Err(RpcError::Http(err)),
-                        };
-                        if sender.send(request).is_err() {
-                            break;
-                        }
+                                .map(|res|res.into_body())
+                            {
+                                Ok(body) => to_bytes(body).await.map_err(RpcError::Http),
+                                Err(err) => Err(RpcError::Http(err)),
+                            };
+                            if sender.send(request).is_err() {
+                                error!("rpc response send back error")
+                            }
+                        });
                     },
                     _ = &mut stop_rx => break,
                     else => break
@@ -93,7 +94,11 @@ impl Rpc {
         }
     }
 
-    pub async fn request(&self, method: String, params: Vec<Value>) -> Result<Output, RpcError> {
+    pub fn request(
+        &self,
+        method: String,
+        params: Vec<Value>,
+    ) -> impl Future<Output = Result<Output, RpcError>> {
         let (tx, rev) = oneshot::channel();
 
         let call = MethodCall {
@@ -104,13 +109,17 @@ impl Rpc {
         };
 
         let req = (tx, call);
-        self.sender
-            .send(req)
-            .map_err(|_| RpcError::SendError)
-            .await?;
-        rev.map_err(|_| RpcError::Canceled)
-            .await?
-            .and_then(|chunk| serde_json::from_slice(&chunk).map_err(RpcError::Json))
+        let sender = self.sender.clone();
+        async move {
+            sender
+                .clone()
+                .send(req)
+                .map_err(|_| RpcError::SendError)
+                .await?;
+            rev.map_err(|_| RpcError::Canceled)
+                .await?
+                .and_then(|chunk| serde_json::from_slice(&chunk).map_err(RpcError::Json))
+        }
     }
 }
 
@@ -120,13 +129,18 @@ impl Drop for Rpc {
     }
 }
 
+pub enum Works {
+    New(Work),
+    FailSubmit(Byte32),
+}
+
 /// TODO(doc): @quake
 #[derive(Debug, Clone)]
 pub struct Client {
     /// TODO(doc): @quake
     pub current_work_id: Option<u64>,
     /// TODO(doc): @quake
-    pub new_work_tx: Sender<Work>,
+    pub new_work_tx: Sender<Works>,
     /// TODO(doc): @quake
     pub config: MinerClientConfig,
     /// TODO(doc): @quake
@@ -136,7 +150,7 @@ pub struct Client {
 
 impl Client {
     /// TODO(doc): @quake
-    pub fn new(new_work_tx: Sender<Work>, config: MinerClientConfig, handle: Handle) -> Client {
+    pub fn new(new_work_tx: Sender<Works>, config: MinerClientConfig, handle: Handle) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
         Client {
@@ -148,35 +162,36 @@ impl Client {
         }
     }
 
-    async fn send_submit_block_request(
+    fn send_submit_block_request(
         &self,
         work_id: &str,
         block: Block,
-    ) -> Result<Output, RpcError> {
+    ) -> impl Future<Output = Result<Output, RpcError>> + 'static + Send {
         let block: JsonBlock = block.into();
         let method = "submit_block".to_owned();
         let params = vec![json!(work_id), json!(block)];
 
-        self.rpc.request(method, params).await
+        self.rpc.clone().request(method, params)
     }
 
     /// TODO(doc): @quake
-    pub fn submit_block(&self, work_id: &str, block: Block) {
+    pub fn submit_block(&self, work_id: &str, block: Block) -> Result<(), RpcError> {
+        let parent = block.header().raw().parent_hash();
         let future = self
             .send_submit_block_request(work_id, block)
-            .and_then(parse_response);
+            .and_then(parse_response::<H256>);
+
         if self.config.block_on_submit {
-            let ret: Result<Option<H256>, RpcError> = self.handle.block_on(future);
-            match ret {
-                Ok(hash) => {
-                    if hash.is_none() {
-                        warn!("submit_block failed");
-                    }
-                }
-                Err(e) => {
+            self.handle.block_on(future).map(|_| ())
+        } else {
+            let sender = self.new_work_tx.clone();
+            self.handle.spawn(async move {
+                if let Err(e) = future.await {
                     error!("rpc call submit_block error: {:?}", e);
+                    sender.send(Works::FailSubmit(parent)).unwrap()
                 }
-            }
+            });
+            Ok(())
         }
     }
 
@@ -233,7 +248,7 @@ impl Client {
 
     fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), AnyError> {
         let work: Work = block_template.into();
-        self.new_work_tx.send(work)?;
+        self.new_work_tx.send(Works::New(work))?;
         Ok(())
     }
 }

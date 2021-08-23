@@ -15,7 +15,8 @@ use std::sync::Arc;
 /// RPC Module Pool for transaction memory pool.
 #[rpc(server)]
 pub trait PoolRpc {
-    /// Submits a new transaction into the transaction pool.
+    /// Submits a new transaction into the transaction pool. If the transaction is already in the
+    /// pool, rebroadcast it to peers.
     ///
     /// ## Params
     ///
@@ -207,9 +208,35 @@ pub trait PoolRpc {
     ///    }
     /// }
     /// ```
-
     #[rpc(name = "get_raw_tx_pool")]
     fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
+
+    /// Returns whether tx-pool service is started, ready for request.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "tx_pool_ready",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
+    #[rpc(name = "tx_pool_ready")]
+    fn tx_pool_ready(&self) -> Result<bool>;
 }
 
 pub(crate) struct PoolRpcImpl {
@@ -322,6 +349,11 @@ fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
 }
 
 impl PoolRpc for PoolRpcImpl {
+    fn tx_pool_ready(&self) -> Result<bool> {
+        let tx_pool = self.shared.tx_pool_controller();
+        Ok(tx_pool.service_started())
+    }
+
     fn send_transaction(
         &self,
         tx: Transaction,
