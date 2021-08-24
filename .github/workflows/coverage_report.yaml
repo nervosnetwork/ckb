@@ -13,10 +13,11 @@ jobs:
     if: |
         github.repository_owner == 'nervosnetwork'
     steps:
-      - name: install nightly
-        run: |
-          rustup toolchain list | { grep 'nightly' || rustup install nightly; }
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
       - name: unit coverage
         run: make cov
       - name: integration cov
