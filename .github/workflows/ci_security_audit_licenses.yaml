@@ -7,7 +7,7 @@ on:
     types: [ opened, synchronize, reopened ]
   push:
     branches:
-      - main
+      - master
       - develop
       - trying
       - staging
@@ -20,28 +20,24 @@ env:
   RUSTFLAGS: -D warnings
 jobs:
   ci_security_audit_licenses:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
     - name: ci_security_audit_licenses
       run: |
-        cargo deny --version || cargo install cargo-deny --locked
-        make security-audit
-        make check-crates
-        make check-licenses
-    - name: ci_epilogue
+        ${{ github.workspace }}/devtools/ci/ci_main.sh ci_security_audit_licenses
+    - name: setup_python
       if: always()
       uses: actions/setup-python@v2
       with:
         python-version: 3.8
-    - run: |
-        pip install requests
-        pip install datetime
-        pip install python-dotenv
-        pip install PyGithub
+    - name: ci_epilogue
+      if: always()
+      run: |
+        pip install -r ${{ github.workspace }}/devtools/ci/requirements.txt
         python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
         cat result.log
-    env: 
+    env:
       COMMIT_MESSAGE: ${{github.event.head_commit.message}}
       ACTOR: ${{github.actor}}
       CI_RUNS_ON: ${{secrets.CI_RUNS_ON}}

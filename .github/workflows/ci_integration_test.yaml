@@ -7,7 +7,7 @@ on:
     types: [ opened, synchronize, reopened ]
   push:
     branches:
-      - main
+      - master
       - develop
       - trying
       - staging
@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: set-output
-        id: set-matrix 
+        id: set-matrix
         run: |
           runs_on=`${{github.workspace}}/devtools/ci/ci_prologue.sh`
           echo $runs_on
@@ -37,30 +37,37 @@ jobs:
     needs: prologue
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix: ${{fromJSON(needs.prologue.outputs.matrix)}} 
+      matrix: ${{fromJSON(needs.prologue.outputs.matrix)}}
     steps:
     - uses: actions/checkout@v2
-    - name: ci_integration_test
-      if: ${{ runner.os }} == 'Linux' || ${{ runner.os }} == 'macOS'
+    - if: ${{ runner.os == 'Windows' }}
       run: |
-        cargo fmt --version ||  rustup component add rustfmt
-        cargo clippy --version ||  rustup component add clippy
-        make fmt
-        make clippy
-        git diff --exit-code Cargo.lock
-    - name: ci_epilogue
+        iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        scoop install git
+        scoop bucket add extras
+        scoop install llvm yasm
+    - run: |
+        "${{ github.workspace }}/devtools/ci/ci_main.sh" ci_integration_test
+      shell: bash
+    - name: setup_python
       if: always()
       uses: actions/setup-python@v2
       with:
         python-version: 3.8
-    - run: |
-        pip install requests
-        pip install datetime
-        pip install python-dotenv
-        pip install PyGithub
+    - name: ci_epilogue
+      if: always()
+      run: |
+        pip install -r ${{ github.workspace }}/devtools/ci/requirements.txt
         python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
         cat result.log
-    env: 
+    - uses: actions/upload-artifact@v2
+      with:
+        name: Integration Logs (${{ runner.os }}, ${{ matrix.os }})
+        path: target/integration.log
+        if-no-files-found: error
+    env:
       COMMIT_MESSAGE: ${{github.event.head_commit.message}}
       ACTOR: ${{github.actor}}
       CI_RUNS_ON: ${{secrets.CI_RUNS_ON}}
@@ -71,3 +78,7 @@ jobs:
       PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
       COMMIT_SHA: ${{ github.sha }}
       workspace: ${{ github.workspace }}
+      SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
+      ImageOS: ${{matrix.os}}
+      BUILD_BUILDID: ${{ github.run_id }}
+      CKB_TEST_ARGS: -c 4 --no-report --no-fail-fast

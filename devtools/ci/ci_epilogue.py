@@ -30,14 +30,14 @@ def get_check_suite(commit_sha):
         if (check_suite_result["check_suites"][num]["app"]["slug"] == "github-actions"):
             data["job_run_info"].append({
            'job_run_url':check_suite_result["check_suites"][num]["check_runs_url"]
-           })  
+           })
     with open(job_runs_info, 'w') as outfile:
             json.dump(data, outfile)
 
-# function to get each job info from each checkruns     
+# function to get each job info from each checkruns
 def get_check_runs(commit_sha):
     get_check_suite(commit_sha)
-    f = open(job_runs_info,"r") 
+    f = open(job_runs_info,"r")
     data = json.load(f)
     job_data={}
     job_data["job_details"]=[]
@@ -59,7 +59,7 @@ def get_check_runs(commit_sha):
 def check_runs_conculusions(commit_sha):
     print("check_runs_conculusions"+str(commit_sha))
     get_check_runs(commit_sha)
-    f = open(job_info,"r") 
+    f = open(job_info,"r")
     jobs_data= json.load(f)
     print("jobs_data")
     print(jobs_data)
@@ -81,7 +81,7 @@ def check_runs_conculusions(commit_sha):
     Benchmark_conclusion=""
     #Integration conclusion
     Integration_Linux_conclusion=""
-    Integration_macOs_conclusion=""
+    global Integration_macOs_conclusion
     Integration_Windows_conclusion=""
     Integration_conclusion=""
     #Quick check conclusion
@@ -156,7 +156,7 @@ def check_runs_conculusions(commit_sha):
     elif (Benchmark_Linux_conclusion == "failure" ) | (Benchmark_macOS_conclusion == "failure" ):
         Benchmark_conclusion="failure"
         required_jobs_count +=1
-    
+
     jobs_conclusion=[UnitTest_conclusion,Liners_conclusion,Benchmark_conclusion,Integration_conclusion,Quick_Check_conclusion,Security_Audit_Licenses_conclusion,WASM_build_conclusion]
     # check child jobs conclusions if all required jobs completed in one os
     if ( required_jobs_count == 7 ):
@@ -166,7 +166,7 @@ def check_runs_conculusions(commit_sha):
         else:
             CI_conclusion="success"
     #create required job ci
-    if (os.getenv('EVENT_NAME') == "pull_request" | os.getenv('ACTOR') == "bors[bot]") & (CI_conclusion == "success"):
+    if ( (os.getenv('EVENT_NAME') == "pull_request") | (os.getenv('ACTOR') == "bors[bot]") ) & ( CI_conclusion == "success" ):
        update_commit_state(COMMIT_SHA)
 
 #function to create reqiured job ci
@@ -180,16 +180,22 @@ def update_commit_state(COMMIT_SHA):
         description="ci",
         context="ci"
     )
-    print("update_commit_state done")
-
 if __name__ == '__main__':
 
    COMMIT_SHA=''
+   MESSAGE=''
+   REPO_LIST=["janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape","liya2017"]
    if str(os.getenv('EVENT_NAME')) == "push":
       COMMIT_SHA=str(os.getenv('COMMIT_SHA'))
+      MESSAGE=str(os.getenv('COMMIT_MESSAGE'))
 
    if str(os.getenv('EVENT_NAME')) == "pull_request":
       COMMIT_SHA=str(os.getenv('PR_COMMIT_SHA'))
-   
-   check_runs_conculusions(COMMIT_SHA)
+      MESSAGE=str(os.getenv('PR_COMMONS_BODY'))
+
+   if ( "skip ci" in MESSAGE ) & ( ( os.getenv('EVENT_NAME') == "push" ) | ( ( os.getenv('EVENT_NAME') == "pull_request" ) & ( os.getenv('REPO_ACTOR') in REPO_LIST ) ) ):
+        print("skip ci")
+        update_commit_state(COMMIT_SHA)
+   else :
+       check_runs_conculusions(COMMIT_SHA)
 
