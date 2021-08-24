@@ -116,6 +116,10 @@ impl<'a> ResumableMachine<'a> {
         self.machine.machine.cycles()
     }
 
+    pub(crate) fn max_cycles(&self) -> Cycle {
+        self.machine.machine.max_cycles()
+    }
+
     #[cfg(test)]
     pub(crate) fn set_cycles(&mut self, cycles: Cycle) {
         self.machine.machine.set_cycles(cycles)
@@ -213,8 +217,6 @@ pub struct TransactionSnapshot {
     pub snap: Option<Snapshot>,
     /// current consumed cycle
     pub current_cycles: Cycle,
-    /// limit cycles when snapshot create
-    pub limit_cycles: Cycle,
 }
 
 /// Struct specifies which script has verified so far.
@@ -228,18 +230,17 @@ pub struct TransactionState<'a> {
     pub vm: ResumableMachine<'a>,
     /// current consumed cycle
     pub current_cycles: Cycle,
-    /// limit cycles
-    pub limit_cycles: Cycle,
 }
 
 impl TransactionState<'_> {
     /// Return next limit cycles according to max_cycles and step_cycles
     pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
         let remain = max_cycles - self.current_cycles;
-        let next_limit = self.limit_cycles + step_cycles;
+        let next_limit = self.current_cycles + step_cycles;
 
+        // Every step must less than or equal to `step_cycles`
         if next_limit < remain {
-            (next_limit, false)
+            (step_cycles, false)
         } else {
             (remain, true)
         }
@@ -250,10 +251,11 @@ impl TransactionSnapshot {
     /// Return next limit cycles according to max_cycles and step_cycles
     pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
         let remain = max_cycles - self.current_cycles;
-        let next_limit = self.limit_cycles + step_cycles;
+        let next_limit = self.current_cycles + step_cycles;
 
+        // Every step must less than or equal to `step_cycles`
         if next_limit < remain {
-            (next_limit, false)
+            (step_cycles, false)
         } else {
             (remain, true)
         }
@@ -269,7 +271,6 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
             remain,
             mut vm,
             current_cycles,
-            limit_cycles,
         } = state;
 
         // we should not capture snapshot if load program failed by exceeded cycles
@@ -287,7 +288,6 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
             remain,
             snap,
             current_cycles,
-            limit_cycles,
         })
     }
 }
@@ -307,7 +307,6 @@ impl std::fmt::Debug for TransactionSnapshot {
             .field("current", &self.current)
             .field("remain", &self.remain)
             .field("current_cycles", &self.current_cycles)
-            .field("limit_cycles", &self.limit_cycles)
             .finish()
     }
 }
@@ -318,7 +317,6 @@ impl std::fmt::Debug for TransactionState<'_> {
             .field("current", &self.current)
             .field("remain", &self.remain)
             .field("current_cycles", &self.current_cycles)
-            .field("limit_cycles", &self.limit_cycles)
             .finish()
     }
 }

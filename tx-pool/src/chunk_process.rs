@@ -214,15 +214,6 @@ impl TxChunkProcess {
                     return Err(Reject::Verification(error));
                 }
 
-                // next_limit_cycles
-                // let remain = max_cycles - self.current_cycles;
-                // let next_limit = self.limit_cycles + step_cycles;
-
-                // if next_limit < remain {
-                //     (next_limit, false)
-                // } else {
-                //     (remain, true)
-                // }
                 let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
                 last_step = last;
                 script_verifier.resume_from_state(state, limit_cycles)

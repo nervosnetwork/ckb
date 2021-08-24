@@ -465,14 +465,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         current: (ScriptGroupType, Byte32),
         remain: Vec<(ScriptGroupType, Byte32)>,
         current_cycles: Cycle,
-        limit_cycles: Cycle,
     ) -> TransactionState<'a> {
         TransactionState {
             current,
             remain,
             vm,
             current_cycles,
-            limit_cycles,
         }
     }
 
@@ -513,8 +511,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .skip(idx + 1)
                         .map(|(ty, hash, _g)| (*ty, (*hash).to_owned()))
                         .collect();
-
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    cycles = wrapping_cycles_add(cycles, vm.cycles(), &group)?;
+                    let state = self.build_state(vm, current, remain, cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -563,7 +561,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             Ok(ChunkState::Suspended(vm)) => {
                 let current = snap.current.to_owned();
                 let remain = snap.remain.to_owned();
-                let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                // Suspended state also should record it's used cycles
+                cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
+                let state = self.build_state(vm, current, remain, cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -599,7 +599,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .map(|(ty, hash)| (*ty, hash.to_owned()))
                         .collect();
 
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    // Suspended state also should record it's used cycles
+                    cycles = wrapping_cycles_add(cycles, vm.cycles(), &group)?;
+                    let state = self.build_state(vm, current, remain, cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -637,7 +639,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             ..
         } = state;
 
+        // We use an incoming temporary VM, we need to record the current state of the VM first,
+        // otherwise we cannot observe its cycles change
+        #[allow(unused_assignments)]
         let mut current_used = 0;
+        let init_cycles = vm.cycles();
+        let init_vm_max_cycles = vm.max_cycles();
         let mut cycles = current_cycles;
 
         let current_group = self
@@ -647,12 +654,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     .unknown_source()
             })?;
 
-        vm.set_max_cycles(limit_cycles);
+        // we should set vm max cycles to init + limit
+        vm.set_max_cycles(init_vm_max_cycles + limit_cycles);
         match vm.machine.run() {
             Ok(code) => {
                 if code == 0 {
-                    current_used = wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
-                    cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
+                    // We need to use the change value of vm to get the usage
+                    current_used = vm.cycles() - init_cycles;
+                    cycles = wrapping_cycles_add(cycles, current_used, &current_group)?;
                 } else {
                     return Err(ScriptError::validation_failure(&current_group.script, code)
                         .source(&current_group)
@@ -661,7 +670,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::InvalidCycles => {
-                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    // Suspended state also should record it's used cycles
+                    cycles =
+                        wrapping_cycles_add(cycles, vm.cycles() - init_cycles, &current_group)?;
+                    let state = self.build_state(vm, current, remain, cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 error => {
@@ -699,7 +711,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .map(|(ty, hash)| (*ty, hash.to_owned()))
                         .collect();
 
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    // Suspended state also should record it's used cycles
+                    cycles = wrapping_cycles_add(cycles, vm.cycles(), &group)?;
+                    let state = self.build_state(vm, current, remain, cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
