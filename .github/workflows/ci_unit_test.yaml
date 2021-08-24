@@ -1,0 +1,75 @@
+name: ci_unit_tests
+concurrency:
+  group: ci_unit_tests-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - main
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
+
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+
+jobs:
+  prologue:
+    name: prologue
+    runs-on: ubuntu-20.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: set-output
+        id: set-matrix 
+        run: |
+          runs_on=`${{github.workspace}}/devtools/ci/ci_prologue.sh`
+          echo $runs_on
+          echo "::set-output name=matrix::{\"os\":$runs_on}"
+  ci_unit_tests:
+    name: ci_unit_tests
+    needs: prologue
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{fromJSON(needs.prologue.outputs.matrix)}} 
+    steps:
+    - uses: actions/checkout@v2
+    - if: ${{ runner.os == 'Windows' }}
+      run: |
+        iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        scoop install git
+        scoop bucket add extras
+        scoop install llvm yasm
+    - run: make test
+    - name: ci_epilogue
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - run: |
+        pip install requests
+        pip install datetime
+        pip install python-dotenv
+        pip install PyGithub
+        python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
+        cat result.log
+    env:
+      COMMIT_MESSAGE: ${{github.event.head_commit.message}}
+      ACTOR: ${{github.actor}}
+      CI_RUNS_ON: ${{secrets.CI_RUNS_ON}}
+      REPO_OWNER: ${{github.repository_owner}}
+      EVENT_NAME: ${{github.event_name}}
+      REPOSITPRY: ${{ github.repository }}
+      TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+      PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      COMMIT_SHA: ${{ github.sha }}
+      workspace: ${{ github.workspace }}
+      # OS_NAME: ${{ runner.os }}

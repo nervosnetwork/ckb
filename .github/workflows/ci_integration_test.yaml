@@ -1,0 +1,73 @@
+name: ci_integration_test
+concurrency:
+  group: ci_integration_test-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - main
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
+
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+jobs:
+  prologue:
+    name: prologue
+    runs-on: ubuntu-20.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: set-output
+        id: set-matrix 
+        run: |
+          runs_on=`${{github.workspace}}/devtools/ci/ci_prologue.sh`
+          echo $runs_on
+          echo "::set-output name=matrix::{\"os\":$runs_on}"
+  ci_integration_test:
+    name: ci_integration_test
+    needs: prologue
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{fromJSON(needs.prologue.outputs.matrix)}} 
+    steps:
+    - uses: actions/checkout@v2
+    - name: ci_integration_test
+      if: ${{ runner.os }} == 'Linux' || ${{ runner.os }} == 'macOS'
+      run: |
+        cargo fmt --version ||  rustup component add rustfmt
+        cargo clippy --version ||  rustup component add clippy
+        make fmt
+        make clippy
+        git diff --exit-code Cargo.lock
+    - name: ci_epilogue
+      if: always()
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - run: |
+        pip install requests
+        pip install datetime
+        pip install python-dotenv
+        pip install PyGithub
+        python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
+        cat result.log
+    env: 
+      COMMIT_MESSAGE: ${{github.event.head_commit.message}}
+      ACTOR: ${{github.actor}}
+      CI_RUNS_ON: ${{secrets.CI_RUNS_ON}}
+      REPO_OWNER: ${{github.repository_owner}}
+      EVENT_NAME: ${{github.event_name}}
+      REPOSITPRY: ${{ github.repository }}
+      TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+      PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      COMMIT_SHA: ${{ github.sha }}
+      workspace: ${{ github.workspace }}

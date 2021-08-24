@@ -1,0 +1,54 @@
+name: ci_security_audit_licenses
+concurrency:
+  group: ci_security_audit_licenses-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - main
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
+
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+jobs:
+  ci_security_audit_licenses:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: ci_security_audit_licenses
+      run: |
+        cargo deny --version || cargo install cargo-deny --locked
+        make security-audit
+        make check-crates
+        make check-licenses
+    - name: ci_epilogue
+      if: always()
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - run: |
+        pip install requests
+        pip install datetime
+        pip install python-dotenv
+        pip install PyGithub
+        python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
+        cat result.log
+    env: 
+      COMMIT_MESSAGE: ${{github.event.head_commit.message}}
+      ACTOR: ${{github.actor}}
+      CI_RUNS_ON: ${{secrets.CI_RUNS_ON}}
+      REPO_OWNER: ${{github.repository_owner}}
+      EVENT_NAME: ${{github.event_name}}
+      REPOSITPRY: ${{ github.repository }}
+      TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+      PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      COMMIT_SHA: ${{ github.sha }}
+      workspace: ${{ github.workspace }}
