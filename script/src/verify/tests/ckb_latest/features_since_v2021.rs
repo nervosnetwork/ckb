@@ -417,10 +417,10 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
         }
 
         loop {
-            match verifier
-                .resume_from_snap(&init_snap.take().unwrap(), TWO_IN_TWO_OUT_CYCLES / 10)
-                .unwrap()
-            {
+            let snap = init_snap.take().unwrap();
+            let (limit_cycles, _last) =
+                snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
@@ -456,11 +456,10 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
         }
 
         loop {
-            let max = init_state.as_ref().unwrap().current_cycles + TWO_IN_TWO_OUT_CYCLES / 10;
-            match verifier
-                .resume_from_state(init_state.take().unwrap(), max)
-                .unwrap()
-            {
+            let state = init_state.take().unwrap();
+            let (limit_cycles, _last) =
+                state.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_state(state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
@@ -495,11 +494,11 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
             init_snap = Some(state.try_into().unwrap());
         }
 
-        for _ in 0..6 {
-            match verifier
-                .resume_from_snap(&init_snap.take().unwrap(), TWO_IN_TWO_OUT_CYCLES / 10)
-                .unwrap()
-            {
+        for _ in 0..2 {
+            let snap = init_snap.take().unwrap();
+            let (limit_cycles, _last) =
+                snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
                 VerifyResult::Completed(_) => {
                     unreachable!()
