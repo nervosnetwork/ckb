@@ -64,6 +64,7 @@ generate_readme() {
 cp -f Cargo.lock Cargo.lock.bak
 
 PUBLISH_FROM="${CKB_PUBLISH_FROM:-}"
+YANK="${CKB_YANK:-}"
 SKIP=false
 if [ -n "$PUBLISH_FROM" ]; then
   SKIP=true
@@ -80,6 +81,11 @@ for crate_dir in $CRATES; do
       fi
       if [ "$SKIP" = true ]; then
         echo "=> skip $crate_dir"
+      elif [ -n "$YANK" ]; then
+        echo "=> yank $crate_dir"
+        pushd "$crate_dir"
+        cargo yank --vers "$YANK"
+        popd
       else
         echo "=> publish $crate_dir"
         pushd "$crate_dir"
@@ -94,5 +100,10 @@ for crate_dir in $CRATES; do
       ;;
   esac
 done
-retry_cargo_publish "$@"
-mv -f Cargo.lock.bak Cargo.lock
+
+if [ -n "$YANK" ]; then
+  cargo yank --vers "$YANK"
+else
+  retry_cargo_publish "$@"
+  mv -f Cargo.lock.bak Cargo.lock
+fi
