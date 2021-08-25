@@ -62,11 +62,12 @@ jobs:
         pip install -r ${{ github.workspace }}/devtools/ci/requirements.txt
         python3 ${{ github.workspace }}/devtools/ci/ci_epilogue.py > result.log
         cat result.log
-    - uses: actions/upload-artifact@v2
+    - name: Post Run - Upload integration Result when failed
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v2
       with:
         name: Integration Logs (${{ runner.os }}, ${{ matrix.os }})
-        path: target/integration.log
-        if-no-files-found: error
+        path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
       COMMIT_MESSAGE: ${{github.event.head_commit.message}}
       ACTOR: ${{github.actor}}
@@ -76,6 +77,7 @@ jobs:
       REPOSITPRY: ${{ github.repository }}
       TOKEN: ${{secrets.WORKFLOW_TOKEN}}
       PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
       COMMIT_SHA: ${{ github.sha }}
       workspace: ${{ github.workspace }}
       SENTRY_DSN: "https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"

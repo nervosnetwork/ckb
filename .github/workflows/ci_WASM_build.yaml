@@ -45,7 +45,8 @@ jobs:
       REPO_OWNER: ${{github.repository_owner}}
       EVENT_NAME: ${{github.event_name}}
       REPOSITPRY: ${{ github.repository }}
-      TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+      TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
       PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
       COMMIT_SHA: ${{ github.sha }}
       workspace: ${{ github.workspace }}

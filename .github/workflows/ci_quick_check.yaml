@@ -46,5 +46,6 @@ jobs:
       REPOSITPRY: ${{ github.repository }}
       TOKEN: ${{secrets.WORKFLOW_TOKEN}}
       PR_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
       COMMIT_SHA: ${{ github.sha }}
       workspace: ${{ github.workspace }}
