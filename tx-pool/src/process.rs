@@ -1279,35 +1279,36 @@ fn _update_tx_pool_for_reorg(
 
     // pending ---> gap ----> proposed
     // try move gap to proposed
-    for entry in tx_pool.gap.entries() {
-        if snapshot.proposals().contains_proposed(entry.key()) {
-            let tx_entry = entry.get();
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            entry.remove();
-        }
-    }
 
-    // try move pending to proposed
-    for entry in tx_pool.pending.entries() {
-        if snapshot.proposals().contains_proposed(entry.key()) {
-            let tx_entry = entry.get();
+    tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
+        if snapshot.proposals().contains_proposed(id) {
             entries.push((
                 Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
-            entry.remove();
-        } else if snapshot.proposals().contains_gap(entry.key()) {
-            let tx_entry = entry.get();
+            true
+        } else {
+            false
+        }
+    });
+
+    tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
+        if snapshot.proposals().contains_proposed(id) {
+            entries.push((
+                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
+                tx_entry.clone(),
+            ));
+            true
+        } else if snapshot.proposals().contains_gap(id) {
             gaps.push((
                 Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
                 tx_entry.clone(),
             ));
-            entry.remove();
+            true
+        } else {
+            false
         }
-    }
+    });
 
     for (cycles, entry) in entries {
         let tx_hash = entry.transaction().hash();
