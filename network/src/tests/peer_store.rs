@@ -271,13 +271,13 @@ fn test_eviction() {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
-        assert!(paddr.is_terrible(now));
+        assert!(!paddr.is_connectable(now));
     }
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&evict_addr_2) {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
-        assert!(paddr.is_terrible(now));
+        assert!(!paddr.is_connectable(now));
     }
     // should evict evict_addr and accept new_peer
     let new_peer_addr: Multiaddr =
@@ -290,4 +290,18 @@ fn test_eviction() {
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
     assert!(peer_store.mut_addr_manager().get(&evict_addr_2).is_none());
     assert!(peer_store.mut_addr_manager().get(&evict_addr).is_none());
+
+    // In the absence of invalid nodes, too many nodes on the same network segment will be automatically evicted
+    let new_peer_addr: Multiaddr =
+        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+    peer_store.add_addr(new_peer_addr.clone()).unwrap();
+    assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
+    let new_peer_addr: Multiaddr =
+        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+    peer_store.add_addr(new_peer_addr.clone()).unwrap();
+    assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
 }

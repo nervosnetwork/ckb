@@ -1,6 +1,7 @@
 use crate::{
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,
+    network_group::Group,
     peer_store::{
         addr_manager::AddrManager,
         ban_list::BanList,
@@ -11,6 +12,7 @@ use crate::{
     PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
+use rand::prelude::IteratorRandom;
 use std::collections::{hash_map::Entry, HashMap};
 
 /// Peer store
@@ -224,25 +226,77 @@ impl PeerStore {
             return Ok(());
         }
 
+        // Evicting invalid data in the peer store is a relatively rare operation
+        // There are certain cleanup strategies here:
+        // 1. First evict the nodes that have reached the eviction condition
+        // 2. If the first step is unsuccessful, enter the network segment grouping mode
+        //  2.1. Group current data according to network segment
+        //  2.2. Sort according to the amount of data in the same network segment
+        //  2.3. In the network segment with more than 4 peer, randomly evict 2 peer
+
         let now_ms = faketime::unix_time_as_millis();
         let candidate_peers: Vec<_> = {
             // find candidate peers by terrible condition
             let ban_score = self.score_config.ban_score;
             let mut peers = Vec::default();
             for addr in self.addr_manager.addrs_iter() {
-                if addr.is_terrible(now_ms) || addr.score <= ban_score {
+                if !addr.is_connectable(now_ms) || addr.score <= ban_score {
                     peers.push(addr.addr.clone())
                 }
             }
             peers
         };
 
-        if candidate_peers.is_empty() {
-            return Err(PeerStoreError::EvictionFailed.into());
+        for key in candidate_peers.iter() {
+            self.addr_manager.remove(&key);
         }
 
-        for key in candidate_peers {
-            self.addr_manager.remove(&key);
+        if candidate_peers.is_empty() {
+            let candidate_peers: Vec<_> = {
+                // find candidate peers by terrible condition
+                let mut peers_by_network_group: HashMap<Group, Vec<_>> = HashMap::default();
+                for addr in self.addr_manager.addrs_iter() {
+                    peers_by_network_group
+                        .entry((&addr.addr).into())
+                        .or_default()
+                        .push(addr);
+                }
+                let len = peers_by_network_group.len();
+                let mut peers = peers_by_network_group
+                    .drain()
+                    .map(|(_, v)| v)
+                    .collect::<Vec<Vec<_>>>();
+
+                peers.sort_unstable_by_key(|k| std::cmp::Reverse(k.len()));
+
+                peers
+                    .into_iter()
+                    .take(len / 2)
+                    .flat_map(move |addrs| {
+                        if addrs.len() > 4 {
+                            Some(
+                                addrs
+                                    .iter()
+                                    .choose_multiple(&mut rand::thread_rng(), 2)
+                                    .into_iter()
+                                    .map(|addr| addr.addr.clone())
+                                    .collect::<Vec<Multiaddr>>(),
+                            )
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
+                    .collect()
+            };
+
+            for key in candidate_peers.iter() {
+                self.addr_manager.remove(&key);
+            }
+
+            if candidate_peers.is_empty() {
+                return Err(PeerStoreError::EvictionFailed.into());
+            }
         }
         Ok(())
     }

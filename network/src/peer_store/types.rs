@@ -72,22 +72,22 @@ impl AddrInfo {
     }
 
     /// Whether terrible peer
-    pub fn is_terrible(&self, now_ms: u64) -> bool {
+    pub fn is_connectable(&self, now_ms: u64) -> bool {
         // do not remove addr tried in last minute
         if self.tried_in_last_minute(now_ms) {
-            return false;
+            return true;
         }
         // we give up if never connect to this addr
         if self.last_connected_at_ms == 0 && self.attempts_count >= ADDR_MAX_RETRIES {
-            return true;
+            return false;
         }
         // consider addr is terrible if failed too many times
         if now_ms.saturating_sub(self.last_connected_at_ms) > ADDR_TIMEOUT_MS
             && (self.attempts_count >= ADDR_MAX_FAILURES)
         {
-            return true;
+            return false;
         }
-        false
+        true
     }
 
     /// Try dail count
