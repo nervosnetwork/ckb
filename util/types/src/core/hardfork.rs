@@ -257,7 +257,7 @@ impl HardForkSwitchBuilder {
             ($feature:ident) => {
                 self.$feature.ok_or_else(|| {
                     concat!("The feature ", stringify!($feature), " isn't configured.").to_owned()
-                })?;
+                })?
             };
         }
         let rfc_0028 = try_find!(rfc_0028);
