@@ -55,8 +55,14 @@ fn test_ban_peer() {
     assert!(peer_store.is_addr_banned(&addr));
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_attempt_ban() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 1).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
@@ -65,13 +71,22 @@ fn test_attempt_ban() {
         .get_mut(&addr)
         .unwrap()
         .last_connected_at_ms = faketime::unix_time_as_millis();
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 1).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
     let addr = random_addr();
@@ -81,6 +96,8 @@ fn test_fetch_addrs_to_attempt() {
         .get_mut(&addr)
         .unwrap()
         .last_connected_at_ms = faketime::unix_time_as_millis();
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     peer_store.add_connected_peer(addr, SessionType::Outbound);
     assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
@@ -97,17 +114,27 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_outbound_addr(addr);
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     assert!(peer_store.fetch_addrs_to_feeler(2).is_empty());
 
-    faketime::write_millis(&faketime_file, ADDR_TRY_TIMEOUT_MS + 1).expect("write millis");
+    faketime::write_millis(&faketime_file, 100_000 + ADDR_TRY_TIMEOUT_MS + 1)
+        .expect("write millis");
 
     assert!(peer_store.fetch_addrs_to_attempt(2).is_empty());
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_in_last_minutes() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
@@ -127,6 +154,8 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
         .get_mut(&addr)
         .unwrap()
         .last_connected_at_ms = now;
+    faketime::write_millis(&faketime_file, 200_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(1).len(), 1);
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now);

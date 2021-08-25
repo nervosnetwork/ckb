@@ -136,7 +136,8 @@ impl PeerStore {
                 extract_peer_id(&peer_addr.addr)
                     .map(|peer_id| !peers.contains_key(&peer_id))
                     .unwrap_or_default()
-                    && peer_addr.had_connected(addr_expired_ms)
+                    && peer_addr
+                        .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(15_000))
             })
     }
 
@@ -157,7 +158,7 @@ impl PeerStore {
                     .map(|peer_id| !peers.contains_key(&peer_id))
                     .unwrap_or_default()
                     && !peer_addr.tried_in_last_minute(now_ms)
-                    && !peer_addr.had_connected(addr_expired_ms)
+                    && !peer_addr.connected(|t| t >= addr_expired_ms)
             })
     }
 
@@ -175,7 +176,7 @@ impl PeerStore {
                 extract_peer_id(&peer_addr.addr)
                     .map(|peer_id| peers.contains_key(&peer_id))
                     .unwrap_or_default()
-                    || peer_addr.had_connected(addr_expired_ms)
+                    || peer_addr.connected(|t| t >= addr_expired_ms)
             })
     }
 

@@ -61,9 +61,9 @@ impl AddrInfo {
         }
     }
 
-    /// Whether already connected
-    pub fn had_connected(&self, expires_ms: u64) -> bool {
-        self.last_connected_at_ms > expires_ms
+    /// Connection information
+    pub fn connected<F: FnOnce(u64) -> bool>(&self, f: F) -> bool {
+        f(self.last_connected_at_ms)
     }
 
     /// Whether already try dail within a minute
