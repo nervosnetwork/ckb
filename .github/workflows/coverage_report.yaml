@@ -36,3 +36,8 @@ jobs:
           files: ${{github.workspace}}/lcov-integration-test.info
           flags: integration
           override_commit: ${{github.sha}}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: coverage_report
+          path: ${{github.workspace}}/*.info
+          if-no-files-found: error
