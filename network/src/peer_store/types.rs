@@ -71,7 +71,7 @@ impl AddrInfo {
         self.last_tried_at_ms >= now_ms.saturating_sub(60_000)
     }
 
-    /// Whether terrible peer
+    /// Whether connectable peer
     pub fn is_connectable(&self, now_ms: u64) -> bool {
         // do not remove addr tried in last minute
         if self.tried_in_last_minute(now_ms) {
@@ -81,7 +81,7 @@ impl AddrInfo {
         if self.last_connected_at_ms == 0 && self.attempts_count >= ADDR_MAX_RETRIES {
             return false;
         }
-        // consider addr is terrible if failed too many times
+        // consider addr is not connectable if failed too many times
         if now_ms.saturating_sub(self.last_connected_at_ms) > ADDR_TIMEOUT_MS
             && (self.attempts_count >= ADDR_MAX_FAILURES)
         {

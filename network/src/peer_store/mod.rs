@@ -24,6 +24,9 @@ pub(crate) const ADDR_COUNT_LIMIT: usize = 16384;
 const ADDR_TIMEOUT_MS: u64 = 7 * 24 * 3600 * 1000;
 /// The timeout that peer's address should be added to the feeler list again
 pub(crate) const ADDR_TRY_TIMEOUT_MS: u64 = 3 * 24 * 3600 * 1000;
+/// When obtaining the list of selectable nodes for identify,
+/// the node that has just been disconnected needs to be excluded
+pub(crate) const DIAL_INTERVAL: u64 = 15 * 1000;
 const ADDR_MAX_RETRIES: u32 = 3;
 const ADDR_MAX_FAILURES: u32 = 10;
 

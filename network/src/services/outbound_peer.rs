@@ -139,12 +139,12 @@ impl Future for OutboundPeerService {
             }
         }
         while self.interval.as_mut().unwrap().poll_tick(cx).is_ready() {
+            // keep whitelist peer on connected
+            self.try_dial_whitelist();
             // ensure feeler work at any time
             self.dial_feeler();
             // keep outbound peer is enough
             self.try_dial_peers();
-            // keep whitelist peer on connected
-            self.try_dial_whitelist();
             // try dial observed addrs
             self.try_dial_observed();
         }

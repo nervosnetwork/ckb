@@ -70,7 +70,7 @@ fn test_attempt_ban() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .mark_connected(faketime::unix_time_as_millis());
 
     faketime::write_millis(&faketime_file, 100_000).expect("write millis");
 
@@ -95,7 +95,7 @@ fn test_fetch_addrs_to_attempt() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .mark_connected(faketime::unix_time_as_millis());
     faketime::write_millis(&faketime_file, 100_000).expect("write millis");
 
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
@@ -153,7 +153,7 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .last_connected_at_ms = now;
+        .mark_connected(now);
     faketime::write_millis(&faketime_file, 200_000).expect("write millis");
 
     assert_eq!(peer_store.fetch_addrs_to_attempt(1).len(), 1);
@@ -224,7 +224,7 @@ fn test_fetch_random_addrs() {
         .mut_addr_manager()
         .get_mut(&addr3)
         .unwrap()
-        .last_connected_at_ms = 0;
+        .mark_connected(0);
     assert_eq!(peer_store.fetch_random_addrs(3).len(), 3);
     peer_store.remove_disconnected_peer(&addr3);
     assert_eq!(peer_store.fetch_random_addrs(3).len(), 2);

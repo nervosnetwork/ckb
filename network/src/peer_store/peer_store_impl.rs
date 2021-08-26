@@ -7,7 +7,7 @@ use crate::{
         ban_list::BanList,
         types::{ip_to_network, AddrInfo, BannedAddr, PeerInfo},
         Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
-        ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS,
+        ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, DIAL_INTERVAL,
     },
     PeerId, SessionType,
 };
@@ -61,10 +61,10 @@ impl PeerStore {
     /// Add discovered peer address
     /// this method will assume peer and addr is untrust since we have not connected to it.
     pub fn add_addr(&mut self, addr: Multiaddr) -> Result<()> {
-        self.check_purge()?;
         if self.ban_list.is_addr_banned(&addr) {
             return Ok(());
         }
+        self.check_purge()?;
         let score = self.score_config.default_score;
         self.addr_manager.add(AddrInfo::new(addr, 0, score));
         Ok(())
@@ -136,8 +136,9 @@ impl PeerStore {
                 extract_peer_id(&peer_addr.addr)
                     .map(|peer_id| !peers.contains_key(&peer_id))
                     .unwrap_or_default()
-                    && peer_addr
-                        .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(15_000))
+                    && peer_addr.connected(|t| {
+                        t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL)
+                    })
             })
     }
 
@@ -158,7 +159,7 @@ impl PeerStore {
                     .map(|peer_id| !peers.contains_key(&peer_id))
                     .unwrap_or_default()
                     && !peer_addr.tried_in_last_minute(now_ms)
-                    && !peer_addr.connected(|t| t >= addr_expired_ms)
+                    && !peer_addr.connected(|t| t > addr_expired_ms)
             })
     }
 
@@ -176,7 +177,7 @@ impl PeerStore {
                 extract_peer_id(&peer_addr.addr)
                     .map(|peer_id| peers.contains_key(&peer_id))
                     .unwrap_or_default()
-                    || peer_addr.connected(|t| t >= addr_expired_ms)
+                    || peer_addr.connected(|t| t > addr_expired_ms)
             })
     }
 
@@ -236,17 +237,17 @@ impl PeerStore {
         //  2.3. In the network segment with more than 4 peer, randomly evict 2 peer
 
         let now_ms = faketime::unix_time_as_millis();
-        let candidate_peers: Vec<_> = {
-            // find candidate peers by terrible condition
-            let ban_score = self.score_config.ban_score;
-            let mut peers = Vec::default();
-            for addr in self.addr_manager.addrs_iter() {
-                if !addr.is_connectable(now_ms) || addr.score <= ban_score {
-                    peers.push(addr.addr.clone())
+        let candidate_peers: Vec<_> = self
+            .addr_manager
+            .addrs_iter()
+            .filter_map(|addr| {
+                if !addr.is_connectable(now_ms) {
+                    Some(addr.addr.clone())
+                } else {
+                    None
                 }
-            }
-            peers
-        };
+            })
+            .collect();
 
         for key in candidate_peers.iter() {
             self.addr_manager.remove(&key);
@@ -254,7 +255,6 @@ impl PeerStore {
 
         if candidate_peers.is_empty() {
             let candidate_peers: Vec<_> = {
-                // find candidate peers by terrible condition
                 let mut peers_by_network_group: HashMap<Group, Vec<_>> = HashMap::default();
                 for addr in self.addr_manager.addrs_iter() {
                     peers_by_network_group
