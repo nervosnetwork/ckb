@@ -28,6 +28,8 @@ use p2p::{
 };
 use tempfile::tempdir;
 
+mod discovery;
+
 struct Node {
     listen_addr: Multiaddr,
     control: ServiceControl,

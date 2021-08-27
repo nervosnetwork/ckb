@@ -5,6 +5,9 @@ mod linked_hash_set;
 mod shrink_to_fit;
 pub mod strings;
 
+#[cfg(test)]
+mod tests;
+
 use std::time::Duration;
 
 pub use linked_hash_map::{Entries as LinkedHashMapEntries, LinkedHashMap};

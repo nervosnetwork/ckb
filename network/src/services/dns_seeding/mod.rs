@@ -7,6 +7,9 @@ use tokio::time::Interval;
 
 mod seed_record;
 
+#[cfg(test)]
+mod tests;
+
 use crate::NetworkState;
 use seed_record::SeedRecord;
 

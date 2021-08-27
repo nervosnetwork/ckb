@@ -16,6 +16,9 @@ mod proposal_short_id;
 mod subscription;
 mod uints;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::alert::{Alert, AlertId, AlertMessage, AlertPriority};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,

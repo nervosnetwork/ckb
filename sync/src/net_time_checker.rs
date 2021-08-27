@@ -7,7 +7,7 @@ use ckb_util::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-const TOLERANT_OFFSET: u64 = 7_200_000;
+pub(crate) const TOLERANT_OFFSET: u64 = 7_200_000;
 const MIN_SAMPLES: usize = 5;
 const MAX_SAMPLES: usize = 11;
 
@@ -158,41 +158,5 @@ impl CKBProtocolHandler for NetTimeProtocol {
         if let Err(offset) = net_time_checker.check() {
             warn!("Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_samples_collect() {
-        let mut ntc = NetTimeChecker::new(3, 5, TOLERANT_OFFSET);
-        // zero samples
-        assert!(ntc.check().is_ok());
-        // 1 sample
-        ntc.add_sample(TOLERANT_OFFSET as i64 + 1);
-        assert!(ntc.check().is_ok());
-        // 3 samples
-        ntc.add_sample(TOLERANT_OFFSET as i64 + 2);
-        ntc.add_sample(TOLERANT_OFFSET as i64 + 3);
-        assert_eq!(ntc.check().unwrap_err(), TOLERANT_OFFSET as i64 + 2);
-        // 4 samples
-        ntc.add_sample(1);
-        assert_eq!(ntc.check().unwrap_err(), TOLERANT_OFFSET as i64 + 1);
-        // 5 samples
-        ntc.add_sample(2);
-        assert_eq!(ntc.check().unwrap_err(), TOLERANT_OFFSET as i64 + 1);
-        // 5 samples within tolerant offset
-        ntc.add_sample(3);
-        ntc.add_sample(4);
-        ntc.add_sample(5);
-        assert!(ntc.check().is_ok());
-        // 5 samples negative offset
-        ntc.add_sample(-(TOLERANT_OFFSET as i64) - 1);
-        ntc.add_sample(-(TOLERANT_OFFSET as i64) - 2);
-        assert!(ntc.check().is_ok());
-        ntc.add_sample(-(TOLERANT_OFFSET as i64) - 3);
-        assert_eq!(ntc.check().unwrap_err(), -(TOLERANT_OFFSET as i64) - 1);
     }
 }

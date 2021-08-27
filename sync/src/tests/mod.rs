@@ -11,10 +11,14 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+mod block_status;
 mod inflight_blocks;
+mod net_time_checker;
+mod orphan_block_pool;
 mod sync_shared;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
+mod types;
 mod util;
 
 const DEFAULT_CHANNEL: usize = 128;
