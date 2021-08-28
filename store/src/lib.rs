@@ -8,6 +8,9 @@ mod store;
 mod transaction;
 mod write_batch;
 
+#[cfg(test)]
+mod tests;
+
 pub use cache::StoreCache;
 pub use cell::{attach_block_cell, detach_block_cell};
 pub use db::ChainDB;

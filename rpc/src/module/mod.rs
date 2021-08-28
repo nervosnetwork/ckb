@@ -116,7 +116,7 @@ mod debug;
 mod experiment;
 mod miner;
 mod net;
-mod pool;
+pub(crate) mod pool;
 mod stats;
 mod subscription;
 mod test;

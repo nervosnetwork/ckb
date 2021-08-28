@@ -1,5 +1,8 @@
 mod candidate_uncles;
 
+#[cfg(test)]
+mod tests;
+
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;

@@ -13,6 +13,9 @@ pub mod snapshot;
 pub mod transaction;
 pub mod write_batch;
 
+#[cfg(test)]
+mod tests;
+
 pub use crate::db::RocksDB;
 pub use crate::iter::DBIterator;
 pub use crate::read_only_db::ReadOnlyDB;

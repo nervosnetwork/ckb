@@ -6,7 +6,7 @@ pub(crate) mod ping;
 pub(crate) mod support_protocols;
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
