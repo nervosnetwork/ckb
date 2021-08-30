@@ -359,31 +359,38 @@ fn test_discovery_behavior() {
 
     wait_discovery(&node3);
 
-    let addr = {
+    let addrs = {
         let listen_addr = &node3.listen_addr;
-        node3
-            .network_state
-            .peer_store
-            .lock()
-            .fetch_addrs_to_attempt(2)
+        let mut locked = node3.network_state.peer_store.lock();
+
+        locked
+            .fetch_addrs_to_feeler(6)
             .into_iter()
             .map(|peer| peer.addr)
-            .find(|addr| {
+            .flat_map(|addr| {
                 match (
                     multiaddr_to_socketaddr(&addr),
                     multiaddr_to_socketaddr(listen_addr),
                 ) {
-                    (Some(dis), Some(listen)) => dis.port() != listen.port(),
-                    _ => false,
+                    (Some(dis), Some(listen)) => {
+                        if dis.port() != listen.port() {
+                            Some(addr)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
                 }
             })
-            .unwrap()
+            .collect::<Vec<_>>()
     };
 
-    node3.dial_addr(
-        addr,
-        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-    );
+    for addr in addrs {
+        node3.dial_addr(
+            addr,
+            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+        );
+    }
 
     wait_connect_state(&node1, 2);
     wait_connect_state(&node2, 2);

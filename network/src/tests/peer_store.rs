@@ -2,7 +2,7 @@ use super::random_addr;
 use crate::{
     extract_peer_id,
     multiaddr::Multiaddr,
-    peer_store::{PeerStore, Status, ADDR_COUNT_LIMIT},
+    peer_store::{PeerStore, Status, ADDR_COUNT_LIMIT, ADDR_TRY_TIMEOUT_MS},
     Behaviour, PeerId, SessionType,
 };
 
@@ -22,8 +22,9 @@ fn test_add_addr() {
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
     let addr = random_addr();
     peer_store.add_addr(addr).unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
     // we have not connected yet, so return 0
+    assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
     assert_eq!(peer_store.fetch_random_addrs(2).len(), 0);
 }
 
@@ -54,29 +55,86 @@ fn test_ban_peer() {
     assert!(peer_store.is_addr_banned(&addr));
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_attempt_ban() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 1).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr)
+        .unwrap()
+        .mark_connected(faketime::unix_time_as_millis());
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 0);
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 1).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr)
+        .unwrap()
+        .mark_connected(faketime::unix_time_as_millis());
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
     peer_store.add_connected_peer(addr, SessionType::Outbound);
     assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
 }
 
+#[cfg(not(disable_faketime))]
+#[test]
+fn test_fetch_addrs_to_attempt_or_feeler() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 1).expect("write millis");
+
+    let mut peer_store: PeerStore = Default::default();
+    let addr = random_addr();
+    peer_store.add_outbound_addr(addr);
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
+    assert_eq!(peer_store.fetch_addrs_to_attempt(2).len(), 1);
+    assert!(peer_store.fetch_addrs_to_feeler(2).is_empty());
+
+    faketime::write_millis(&faketime_file, 100_000 + ADDR_TRY_TIMEOUT_MS + 1)
+        .expect("write millis");
+
+    assert!(peer_store.fetch_addrs_to_attempt(2).is_empty());
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+}
+
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_in_last_minutes() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_addr(addr.clone()).unwrap();
@@ -89,6 +147,18 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
     // after 60 seconds
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now - 60_001);
+    }
+    assert!(peer_store.fetch_addrs_to_attempt(1).is_empty());
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr)
+        .unwrap()
+        .mark_connected(now);
+    faketime::write_millis(&faketime_file, 200_000).expect("write millis");
+
+    assert_eq!(peer_store.fetch_addrs_to_attempt(1).len(), 1);
+    if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
+        paddr.mark_tried(now);
     }
     assert_eq!(peer_store.fetch_addrs_to_attempt(1).len(), 1);
 }
@@ -154,7 +224,7 @@ fn test_fetch_random_addrs() {
         .mut_addr_manager()
         .get_mut(&addr3)
         .unwrap()
-        .last_connected_at_ms = 0;
+        .mark_connected(0);
     assert_eq!(peer_store.fetch_random_addrs(3).len(), 3);
     peer_store.remove_disconnected_peer(&addr3);
     assert_eq!(peer_store.fetch_random_addrs(3).len(), 2);
@@ -230,13 +300,13 @@ fn test_eviction() {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
-        assert!(paddr.is_terrible(now));
+        assert!(!paddr.is_connectable(now));
     }
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&evict_addr_2) {
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
         paddr.mark_tried(tried_ms);
-        assert!(paddr.is_terrible(now));
+        assert!(!paddr.is_connectable(now));
     }
     // should evict evict_addr and accept new_peer
     let new_peer_addr: Multiaddr =
@@ -245,9 +315,22 @@ fn test_eviction() {
             .unwrap();
     peer_store.add_addr(new_peer_addr.clone()).unwrap();
     // check addrs
-    // peer store will evict peers from largest network group to low group
-    // the two evict_addrs should be evict, other addrs will remain in peer store
+    // peer store will evict all peers which are invalid
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
     assert!(peer_store.mut_addr_manager().get(&evict_addr_2).is_none());
     assert!(peer_store.mut_addr_manager().get(&evict_addr).is_none());
+
+    // In the absence of invalid nodes, too many nodes on the same network segment will be automatically evicted
+    let new_peer_addr: Multiaddr =
+        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+    peer_store.add_addr(new_peer_addr.clone()).unwrap();
+    assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
+    let new_peer_addr: Multiaddr =
+        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+            .parse()
+            .unwrap();
+    peer_store.add_addr(new_peer_addr.clone()).unwrap();
+    assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
 }
