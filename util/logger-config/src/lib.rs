@@ -25,6 +25,7 @@ pub struct Config {
     /// [env_logger::Filter]: https://docs.rs/env_logger/*/env_logger/filter/struct.Filter.html
     pub filter: Option<String>,
     /// Colorize the output which was written into the stdout.
+    #[serde(default = "default_values::color")]
     pub color: bool,
     /// The log file of the main loggger.
     #[serde(skip)]
@@ -33,8 +34,10 @@ pub struct Config {
     #[serde(skip)]
     pub log_dir: PathBuf,
     /// Output the log records of the main logger into a file or not.
+    #[serde(default = "default_values::log_to_file")]
     pub log_to_file: bool,
     /// Output the log records of the main logger into the stdout or not.
+    #[serde(default = "default_values::log_to_stdout")]
     pub log_to_stdout: bool,
     /// An optional bool to control whether or not emit [Sentry Breadcrumbs].
     ///
@@ -64,13 +67,27 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             filter: None,
-            color: !cfg!(windows),
+            color: default_values::color(),
             file: Default::default(),
             log_dir: Default::default(),
-            log_to_file: false,
-            log_to_stdout: true,
+            log_to_file: default_values::log_to_file(),
+            log_to_stdout: default_values::log_to_stdout(),
             emit_sentry_breadcrumbs: None,
             extra: Default::default(),
         }
+    }
+}
+
+pub(crate) mod default_values {
+    pub(crate) const fn color() -> bool {
+        !cfg!(windows)
+    }
+
+    pub(crate) const fn log_to_file() -> bool {
+        false
+    }
+
+    pub(crate) const fn log_to_stdout() -> bool {
+        true
     }
 }
