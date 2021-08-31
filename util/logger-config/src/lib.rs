@@ -8,6 +8,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod tests;
+
 /// The whole CKB logger configuration.
 ///
 /// This struct is used to build [`Logger`].
@@ -15,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// Include configurations of the main logger and any number of extra loggers.
 ///
 /// [`Logger`]: ../ckb_logger_service/struct.Logger.html
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// An optional string which is used to build [env_logger::Filter] for the main logger.
@@ -55,7 +58,7 @@ pub struct Config {
 /// This struct is used to build [`ExtraLogger`].
 ///
 /// [`ExtraLogger`]: ../ckb_logger_service/struct.ExtraLogger.html
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraLoggerConfig {
     /// A string which is used to build [env_logger::Filter] for the extra logger.
     ///

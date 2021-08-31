@@ -762,6 +762,7 @@ name = "ckb-logger-config"
 version = "0.100.0-pre"
 dependencies = [
  "serde",
+ "toml",
 ]
 
 [[package]]
@@ -772,6 +773,7 @@ dependencies = [
  "backtrace",
  "chrono",
  "ckb-channel",
+ "ckb-logger",
  "ckb-logger-config",
  "ckb-util",
  "env_logger",
@@ -779,6 +781,7 @@ dependencies = [
  "once_cell",
  "regex",
  "sentry",
+ "tempfile",
 ]
 
 [[package]]

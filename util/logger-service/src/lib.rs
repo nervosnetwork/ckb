@@ -16,6 +16,9 @@ use std::{fs, panic, process, sync, thread};
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
 
+#[cfg(test)]
+mod tests;
+
 static CONTROL_HANDLE: OnceCell<ckb_channel::Sender<Message>> = OnceCell::new();
 static RE: OnceCell<regex::Regex> = OnceCell::new();
 
@@ -72,7 +75,7 @@ fn enable_ansi_support() {
 fn enable_ansi_support() {}
 
 // Parse crate name leniently in logger filter: convert "-" to "_".
-fn convert_compatible_crate_name(spec: &str) -> String {
+pub(crate) fn convert_compatible_crate_name(spec: &str) -> String {
     let mut parts = spec.splitn(2, '/');
     let first_part = parts.next();
     let last_part = parts.next();
@@ -90,27 +93,6 @@ fn convert_compatible_crate_name(spec: &str) -> String {
     } else {
         mods.join(",")
     }
-}
-
-#[test]
-fn test_convert_compatible_crate_name() {
-    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace/*[0-9]";
-    let expected = "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace/*[0-9]";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace";
-    let expected =
-        "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info/*[0-9]";
-    let expected = "info/*[0-9]";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info";
-    let expected = "info";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
 }
 
 impl Logger {
