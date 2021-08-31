@@ -851,6 +851,7 @@ impl CKBProtocolHandler for Relayer {
                 if !self.shared.state().orphan_pool().is_empty() {
                     tokio::task::block_in_place(|| {
                         self.shared.try_search_orphan_pool(&self.chain);
+                        self.shared.periodic_clean_orphan_pool();
                     })
                 }
             }

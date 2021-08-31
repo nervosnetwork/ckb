@@ -1,10 +1,12 @@
 use ckb_logger::debug;
+use ckb_types::core::EpochNumber;
 use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type ParentHash = packed::Byte32;
 const SHRINK_THRESHOLD: usize = 100;
+const EXPIRED_EPOCH: u64 = 6;
 
 #[derive(Default)]
 struct InnerPool {
@@ -88,6 +90,32 @@ impl InnerPool {
                 .and_then(|blocks| blocks.get(hash).cloned())
         })
     }
+
+    /// cleanup expired blocks(epoch + EXPIRED_EPOCH < tip_epoch)
+    pub fn clean_expired_blocks(&mut self, tip_epoch: EpochNumber) -> Vec<packed::Byte32> {
+        let mut result = vec![];
+
+        for hash in self.leaders.clone().iter() {
+            if self.need_clean(hash, tip_epoch) {
+                // remove items in orphan pool and return hash to callee(clean header map)
+                let descendants = self.remove_blocks_by_parent(&hash);
+                result.extend(descendants.iter().map(|block| block.hash()));
+            }
+        }
+        result
+    }
+
+    /// get 1st block belongs to that parent and check if it's expired block
+    fn need_clean(&self, parent_hash: &packed::Byte32, tip_epoch: EpochNumber) -> bool {
+        self.blocks
+            .get(parent_hash)
+            .and_then(|map| {
+                map.iter()
+                    .next()
+                    .map(|(_, block)| block.header().epoch().number() + EXPIRED_EPOCH < tip_epoch)
+            })
+            .unwrap_or_default()
+    }
 }
 
 // NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
@@ -116,6 +144,10 @@ impl OrphanBlockPool {
 
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
         self.inner.read().get_block(hash)
+    }
+
+    pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
+        self.inner.write().clean_expired_blocks(epoch)
     }
 
     pub fn len(&self) -> usize {
