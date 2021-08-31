@@ -41,7 +41,6 @@ enum Message {
 /// When a CKB logger is created, a logging service will be started in a background thread.
 ///
 /// [log::Log]: https://docs.rs/log/*/log/trait.Log.html
-#[derive(Debug)]
 pub struct Logger {
     sender: ckb_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
@@ -51,7 +50,6 @@ pub struct Logger {
     extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
 }
 
-#[derive(Debug)]
 struct MainLogger {
     file_path: PathBuf,
     file: Option<fs::File>,
@@ -60,7 +58,6 @@ struct MainLogger {
     color: bool,
 }
 
-#[derive(Debug)]
 struct ExtraLogger {
     filter: Filter,
 }
@@ -491,7 +488,6 @@ pub fn init_silent() -> Result<LoggerInitGuard, SetLoggerError> {
 /// The SilentLogger which implements [log::Log].
 ///
 /// Silent logger that does nothing.
-#[derive(Debug)]
 pub struct SilentLogger;
 
 impl Log for SilentLogger {
