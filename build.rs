@@ -10,8 +10,15 @@ fn rerun_if_changed(path_str: &str) -> bool {
         || path.starts_with("docs")
         || path.starts_with("test")
         || path.starts_with(".github")
+        || path.ends_with("tests.rs")
     {
         return false;
+    }
+
+    for ancestor in path.ancestors() {
+        if ancestor.ends_with("tests") {
+            return false;
+        }
     }
 
     !matches!(
