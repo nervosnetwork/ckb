@@ -132,13 +132,14 @@ impl Logger {
 
         let Config {
             color,
-            file: file_path,
+            file,
             log_dir,
             log_to_file,
             log_to_stdout,
             ..
         } = config;
         let mut main_logger = {
+            let file_path = log_dir.join(file);
             let file = if log_to_file {
                 match Self::open_log_file(&file_path) {
                     Err(err) => {

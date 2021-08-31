@@ -77,10 +77,19 @@ fn main() {
             ..Default::default()
         };
         if let Some(log_file) = log_file_opt {
-            if log_file.is_relative() {
-                logger_config.log_dir = current_dir();
-            }
-            logger_config.file = log_file;
+            let full_log_file = if log_file.is_relative() {
+                current_dir().join(log_file)
+            } else {
+                log_file
+            };
+            logger_config.file = full_log_file
+                .file_name()
+                .map(|name| Path::new(name).to_path_buf())
+                .unwrap_or_else(|| panic!("failed to get the filename for log_file"));
+            logger_config.log_dir = full_log_file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| panic!("failed to get the parent path for log_file"));
             logger_config.log_to_file = true;
         } else {
             logger_config.log_to_file = false;
