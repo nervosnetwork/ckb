@@ -8,4 +8,5 @@ criterion_main! {
     benchmarks::secp_2in2out::process_block,
     benchmarks::overall::overall,
     benchmarks::resolve::resolve,
+    benchmarks::orphan_block_pool::orphan_block_pool,
 }

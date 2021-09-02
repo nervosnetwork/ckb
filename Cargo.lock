@@ -416,6 +416,7 @@ dependencies = [
  "ckb-resource",
  "ckb-shared",
  "ckb-store",
+ "ckb-sync",
  "ckb-system-scripts",
  "ckb-test-chain-utils",
  "ckb-types",

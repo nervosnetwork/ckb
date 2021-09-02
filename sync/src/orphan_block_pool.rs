@@ -4,6 +4,7 @@ use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[doc(hidden)]
 pub type ParentHash = packed::Byte32;
 const SHRINK_THRESHOLD: usize = 100;
 const EXPIRED_EPOCH: u64 = 6;
@@ -121,12 +122,14 @@ impl InnerPool {
 // NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
 // RwLock ensures the consistency between maps. Using multiple concurrent maps does not work here.
+/// Orphan Block Pool manages all orphan blocks, primarily support insert and remove orphan blocks
 #[derive(Default)]
 pub struct OrphanBlockPool {
     inner: RwLock<InnerPool>,
 }
 
 impl OrphanBlockPool {
+    /// initialization api
     pub fn with_capacity(capacity: usize) -> Self {
         OrphanBlockPool {
             inner: RwLock::new(InnerPool::with_capacity(capacity)),
@@ -138,26 +141,32 @@ impl OrphanBlockPool {
         self.inner.write().insert(block);
     }
 
+    /// collect all children(orphan) blocks of parent_hash and return
     pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
         self.inner.write().remove_blocks_by_parent(parent_hash)
     }
 
+    /// get block of input hash
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
         self.inner.read().get_block(hash)
     }
 
+    /// clean epoch expired blocks
     pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
         self.inner.write().clean_expired_blocks(epoch)
     }
 
+    /// parents map length
     pub fn len(&self) -> usize {
         self.inner.read().parents.len()
     }
 
+    /// is parents map empty
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// clone all leaders hash in leader map
     pub fn clone_leaders(&self) -> Vec<ParentHash> {
         self.inner.read().leaders.iter().cloned().collect()
     }
