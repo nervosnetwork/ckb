@@ -281,10 +281,7 @@ impl CKBAppConfig {
             self.tmp_dir = Some(self.data_dir.join("tmp"));
         }
         self.logger.log_dir = self.data_dir.join("logs");
-        self.logger.file = self
-            .logger
-            .log_dir
-            .join(subcommand_name.to_string() + ".log");
+        self.logger.file = Path::new(&(subcommand_name.to_string() + ".log")).to_path_buf();
 
         self.tx_pool.adjust(root_dir, &self.data_dir);
 
@@ -300,7 +297,7 @@ impl CKBAppConfig {
         }
         if self.logger.log_to_file {
             mkdir(self.logger.log_dir.clone())?;
-            self.logger.file = touch(self.logger.file)?;
+            self.logger.file = touch(self.logger.log_dir.join(&self.logger.file))?;
         }
         self.chain.spec.absolutize(root_dir);
 
@@ -326,10 +323,10 @@ impl MinerAppConfig {
 
         self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir))?;
         self.logger.log_dir = self.data_dir.join("logs");
-        self.logger.file = self.logger.log_dir.join("miner.log");
+        self.logger.file = Path::new("miner.log").to_path_buf();
         if self.logger.log_to_file {
             mkdir(self.logger.log_dir.clone())?;
-            self.logger.file = touch(self.logger.file)?;
+            self.logger.file = touch(self.logger.log_dir.join(&self.logger.file))?;
         }
         self.chain.spec.absolutize(root_dir);
 

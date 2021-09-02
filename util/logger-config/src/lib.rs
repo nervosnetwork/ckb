@@ -8,6 +8,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod tests;
+
 /// The whole CKB logger configuration.
 ///
 /// This struct is used to build [`Logger`].
@@ -15,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// Include configurations of the main logger and any number of extra loggers.
 ///
 /// [`Logger`]: ../ckb_logger_service/struct.Logger.html
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// An optional string which is used to build [env_logger::Filter] for the main logger.
@@ -25,6 +28,7 @@ pub struct Config {
     /// [env_logger::Filter]: https://docs.rs/env_logger/*/env_logger/filter/struct.Filter.html
     pub filter: Option<String>,
     /// Colorize the output which was written into the stdout.
+    #[serde(default = "default_values::color")]
     pub color: bool,
     /// The log file of the main loggger.
     #[serde(skip)]
@@ -33,8 +37,10 @@ pub struct Config {
     #[serde(skip)]
     pub log_dir: PathBuf,
     /// Output the log records of the main logger into a file or not.
+    #[serde(default = "default_values::log_to_file")]
     pub log_to_file: bool,
     /// Output the log records of the main logger into the stdout or not.
+    #[serde(default = "default_values::log_to_stdout")]
     pub log_to_stdout: bool,
     /// An optional bool to control whether or not emit [Sentry Breadcrumbs].
     ///
@@ -52,7 +58,7 @@ pub struct Config {
 /// This struct is used to build [`ExtraLogger`].
 ///
 /// [`ExtraLogger`]: ../ckb_logger_service/struct.ExtraLogger.html
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraLoggerConfig {
     /// A string which is used to build [env_logger::Filter] for the extra logger.
     ///
@@ -64,13 +70,27 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             filter: None,
-            color: !cfg!(windows),
+            color: default_values::color(),
             file: Default::default(),
             log_dir: Default::default(),
-            log_to_file: false,
-            log_to_stdout: true,
+            log_to_file: default_values::log_to_file(),
+            log_to_stdout: default_values::log_to_stdout(),
             emit_sentry_breadcrumbs: None,
             extra: Default::default(),
         }
+    }
+}
+
+pub(crate) mod default_values {
+    pub(crate) const fn color() -> bool {
+        !cfg!(windows)
+    }
+
+    pub(crate) const fn log_to_file() -> bool {
+        false
+    }
+
+    pub(crate) const fn log_to_stdout() -> bool {
+        true
     }
 }

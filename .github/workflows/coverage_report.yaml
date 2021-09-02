@@ -17,7 +17,9 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          override: true
+      - name: overwrite toolchain
+        # It's easier to clean than `rustup override`
+        run: echo nightly > rust-toolchain
       - name: unit coverage
         run: make cov
       - name: integration cov
