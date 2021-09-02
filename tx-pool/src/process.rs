@@ -69,6 +69,11 @@ pub(crate) enum ProcessResult {
     Completed(Completed),
 }
 
+enum PackageTxs {
+    Ready(HashSet<ProposalShortId>, Vec<TxEntry>, u64),
+    NotReady,
+}
+
 impl TxStatus {
     fn with_env(self, header: &HeaderView) -> TxVerifyEnv {
         match self {
@@ -175,6 +180,7 @@ impl TxPoolService {
         (uncles, current_epoch, last_uncles_updated_at)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn package_txs_for_block_template(
         &self,
         bytes_limit: u64,
@@ -183,8 +189,13 @@ impl TxPoolService {
         cellbase: &TransactionView,
         uncles: &[UncleBlockView],
         extension_opt: Option<Bytes>,
-    ) -> Result<(HashSet<ProposalShortId>, Vec<TxEntry>, u64), AnyError> {
+        snapshot: &Snapshot,
+    ) -> Result<PackageTxs, AnyError> {
         let guard = self.tx_pool.read().await;
+        if guard.snapshot.tip_hash() != snapshot.tip_hash() {
+            return Ok(PackageTxs::NotReady);
+        }
+
         let uncle_proposals = uncles
             .iter()
             .flat_map(|u| u.data().proposals().into_iter())
@@ -213,7 +224,57 @@ impl TxPoolService {
             );
         }
         let last_txs_updated_at = self.last_txs_updated_at.load(Ordering::SeqCst);
-        Ok((proposals, entries, last_txs_updated_at))
+        Ok(PackageTxs::Ready(proposals, entries, last_txs_updated_at))
+    }
+
+    /// blank proposal?
+    #[allow(clippy::too_many_arguments)]
+    fn build_blank_block_template(
+        &self,
+        snapshot: &Snapshot,
+        cellbase: TransactionView,
+        work_id: u64,
+        current_epoch: EpochExt,
+        uncles: Vec<UncleBlockView>,
+        bytes_limit: u64,
+        version: Version,
+        extension: Option<Bytes>,
+    ) -> Result<BlockTemplate, AnyError> {
+        let consensus = snapshot.consensus();
+        let tip_header = snapshot.tip_header();
+        let tip_hash = tip_header.hash();
+
+        let cellbase_dummy_rtx = ResolvedTransaction::dummy_resolve(cellbase.clone());
+
+        // Generate DAO fields here
+        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
+            .dao_field(&[cellbase_dummy_rtx], tip_header)?;
+
+        let candidate_number = tip_header.number() + 1;
+        let cycles_limit = consensus.max_block_cycles();
+        let uncles_count_limit = consensus.max_uncles_num() as u32;
+
+        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
+        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
+
+        Ok(BlockTemplate {
+            version: version.into(),
+            compact_target: current_epoch.compact_target().into(),
+            current_time: current_time.into(),
+            number: candidate_number.into(),
+            epoch: current_epoch.number_with_fraction(candidate_number).into(),
+            parent_hash: tip_hash.unpack(),
+            cycles_limit: cycles_limit.into(),
+            bytes_limit: bytes_limit.into(),
+            uncles_count_limit: u64::from(uncles_count_limit).into(),
+            uncles: uncles.iter().map(BlockAssembler::transform_uncle).collect(),
+            transactions: vec![],
+            proposals: vec![],
+            cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
+            work_id: work_id.into(),
+            dao: dao.into(),
+            extension: extension.map(Into::into),
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -333,6 +394,7 @@ impl TxPoolService {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplate, AnyError> {
         if self.block_assembler.is_none() && block_assembler_config.is_none() {
@@ -343,7 +405,6 @@ impl TxPoolService {
             let block_assembler = block_assembler_config
                 .map(BlockAssembler::new)
                 .unwrap_or_else(|| self.block_assembler.clone().unwrap());
-            let snapshot = self.snapshot();
             let consensus = snapshot.consensus();
             let cycles_limit = consensus.max_block_cycles();
             let (bytes_limit, proposals_limit, version) = BlockAssembler::transform_params(
@@ -375,7 +436,7 @@ impl TxPoolService {
 
             let extension = None;
 
-            let (proposals, entries, txs_updated_at) = self
+            let package_txs = self
                 .package_txs_for_block_template(
                     bytes_limit,
                     proposals_limit,
@@ -383,32 +444,49 @@ impl TxPoolService {
                     &cellbase,
                     &uncles,
                     extension.clone(),
+                    &snapshot,
                 )
                 .await?;
 
             let work_id = block_assembler.work_id.fetch_add(1, Ordering::SeqCst);
 
-            let block_template = self.build_block_template(
-                &snapshot,
-                entries,
-                proposals,
-                cellbase,
-                work_id,
-                current_epoch,
-                uncles,
-                bytes_limit,
-                version,
-                extension,
-            )?;
+            let block_template =
+                if let PackageTxs::Ready(proposals, entries, txs_updated_at) = package_txs {
+                    let block_template = self.build_block_template(
+                        &snapshot,
+                        entries,
+                        proposals,
+                        cellbase,
+                        work_id,
+                        current_epoch,
+                        uncles,
+                        bytes_limit,
+                        version,
+                        extension,
+                    )?;
 
-            self.update_block_template_cache(
-                &block_assembler,
-                (snapshot.tip_hash(), bytes_limit, proposals_limit, version),
-                uncles_updated_at,
-                txs_updated_at,
-                block_template.clone(),
-            )
-            .await;
+                    self.update_block_template_cache(
+                        &block_assembler,
+                        (snapshot.tip_hash(), bytes_limit, proposals_limit, version),
+                        uncles_updated_at,
+                        txs_updated_at,
+                        block_template.clone(),
+                    )
+                    .await;
+
+                    block_template
+                } else {
+                    self.build_blank_block_template(
+                        &snapshot,
+                        cellbase,
+                        work_id,
+                        current_epoch,
+                        uncles,
+                        bytes_limit,
+                        version,
+                        extension,
+                    )?
+                };
 
             Ok(block_template)
         }
@@ -914,6 +992,7 @@ impl TxPoolService {
             check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
         let hardfork_during_attach =
             check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
+        let epoch = snapshot.tip_header().epoch().number();
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().into_iter().skip(1))
@@ -974,15 +1053,13 @@ impl TxPoolService {
 
         // update network fork switch each block
         {
-            if !self.network.load_ckb2021() {
-                let epoch = self.snapshot().tip_header().epoch().number();
-                if self
+            if !self.network.load_ckb2021()
+                && self
                     .consensus
                     .hardfork_switch
                     .is_vm_version_1_and_syscalls_2_enabled(epoch)
-                {
-                    self.network.init_ckb2021()
-                }
+            {
+                self.network.init_ckb2021()
             }
         }
     }

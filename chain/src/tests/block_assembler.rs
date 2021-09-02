@@ -55,9 +55,8 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
 lazy_static! {
     static ref BASIC_BLOCK_SIZE: u64 = {
         let (_chain_controller, shared) = start_chain(None);
-        let tx_pool = shared.tx_pool_controller();
 
-        let block_template = tx_pool
+        let block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap();
@@ -70,9 +69,8 @@ lazy_static! {
 #[test]
 fn test_get_block_template() {
     let (_chain_controller, shared) = start_chain(None);
-    let tx_pool = shared.tx_pool_controller();
 
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -147,14 +145,13 @@ fn test_block_template_timestamp() {
     chain_controller
         .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
-    let tx_pool = shared.tx_pool_controller();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 2 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -168,9 +165,8 @@ fn test_block_template_timestamp() {
 #[test]
 fn test_block_template_message() {
     let (_chain_controller, shared) = start_chain(None);
-    let tx_pool = shared.tx_pool_controller();
 
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -216,15 +212,13 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
-    let tx_pool = shared.tx_pool_controller();
-
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     // block number 3, epoch 0
     while (Into::<u64>::into(block_template.number)) != 3 || block_template.uncles.is_empty() {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -242,12 +236,12 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 4 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -266,12 +260,12 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block3_1), Switch::DISABLE_ALL)
         .unwrap();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 5 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -365,7 +359,7 @@ fn test_package_basic() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 300 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -376,7 +370,7 @@ fn test_package_basic() {
     );
 
     // 400 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -387,7 +381,7 @@ fn test_package_basic() {
     );
 
     // 500 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -398,7 +392,7 @@ fn test_package_basic() {
     );
 
     // 600 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(600 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -409,7 +403,7 @@ fn test_package_basic() {
     );
 
     // 700 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(700 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -420,7 +414,7 @@ fn test_package_basic() {
     );
 
     // 800 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(800 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -431,14 +425,14 @@ fn test_package_basic() {
     );
 
     // none package txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
     check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -505,7 +499,7 @@ fn test_package_multi_best_scores() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 250 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -516,7 +510,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 400 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -527,7 +521,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 500 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -538,7 +532,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 900 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(900 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -549,14 +543,14 @@ fn test_package_multi_best_scores() {
     );
 
     // none package txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
     check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -610,7 +604,7 @@ fn test_package_low_fee_decendants() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
