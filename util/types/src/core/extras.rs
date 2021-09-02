@@ -26,6 +26,15 @@ pub struct BlockExt {
     pub txs_fees: Vec<Capacity>,
 }
 
+/// store transaction vbyte related info(cycles, size)
+#[derive(Clone, PartialEq, Default, Debug)]
+pub struct BlockTxStat {
+    /// transaction cycles
+    pub txs_cycles: Vec<u64>,
+    /// transaction size
+    pub txs_size: Vec<u64>,
+}
+
 /// TODO(doc): @quake
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct TransactionInfo {

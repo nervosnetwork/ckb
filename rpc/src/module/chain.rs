@@ -1191,6 +1191,50 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "get_block_median_time")]
     fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>>;
+
+    /// Returns the median fee rate in recent number of blocks specified by user.
+    ///
+    /// ## Params
+    ///
+    /// * `blocks_scan` - the latest x (default and maximum blocks: 42) blocks scanned to calculate median fee rate.
+    /// * `num_transaction` - number of transactions(default: 42) should be included in the block.
+    ///
+    /// ## Returns
+    /// * `Result<Capacity>` - the median fee rate(in Shannons).
+    ///
+    /// Note: When there are less than `min_transaction` transactions in the last `max_blocks_scan` blocks,
+    /// this RPC returns an error. Otherwise, it returns the median fee rate (in Shannons per vbyte).
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_median_fee_rate",
+    ///   "params": [
+    ///         "0x2a", "0x1"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x5a82bd636d98dd"
+    /// }
+    /// ```
+    #[rpc(name = "get_median_fee_rate")]
+    fn get_median_fee_rate(
+        &self,
+        blocks_to_scan: Option<Uint32>,
+        num_transactions: Option<Uint32>,
+    ) -> Result<ckb_jsonrpc_types::Capacity>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1199,6 +1243,9 @@ pub(crate) struct ChainRpcImpl {
 
 const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
+
+const MAX_BLOCKS_TO_SCAN: u32 = 42;
+const MIN_TRANSACTIONS: u32 = 42;
 
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
@@ -1645,4 +1692,124 @@ impl ChainRpc for ChainRpcImpl {
         );
         Ok(Some(median_time.into()))
     }
+
+    fn get_median_fee_rate(
+        &self,
+        blocks_to_scan: Option<Uint32>,
+        transactions_to_cal: Option<Uint32>,
+    ) -> Result<ckb_jsonrpc_types::Capacity> {
+        let blocks_to_scan = blocks_to_scan
+            .map(|v| v.value())
+            .unwrap_or(MAX_BLOCKS_TO_SCAN);
+        let transactions_to_cal = transactions_to_cal
+            .map(|v| v.value())
+            .unwrap_or(MIN_TRANSACTIONS);
+
+        // check input parameter
+        if blocks_to_scan > MAX_BLOCKS_TO_SCAN {
+            return Err(RPCError::invalid_params(format!(
+                "invalid input parameter: max_blocks_to_scan, should be less than {}",
+                MAX_BLOCKS_TO_SCAN
+            )));
+        }
+
+        // find matched blocks
+        let snapshot = self.shared.snapshot();
+        let tip = snapshot.tip_header().number();
+        let mut match_blocks = Vec::with_capacity(blocks_to_scan as usize);
+        let mut block_counter = 0;
+        let mut tx_counter = 0;
+
+        // get block hash and check if contains enough transaction
+        let mut hash = snapshot.get_block_hash(tip).ok_or_else(|| {
+            RPCError::custom(RPCError::ChainIndexIsInconsistent, "get_block_hash error")
+        })?;
+        while block_counter < blocks_to_scan {
+            let block = snapshot.get_block(&hash).ok_or_else(|| {
+                RPCError::custom(RPCError::ChainIndexIsInconsistent, "get_block error")
+            })?;
+            block_counter += 1;
+            let block_ext = snapshot.get_block_tx_stat(&hash).ok_or_else(|| {
+                RPCError::custom(
+                    RPCError::ChainIndexIsInconsistent,
+                    "get_block_tx_stat error",
+                )
+            })?;
+
+            // we collect the block hash if it contains more than one transaction(except cellbase),
+            if !block_ext.txs_size.is_empty() {
+                tx_counter += block_ext.txs_size.len();
+                match_blocks.push(hash.clone());
+            }
+
+            if tx_counter >= transactions_to_cal as usize {
+                break;
+            }
+
+            hash = block.parent_hash();
+        }
+
+        if block_counter == blocks_to_scan && tx_counter < transactions_to_cal as usize {
+            return Err(RPCError::invalid_params(format!(
+                "chain hasn't enough transactions in {} recent blocks",
+                blocks_to_scan
+            )));
+        }
+
+        let mut fee_vec: Vec<u64> = Vec::with_capacity(blocks_to_scan as usize);
+        for hash in &match_blocks {
+            let stat = snapshot.get_block_tx_stat(hash).ok_or_else(|| {
+                RPCError::custom(
+                    RPCError::ChainIndexIsInconsistent,
+                    "get_block_tx_stat error",
+                )
+            })?;
+            let exts = snapshot.get_block_ext(hash).ok_or_else(|| {
+                RPCError::custom(RPCError::ChainIndexIsInconsistent, "get_block_ext error")
+            })?;
+
+            assert_eq!(
+                exts.txs_fees.len(),
+                stat.txs_cycles.len(),
+                "{},{}",
+                exts.txs_fees.len(),
+                stat.txs_cycles.len()
+            );
+            assert_eq!(
+                stat.txs_cycles.len(),
+                stat.txs_size.len(),
+                "{},{}",
+                stat.txs_cycles.len(),
+                stat.txs_size.len()
+            );
+
+            // put transactions(skip the cellbase(the 1st tx in transactions)) fee,
+            // zip with cycles, tx_size to calculate fee_rate
+            for ((fee, tx_size), cycles) in exts
+                .txs_fees
+                .into_iter()
+                .zip(stat.txs_cycles.iter())
+                .zip(stat.txs_size.iter())
+            {
+                let vbytes = get_transaction_virtual_bytes(*tx_size, *cycles);
+                let ratio = core::Ratio::new(vbytes, 1);
+                let fee_rate = fee.safe_mul_ratio(ratio).map_err(|_| {
+                    RPCError::custom(RPCError::IntegerOverflow, "safe_mul_ration overflow")
+                })?;
+                fee_vec.push(fee_rate.as_u64());
+            }
+        }
+
+        fee_vec.sort_unstable();
+        let res = fee_vec[fee_vec.len() >> 1];
+        Ok(res.into())
+    }
+}
+
+const DEFAULT_BYTES_PER_CYCLES: f64 = 0.000_170_571_4_f64;
+fn get_transaction_virtual_bytes(tx_size: u64, cycles: u64) -> u64 {
+    std::cmp::max(
+        tx_size as u64,
+        (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
+    )
 }

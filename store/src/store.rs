@@ -5,15 +5,16 @@ use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
     COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    COLUMN_TRANSACTION_INFO, COLUMN_TX_STAT, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellChecker, CellMeta, CellProvider, CellStatus},
-        BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
-        TransactionView, UncleBlockVecView,
+        BlockExt, BlockNumber, BlockTxStat, BlockView, EpochExt, EpochNumber, HeaderView,
+        TransactionInfo, TransactionView, UncleBlockVecView,
     },
     packed::{self, OutPoint},
     prelude::*,
@@ -542,6 +543,13 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(&slice.as_ref());
             reader.data().to_entity()
+        })
+    }
+
+    /// get block tx statistic information, including tx_cycle and tx_size
+    fn get_block_tx_stat(&'a self, hash: &packed::Byte32) -> Option<BlockTxStat> {
+        self.get(COLUMN_TX_STAT, hash.as_slice()).map(|slice| {
+            packed::BlockTxStatReader::from_slice_should_be_ok(&slice.as_ref()).unpack()
         })
     }
 }

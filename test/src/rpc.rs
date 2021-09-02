@@ -172,6 +172,17 @@ impl RpcClient {
             .expect("rpc call get_block_median_time")
     }
 
+    pub fn get_median_fee_rate(
+        &self,
+        blocks_to_scan: Option<u64>,
+        min_transactions: Option<u64>,
+    ) -> Result<Capacity, AnyError> {
+        self.inner.get_median_fee_rate(
+            blocks_to_scan.map(|v| v.into()),
+            min_transactions.map(|v| v.into()),
+        )
+    }
+
     pub fn send_transaction(&self, tx: Transaction) -> Byte32 {
         self.send_transaction_result(tx)
             .expect("rpc call send_transaction")
@@ -306,6 +317,7 @@ jsonrpc!(pub struct Inner {
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
     pub fn get_blockchain_info(&self) -> ChainInfo;
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
+    pub fn get_median_fee_rate(&self, blocks_to_scan: Option<Uint64>, min_transactions: Option<Uint64>) -> Capacity;
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn tx_pool_info(&self) -> TxPoolInfo;

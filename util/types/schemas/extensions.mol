@@ -48,6 +48,11 @@ table BlockExt {
     verified:           BoolOpt,
 }
 
+table BlockTxStat {
+    txs_cycles:         Uint64Vec,
+    txs_size:           Uint64Vec,
+}
+
 struct EpochExt {
     previous_epoch_hash_rate:           Uint256,
     last_block_hash_in_previous_epoch:  Byte32,

@@ -673,6 +673,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "subscribe" => replace_rpc_response::<Uint64>(example, response),
         "unsubscribe" => replace_rpc_response::<bool>(example, response),
         "send_transaction" => replace_rpc_response::<H256>(example, response),
+        "get_median_fee_rate" => replace_rpc_response::<Uint64>(example, response),
         "get_block_template" => {
             response.result["current_time"] = example.response.result["current_time"].clone()
         }

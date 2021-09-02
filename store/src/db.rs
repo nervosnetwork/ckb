@@ -13,7 +13,11 @@ use ckb_db::{
 use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::Error;
 use ckb_freezer::Freezer;
-use ckb_types::{core::BlockExt, packed, prelude::*};
+use ckb_types::{
+    core::{BlockExt, BlockTxStat},
+    packed,
+    prelude::*,
+};
 use std::sync::Arc;
 
 /// TODO(doc): @quake
@@ -159,12 +163,17 @@ impl ChainDB {
             verified: Some(true),
             txs_fees: vec![],
         };
+        let block_tx_stat = BlockTxStat {
+            txs_size: vec![],
+            txs_cycles: vec![],
+        };
 
         attach_block_cell(&db_txn, &genesis)?;
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
         db_txn.insert_block_ext(&genesis_hash, &ext)?;
+        db_txn.insert_block_tx_stat(&genesis_hash, &block_tx_stat)?;
         db_txn.insert_tip_header(&genesis.header())?;
         db_txn.insert_current_epoch_ext(epoch)?;
         db_txn.insert_block_epoch_index(&genesis_hash, &last_block_hash_in_previous_epoch)?;
