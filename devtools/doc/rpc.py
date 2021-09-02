@@ -719,8 +719,8 @@ class RPCDoc(object):
         self.collect_type('ckb_jsonrpc_types/enum.PoolTransactionReject.html')
         # Referenced by RawTxPool
         self.collect_type('ckb_jsonrpc_types/struct.TxPoolIds.html')
-        self.collect_type('ckb_jsonrpc_types/struct.TxPoolVerbosity.html')
-        self.collect_type('ckb_jsonrpc_types/struct.TxVerbosity.html')
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolEntries.html')
+        self.collect_type('ckb_jsonrpc_types/struct.TxPoolEntry.html')
         self.types.sort(key=lambda t: t.name)
 
     def collect_type(self, path):
