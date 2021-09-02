@@ -131,6 +131,12 @@ impl TxPoolController {
         self.started.load(Ordering::Relaxed)
     }
 
+    /// Set tx-pool service started, should only used for test
+    #[cfg(feature = "internal")]
+    pub fn set_service_started(&self, v: bool) {
+        self.started.store(v, Ordering::Relaxed);
+    }
+
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle

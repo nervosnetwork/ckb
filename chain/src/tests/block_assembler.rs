@@ -614,3 +614,88 @@ fn test_package_low_fee_decendants() {
         "best scored txs",
     );
 }
+
+#[test]
+fn test_blank_template() {
+    let mut consensus = Consensus::default();
+    consensus.genesis_epoch_ext.set_length(5);
+    let epoch = consensus.genesis_epoch_ext().clone();
+
+    let (chain_controller, shared) = start_chain(Some(consensus));
+
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+    let mut parent_header = genesis;
+    let mut blocks = vec![];
+    for _i in 0..4 {
+        let block = gen_block(&parent_header, 11, &epoch);
+        chain_controller
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .expect("process block");
+        parent_header = block.header().to_owned();
+        blocks.push(block);
+    }
+
+    let tx0 = &blocks[0].transactions()[0];
+    let tx1 = build_tx(tx0, &[0], 2);
+    let tx2 = build_tx(&tx1, &[0], 2);
+    let tx3 = build_tx(&tx2, &[0], 2);
+    let tx4 = build_tx(&tx3, &[0], 2);
+
+    let tx2_0 = &blocks[1].transactions()[0];
+    let tx2_1 = build_tx(tx2_0, &[0], 2);
+    let tx2_2 = build_tx(&tx2_1, &[0], 2);
+    let tx2_3 = build_tx(&tx2_2, &[0], 2);
+
+    let tx_pool = shared.tx_pool_controller();
+    let entries = vec![
+        TxEntry::dummy_resolve(tx1, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx2, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx3, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx4, 0, Capacity::shannons(1500), 500),
+        TxEntry::dummy_resolve(tx2_1, 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_2, 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_3, 0, Capacity::shannons(150), 100),
+    ];
+    let size = entries.len();
+    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+
+    let previous_tip_hash = shared.snapshot().tip_hash();
+    {
+        // shutdown tx-pool notify
+        tx_pool.set_service_started(false);
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&parent_header, &shared.store().as_data_provider())
+            .unwrap()
+            .epoch();
+        let block = gen_block(&parent_header, 11, &epoch);
+        chain_controller
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .expect("process block");
+        blocks.push(block);
+    }
+
+    let tip_hash = shared.snapshot().tip_hash();
+    let tip_number = shared.snapshot().tip_number();
+
+    let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+    // tx-pool update is prevented
+    assert_eq!(tx_pool_info.tip_hash, previous_tip_hash);
+    assert!(tx_pool_info.tip_hash != tip_hash);
+    assert!(tx_pool_info.proposed_size == size);
+    assert!(tx_pool_info.tip_number == (tip_number - 1));
+
+    let block_template = shared
+        .get_block_template(None, None, None)
+        .unwrap()
+        .unwrap();
+
+    // blank template retured if tx-pool is not updated
+    assert!(block_template.transactions.is_empty());
+    assert!(block_template.proposals.is_empty());
+    assert!(block_template.parent_hash == tip_hash.unpack());
+    assert!(block_template.number == (tip_number + 1).into());
+}
