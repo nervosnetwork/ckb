@@ -24,7 +24,7 @@ use ckb_types::{
     h256,
     packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::{difficulty_to_compact, DIFF_TWO},
-    H256, U256,
+    U256,
 };
 use std::collections::HashSet;
 use std::sync::Arc;

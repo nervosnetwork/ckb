@@ -5,7 +5,6 @@ use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
     h256,
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
-    H256,
 };
 use ckb_vm::Error as VmError;
 use std::convert::TryInto;

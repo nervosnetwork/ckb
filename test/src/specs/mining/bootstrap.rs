@@ -7,7 +7,6 @@ use ckb_types::{
     core::{BlockView, ScriptHashType},
     h256, packed,
     prelude::*,
-    H256,
 };
 
 pub struct BootstrapCellbase;

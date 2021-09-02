@@ -14,7 +14,6 @@ use ckb_types::{
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
-    H256,
 };
 
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> TransactionView {

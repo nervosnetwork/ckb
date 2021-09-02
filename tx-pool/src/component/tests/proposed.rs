@@ -7,7 +7,6 @@ use ckb_types::{
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 
 use crate::component::{entry::TxEntry, proposed::ProposedPool};

@@ -1,4 +1,4 @@
-use ckb_types::{bytes::Bytes, core, h256, packed, prelude::*, H256};
+use ckb_types::{bytes::Bytes, core, h256, packed, prelude::*};
 use lazy_static::lazy_static;
 use proptest::{collection::size_range, prelude::*};
 use regex::Regex;

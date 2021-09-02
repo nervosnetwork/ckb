@@ -9,7 +9,6 @@ use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
     prelude::*,
-    H256,
 };
 use std::thread::sleep;
 use std::time::Duration;

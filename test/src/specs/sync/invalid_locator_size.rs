@@ -8,7 +8,6 @@ use ckb_types::{
     h256,
     packed::{Byte32, GetHeaders, SyncMessage},
     prelude::*,
-    H256,
 };
 
 pub struct InvalidLocatorSize;

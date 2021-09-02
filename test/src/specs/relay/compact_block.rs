@@ -17,7 +17,6 @@ use ckb_types::{
         SyncMessageUnion::GetBlocks,
     },
     prelude::*,
-    H256,
 };
 
 pub struct CompactBlockEmptyParentUnknown;
