@@ -1214,6 +1214,7 @@ dependencies = [
  "rand 0.7.3",
  "sentry",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
