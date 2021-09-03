@@ -18,3 +18,6 @@ pub mod constants;
 mod conversion;
 mod extension;
 pub mod utilities;
+
+#[cfg(test)]
+mod tests;
