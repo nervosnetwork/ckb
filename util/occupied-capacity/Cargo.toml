@@ -1,6 +1,6 @@
 [package]
 name = "ckb-occupied-capacity"
-version = "0.100.0-beta4"
+version = "0.100.0-rc4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,5 +9,5 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-occupied-capacity-macros = { path = "macros", version = "= 0.100.0-beta4" }
-ckb-occupied-capacity-core = { path = "core", version = "= 0.100.0-beta4" }
+ckb-occupied-capacity-macros = { path = "macros", version = "= 0.100.0-rc4" }
+ckb-occupied-capacity-core = { path = "core", version = "= 0.100.0-rc4" }
