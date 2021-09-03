@@ -230,11 +230,53 @@ impl PartialEq for ResolvedTransaction {
 impl ResolvedTransaction {
     /// Construct `ResolvedTransaction` from `TransactionView` without actually performing resolve
     pub fn dummy_resolve(tx: TransactionView) -> Self {
+        // skip resolve input of cellbase
+        // keep consistent with resolve_trasaction
+        let resolved_inputs = if !tx.is_cellbase() {
+            tx.inputs()
+                .into_iter()
+                .map(|i| {
+                    CellMetaBuilder::default()
+                        .out_point(i.previous_output())
+                        .build()
+                })
+                .collect()
+        } else {
+            vec![]
+        };
         ResolvedTransaction {
+            resolved_inputs,
+            resolved_cell_deps: tx
+                .cell_deps()
+                .into_iter()
+                .filter_map(|dep| {
+                    if dep.dep_type() == DepType::Code.into() {
+                        Some(
+                            CellMetaBuilder::default()
+                                .out_point(dep.out_point())
+                                .build(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            resolved_dep_groups: tx
+                .cell_deps()
+                .into_iter()
+                .filter_map(|dep| {
+                    if dep.dep_type() == DepType::DepGroup.into() {
+                        Some(
+                            CellMetaBuilder::default()
+                                .out_point(dep.out_point())
+                                .build(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             transaction: tx,
-            resolved_cell_deps: vec![],
-            resolved_inputs: vec![],
-            resolved_dep_groups: vec![],
         }
     }
 

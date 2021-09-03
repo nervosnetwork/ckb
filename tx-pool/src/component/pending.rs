@@ -16,11 +16,11 @@ type ConflictEntry = (TxEntry, Reject);
 
 #[derive(Debug, Clone)]
 pub(crate) struct PendingQueue {
-    inner: LinkedHashMap<ProposalShortId, TxEntry>,
+    pub(crate) inner: LinkedHashMap<ProposalShortId, TxEntry>,
     /// dep-set<txid> map represent in-pool tx's deps
-    deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
+    pub(crate) deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// input-txid map represent in-pool tx's inputs
-    inputs: HashMap<OutPoint, ProposalShortId>,
+    pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
 }
 
 impl PendingQueue {
