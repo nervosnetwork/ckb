@@ -21,8 +21,8 @@ ckb-traits = { path = "../traits", version = "= 0.100.0-rc4" }
 byteorder = "1.3.1"
 ckb-types = {path = "../util/types", version = "= 0.100.0-rc4"}
 ckb-hash = {path = "../util/hash", version = "= 0.100.0-rc4"}
-ckb-vm-definitions = "0.20.0-rc4"
-ckb-vm = { version = "0.20.0-rc4", default-features = false }
+ckb-vm-definitions = "0.20.0-rc5"
+ckb-vm = { version = "0.20.0-rc5", default-features = false }
 faster-hex = "0.6"
 ckb-logger = { path = "../util/logger", version = "= 0.100.0-rc4", optional = true }
 serde = { version = "1.0", features = ["derive"] }

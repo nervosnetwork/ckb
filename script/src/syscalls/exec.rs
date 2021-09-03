@@ -1,5 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
-use crate::syscalls::{Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, WRONG_FORMAT};
+use crate::syscalls::{
+    Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, WRONG_FORMAT,
+};
 use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::CellMeta;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
@@ -130,7 +132,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             let cell = self.fetch_cell(source, index as usize);
             if let Err(err) = cell {
                 machine.set_register(A0, Mac::REG::from_u8(err));
-                return Ok(false);
+                return Ok(true);
             }
             let cell = cell.unwrap();
             self.data_loader
@@ -145,10 +147,20 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             let witness = witness.unwrap();
             witness.raw_data()
         };
+        let data_size = data.len();
+        if offset >= data_size {
+            machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
+            return Ok(true);
+        };
         let data = if length == 0 {
-            data.slice(offset..data.len())
+            data.slice(offset..data_size)
         } else {
-            data.slice(offset..offset + length)
+            let end = offset.checked_add(length).ok_or(VMError::OutOfBound)?;
+            if end >= data_size {
+                machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
+                return Ok(true);
+            }
+            data.slice(offset..end)
         };
         let argc = machine.registers()[A4].to_u64();
         let mut addr = machine.registers()[A5].to_u64();
@@ -175,7 +187,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             }
             Err(_) => {
                 machine.set_register(A0, Mac::REG::from_u8(WRONG_FORMAT));
-                return Ok(false);
+                return Ok(true);
             }
         }
 
@@ -189,7 +201,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             }
             Err(_) => {
                 machine.set_register(A0, Mac::REG::from_u8(WRONG_FORMAT));
-                return Ok(false);
+                return Ok(true);
             }
         }
         Ok(true)

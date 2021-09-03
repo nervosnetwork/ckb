@@ -4,7 +4,7 @@ use snap::raw::{decompress_len, Decoder as SnapDecoder, Encoder as SnapEncoder};
 
 use std::io;
 
-const COMPRESSION_SIZE_THRESHOLD: usize = 1024;
+pub(crate) const COMPRESSION_SIZE_THRESHOLD: usize = 1024;
 const UNCOMPRESS_FLAG: u8 = 0b0000_0000;
 const COMPRESS_FLAG: u8 = 0b1000_0000;
 const MAX_UNCOMPRESSED_LEN: usize = 1 << 23; // 8MB
@@ -25,13 +25,13 @@ const MAX_UNCOMPRESSED_LEN: usize = 1 << 23; // 8MB
 /// |  1~   |      | Payload (Serialized Data with Compress)        |
 /// +-------+------+------------------------------------------------+
 #[derive(Clone, Debug)]
-struct Message {
+pub(crate) struct Message {
     inner: BytesMut,
 }
 
 impl Message {
     /// create from uncompressed raw data
-    fn from_raw(data: Bytes) -> Self {
+    pub(crate) fn from_raw(data: Bytes) -> Self {
         let mut inner = BytesMut::with_capacity(data.len() + 1);
         inner.put_u8(UNCOMPRESS_FLAG);
         inner.put(data);
@@ -39,12 +39,12 @@ impl Message {
     }
 
     /// create from compressed data
-    fn from_compressed(data: BytesMut) -> Self {
+    pub(crate) fn from_compressed(data: BytesMut) -> Self {
         Self { inner: data }
     }
 
     /// Compress message
-    fn compress(mut self) -> Bytes {
+    pub(crate) fn compress(mut self) -> Bytes {
         if self.inner.len() > COMPRESSION_SIZE_THRESHOLD {
             let input = self.inner.split_off(1);
             match SnapEncoder::new().compress_vec(&input) {
@@ -62,7 +62,7 @@ impl Message {
     }
 
     /// Decompress message
-    fn decompress(mut self) -> Result<Bytes, io::Error> {
+    pub(crate) fn decompress(mut self) -> Result<Bytes, io::Error> {
         if self.inner.is_empty() {
             Err(io::ErrorKind::InvalidData.into())
         } else if self.compress_flag() {
@@ -96,11 +96,11 @@ impl Message {
         }
     }
 
-    fn set_compress_flag(&mut self) {
+    pub(crate) fn set_compress_flag(&mut self) {
         self.inner[0] = COMPRESS_FLAG;
     }
 
-    fn compress_flag(&self) -> bool {
+    pub(crate) fn compress_flag(&self) -> bool {
         (self.inner[0] & COMPRESS_FLAG) != 0
     }
 }
@@ -113,35 +113,4 @@ pub fn compress(src: Bytes) -> Bytes {
 /// Decompress data
 pub fn decompress(src: BytesMut) -> Result<Bytes, io::Error> {
     Message::from_compressed(src).decompress()
-}
-
-#[cfg(test)]
-mod test {
-    use super::{Bytes, BytesMut, Message, COMPRESSION_SIZE_THRESHOLD};
-
-    #[test]
-    fn test_no_need_compress() {
-        let cmp_data = Message::from_raw(Bytes::from("1222")).compress();
-
-        let msg = Message::from_compressed(BytesMut::from(cmp_data.as_ref()));
-
-        assert!(!msg.compress_flag());
-
-        let demsg = msg.decompress().unwrap();
-
-        assert_eq!(Bytes::from("1222"), demsg)
-    }
-
-    #[test]
-    fn test_compress_and_decompress() {
-        let raw_data = Bytes::from(vec![1; COMPRESSION_SIZE_THRESHOLD + 1]);
-        let cmp_data = Message::from_raw(raw_data.clone()).compress();
-
-        let msg = Message::from_compressed(BytesMut::from(cmp_data.as_ref()));
-        assert!(msg.compress_flag());
-
-        let demsg = msg.decompress().unwrap();
-
-        assert_eq!(raw_data, demsg)
-    }
 }

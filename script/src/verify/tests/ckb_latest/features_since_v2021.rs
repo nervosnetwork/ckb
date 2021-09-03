@@ -1,21 +1,14 @@
-use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_BYTES, TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
-use ckb_crypto::secp::Generator;
+use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
 use ckb_error::assert_error_eq;
-use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_test_chain_utils::{
-    always_success_cell, ckb_testnet_consensus, secp256k1_blake160_sighash_cell,
-    secp256k1_data_cell, type_lock_script_code_hash,
-};
+use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
-    core::{
-        capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, ScriptHashType,
-        TransactionBuilder,
-    },
+    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
     h256,
-    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script, WitnessArgs},
+    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
     H256,
 };
 use ckb_vm::Error as VmError;
+use std::convert::TryInto;
 use std::path::Path;
 
 use super::SCRIPT_VERSION;
@@ -235,6 +228,120 @@ fn check_exec_from_witness() {
 }
 
 #[test]
+fn check_exec_wrong_callee_format() {
+    let script_version = SCRIPT_VERSION;
+
+    let exec_caller_cell_data = Bytes::from(
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_cell_data"),
+        )
+        .unwrap(),
+    );
+    let exec_caller_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_callee_cell_data = Bytes::copy_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+    let exec_callee_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let exec_caller_cell =
+        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let exec_callee_cell =
+        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn check_exec_big_offset_length() {
+    let script_version = SCRIPT_VERSION;
+
+    let exec_caller_cell_data = Bytes::from(
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_big_offset_length"),
+        )
+        .unwrap(),
+    );
+    let exec_caller_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_callee_cell_data = Bytes::copy_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+    let exec_callee_cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
+        .build();
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let exec_caller_cell =
+        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let exec_callee_cell =
+        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    if script_version >= ScriptVersion::V1 {
+        assert!(result.unwrap_err().to_string().contains("error code 3"));
+    }
+}
+
+#[test]
 fn check_type_id_one_in_one_out_chunk() {
     let script_version = SCRIPT_VERSION;
 
@@ -348,144 +455,7 @@ fn check_type_id_one_in_one_out_chunk() {
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
     let script_version = SCRIPT_VERSION;
 
-    let consensus = ckb_testnet_consensus();
-    let dep_group_tx_hash = consensus.genesis_block().transactions()[1].hash();
-    let secp_out_point = OutPoint::new(dep_group_tx_hash, 0);
-
-    let cell_dep = CellDep::new_builder()
-        .out_point(secp_out_point)
-        .dep_type(DepType::DepGroup.into())
-        .build();
-
-    let input1 = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 0), 0);
-    let input2 = CellInput::new(OutPoint::new(h256!("0x1111").pack(), 0), 0);
-
-    let mut generator = Generator::non_crypto_safe_prng(42);
-    let privkey = generator.gen_privkey();
-    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    let lock_arg = Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned());
-    let privkey2 = generator.gen_privkey();
-    let pubkey_data2 = privkey2.pubkey().expect("Get pubkey failed").serialize();
-    let lock_arg2 = Bytes::from((&blake2b_256(&pubkey_data2)[0..20]).to_owned());
-
-    let lock = Script::new_builder()
-        .args(lock_arg.pack())
-        .code_hash(type_lock_script_code_hash().pack())
-        .hash_type(ScriptHashType::Type.into())
-        .build();
-
-    let lock2 = Script::new_builder()
-        .args(lock_arg2.pack())
-        .code_hash(type_lock_script_code_hash().pack())
-        .hash_type(ScriptHashType::Type.into())
-        .build();
-
-    let output1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(lock.clone())
-        .build();
-    let output2 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(lock2.clone())
-        .build();
-    let tx = TransactionBuilder::default()
-        .cell_dep(cell_dep)
-        .input(input1.clone())
-        .input(input2.clone())
-        .output(output1)
-        .output(output2)
-        .output_data(Default::default())
-        .output_data(Default::default())
-        .build();
-
-    let tx_hash: H256 = tx.hash().unpack();
-    // sign input1
-    let witness = {
-        WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
-            .build()
-    };
-    let witness_len: u64 = witness.as_bytes().len() as u64;
-    let mut hasher = new_blake2b();
-    hasher.update(tx_hash.as_bytes());
-    hasher.update(&witness_len.to_le_bytes());
-    hasher.update(&witness.as_bytes());
-    let message = {
-        let mut buf = [0u8; 32];
-        hasher.finalize(&mut buf);
-        H256::from(buf)
-    };
-    let sig = privkey.sign_recoverable(&message).expect("sign");
-    let witness = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(sig.serialize())).pack())
-        .build();
-    // sign input2
-    let witness2 = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
-        .build();
-    let witness2_len: u64 = witness2.as_bytes().len() as u64;
-    let mut hasher = new_blake2b();
-    hasher.update(tx_hash.as_bytes());
-    hasher.update(&witness2_len.to_le_bytes());
-    hasher.update(&witness2.as_bytes());
-    let message2 = {
-        let mut buf = [0u8; 32];
-        hasher.finalize(&mut buf);
-        H256::from(buf)
-    };
-    let sig2 = privkey2.sign_recoverable(&message2).expect("sign");
-    let witness2 = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(sig2.serialize())).pack())
-        .build();
-    let tx = tx
-        .as_advanced_builder()
-        .witness(witness.as_bytes().pack())
-        .witness(witness2.as_bytes().pack())
-        .build();
-
-    let serialized_size = tx.data().as_slice().len() as u64;
-
-    assert_eq!(
-        serialized_size, TWO_IN_TWO_OUT_BYTES,
-        "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
-    );
-
-    let (secp256k1_blake160_cell, secp256k1_blake160_cell_data) =
-        secp256k1_blake160_sighash_cell(consensus.clone());
-
-    let (secp256k1_data_cell, secp256k1_data_cell_data) = secp256k1_data_cell(consensus);
-
-    let input_cell1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(lock)
-        .build();
-
-    let resolved_input_cell1 = CellMetaBuilder::from_cell_output(input_cell1, Default::default())
-        .out_point(input1.previous_output())
-        .build();
-
-    let input_cell2 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(lock2)
-        .build();
-
-    let resolved_input_cell2 = CellMetaBuilder::from_cell_output(input_cell2, Default::default())
-        .out_point(input2.previous_output())
-        .build();
-
-    let resolved_secp256k1_blake160_cell =
-        CellMetaBuilder::from_cell_output(secp256k1_blake160_cell, secp256k1_blake160_cell_data)
-            .build();
-
-    let resolved_secp_data_cell =
-        CellMetaBuilder::from_cell_output(secp256k1_data_cell, secp256k1_data_cell_data).build();
-
-    let rtx = ResolvedTransaction {
-        transaction: tx,
-        resolved_cell_deps: vec![resolved_secp256k1_blake160_cell, resolved_secp_data_cell],
-        resolved_inputs: vec![resolved_input_cell1, resolved_input_cell2],
-        resolved_dep_groups: vec![],
-    };
+    let rtx = random_2_in_2_out_rtx();
 
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
@@ -533,6 +503,126 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
                 break;
             }
         }
+
+        verifier.verify(TWO_IN_TWO_OUT_CYCLES)
+    });
+
+    let cycles_once = result.unwrap();
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
+    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
+    let script_version = SCRIPT_VERSION;
+
+    let rtx = random_2_in_2_out_rtx();
+    let mut cycles = 0;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+
+        if let VerifyResult::Suspended(state) = verifier
+            .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
+            .unwrap()
+        {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        loop {
+            let snap = init_snap.take().unwrap();
+            let (limit_cycles, _last) =
+                snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    break;
+                }
+            }
+        }
+
+        verifier.verify(TWO_IN_TWO_OUT_CYCLES)
+    });
+
+    let cycles_once = result.unwrap();
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
+    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
+    let script_version = SCRIPT_VERSION;
+
+    let rtx = random_2_in_2_out_rtx();
+    let mut cycles = 0;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_state: Option<TransactionState<'_>> = None;
+
+        if let VerifyResult::Suspended(state) = verifier
+            .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
+            .unwrap()
+        {
+            init_state = Some(state);
+        }
+
+        loop {
+            let state = init_state.take().unwrap();
+            let (limit_cycles, _last) =
+                state.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                VerifyResult::Suspended(state) => init_state = Some(state),
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    break;
+                }
+            }
+        }
+
+        verifier.verify(TWO_IN_TWO_OUT_CYCLES)
+    });
+
+    let cycles_once = result.unwrap();
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
+    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
+    let script_version = SCRIPT_VERSION;
+
+    let rtx = random_2_in_2_out_rtx();
+    let mut cycles = 0;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+
+        if let VerifyResult::Suspended(state) = verifier
+            .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
+            .unwrap()
+        {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        for _ in 0..2 {
+            let snap = init_snap.take().unwrap();
+            let (limit_cycles, _last) =
+                snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+                VerifyResult::Completed(_) => {
+                    unreachable!()
+                }
+            }
+        }
+
+        cycles = verifier
+            .complete(&init_snap.take().unwrap(), TWO_IN_TWO_OUT_CYCLES)
+            .unwrap();
 
         verifier.verify(TWO_IN_TWO_OUT_CYCLES)
     });

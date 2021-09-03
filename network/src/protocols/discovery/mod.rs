@@ -27,7 +27,7 @@ use self::{
 use crate::{NetworkState, ProtocolId};
 
 mod addr;
-mod protocol;
+pub(crate) mod protocol;
 mod state;
 
 const ANNOUNCE_CHECK_INTERVAL: Duration = Duration::from_secs(60);

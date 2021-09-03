@@ -273,14 +273,19 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
         } = state;
 
         // we should not capture snapshot if load program failed by exceeded cycles
-        let snap =
-            if vm.program_loaded {
+        let (snap, current_cycles) = if vm.program_loaded {
+            let vm_cycles = vm.cycles();
+            (
                 Some(make_snapshot(&mut vm.machine.machine).map_err(|e| {
                     ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
-                })?)
-            } else {
-                None
-            };
+                })?),
+                current_cycles.checked_add(vm_cycles).ok_or_else(|| {
+                    ScriptError::CyclesOverflow(current_cycles, vm_cycles).unknown_source()
+                })?,
+            )
+        } else {
+            (None, current_cycles)
+        };
 
         Ok(TransactionSnapshot {
             current,

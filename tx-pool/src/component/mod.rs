@@ -7,6 +7,9 @@ pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::entry::TxEntry;
 
 /// Equal to MAX_BLOCK_BYTES / MAX_BLOCK_CYCLES, see ckb-chain-spec.

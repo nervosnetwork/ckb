@@ -7,7 +7,7 @@ pub(crate) mod service_builder;
 pub mod module;
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 pub use crate::error::RPCError;
 pub use crate::server::RpcServer;

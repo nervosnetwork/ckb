@@ -13,10 +13,13 @@ jobs:
     if: |
         github.repository_owner == 'nervosnetwork'
     steps:
-      - name: install nightly
-        run: |
-          rustup toolchain list | { grep 'nightly' || rustup install nightly; }
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+      - name: overwrite toolchain
+        # It's easier to clean than `rustup override`
+        run: echo nightly > rust-toolchain
       - name: unit coverage
         run: make cov
       - name: integration cov

@@ -17,6 +17,9 @@ pub mod hardfork;
 pub mod service;
 pub mod tx_pool;
 
+#[cfg(test)]
+mod tests;
+
 mod advanced_builders;
 mod blockchain;
 mod extras;

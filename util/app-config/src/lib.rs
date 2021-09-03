@@ -8,6 +8,9 @@ pub(crate) mod legacy;
 #[cfg(feature = "with_sentry")]
 mod sentry_config;
 
+#[cfg(test)]
+mod tests;
+
 pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
@@ -418,36 +421,4 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cli::CMD_STATS;
-    use clap::{App, AppSettings};
-
-    #[test]
-    fn stats_args() {
-        let app = App::new("stats_args_test")
-            .setting(AppSettings::SubcommandRequiredElseHelp)
-            .subcommand(cli::stats());
-
-        let stats = app.clone().get_matches_from_safe(vec!["", CMD_STATS]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10"]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--to", "100"]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
-        assert!(stats.is_ok());
-    }
 }

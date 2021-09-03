@@ -10,7 +10,10 @@ use ckb_vm::{
 use ckb_vm_definitions::instructions as insts;
 use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
 
-const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
+#[cfg(test)]
+mod tests;
+
+pub(crate) const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
 
 /// Ill formed transactions checker.
 pub struct IllTransactionChecker<'a> {
@@ -109,37 +112,5 @@ impl<'a> IllScriptChecker<'a> {
             }
         }
         (None, len)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::read;
-    use std::path::Path;
-
-    #[test]
-    fn check_good_binary() {
-        let data =
-            read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap();
-        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
-    }
-
-    #[test]
-    fn check_defected_binary() {
-        let data =
-            read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/defected_binary"))
-                .unwrap();
-        assert_eq!(
-            IllScriptChecker::new(&data, 13).check().unwrap_err(),
-            ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string(), 13),
-        );
-    }
-
-    #[test]
-    fn check_jalr_zero_binary() {
-        let data = read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/jalr_zero"))
-            .unwrap();
-        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
     }
 }

@@ -7,10 +7,11 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::time::Interval;
+use tokio::time::{Instant, Interval, MissedTickBehavior};
 
 const DEFAULT_DUMP_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
 
+/// Save current peer store data regularly
 pub struct DumpPeerStoreService {
     network_state: Arc<NetworkState>,
     interval: Option<Interval>,
@@ -48,19 +49,20 @@ impl Future for DumpPeerStoreService {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
-            self.interval = Some(tokio::time::interval(DEFAULT_DUMP_INTERVAL));
-        }
-        let mut interval = self.interval.take().unwrap();
-        loop {
-            match interval.poll_tick(cx) {
-                Poll::Ready(_) => {
-                    self.dump_peer_store();
-                }
-                Poll::Pending => {
-                    self.interval = Some(interval);
-                    return Poll::Pending;
-                }
+            self.interval = {
+                let mut interval = tokio::time::interval_at(
+                    Instant::now() + DEFAULT_DUMP_INTERVAL,
+                    DEFAULT_DUMP_INTERVAL,
+                );
+                // The dump peer store service does not need to urgently compensate for the missed wake,
+                // just delay behavior is enough
+                interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                Some(interval)
             }
         }
+        while self.interval.as_mut().unwrap().poll_tick(cx).is_ready() {
+            self.dump_peer_store()
+        }
+        Poll::Pending
     }
 }
