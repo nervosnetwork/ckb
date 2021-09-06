@@ -129,6 +129,12 @@ impl RpcClient {
             .expect("rpc call get_banned_addresses")
     }
 
+    pub fn clear_banned_addresses(&self) {
+        self.inner
+            .clear_banned_addresses()
+            .expect("rpc call clear_banned_addresses")
+    }
+
     pub fn set_ban(
         &self,
         address: String,
@@ -296,6 +302,7 @@ jsonrpc!(pub struct Inner {
         absolute: Option<bool>,
         reason: Option<String>
     ) -> ();
+    pub fn clear_banned_addresses(&self) -> ();
 
     pub fn get_block_template(
         &self,

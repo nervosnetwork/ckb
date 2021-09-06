@@ -1,34 +1,32 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::wait_until;
-use crate::{Node, Spec};
+use crate::{Net, Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_logger::info;
+use ckb_network::SupportProtocols;
 use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes, BlockView, Capacity, DepType, ScriptHashType, TransactionBuilder,
         TransactionView,
     },
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     H256,
 };
 
 pub struct SendLargeCyclesTxInBlock {
-    privkey: Privkey,
-    lock_arg: Bytes,
+    random_key: RandomKey,
 }
 
 impl SendLargeCyclesTxInBlock {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut generator = Generator::new();
-        let privkey = generator.gen_privkey();
-        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
-        SendLargeCyclesTxInBlock { privkey, lock_arg }
+        SendLargeCyclesTxInBlock {
+            random_key: RandomKey::new(),
+        }
     }
 }
 
@@ -41,7 +39,7 @@ impl Spec for SendLargeCyclesTxInBlock {
 
         mine_until_out_bootstrap_period(node1);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
+        let tx = build_tx(&node1, &self.random_key.privkey, self.random_key.lock_arg());
 
         info!("Node0 mine large cycles tx");
         node0.connect(&node1);
@@ -66,7 +64,7 @@ impl Spec for SendLargeCyclesTxInBlock {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        let lock_arg = self.lock_arg.clone();
+        let lock_arg = self.random_key.lock_arg();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
@@ -75,18 +73,15 @@ impl Spec for SendLargeCyclesTxInBlock {
 }
 
 pub struct SendLargeCyclesTxToRelay {
-    privkey: Privkey,
-    lock_arg: Bytes,
+    random_key: RandomKey,
 }
 
 impl SendLargeCyclesTxToRelay {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut generator = Generator::new();
-        let privkey = generator.gen_privkey();
-        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
-        SendLargeCyclesTxToRelay { privkey, lock_arg }
+        SendLargeCyclesTxToRelay {
+            random_key: RandomKey::new(),
+        }
     }
 }
 
@@ -101,7 +96,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         node0.connect(&node1);
         info!("Generate large cycles tx");
 
-        let tx = build_tx(&node1, &self.privkey, self.lock_arg.clone());
+        let tx = build_tx(&node1, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let ret = node1.rpc_client().send_transaction_result(tx.data().into());
         assert!(ret.is_ok());
@@ -120,7 +115,7 @@ impl Spec for SendLargeCyclesTxToRelay {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        let lock_arg = self.lock_arg.clone();
+        let lock_arg = self.random_key.lock_arg();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
@@ -129,18 +124,15 @@ impl Spec for SendLargeCyclesTxToRelay {
 }
 
 pub struct NotifyLargeCyclesTx {
-    privkey: Privkey,
-    lock_arg: Bytes,
+    random_key: RandomKey,
 }
 
 impl NotifyLargeCyclesTx {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut generator = Generator::new();
-        let privkey = generator.gen_privkey();
-        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
-        NotifyLargeCyclesTx { privkey, lock_arg }
+        NotifyLargeCyclesTx {
+            random_key: RandomKey::new(),
+        }
     }
 }
 
@@ -152,7 +144,7 @@ impl Spec for NotifyLargeCyclesTx {
 
         mine_until_out_bootstrap_period(node0);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node0, &self.privkey, self.lock_arg.clone());
+        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let _ = node0.rpc_client().notify_transaction(tx.data().into());
 
@@ -165,7 +157,7 @@ impl Spec for NotifyLargeCyclesTx {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        let lock_arg = self.lock_arg.clone();
+        let lock_arg = self.random_key.lock_arg();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 13_000u64; // transferred_byte_cycles 12678
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
@@ -174,18 +166,15 @@ impl Spec for NotifyLargeCyclesTx {
 }
 
 pub struct LoadProgramFailedTx {
-    privkey: Privkey,
-    lock_arg: Bytes,
+    random_key: RandomKey,
 }
 
 impl LoadProgramFailedTx {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut generator = Generator::new();
-        let privkey = generator.gen_privkey();
-        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
-        LoadProgramFailedTx { privkey, lock_arg }
+        LoadProgramFailedTx {
+            random_key: RandomKey::new(),
+        }
     }
 }
 
@@ -197,7 +186,7 @@ impl Spec for LoadProgramFailedTx {
 
         mine_until_out_bootstrap_period(node0);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node0, &self.privkey, self.lock_arg.clone());
+        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let _ = node0.rpc_client().notify_transaction(tx.data().into());
 
@@ -210,11 +199,104 @@ impl Spec for LoadProgramFailedTx {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        let lock_arg = self.lock_arg.clone();
+        let lock_arg = self.random_key.lock_arg();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 1_300u64; // transferred_byte_cycles 12678
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
+    }
+}
+
+pub struct RelayWithWrongTx {
+    random_key: RandomKey,
+}
+
+impl RelayWithWrongTx {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        RelayWithWrongTx {
+            random_key: RandomKey::new(),
+        }
+    }
+}
+
+impl Spec for RelayWithWrongTx {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        mine_until_out_bootstrap_period(node0);
+        let rpc_client = node0.rpc_client();
+
+        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
+
+        let mut net = Net::new(
+            self.name(),
+            node0.consensus(),
+            vec![SupportProtocols::Relay, SupportProtocols::Sync],
+        );
+        net.connect(node0);
+
+        let message = build_relay_tx(tx, 100_000_000);
+        net.send(node0, SupportProtocols::Relay, message.as_bytes());
+
+        let ret = wait_until(10, || {
+            let peers = rpc_client.get_peers();
+            peers.is_empty()
+        });
+        assert!(
+            ret,
+            "The address of net should be removed from node0's peers",
+        );
+        rpc_client.clear_banned_addresses();
+
+        // Advance one block, in order to prevent tx hash is same
+        mine(&node0, 1);
+
+        let mut generator = Generator::new();
+        let tx_wrong_pk = build_tx(&node0, &generator.gen_privkey(), self.random_key.lock_arg());
+
+        net.connect(node0);
+
+        let message = build_relay_tx(tx_wrong_pk, 100_000_000);
+        net.send(node0, SupportProtocols::Relay, message.as_bytes());
+
+        let ret = wait_until(10, || {
+            let peers = rpc_client.get_peers();
+            peers.is_empty()
+        });
+        assert!(
+            ret,
+            "The address of net should be removed from node0's peers",
+        );
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        let lock_arg = self.random_key.lock_arg();
+        config.network.connect_outbound_interval_secs = 0;
+        config.tx_pool.max_tx_verify_cycles = 1_300u64; // transferred_byte_cycles 12678
+        let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
+        config.block_assembler = Some(block_assembler);
+    }
+}
+
+struct RandomKey {
+    privkey: Privkey,
+    lock_arg: Bytes,
+}
+
+impl RandomKey {
+    #[allow(clippy::new_without_default)]
+    fn new() -> Self {
+        let privkey = Generator::new().gen_privkey();
+        let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        Self { privkey, lock_arg }
+    }
+
+    fn lock_arg(&self) -> Bytes {
+        self.lock_arg.clone()
     }
 }
 
@@ -265,5 +347,24 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
         .build();
     tx.as_advanced_builder()
         .witness(witness.as_bytes().pack())
+        .build()
+}
+
+fn build_relay_tx(tx: TransactionView, cycles: u64) -> packed::RelayMessage {
+    let relay_tx = packed::RelayTransaction::new_builder()
+        .cycles(cycles.pack())
+        .transaction(tx.data())
+        .build();
+
+    packed::RelayMessage::new_builder()
+        .set(
+            packed::RelayTransactions::new_builder()
+                .transactions(
+                    packed::RelayTransactionVec::new_builder()
+                        .set(vec![relay_tx])
+                        .build(),
+                )
+                .build(),
+        )
         .build()
 }
