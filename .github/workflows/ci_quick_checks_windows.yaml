@@ -1,0 +1,61 @@
+name: ci_quick_checks_windows
+concurrency:
+  group: ci_quick_checks_windows-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - master
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+jobs:
+  prologue:
+    name: prologue
+    runs-on: ubuntu-20.04
+    outputs:
+      os_skip: ${{ steps.prologue.outputs.os_skip }}
+      job_skip: ${{ steps.prologue.outputs.job_skip }}
+      runner_label: ${{ steps.prologue.outputs.runner_label }}
+    steps:
+    - name: prologue
+      id: prologue
+      uses: liya2017/composite-action@v1
+      with:
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
+        PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
+        GITHUB_REPOSITORY: ${{ github.repositoty }}
+        GITHUB_WORKFLOW: ${{ github.workflow }}
+  ci_quick_checks_windows:
+    name: ci_quick_checks_windows
+    needs: prologue
+    runs-on: windows-2019
+    steps:
+    - uses: actions/checkout@v2
+    - run: |
+        iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        scoop install git
+        scoop bucket add extras
+        scoop install llvm yasm
+    - run: |
+        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+            devtools/ci/ci_main.sh
+        else
+          echo "skip job"
+          exit 0
+        fi
+      shell: bash
+    env:
+      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}

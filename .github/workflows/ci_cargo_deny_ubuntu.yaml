@@ -1,0 +1,58 @@
+name: ci_cargo_deny_ubuntu
+concurrency:
+  group: ci_cargo_deny_ubuntu-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  push:
+    branches:
+      - master
+      - develop
+      - trying
+      - staging
+      - 'rc/*'
+
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings
+jobs:
+  prologue:
+    name: prologue
+    runs-on: ubuntu-20.04
+    outputs:
+      os_skip: ${{ steps.prologue.outputs.os_skip }}
+      job_skip: ${{ steps.prologue.outputs.job_skip }}
+      runner_label: ${{ steps.prologue.outputs.runner_label }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: prologue
+      id: prologue
+      uses: ./.github/actions/ci_prologue
+      with:
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
+        PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
+        GITHUB_REPOSITORY: ${{ github.repositoty }}
+        GITHUB_WORKFLOW: ${{ github.workflow }}
+  ci_cargo_deny_ubuntu:
+    name: ci_cargo_deny_ubuntu
+    needs: prologue
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: ci_cargo_deny_ubuntu
+      run: |
+        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+            devtools/ci/ci_main.sh
+        else
+          echo "skip job"
+          exit 0
+        fi
+    env:
+      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+
