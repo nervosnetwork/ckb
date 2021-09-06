@@ -10,7 +10,7 @@ use crate::service::TxPoolService;
 use crate::try_or_return_with_snapshot;
 use crate::util::{
     check_tx_cycle_limit, check_tx_fee, check_tx_size_limit, check_txid_collision,
-    is_missing_input, non_contextual_verify, verify_rtx,
+    is_missing_input, non_contextual_verify, time_relative_verify, verify_rtx,
 };
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
@@ -520,9 +520,23 @@ impl TxPoolService {
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 check_tx_cycle_limit(&tx_pool, verified.cycles)?;
 
-                if pre_resolve_tip != snapshot.tip_hash() {
+                // if snapshot changed by context switch
+                // we need redo time_relative verify
+                let tip_hash = snapshot.tip_hash();
+                if pre_resolve_tip != tip_hash {
+                    debug!(
+                        "submit_entry {} context changed previous:{} now:{}",
+                        entry.proposal_short_id(),
+                        pre_resolve_tip,
+                        tip_hash
+                    );
+
                     // destructuring assignments are not currently supported
                     status = check_rtx(&tx_pool, &snapshot, &entry.rtx)?;
+
+                    let tip_header = snapshot.tip_header();
+                    let tx_env = status.with_env(tip_header);
+                    time_relative_verify(&snapshot, &entry.rtx, &tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
