@@ -145,7 +145,7 @@ impl Miner {
         let parent_hash = block.parent_hash();
 
         if self.legacy_work.contains(&parent_hash) {
-            info!(
+            debug!(
                 "uncle {} pow_hash: {:#x}, header: {}",
                 block.number(),
                 pow_hash,
@@ -154,7 +154,7 @@ impl Miner {
             self.notify_workers(WorkerMessage::Start);
             return;
         } else {
-            info!(
+            debug!(
                 "block {} pow_hash: {:#x}, header: {}",
                 block.number(),
                 pow_hash,
