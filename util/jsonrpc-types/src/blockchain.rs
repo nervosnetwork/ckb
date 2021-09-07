@@ -519,33 +519,33 @@ impl From<Transaction> for packed::Transaction {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
     /// The transaction.
-    pub transaction: TransactionView,
+    pub transaction: Option<TransactionView>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: core::TransactionView) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::pending(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: core::TransactionView) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::proposed(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
     /// Build with committed status
-    pub fn with_committed(tx: core::TransactionView, hash: H256) -> Self {
+    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
         Self {
             tx_status: TxStatus::committed(hash),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 }
@@ -560,6 +560,12 @@ pub enum Status {
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
+    /// Status "Unknown". The node has not seen the transaction,
+    /// or it should be rejected but was cleared due to storage limitations.
+    Unknown,
+    /// Status "Rejected". The transaction has been recently removed from the pool.
+    /// Due to storage limitations, the node can only hold the most recently removed transactions.
+    Rejected,
 }
 
 /// Transaction status and the block hash if it is committed.
@@ -569,6 +575,8 @@ pub struct TxStatus {
     pub status: Status,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
+    /// The reason why the transaction is rejected
+    pub reason: Option<String>,
 }
 
 impl TxStatus {
@@ -577,6 +585,7 @@ impl TxStatus {
         Self {
             status: Status::Pending,
             block_hash: None,
+            reason: None,
         }
     }
 
@@ -585,6 +594,7 @@ impl TxStatus {
         Self {
             status: Status::Proposed,
             block_hash: None,
+            reason: None,
         }
     }
 
@@ -597,6 +607,7 @@ impl TxStatus {
         Self {
             status: Status::Committed,
             block_hash: Some(hash),
+            reason: None,
         }
     }
 }
