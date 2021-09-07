@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.100.0-rc4"
+version = "0.100.0-rc5"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,20 +9,20 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain-spec = { path = "../spec", version = "= 0.100.0-rc4" }
-ckb-types = { path = "../util/types", version = "= 0.100.0-rc4" }
-ckb-network = { path = "../network", version = "= 0.100.0-rc4" }
-ckb-notify = { path = "../notify", version = "= 0.100.0-rc4" }
-ckb-shared = { path = "../shared", version = "= 0.100.0-rc4" }
-ckb-store = { path = "../store", version = "= 0.100.0-rc4" }
-ckb-sync = { path = "../sync", version = "= 0.100.0-rc4" }
-ckb-chain = { path = "../chain", version = "= 0.100.0-rc4" }
-ckb-logger = { path = "../util/logger", version = "= 0.100.0-rc4"}
-ckb-channel = { path = "../util/channel", version = "= 0.100.0-rc4" }
-ckb-logger-service = { path = "../util/logger-service", version = "= 0.100.0-rc4"}
-ckb-network-alert = { path = "../util/network-alert", version = "= 0.100.0-rc4" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.100.0-rc4" }
-ckb-constant = { path = "../util/constant", version = "= 0.100.0-rc4" }
+ckb-chain-spec = { path = "../spec", version = "= 0.100.0-rc5" }
+ckb-types = { path = "../util/types", version = "= 0.100.0-rc5" }
+ckb-network = { path = "../network", version = "= 0.100.0-rc5" }
+ckb-notify = { path = "../notify", version = "= 0.100.0-rc5" }
+ckb-shared = { path = "../shared", version = "= 0.100.0-rc5" }
+ckb-store = { path = "../store", version = "= 0.100.0-rc5" }
+ckb-sync = { path = "../sync", version = "= 0.100.0-rc5" }
+ckb-chain = { path = "../chain", version = "= 0.100.0-rc5" }
+ckb-logger = { path = "../util/logger", version = "= 0.100.0-rc5"}
+ckb-channel = { path = "../util/channel", version = "= 0.100.0-rc5" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.100.0-rc5"}
+ckb-network-alert = { path = "../util/network-alert", version = "= 0.100.0-rc5" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.100.0-rc5" }
+ckb-constant = { path = "../util/constant", version = "= 0.100.0-rc5" }
 jsonrpc-core = "18.0"
 jsonrpc-derive = "18.0"
 jsonrpc-http-server = "18.0"
@@ -32,24 +32,24 @@ jsonrpc-server-utils = "18.0"
 jsonrpc-pubsub = "18.0"
 serde_json = "1.0"
 num_cpus = "1.10"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.100.0-rc4" }
-ckb-verification = { path = "../verification", version = "= 0.100.0-rc4" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.100.0-rc4" }
-ckb-traits = { path = "../traits", version = "= 0.100.0-rc4" }
-ckb-util = { path = "../util", version = "= 0.100.0-rc4" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.100.0-rc5" }
+ckb-verification = { path = "../verification", version = "= 0.100.0-rc5" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.100.0-rc5" }
+ckb-traits = { path = "../traits", version = "= 0.100.0-rc5" }
+ckb-util = { path = "../util", version = "= 0.100.0-rc5" }
 faketime = "0.2.0"
-ckb-dao = { path = "../util/dao", version = "= 0.100.0-rc4" }
-ckb-error = { path = "../error", version = "= 0.100.0-rc4" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.100.0-rc4" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.100.0-rc4" }
-ckb-script = { path = "../script", version = "= 0.100.0-rc4" }
-ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.100.0-rc4" }
+ckb-dao = { path = "../util/dao", version = "= 0.100.0-rc5" }
+ckb-error = { path = "../error", version = "= 0.100.0-rc5" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.100.0-rc5" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.100.0-rc5" }
+ckb-script = { path = "../script", version = "= 0.100.0-rc5" }
+ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.100.0-rc5" }
 
 [dev-dependencies]
 reqwest = { version = "0.11.4", features = ["blocking", "json"] }
 serde = { version = "1.0", features = ["derive"] }
-ckb-launcher = { path = "../util/launcher", version = "= 0.100.0-rc4" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.100.0-rc4" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.100.0-rc5" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.100.0-rc5" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.100.0-rc4" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.100.0-rc5" }

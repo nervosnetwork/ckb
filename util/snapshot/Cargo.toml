@@ -1,6 +1,6 @@
 [package]
 name = "ckb-snapshot"
-version = "0.100.0-rc4"
+version = "0.100.0-rc5"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,14 +11,14 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.100.0-rc4" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.100.0-rc4" }
-ckb-store = { path = "../../store", version = "= 0.100.0-rc4" }
-ckb-db = { path = "../../db", version = "= 0.100.0-rc4" }
-ckb-traits = { path = "../../traits", version = "= 0.100.0-rc4" }
-ckb-error = { path = "../../error", version = "= 0.100.0-rc4" }
-ckb-proposal-table = { path = "../proposal-table", version = "= 0.100.0-rc4" }
+ckb-types = { path = "../types", version = "= 0.100.0-rc5" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.100.0-rc5" }
+ckb-store = { path = "../../store", version = "= 0.100.0-rc5" }
+ckb-db = { path = "../../db", version = "= 0.100.0-rc5" }
+ckb-traits = { path = "../../traits", version = "= 0.100.0-rc5" }
+ckb-error = { path = "../../error", version = "= 0.100.0-rc5" }
+ckb-proposal-table = { path = "../proposal-table", version = "= 0.100.0-rc5" }
 arc-swap = "0.4"
-ckb-reward-calculator = { path = "../reward-calculator", version = "= 0.100.0-rc4" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.100.0-rc4" }
-ckb-freezer = { path = "../../freezer", version = "= 0.100.0-rc4" }
+ckb-reward-calculator = { path = "../reward-calculator", version = "= 0.100.0-rc5" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.100.0-rc5" }
+ckb-freezer = { path = "../../freezer", version = "= 0.100.0-rc5" }
