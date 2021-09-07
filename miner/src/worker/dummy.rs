@@ -105,17 +105,13 @@ impl Dummy {
 
 impl Worker for Dummy {
     fn run<G: FnMut() -> u128>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
-        let mut current = self.pow_work.clone();
         loop {
             self.poll_worker_message();
-            if current.as_ref().map(|a| &a.0) != self.pow_work.as_ref().map(|a| &a.0) && self.start
-            {
+            if self.start {
                 if let Some((pow_hash, work)) = self.pow_work.clone() {
                     self.solve(pow_hash, work, rng());
                 }
             }
-
-            current = self.pow_work.clone();
         }
     }
 }
