@@ -450,6 +450,17 @@ pub trait ChainRpc {
     /// ## Params
     ///
     /// * `tx_hash` - Hash of a transaction
+    /// * `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+    ///
+    /// ## Returns
+    ///
+    /// When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release.
+    /// It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+    ///
+    /// When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
+    ///
+    /// When verbosity is 2: if tx_status.status is pending, proposed, or committed,
+    /// the RPC returns the transaction content as field transaction, otherwise the field is null.
     ///
     /// ## Examples
     ///
@@ -515,13 +526,18 @@ pub trait ChainRpc {
     ///     },
     ///     "tx_status": {
     ///       "block_hash": null,
-    ///       "status": "pending"
+    ///       "status": "pending",
+    ///       "reason": null
     ///     }
     ///   }
     /// }
     /// ```
     #[rpc(name = "get_transaction")]
-    fn get_transaction(&self, tx_hash: H256) -> Result<Option<TransactionWithStatus>>;
+    fn get_transaction(
+        &self,
+        tx_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<TransactionWithStatus>>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
     /// `block_number`.
@@ -1199,6 +1215,7 @@ pub(crate) struct ChainRpcImpl {
 
 const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
+const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
@@ -1329,11 +1346,20 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
-    fn get_transaction(&self, tx_hash: H256) -> Result<Option<TransactionWithStatus>> {
+    fn get_transaction(
+        &self,
+        tx_hash: H256,
+        verbosity: Option<Uint32>,
+    ) -> Result<Option<TransactionWithStatus>> {
         let tx_hash = tx_hash.pack();
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
+
         let id = packed::ProposalShortId::from_tx_hash(&tx_hash);
 
         let tx = {
+            // let tx = if verbosity == 0 {
             let tx_pool = self.shared.tx_pool_controller();
             let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(id);
             if let Err(e) = fetch_tx_for_rpc {
@@ -1343,9 +1369,9 @@ impl ChainRpc for ChainRpcImpl {
 
             fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
                 if proposed {
-                    TransactionWithStatus::with_proposed(tx)
+                    TransactionWithStatus::with_proposed(Some(tx))
                 } else {
-                    TransactionWithStatus::with_pending(tx)
+                    TransactionWithStatus::with_pending(Some(tx))
                 }
             })
         };
@@ -1355,7 +1381,7 @@ impl ChainRpc for ChainRpcImpl {
                 .snapshot()
                 .get_transaction(&tx_hash)
                 .map(|(tx, block_hash)| {
-                    TransactionWithStatus::with_committed(tx, block_hash.unpack())
+                    TransactionWithStatus::with_committed(Some(tx), block_hash.unpack())
                 })
         }))
     }
