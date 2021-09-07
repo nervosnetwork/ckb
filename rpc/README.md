@@ -141,11 +141,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
     * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TxPoolEntries`](#type-txpoolentries)
+    * [Type `TxPoolEntry`](#type-txpoolentry)
     * [Type `TxPoolIds`](#type-txpoolids)
     * [Type `TxPoolInfo`](#type-txpoolinfo)
-    * [Type `TxPoolVerbosity`](#type-txpoolverbosity)
     * [Type `TxStatus`](#type-txstatus)
-    * [Type `TxVerbosity`](#type-txverbosity)
     * [Type `U256`](#type-u256)
     * [Type `Uint128`](#type-uint128)
     * [Type `Uint32`](#type-uint32)
@@ -3993,7 +3993,7 @@ The ratio which numerator and denominator are both 256-bit unsigned integers.
 
 All transactions in tx-pool.
 
-`RawTxPool` is equivalent to [`TxPoolIds`](#type-txpoolids) `|` [`TxPoolVerbosity`](#type-txpoolverbosity).
+`RawTxPool` is equivalent to [`TxPoolIds`](#type-txpoolids) `|` [`TxPoolEntries`](#type-txpoolentries).
 
 ### Type `RemoteNode`
 
@@ -4378,6 +4378,40 @@ The JSON view of a transaction as well as its status.
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
 
+### Type `TxPoolEntries`
+
+Tx-pool entries object
+
+#### Fields
+
+`TxPoolEntries` is a JSON object with the following fields.
+
+*   `pending`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxPoolEntry`](#type-txpoolentry) `}` - Pending tx verbose info
+
+*   `proposed`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxPoolEntry`](#type-txpoolentry) `}` - Proposed tx verbose info
+
+
+### Type `TxPoolEntry`
+
+Transaction entry info
+
+#### Fields
+
+`TxPoolEntry` is a JSON object with the following fields.
+
+*   `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
+
+*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
+
+*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
+
+*   `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
+
+*   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
+
+*   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
+
+
 ### Type `TxPoolIds`
 
 Array of transaction ids
@@ -4428,19 +4462,6 @@ Transaction pool information.
 *   `last_txs_updated_at`: [`Timestamp`](#type-timestamp) - Last updated time. This is the Unix timestamp in milliseconds.
 
 
-### Type `TxPoolVerbosity`
-
-Tx-pool verbose object
-
-#### Fields
-
-`TxPoolVerbosity` is a JSON object with the following fields.
-
-*   `pending`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Pending tx verbose info
-
-*   `proposed`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Proposed tx verbose info
-
-
 ### Type `TxStatus`
 
 Transaction status and the block hash if it is committed.
@@ -4452,27 +4473,6 @@ Transaction status and the block hash if it is committed.
 *   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
-
-
-### Type `TxVerbosity`
-
-Transaction verbose info
-
-#### Fields
-
-`TxVerbosity` is a JSON object with the following fields.
-
-*   `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
-
-*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
-
-*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
-
-*   `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
-
-*   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
-
-*   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
 
 ### Type `U256`
