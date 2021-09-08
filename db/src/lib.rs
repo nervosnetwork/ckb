@@ -7,6 +7,7 @@ use ckb_error::{Error, InternalErrorKind};
 use std::{fmt, result};
 
 pub mod db;
+pub mod db_with_ttl;
 pub mod iter;
 pub mod read_only_db;
 pub mod snapshot;
@@ -17,6 +18,7 @@ pub mod write_batch;
 mod tests;
 
 pub use crate::db::RocksDB;
+pub use crate::db_with_ttl::DBWithTTL;
 pub use crate::iter::DBIterator;
 pub use crate::read_only_db::ReadOnlyDB;
 pub use crate::snapshot::RocksDBSnapshot;
