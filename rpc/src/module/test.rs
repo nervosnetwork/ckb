@@ -127,6 +127,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         block_assembler_message: Option<JsonBytes>,
     ) -> Result<H256> {
         let tx_pool = self.shared.tx_pool_controller();
+        let snapshot = Arc::clone(&self.shared.snapshot());
         let block_assembler_config = block_assembler_script.map(|script| BlockAssemblerConfig {
             code_hash: script.code_hash,
             hash_type: script.hash_type,
@@ -140,6 +141,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 None,
                 None,
                 None,
+                snapshot,
                 block_assembler_config,
             )
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?

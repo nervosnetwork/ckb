@@ -16,7 +16,7 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
-use ckb_snapshot::{Snapshot, SnapshotMgr};
+use ckb_snapshot::Snapshot;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
@@ -67,6 +67,7 @@ type BlockTemplateArgs = (
     Option<u64>,
     Option<u64>,
     Option<Version>,
+    Arc<Snapshot>,
     Option<BlockAssemblerConfig>,
 );
 
@@ -130,6 +131,12 @@ impl TxPoolController {
         self.started.load(Ordering::Relaxed)
     }
 
+    /// Set tx-pool service started, should only used for test
+    #[cfg(feature = "internal")]
+    pub fn set_service_started(&self, v: bool) {
+        self.started.store(v, Ordering::Relaxed);
+    }
+
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
@@ -141,11 +148,13 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        snapshot: Arc<Snapshot>,
     ) -> Result<BlockTemplateResult, AnyError> {
         self.get_block_template_with_block_assembler_config(
             bytes_limit,
             proposals_limit,
             max_version,
+            snapshot,
             None,
         )
     }
@@ -156,6 +165,7 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplateResult, AnyError> {
         let (responder, response) = oneshot::channel();
@@ -164,6 +174,7 @@ impl TxPoolController {
                 bytes_limit,
                 proposals_limit,
                 max_version,
+                snapshot,
                 block_assembler_config,
             ),
             responder,
@@ -466,7 +477,6 @@ pub struct TxPoolServiceBuilder {
     pub(crate) snapshot: Arc<Snapshot>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-    pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
@@ -485,7 +495,6 @@ impl TxPoolServiceBuilder {
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-        snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
         tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
@@ -514,7 +523,6 @@ impl TxPoolServiceBuilder {
             snapshot,
             block_assembler: block_assembler_config.map(BlockAssembler::new),
             txs_verify_cache,
-            snapshot_mgr,
             callbacks: Callbacks::new(),
             receiver,
             reorg_receiver,
@@ -574,7 +582,6 @@ impl TxPoolServiceBuilder {
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
             txs_verify_cache: self.txs_verify_cache,
-            snapshot_mgr: self.snapshot_mgr,
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             chunk: self.chunk,
@@ -650,16 +657,9 @@ pub(crate) struct TxPoolService {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
-    pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
-}
-
-impl TxPoolService {
-    pub(crate) fn snapshot(&self) -> Arc<Snapshot> {
-        Arc::clone(&self.snapshot_mgr.load())
-    }
 }
 
 #[allow(clippy::cognitive_complexity)]
@@ -673,13 +673,14 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::BlockTemplate(Request {
             responder,
-            arguments: (bytes_limit, proposals_limit, max_version, block_assembler_config),
+            arguments: (bytes_limit, proposals_limit, max_version, snapshot, block_assembler_config),
         }) => {
             let block_template_result = service
                 .get_block_template(
                     bytes_limit,
                     proposals_limit,
                     max_version,
+                    snapshot,
                     block_assembler_config,
                 )
                 .await;

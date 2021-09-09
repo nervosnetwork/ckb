@@ -126,7 +126,7 @@ fn test_package_txs_with_deps() {
 
     let txs = vec![tx1, tx2, tx3, tx4];
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -134,7 +134,7 @@ fn test_package_txs_with_deps() {
     // proposal txs
     {
         while (Into::<u64>::into(block_template.number)) != 1 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -157,7 +157,7 @@ fn test_package_txs_with_deps() {
     // skip gap
     {
         while (Into::<u64>::into(block_template.number)) != 2 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -182,8 +182,9 @@ fn test_package_txs_with_deps() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 {
-        block_template = tx_pool
+    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 5
+    {
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -191,7 +192,6 @@ fn test_package_txs_with_deps() {
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
-    assert_eq!(block.transactions().len(), 5);
 
     for (index, tx) in block.transactions().iter().skip(1).enumerate() {
         assert_eq!(tx.proposal_short_id(), txs[index].proposal_short_id());
@@ -270,7 +270,7 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     let txs = vec![tx1, tx2, tx3.clone(), tx4, tx5, tx6.clone()];
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -278,7 +278,7 @@ fn test_package_txs_with_deps_unstable_sort() {
     // proposal txs
     {
         while (Into::<u64>::into(block_template.number)) != 1 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -301,7 +301,7 @@ fn test_package_txs_with_deps_unstable_sort() {
     // skip gap
     {
         while (Into::<u64>::into(block_template.number)) != 2 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -326,8 +326,9 @@ fn test_package_txs_with_deps_unstable_sort() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 {
-        block_template = tx_pool
+    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 7
+    {
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -335,7 +336,6 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
-    assert_eq!(block.transactions().len(), 7);
 
     let in_blocks = block.transactions();
     assert_eq!(tx3.proposal_short_id(), in_blocks[3].proposal_short_id());
@@ -409,7 +409,7 @@ fn test_package_txs_with_deps2() {
 
     let txs = vec![tx1, tx2, tx3, tx4, tx5, tx6];
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -417,7 +417,7 @@ fn test_package_txs_with_deps2() {
     // proposal txs
     {
         while (Into::<u64>::into(block_template.number)) != 1 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -440,7 +440,7 @@ fn test_package_txs_with_deps2() {
     // skip gap
     {
         while (Into::<u64>::into(block_template.number)) != 2 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -465,8 +465,9 @@ fn test_package_txs_with_deps2() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 {
-        block_template = tx_pool
+    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 7
+    {
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -474,7 +475,6 @@ fn test_package_txs_with_deps2() {
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
-    assert_eq!(block.transactions().len(), 7);
 
     for (index, tx) in block.transactions().iter().skip(1).enumerate() {
         assert_eq!(tx.proposal_short_id(), txs[index].proposal_short_id());
@@ -541,7 +541,7 @@ fn test_package_txs_with_deps_priority() {
         assert!(ret.is_ok(), "submit {} {:?}", tx.proposal_short_id(), ret);
     }
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -549,7 +549,7 @@ fn test_package_txs_with_deps_priority() {
     // proposal txs
     {
         while (Into::<u64>::into(block_template.number)) != 1 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -565,7 +565,7 @@ fn test_package_txs_with_deps_priority() {
     // skip gap
     {
         while (Into::<u64>::into(block_template.number)) != 2 {
-            block_template = tx_pool
+            block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
@@ -584,8 +584,9 @@ fn test_package_txs_with_deps_priority() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 {
-        block_template = tx_pool
+    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 2
+    {
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -593,7 +594,6 @@ fn test_package_txs_with_deps_priority() {
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
-    assert_eq!(block.transactions().len(), 2);
     // tx1 will be discard
     assert_eq!(block.transactions()[1], tx2);
 }

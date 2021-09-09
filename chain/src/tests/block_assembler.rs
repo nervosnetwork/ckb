@@ -55,9 +55,8 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
 lazy_static! {
     static ref BASIC_BLOCK_SIZE: u64 = {
         let (_chain_controller, shared) = start_chain(None);
-        let tx_pool = shared.tx_pool_controller();
 
-        let block_template = tx_pool
+        let block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap();
@@ -70,9 +69,8 @@ lazy_static! {
 #[test]
 fn test_get_block_template() {
     let (_chain_controller, shared) = start_chain(None);
-    let tx_pool = shared.tx_pool_controller();
 
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -147,14 +145,13 @@ fn test_block_template_timestamp() {
     chain_controller
         .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
-    let tx_pool = shared.tx_pool_controller();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 2 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -168,9 +165,8 @@ fn test_block_template_timestamp() {
 #[test]
 fn test_block_template_message() {
     let (_chain_controller, shared) = start_chain(None);
-    let tx_pool = shared.tx_pool_controller();
 
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -216,15 +212,13 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
-    let tx_pool = shared.tx_pool_controller();
-
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     // block number 3, epoch 0
     while (Into::<u64>::into(block_template.number)) != 3 || block_template.uncles.is_empty() {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -242,12 +236,12 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 4 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -266,12 +260,12 @@ fn test_prepare_uncles() {
         .internal_process_block(Arc::new(block3_1), Switch::DISABLE_ALL)
         .unwrap();
 
-    let mut block_template = tx_pool
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
     while (Into::<u64>::into(block_template.number)) != 5 {
-        block_template = tx_pool
+        block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
@@ -365,7 +359,7 @@ fn test_package_basic() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 300 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -376,7 +370,7 @@ fn test_package_basic() {
     );
 
     // 400 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -387,7 +381,7 @@ fn test_package_basic() {
     );
 
     // 500 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -398,7 +392,7 @@ fn test_package_basic() {
     );
 
     // 600 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(600 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -409,7 +403,7 @@ fn test_package_basic() {
     );
 
     // 700 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(700 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -420,7 +414,7 @@ fn test_package_basic() {
     );
 
     // 800 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(800 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -431,14 +425,14 @@ fn test_package_basic() {
     );
 
     // none package txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
     check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -505,7 +499,7 @@ fn test_package_multi_best_scores() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 250 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -516,7 +510,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 400 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -527,7 +521,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 500 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -538,7 +532,7 @@ fn test_package_multi_best_scores() {
     );
 
     // 900 size best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(900 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
@@ -549,14 +543,14 @@ fn test_package_multi_best_scores() {
     );
 
     // none package txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
     check_txs(&block_template, vec![], "none package txs");
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -610,7 +604,7 @@ fn test_package_low_fee_decendants() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // best scored txs
-    let block_template = tx_pool
+    let block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
@@ -619,4 +613,89 @@ fn test_package_low_fee_decendants() {
         vec![&tx1, &tx2, &tx3, &tx4, &tx5],
         "best scored txs",
     );
+}
+
+#[test]
+fn test_blank_template() {
+    let mut consensus = Consensus::default();
+    consensus.genesis_epoch_ext.set_length(5);
+    let epoch = consensus.genesis_epoch_ext().clone();
+
+    let (chain_controller, shared) = start_chain(Some(consensus));
+
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+    let mut parent_header = genesis;
+    let mut blocks = vec![];
+    for _i in 0..4 {
+        let block = gen_block(&parent_header, 11, &epoch);
+        chain_controller
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .expect("process block");
+        parent_header = block.header().to_owned();
+        blocks.push(block);
+    }
+
+    let tx0 = &blocks[0].transactions()[0];
+    let tx1 = build_tx(tx0, &[0], 2);
+    let tx2 = build_tx(&tx1, &[0], 2);
+    let tx3 = build_tx(&tx2, &[0], 2);
+    let tx4 = build_tx(&tx3, &[0], 2);
+
+    let tx2_0 = &blocks[1].transactions()[0];
+    let tx2_1 = build_tx(tx2_0, &[0], 2);
+    let tx2_2 = build_tx(&tx2_1, &[0], 2);
+    let tx2_3 = build_tx(&tx2_2, &[0], 2);
+
+    let tx_pool = shared.tx_pool_controller();
+    let entries = vec![
+        TxEntry::dummy_resolve(tx1, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx2, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx3, 0, Capacity::shannons(100), 100),
+        TxEntry::dummy_resolve(tx4, 0, Capacity::shannons(1500), 500),
+        TxEntry::dummy_resolve(tx2_1, 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_2, 0, Capacity::shannons(150), 100),
+        TxEntry::dummy_resolve(tx2_3, 0, Capacity::shannons(150), 100),
+    ];
+    let size = entries.len();
+    tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+
+    let previous_tip_hash = shared.snapshot().tip_hash();
+    {
+        // shutdown tx-pool notify
+        tx_pool.set_service_started(false);
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&parent_header, &shared.store().as_data_provider())
+            .unwrap()
+            .epoch();
+        let block = gen_block(&parent_header, 11, &epoch);
+        chain_controller
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .expect("process block");
+        blocks.push(block);
+    }
+
+    let tip_hash = shared.snapshot().tip_hash();
+    let tip_number = shared.snapshot().tip_number();
+
+    let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+    // tx-pool update is prevented
+    assert_eq!(tx_pool_info.tip_hash, previous_tip_hash);
+    assert!(tx_pool_info.tip_hash != tip_hash);
+    assert!(tx_pool_info.proposed_size == size);
+    assert!(tx_pool_info.tip_number == (tip_number - 1));
+
+    let block_template = shared
+        .get_block_template(None, None, None)
+        .unwrap()
+        .unwrap();
+
+    // blank template retured if tx-pool is not updated
+    assert!(block_template.transactions.is_empty());
+    assert!(block_template.proposals.is_empty());
+    assert!(block_template.parent_hash == tip_hash.unpack());
+    assert!(block_template.number == (tip_number + 1).into());
 }

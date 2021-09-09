@@ -322,7 +322,6 @@ impl SharedBuilder {
             Arc::clone(&snapshot),
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
-            Arc::clone(&snapshot_mgr),
             &async_handle,
             sender.clone(),
         );

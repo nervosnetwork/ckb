@@ -112,6 +112,33 @@ pub(crate) fn verify_rtx(
     }
 }
 
+pub(crate) fn time_relative_verify(
+    snapshot: &Snapshot,
+    rtx: &ResolvedTransaction,
+    tx_env: &TxVerifyEnv,
+) -> Result<(), Reject> {
+    let consensus = snapshot.consensus();
+    TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot, tx_env)
+        .verify()
+        .map_err(Reject::Verification)
+}
+
 pub(crate) fn is_missing_input(reject: &Reject) -> bool {
     matches!(reject, Reject::Resolve(out_point_err) if out_point_err.is_unknown())
+}
+
+/// Unwraps a result or propagates its error with snapshot.
+#[macro_export]
+macro_rules! try_or_return_with_snapshot {
+    ($expr:expr, $snapshot:expr) => {
+        match $expr {
+            core::result::Result::Ok(val) => val,
+            core::result::Result::Err(err) => {
+                return (
+                    core::result::Result::Err(core::convert::From::from(err)),
+                    $snapshot,
+                );
+            }
+        }
+    };
 }

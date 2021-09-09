@@ -7,7 +7,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
-use ckb_shared::{Shared, Snapshot};
+use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
@@ -177,7 +177,7 @@ fn bench(c: &mut Criterion) {
                     |(shared, chain)| {
                         let mut i = 10;
                         while i > 0 {
-                            let snapshot: &Snapshot = &shared.snapshot();
+                            let snapshot = Arc::clone(&shared.snapshot());
                             let tip_hash = snapshot.tip_hash();
                             let block = snapshot.get_block(&tip_hash).expect("tip exist");
                             let txs = gen_txs_from_block(&block);
@@ -188,7 +188,7 @@ fn bench(c: &mut Criterion) {
                                 }
                             }
                             let block_template = tx_pool
-                                .get_block_template(None, None, None)
+                                .get_block_template(None, None, None, Arc::clone(&snapshot))
                                 .unwrap()
                                 .expect("get_block_template");
                             let raw_block: Block = block_template.into();
@@ -200,7 +200,7 @@ fn bench(c: &mut Criterion) {
                             let block = raw_block.as_builder().header(header).build().into_view();
 
                             let header_verifier =
-                                HeaderVerifier::new(snapshot, &shared.consensus());
+                                HeaderVerifier::new(snapshot.as_ref(), &shared.consensus());
                             header_verifier
                                 .verify(&block.header())
                                 .expect("header verified");
