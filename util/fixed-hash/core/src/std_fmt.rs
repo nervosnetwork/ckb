@@ -5,22 +5,13 @@ macro_rules! impl_std_fmt {
         impl ::std::fmt::Debug for $name {
             #[inline]
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                let alternate = f.alternate();
                 write!(f, stringify!($name))?;
                 write!(f, " ( [")?;
-                if alternate {
-                    writeln!(f)?;
-                    for chr in self.0.iter() {
-                        writeln!(f, "    {:#04x},", chr)?;
-                    }
-                    writeln!(f, "]")
-                } else {
-                    write!(f, " {:#04x}", self.0[0])?;
-                    for chr in self.0[1..].iter() {
-                        write!(f, ", {:#04x}", chr)?;
-                    }
-                    write!(f, " ] )")
+                write!(f, " {:#04x}", self.0[0])?;
+                for chr in self.0[1..].iter() {
+                    write!(f, ", {:#04x}", chr)?;
                 }
+                write!(f, " ] )")
             }
         }
         impl ::std::fmt::LowerHex for $name {

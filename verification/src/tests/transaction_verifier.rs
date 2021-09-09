@@ -21,7 +21,6 @@ use ckb_types::{
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 use std::sync::Arc;
 

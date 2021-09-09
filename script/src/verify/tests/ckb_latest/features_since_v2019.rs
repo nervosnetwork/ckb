@@ -8,7 +8,6 @@ use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
     h256,
     packed::{CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
-    H256,
 };
 use std::io::Read;
 

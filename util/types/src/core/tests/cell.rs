@@ -16,7 +16,6 @@ use crate::{
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 
 #[derive(Default)]

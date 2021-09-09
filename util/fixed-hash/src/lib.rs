@@ -19,4 +19,46 @@
 //! ```
 
 pub use ckb_fixed_hash_core::{error, H160, H256, H512, H520};
-pub use ckb_fixed_hash_macros::{h160, h256, h512, h520};
+
+#[doc(hidden)]
+pub use ckb_fixed_hash_macros as internal;
+
+/// A macro used to create a const [`H160`] from a hexadecimal string or a trimmed hexadecimal
+/// string.
+#[macro_export]
+macro_rules! h160 {
+    ($arg:literal) => {{
+        use $crate::H160;
+        $crate::internal::h160!($arg)
+    }};
+}
+
+/// A macro used to create a const [`H256`] from a hexadecimal string or a trimmed hexadecimal
+/// string.
+#[macro_export]
+macro_rules! h256 {
+    ($arg:literal) => {{
+        use $crate::H256;
+        $crate::internal::h256!($arg)
+    }};
+}
+
+/// A macro used to create a const [`H512`] from a hexadecimal string or a trimmed hexadecimal
+/// string.
+#[macro_export]
+macro_rules! h512 {
+    ($arg:literal) => {{
+        use $crate::H512;
+        $crate::internal::h512!($arg)
+    }};
+}
+
+/// A macro used to create a const [`H520`] from a hexadecimal string or a trimmed hexadecimal
+/// string.
+#[macro_export]
+macro_rules! h520 {
+    ($arg:literal) => {{
+        use $crate::H520;
+        $crate::internal::h520!($arg)
+    }};
+}

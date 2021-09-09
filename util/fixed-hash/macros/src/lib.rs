@@ -26,7 +26,7 @@ use std::str::FromStr;
 use quote::quote;
 use syn::parse_macro_input;
 
-macro_rules! impl_hack {
+macro_rules! impl_hash {
     ($name:ident, $type:ident, $type_str:expr, $link_str:expr) =>    {
         #[doc = "A proc-macro used to create a const [`"]
         #[doc = $type_str]
@@ -68,11 +68,11 @@ macro_rules! impl_hack {
         }
     };
     ($name:ident, $type:ident) => {
-        impl_hack!($name, $type, stringify!($type), concat!("../ckb_fixed_hash_core/struct.", stringify!($type), ".html"));
+        impl_hash!($name, $type, stringify!($type), concat!("../ckb_fixed_hash_core/struct.", stringify!($type), ".html"));
     }
 }
 
-impl_hack!(h160, H160);
-impl_hack!(h256, H256);
-impl_hack!(h512, H512);
-impl_hack!(h520, H520);
+impl_hash!(h160, H160);
+impl_hash!(h256, H256);
+impl_hash!(h512, H512);
+impl_hash!(h520, H520);

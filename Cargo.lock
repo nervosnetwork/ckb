@@ -632,6 +632,7 @@ version = "0.100.0-pre"
 dependencies = [
  "faster-hex",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
