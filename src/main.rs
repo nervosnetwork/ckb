@@ -4,7 +4,7 @@ use ckb_build_info::Version;
 
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
     let version = get_version();

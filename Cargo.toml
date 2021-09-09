@@ -97,11 +97,11 @@ opt-level = 3
 opt-level = 3
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
-jemallocator = { version = "0.3.0", features = ["unprefixed_malloc_on_supported_platforms"] }
+tikv-jemallocator = { version = "0.4.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
 [features]
 default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
-profiling = ["jemallocator/profiling", "ckb-bin/profiling"]
+profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
