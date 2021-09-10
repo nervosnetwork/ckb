@@ -735,8 +735,7 @@ impl ChainService {
                     };
 
                     let resolved = {
-                        let txn_cell_provider = txn.cell_provider();
-                        let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
+                        let cell_provider = OverlayCellProvider::new(&block_cp, txn);
                         transactions
                             .iter()
                             .cloned()

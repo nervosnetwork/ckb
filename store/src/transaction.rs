@@ -14,8 +14,11 @@ use ckb_db_schema::{
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_types::{
-    core::{BlockExt, BlockView, EpochExt, HeaderView},
-    packed,
+    core::{
+        cell::{CellChecker, CellProvider, CellStatus},
+        BlockExt, BlockView, EpochExt, HeaderView,
+    },
+    packed::{self, OutPoint},
     prelude::*,
 };
 use std::sync::Arc;
@@ -46,6 +49,33 @@ impl<'a> ChainStore<'a> for StoreTransaction {
         self.inner
             .iter(col, mode)
             .expect("db operation should be ok")
+    }
+}
+
+impl CellProvider for StoreTransaction {
+    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
+        match self.get_cell(out_point) {
+            Some(mut cell_meta) => {
+                if eager_load {
+                    if let Some((data, data_hash)) = self.get_cell_data(out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
+                }
+                CellStatus::live_cell(cell_meta)
+            }
+            None => CellStatus::Unknown,
+        }
+    }
+}
+
+impl CellChecker for StoreTransaction {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        if self.have_cell(out_point) {
+            Some(true)
+        } else {
+            None
+        }
     }
 }
 
