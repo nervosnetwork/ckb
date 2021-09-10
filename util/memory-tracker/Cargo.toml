@@ -14,10 +14,10 @@ ckb-metrics = { path = "../metrics", version = "= 0.100.0-pre" }
 ckb-db = { path = "../../db", version = "= 0.100.0-pre" }
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
-heim = { version = "0.0.11", default-features=false, features = ["process"] }
-futures = "0.3.1"
 jemalloc-ctl = { package = "tikv-jemalloc-ctl", version = "0.4.2" }
 jemalloc-sys = { package = "tikv-jemalloc-sys", version = "0.4.2" }
+libc = "0.2"
+once_cell = "1.8.0"
 
 [features]
 default = []

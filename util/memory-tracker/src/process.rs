@@ -1,9 +1,7 @@
-use std::{sync, thread, time};
+use std::{fs, io, str::FromStr, sync, thread, time};
 
 use ckb_logger::{error, info};
 use ckb_metrics::metrics;
-use futures::executor::block_on;
-use heim::units::information::byte;
 use jemalloc_ctl::{epoch, stats};
 
 use crate::rocksdb::TrackRocksDBMemory;
@@ -59,45 +57,41 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
         if let Err(err) = thread::Builder::new()
             .name("MemoryTracker".to_string())
             .spawn(move || {
-                if let Ok(process) = block_on(heim::process::current()) {
-                    loop {
-                        if je_epoch.advance().is_err() {
-                            error!("failed to refresh the jemalloc stats");
-                            return;
-                        }
-                        if let Ok(memory) = block_on(process.memory()) {
-                            // Resident set size, amount of non-swapped physical memory.
-                            let rss = memory.rss().get::<byte>() as i64;
-                            // Virtual memory size, total amount of memory.
-                            let vms = memory.vms().get::<byte>() as i64;
-
-                            metrics!(gauge, "ckb-sys.mem.process", rss, "type" => "rss");
-                            metrics!(gauge, "ckb-sys.mem.process", vms, "type" => "vms");
-
-                            let allocated = mib_read!(allocated);
-                            let resident = mib_read!(resident);
-                            let active = mib_read!(active);
-                            let mapped = mib_read!(mapped);
-                            let retained = mib_read!(retained);
-                            let metadata = mib_read!(metadata);
-
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", allocated, "type" => "allocated");
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", resident, "type" => "resident");
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", active, "type" => "active");
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", mapped, "type" => "mapped");
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", retained, "type" => "retained");
-                            metrics!(gauge, "ckb-sys.mem.jemalloc", metadata, "type" => "metadata");
-
-                            if let Some(tracker) = tracker_opt.clone() {
-                                tracker.gather_memory_stats();
-                            }
-                        } else {
-                            error!("failed to fetch the memory information about current process");
-                        }
-                        thread::sleep(wait_secs);
+                loop {
+                    if je_epoch.advance().is_err() {
+                        error!("failed to refresh the jemalloc stats");
+                        return;
                     }
-                } else {
-                    error!("failed to track the currently running program");
+                    if let Ok(memory) = get_current_process_memory() {
+                        // Resident set size, amount of non-swapped physical memory.
+                        let rss = memory.resident as i64;
+                        // Virtual memory size, total amount of memory.
+                        let vms = memory.size as i64;
+
+                        metrics!(gauge, "ckb-sys.mem.process", rss, "type" => "rss");
+                        metrics!(gauge, "ckb-sys.mem.process", vms, "type" => "vms");
+
+                        let allocated = mib_read!(allocated);
+                        let resident = mib_read!(resident);
+                        let active = mib_read!(active);
+                        let mapped = mib_read!(mapped);
+                        let retained = mib_read!(retained);
+                        let metadata = mib_read!(metadata);
+
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", allocated, "type" => "allocated");
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", resident, "type" => "resident");
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", active, "type" => "active");
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", mapped, "type" => "mapped");
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", retained, "type" => "retained");
+                        metrics!(gauge, "ckb-sys.mem.jemalloc", metadata, "type" => "metadata");
+
+                        if let Some(tracker) = tracker_opt.clone() {
+                            tracker.gather_memory_stats();
+                        }
+                    } else {
+                        error!("failed to fetch the memory information about current process");
+                    }
+                    thread::sleep(wait_secs);
                 }
             })
         {
@@ -107,4 +101,85 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
             );
         }
     }
+}
+
+#[derive(Debug)]
+pub struct Memory {
+    // Virtual memory size
+    size: u64,
+    // Size of physical memory being used
+    resident: u64,
+    // Number of shared pages
+    shared: u64,
+    // The size of executable virtual memory owned by the program
+    text: u64,
+    // Size of the program data segment and the user state stack
+    data: u64,
+}
+
+impl FromStr for Memory {
+    type Err = io::Error;
+    fn from_str(value: &str) -> Result<Memory, io::Error> {
+        static PAGE_SIZE: once_cell::sync::OnceCell<u64> = once_cell::sync::OnceCell::new();
+        let page_size =
+            PAGE_SIZE.get_or_init(|| unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 });
+        let mut parts = value.split_ascii_whitespace();
+        let size = parts
+            .next()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+            .and_then(|value| {
+                u64::from_str(value)
+                    .map(|value| value * *page_size)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })?;
+        let resident = parts
+            .next()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+            .and_then(|value| {
+                u64::from_str(value)
+                    .map(|value| value * *page_size)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })?;
+        let shared = parts
+            .next()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+            .and_then(|value| {
+                u64::from_str(value)
+                    .map(|value| value * *page_size)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })?;
+        let text = parts
+            .next()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+            .and_then(|value| {
+                u64::from_str(value)
+                    .map(|value| value * *page_size)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })?;
+        // ignore the size of the library in the virtual memory space of the task being imaged
+        let _lrs = parts.next();
+        let data = parts
+            .next()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+            .and_then(|value| {
+                u64::from_str(value)
+                    .map(|value| value * *page_size)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })?;
+        Ok(Memory {
+            size,
+            resident,
+            shared,
+            text,
+            data,
+        })
+    }
+}
+
+fn get_current_process_memory() -> Result<Memory, io::Error> {
+    static PID: once_cell::sync::OnceCell<libc::pid_t> = once_cell::sync::OnceCell::new();
+    let pid = PID.get_or_init(|| unsafe { libc::getpid() });
+    let content = fs::read_to_string(format!("/proc/{}/statm", pid))?;
+
+    Memory::from_str(&content)
 }
