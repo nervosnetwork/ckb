@@ -11,10 +11,18 @@ fn test_open_db_with_ttl() {
     assert!(db.is_ok(), "{:?}", db);
     let mut db = db.unwrap();
 
-    db.put("1", &[1], &[2]).unwrap();
-    assert_eq!(db.get_pinned("1", &[1]).unwrap().unwrap().as_ref(), &[2]);
+    for i in 0..1000u64 {
+        db.put("1", &i.to_le_bytes(), &[2]).unwrap();
+        assert_eq!(
+            db.get_pinned("1", &i.to_le_bytes())
+                .unwrap()
+                .unwrap()
+                .as_ref(),
+            &[2]
+        );
+    }
 
-    let estimate_num_keys = db.estimate_num_keys().unwrap();
+    let estimate_num_keys = db.estimate_num_keys_cf("1").unwrap();
     assert!(estimate_num_keys.is_some());
 
     db.drop_cf("1").unwrap();

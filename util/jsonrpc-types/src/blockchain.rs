@@ -548,6 +548,35 @@ impl TransactionWithStatus {
             transaction: tx.map(Into::into),
         }
     }
+
+    /// Build with rejected status
+    pub fn with_rejected(reason: String) -> Self {
+        Self {
+            tx_status: TxStatus::rejected(reason),
+            transaction: None,
+        }
+    }
+
+    /// Build with rejected status
+    pub fn with_unknown() -> Self {
+        Self {
+            tx_status: TxStatus::unknown(),
+            transaction: None,
+        }
+    }
+
+    /// Build with status only
+    pub fn status_only(tx_status: TxStatus) -> Self {
+        Self {
+            tx_status,
+            transaction: None,
+        }
+    }
+
+    /// Returns true if the tx_status is Unknown.
+    pub fn is_unknown(&self) -> bool {
+        self.tx_status.is_unknown()
+    }
 }
 
 /// Status for transaction
@@ -609,6 +638,33 @@ impl TxStatus {
             block_hash: Some(hash),
             reason: None,
         }
+    }
+
+    /// Transaction which has already been rejected recently.
+    ///
+    /// ## Params
+    ///
+    /// * `reason` - the reason why the transaction is rejected.
+    pub fn rejected(reason: String) -> Self {
+        Self {
+            status: Status::Rejected,
+            block_hash: None,
+            reason: Some(reason),
+        }
+    }
+
+    /// The node has not seen the transaction,
+    pub fn unknown() -> Self {
+        Self {
+            status: Status::Unknown,
+            block_hash: None,
+            reason: None,
+        }
+    }
+
+    /// Returns true if the status is Unknown.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self.status, Status::Unknown)
     }
 }
 
