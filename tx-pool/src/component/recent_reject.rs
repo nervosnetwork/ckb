@@ -3,7 +3,6 @@ use ckb_db::DBWithTTL;
 use ckb_error::AnyError;
 use ckb_types::{packed::Byte32, prelude::*};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 const SHRINK_SHARD: &str = "0";
 const DEFAULT_SHARDS: u32 = 5;
@@ -12,9 +11,9 @@ const DEFAULT_SHARDS: u32 = 5;
 pub struct RecentReject {
     ttl: i32,
     shard_num: u32,
-    count_limit: u64,
-    total_keys_num: AtomicU64,
-    db: DBWithTTL,
+    pub(crate) count_limit: u64,
+    pub(crate) total_keys_num: u64,
+    pub(crate) db: DBWithTTL,
 }
 
 impl RecentReject {
@@ -25,7 +24,7 @@ impl RecentReject {
         Self::build(path, DEFAULT_SHARDS, count_limit, ttl)
     }
 
-    fn build<P>(
+    pub(crate) fn build<P>(
         path: P,
         shard_num: u32,
         count_limit: u64,
@@ -48,7 +47,7 @@ impl RecentReject {
             count_limit,
             ttl,
             db,
-            total_keys_num: AtomicU64::new(total_keys_num),
+            total_keys_num,
         })
     }
 
@@ -59,9 +58,11 @@ impl RecentReject {
         let json_string = serde_json::to_string(&reject)?;
         self.db.put(&shard, hash_slice, json_string)?;
 
-        let total_keys_num = self.total_keys_num.fetch_add(1, Ordering::Relaxed);
-        if total_keys_num > self.count_limit {
+        let total_keys_num = self.total_keys_num.checked_add(1);
+        if total_keys_num > Some(self.count_limit) || total_keys_num.is_none() {
             self.shrink()?;
+        } else {
+            self.total_keys_num = total_keys_num.expect("checked cannot fail");
         }
         Ok(())
     }
@@ -73,7 +74,7 @@ impl RecentReject {
         Ok(ret.map(|bytes| unsafe { String::from_utf8_unchecked(bytes.to_vec()) }))
     }
 
-    fn shrink(&mut self) -> Result<(), AnyError> {
+    fn shrink(&mut self) -> Result<u64, AnyError> {
         self.db.drop_cf(SHRINK_SHARD)?;
         self.db.create_cf_with_ttl(SHRINK_SHARD, self.ttl)?;
 
@@ -82,8 +83,8 @@ impl RecentReject {
             .collect::<Result<Vec<_>, _>>()?;
 
         let total_keys_num = estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum();
-        self.total_keys_num.store(total_keys_num, Ordering::Relaxed);
-        Ok(())
+        self.total_keys_num = total_keys_num;
+        Ok(total_keys_num)
     }
 
     fn get_shard(&self, hash: &[u8]) -> u32 {
