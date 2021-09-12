@@ -1356,34 +1356,24 @@ impl ChainRpc for ChainRpcImpl {
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
 
-        let id = packed::ProposalShortId::from_tx_hash(&tx_hash);
-
-        let tx = {
-            // let tx = if verbosity == 0 {
-            let tx_pool = self.shared.tx_pool_controller();
-            let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(id);
-            if let Err(e) = fetch_tx_for_rpc {
-                error!("send fetch_tx_for_rpc request error {}", e);
-                return Err(RPCError::ckb_internal_error(e));
-            };
-
-            fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
-                if proposed {
-                    TransactionWithStatus::with_proposed(Some(tx))
-                } else {
-                    TransactionWithStatus::with_pending(Some(tx))
-                }
-            })
-        };
-
-        Ok(tx.or_else(|| {
-            self.shared
-                .snapshot()
-                .get_transaction(&tx_hash)
-                .map(|(tx, block_hash)| {
-                    TransactionWithStatus::with_committed(Some(tx), block_hash.unpack())
-                })
-        }))
+        if verbosity == 0 {
+            // legacy mode
+            //  When verbosity is 0 (deprecated): this is reserved for compatibility,
+            //  and will be removed in the following release.
+            //  It return null as the RPC response when the status is rejected or unknown,
+            //  mimicking the original behaviors.
+            self.get_transaction_verbosity0(tx_hash)
+        } else if verbosity == 1 {
+            // The RPC does not return the transaction content and the field transaction must be null.
+            self.get_transaction_verbosity1(tx_hash)
+        } else if verbosity == 2 {
+            // if tx_status.status is pending, proposed, or committed,
+            // the RPC returns the transaction content as field transaction,
+            // otherwise the field is null.
+            self.get_transaction_verbosity2(tx_hash)
+        } else {
+            Err(RPCError::invalid_params("invalid verbosity level"))
+        }
     }
 
     fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>> {
@@ -1674,5 +1664,90 @@ impl ChainRpc for ChainRpcImpl {
             self.shared.consensus().median_time_block_count(),
         );
         Ok(Some(median_time.into()))
+    }
+}
+
+impl ChainRpcImpl {
+    fn get_transaction_verbosity0(
+        &self,
+        tx_hash: packed::Byte32,
+    ) -> Result<Option<TransactionWithStatus>> {
+        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
+            return Ok(Some(TransactionWithStatus::with_committed(
+                Some(tx),
+                block_hash.unpack(),
+            )));
+        }
+
+        let tx_pool = self.shared.tx_pool_controller();
+        let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(tx_hash);
+        if let Err(e) = fetch_tx_for_rpc {
+            error!("send fetch_tx_for_rpc request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+
+        let ret = fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
+            if proposed {
+                TransactionWithStatus::with_proposed(Some(tx))
+            } else {
+                TransactionWithStatus::with_pending(Some(tx))
+            }
+        });
+
+        Ok(ret)
+    }
+
+    fn get_transaction_verbosity1(
+        &self,
+        tx_hash: packed::Byte32,
+    ) -> Result<Option<TransactionWithStatus>> {
+        if let Some(tx_info) = self.shared.snapshot().get_transaction_info(&tx_hash) {
+            return Ok(Some(TransactionWithStatus::with_committed(
+                None,
+                tx_info.block_hash.unpack(),
+            )));
+        }
+
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_status = tx_pool.get_tx_status(tx_hash);
+        if let Err(e) = tx_status {
+            error!("send get_tx_status request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+        let tx_status = tx_status.unwrap();
+
+        if let Err(e) = tx_status {
+            error!("get_tx_status from db error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+        let tx_status = tx_status.unwrap();
+        Ok(Some(TransactionWithStatus::status_only(tx_status)))
+    }
+
+    fn get_transaction_verbosity2(
+        &self,
+        tx_hash: packed::Byte32,
+    ) -> Result<Option<TransactionWithStatus>> {
+        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
+            return Ok(Some(TransactionWithStatus::with_committed(
+                Some(tx),
+                block_hash.unpack(),
+            )));
+        }
+
+        let tx_pool = self.shared.tx_pool_controller();
+        let transaction_with_status = tx_pool.get_transaction_with_status(tx_hash);
+        if let Err(e) = transaction_with_status {
+            error!("send get_transaction_with_status request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+        let transaction_with_status = transaction_with_status.unwrap();
+
+        if let Err(e) = transaction_with_status {
+            error!("get transaction_with_status from db error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+        let transaction_with_status = transaction_with_status.unwrap();
+        Ok(Some(transaction_with_status))
     }
 }

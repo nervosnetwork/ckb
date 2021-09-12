@@ -12,7 +12,7 @@ use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::{AnyError, Error};
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_logger::error;
 use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
@@ -75,6 +75,10 @@ pub(crate) type SubmitTxResult = Result<Completed, Error>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
+type GetTxStatusResult = Result<TxStatus, AnyError>;
+
+type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
+
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
 pub(crate) type ChainReorgArgs = (
@@ -93,7 +97,9 @@ pub(crate) enum Message {
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
-    FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
+    FetchTxRPC(Request<Byte32, Option<(bool, TransactionView)>>),
+    GetTxStatus(Request<Byte32, GetTxStatusResult>),
+    GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
@@ -320,11 +326,44 @@ impl TxPoolController {
     }
 
     /// Return tx for rpc
-    pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, AnyError> {
+    pub fn fetch_tx_for_rpc(&self, hash: Byte32) -> Result<FetchTxRPCResult, AnyError> {
         let (responder, response) = oneshot::channel();
-        let request = Request::call(id, responder);
+        let request = Request::call(hash, responder);
         self.sender
             .try_send(Message::FetchTxRPC(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Return tx_status for rpc (get_transaction verbosity = 1)
+    pub fn get_tx_status(&self, hash: Byte32) -> Result<GetTxStatusResult, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(hash, responder);
+        self.sender
+            .try_send(Message::GetTxStatus(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Return transaction_with_status for rpc (get_transaction verbosity = 2)
+    pub fn get_transaction_with_status(
+        &self,
+        hash: Byte32,
+    ) -> Result<GetTransactionWithStatusResult, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(hash, responder);
+        self.sender
+            .try_send(Message::GetTransactionWithStatus(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -732,17 +771,82 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::FetchTxRPC(Request {
             responder,
-            arguments: id,
+            arguments: hash,
         }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
             let tx = tx_pool
                 .proposed()
                 .get(&id)
                 .map(|entry| (true, entry.transaction()))
-                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)))
+                .or_else(|| {
+                    tx_pool
+                        .get_tx_from_pending_or_else_gap(&id)
+                        .map(|tx| (false, tx))
+                })
                 .map(|(proposed, tx)| (proposed, tx.clone()));
             if let Err(e) = responder.send(tx) {
                 error!("responder send fetch_tx_for_rpc failed {:?}", e)
+            };
+        }
+        Message::GetTxStatus(Request {
+            responder,
+            arguments: hash,
+        }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
+            let tx_pool = service.tx_pool.read().await;
+
+            let ret = if tx_pool.proposed.contains_key(&id) {
+                Ok(TxStatus::proposed())
+            } else if tx_pool.pending.contains_key(&id) || tx_pool.gap.contains_key(&id) {
+                Ok(TxStatus::pending())
+            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+                let recent_reject_result = recent_reject_db.get(&hash);
+                if let Ok(recent_reject) = recent_reject_result {
+                    if let Some(record) = recent_reject {
+                        Ok(TxStatus::rejected(record))
+                    } else {
+                        Ok(TxStatus::unknown())
+                    }
+                } else {
+                    Err(recent_reject_result.unwrap_err())
+                }
+            } else {
+                Ok(TxStatus::unknown())
+            };
+
+            if let Err(e) = responder.send(ret) {
+                error!("responder send get_tx_status failed {:?}", e)
+            };
+        }
+        Message::GetTransactionWithStatus(Request {
+            responder,
+            arguments: hash,
+        }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
+            let tx_pool = service.tx_pool.read().await;
+
+            let ret = if let Some(tx) = tx_pool.proposed.get_tx(&id) {
+                Ok(TransactionWithStatus::with_proposed(Some(tx.clone())))
+            } else if let Some(tx) = tx_pool.get_tx_from_pending_or_else_gap(&id) {
+                Ok(TransactionWithStatus::with_pending(Some(tx.clone())))
+            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+                let recent_reject_result = recent_reject_db.get(&hash);
+                if let Ok(recent_reject) = recent_reject_result {
+                    if let Some(record) = recent_reject {
+                        Ok(TransactionWithStatus::with_rejected(record))
+                    } else {
+                        Ok(TransactionWithStatus::with_unknown())
+                    }
+                } else {
+                    Err(recent_reject_result.unwrap_err())
+                }
+            } else {
+                Ok(TransactionWithStatus::with_unknown())
+            };
+
+            if let Err(e) = responder.send(ret) {
+                error!("responder send get_tx_status failed {:?}", e)
             };
         }
         Message::FetchTxs(Request {
