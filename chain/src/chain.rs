@@ -18,7 +18,7 @@ use ckb_types::{
             ResolveOptions, ResolvedTransaction,
         },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, HeaderView,
+        BlockExt, BlockNumber, BlockTxStat, BlockView, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
     U256,
@@ -762,13 +762,34 @@ impl ChainService {
                             ) {
                                 Ok((cycles, cache_entries)) => {
                                     let txs_fees =
-                                        cache_entries.into_iter().map(|entry| entry.fee).collect();
+                                        cache_entries.iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
                                     let mut mut_ext = ext.clone();
                                     mut_ext.verified = Some(true);
                                     mut_ext.txs_fees = txs_fees;
                                     txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
+
+                                    // block tx statistics will not include cellbase tx
+                                    // entry.cycles already exclude cellbase
+                                    let tx_stat = BlockTxStat {
+                                        txs_cycles: cache_entries
+                                            .iter()
+                                            .map(|entry| entry.cycles)
+                                            .collect(),
+                                        txs_size: resolved
+                                            .iter()
+                                            .skip(1)
+                                            .map(|resolved_tx| {
+                                                resolved_tx
+                                                    .transaction
+                                                    .data()
+                                                    .serialized_size_in_block()
+                                                    as u64
+                                            })
+                                            .collect(),
+                                    };
+                                    txn.insert_block_tx_stat(&b.header().hash(), &tx_stat)?;
                                     if !switch.disable_script() && b.transactions().len() > 1 {
                                         info!(
                                             "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",

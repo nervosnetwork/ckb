@@ -108,6 +108,8 @@ pub enum RPCError {
     ///
     /// For example, a cellbase transaction is not allowed in `send_transaction` RPC.
     PoolRejectedMalformedTransaction = -1108,
+    /// (-1200): transaction statistics info(tx size, tx cycles, etc.) are not stored in db.
+    ChainBlockTxStatsAreNotFound = -1200,
 }
 
 impl RPCError {

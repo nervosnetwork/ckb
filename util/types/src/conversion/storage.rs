@@ -140,3 +140,22 @@ impl<'r> Unpack<core::TransactionInfo> for packed::TransactionInfoReader<'r> {
     }
 }
 impl_conversion_for_entity_unpack!(core::TransactionInfo, TransactionInfo);
+
+impl Pack<packed::BlockTxStat> for core::BlockTxStat {
+    fn pack(&self) -> packed::BlockTxStat {
+        packed::BlockTxStat::new_builder()
+            .txs_cycles((&self.txs_cycles[..]).pack())
+            .txs_size((&self.txs_size[..]).pack())
+            .build()
+    }
+}
+
+impl<'r> Unpack<core::BlockTxStat> for packed::BlockTxStatReader<'r> {
+    fn unpack(&self) -> core::BlockTxStat {
+        core::BlockTxStat {
+            txs_cycles: self.txs_cycles().unpack(),
+            txs_size: self.txs_size().unpack(),
+        }
+    }
+}
+impl_conversion_for_entity_unpack!(core::BlockTxStat, BlockTxStat);

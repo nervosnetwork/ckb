@@ -50,6 +50,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
         * [Method `get_fork_block`](#method-get_fork_block)
         * [Method `get_consensus`](#method-get_consensus)
         * [Method `get_block_median_time`](#method-get_block_median_time)
+        * [Method `get_median_fee_rate`](#method-get_median_fee_rate)
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
@@ -1369,6 +1370,51 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x5cd2b105"
+}
+```
+
+#### Method `get_median_fee_rate`
+* `get_median_fee_rate(blocks_to_scan, min_transactions)`
+    * `blocks_to_scan`: [`Uint32`](#type-uint32) `|` `null`
+    * `min_transactions`: [`Uint32`](#type-uint32) `|` `null`
+* result: [`Capacity`](#type-capacity)
+
+Returns the median fee rate in recent number of blocks specified by user.
+
+##### Params
+
+*   `blocks_to_scan` - the latest number (default and maximum blocks: 42) of blocks scanned to calculate median fee rate.
+
+*   `min_transactions` - minimal number of transactions(default: 42) should be included in the block.
+
+##### Returns
+
+*   `Result<Capacity>` - the median fee rate(in Shannons).
+
+Note: When there are less than `min_transactions` transactions in the last `blocks_to_scan` blocks, this RPC returns an error. Otherwise, it returns the median fee rate (in Shannons per vbyte).
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_median_fee_rate",
+  "params": [
+        "0x2a", "0x1"
+  ]
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x5a82bd636d98dd"
 }
 ```
 
@@ -2868,6 +2914,10 @@ Pool rejects a large package of chained transactions to avoid certain kinds of D
 (-1108): The transaction is rejected because it does not make sense in the context.
 
 For example, a cellbase transaction is not allowed in `send_transaction` RPC.
+
+### Error `ChainBlockTxStatsAreNotFound`
+
+(-1200): transaction statistics info(tx size, tx cycles, etc.) are not stored in db.
 
 
 ## RPC Types

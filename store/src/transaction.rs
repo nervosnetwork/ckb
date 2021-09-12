@@ -6,8 +6,8 @@ use ckb_db::{
 };
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
-    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
+    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_TXS_STAT, COLUMN_BLOCK_UNCLE,
+    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
     COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
@@ -16,7 +16,7 @@ use ckb_freezer::Freezer;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus},
-        BlockExt, BlockView, EpochExt, HeaderView,
+        BlockExt, BlockTxStat, BlockView, EpochExt, HeaderView,
     },
     packed::{self, OutPoint},
     prelude::*,
@@ -227,6 +227,19 @@ impl StoreTransaction {
             COLUMN_BLOCK_EXT,
             block_hash.as_slice(),
             ext.pack().as_slice(),
+        )
+    }
+
+    /// insert tx statistics into db
+    pub fn insert_block_tx_stat(
+        &self,
+        block_hash: &packed::Byte32,
+        txstat: &BlockTxStat,
+    ) -> Result<(), Error> {
+        self.insert_raw(
+            COLUMN_BLOCK_TXS_STAT,
+            block_hash.as_slice(),
+            txstat.pack().as_slice(),
         )
     }
 
