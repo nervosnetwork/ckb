@@ -1304,6 +1304,7 @@ dependencies = [
  "ckb-dao",
  "ckb-db",
  "ckb-error",
+ "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-network",
@@ -1319,6 +1320,7 @@ dependencies = [
  "lru",
  "sentry",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

@@ -1,5 +1,6 @@
 use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
+use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
@@ -49,7 +50,42 @@ impl Spec for DifferentTxsWithSameInput {
         assert!(!commit_txs_hash.contains(&tx2.hash()));
 
         // when tx1 was confirmed, tx2 should be discarded
-        let tx = node0.rpc_client().get_transaction(tx2.hash());
-        assert!(tx.is_none(), "tx2 should be discarded");
+        // legacy mode return null
+        let ret = node0.rpc_client().get_transaction(tx2.hash());
+        assert!(ret.is_none(), "tx2 should be discarded");
+
+        // verbosity = 1
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 1);
+        assert!(ret.is_some(), "tx1 should be committed");
+        let ret1 = ret.unwrap();
+        assert!(ret1.transaction.is_none());
+        assert!(matches!(ret1.tx_status.status, Status::Committed));
+
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx2.hash(), 1);
+        assert!(ret.is_some(), "reject should be recorded");
+        let ret2 = ret.unwrap();
+        assert!(ret2.transaction.is_none());
+        assert!(matches!(ret2.tx_status.status, Status::Rejected));
+
+        // verbosity = 2
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+        assert!(ret.is_some(), "tx1 should be committed");
+        let ret1 = ret.unwrap();
+        assert!(ret1.transaction.is_some());
+        assert!(matches!(ret1.tx_status.status, Status::Committed));
+
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx2.hash(), 2);
+        assert!(ret.is_some(), "reject should be recorded");
+        let ret2 = ret.unwrap();
+        assert!(ret2.transaction.is_none());
+        assert!(matches!(ret2.tx_status.status, Status::Rejected));
     }
 }
