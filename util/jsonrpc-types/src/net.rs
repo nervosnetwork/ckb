@@ -160,7 +160,7 @@ pub struct RemoteNode {
     ///
     /// If the connection is established by the local node, `is_outbound` is true.
     pub is_outbound: bool,
-    /// Elapsed time in seconds since the remote node is connected.
+    /// Elapsed time in milliseconds since the remote node is connected.
     pub connected_duration: Uint64,
     /// Elapsed time in milliseconds since receiving the ping response from this remote node.
     ///
