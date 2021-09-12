@@ -6,6 +6,7 @@ pub(crate) mod container;
 pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
+pub(crate) mod recent_reject;
 
 #[cfg(test)]
 mod tests;

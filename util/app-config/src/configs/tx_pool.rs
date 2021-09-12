@@ -19,11 +19,20 @@ pub struct TxPoolConfig {
     pub max_tx_verify_cycles: Cycle,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
+    /// rejected tx time to live by days
+    pub keep_rejected_tx_hashes_days: u8,
+    /// rejected tx count limit
+    pub keep_rejected_tx_hashes_count: u64,
     /// The file to persist the tx pool on the disk when tx pool have been shutdown.
     ///
-    /// By default, it is a file inside the data directory.
+    /// By default, it is a subdirectory of 'tx-pool' subdirectory under the data directory.
     #[serde(default)]
     pub persisted_data: PathBuf,
+    /// The recent reject record database directory path.
+    ///
+    /// By default, it is a subdirectory of 'tx-pool' subdirectory under the data directory.
+    #[serde(default)]
+    pub recent_reject: PathBuf,
 }
 
 /// Block assembler config options.
@@ -65,6 +74,12 @@ impl TxPoolConfig {
             tx_pool_dir.as_ref(),
             &mut self.persisted_data,
             "persisted_data",
+        );
+        _adjust(
+            root_dir,
+            tx_pool_dir.as_ref(),
+            &mut self.recent_reject,
+            "recent_reject",
         );
     }
 }
