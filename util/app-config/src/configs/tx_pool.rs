@@ -59,14 +59,20 @@ impl TxPoolConfig {
     ///
     /// If `self.path` is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
-    pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, data_dir: P) {
-        if self.persisted_data.to_str().is_none() || self.persisted_data.to_str() == Some("") {
-            self.persisted_data = data_dir
-                .as_ref()
-                .to_path_buf()
-                .join("tx_pool_persisted_data");
-        } else if self.persisted_data.is_relative() {
-            self.persisted_data = root_dir.to_path_buf().join(&self.persisted_data)
-        }
+    pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, tx_pool_dir: P) {
+        _adjust(
+            root_dir,
+            tx_pool_dir.as_ref(),
+            &mut self.persisted_data,
+            "persisted_data",
+        );
+    }
+}
+
+fn _adjust(root_dir: &Path, tx_pool_dir: &Path, target: &mut PathBuf, sub: &str) {
+    if target.to_str().is_none() || target.to_str() == Some("") {
+        *target = tx_pool_dir.to_path_buf().join(sub);
+    } else if target.is_relative() {
+        *target = root_dir.to_path_buf().join(&target)
     }
 }
