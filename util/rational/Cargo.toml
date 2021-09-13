@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rational"
-version = "0.100.0-rc5"
+version = "0.100.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
