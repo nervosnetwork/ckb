@@ -283,7 +283,8 @@ impl CKBAppConfig {
         self.logger.log_dir = self.data_dir.join("logs");
         self.logger.file = Path::new(&(subcommand_name.to_string() + ".log")).to_path_buf();
 
-        self.tx_pool.adjust(root_dir, &self.data_dir);
+        let tx_pool_path = mkdir(self.data_dir.join("tx_pool"))?;
+        self.tx_pool.adjust(root_dir, tx_pool_path);
 
         if subcommand_name == cli::CMD_RESET_DATA {
             return Ok(self);
