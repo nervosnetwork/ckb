@@ -4082,7 +4082,7 @@ A remote node connects to the local node via the P2P network. It is often called
 
     If the connection is established by the local node, `is_outbound` is true.
 
-*   `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in seconds since the remote node is connected.
+*   `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in milliseconds since the remote node is connected.
 
 *   `last_ping_duration`: [`Uint64`](#type-uint64) `|` `null` - Elapsed time in milliseconds since receiving the ping response from this remote node.
 
