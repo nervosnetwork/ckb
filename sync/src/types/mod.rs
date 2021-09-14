@@ -42,6 +42,7 @@ use std::{cmp, fmt, iter};
 mod header_map;
 
 use crate::utils::send_message;
+use ckb_types::core::EpochNumber;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
@@ -1339,6 +1340,16 @@ impl SyncShared {
         }
     }
 
+    /// cleanup orphan_pool, remove blocks with epoch less 2 than currently epoch.
+    pub(crate) fn periodic_clean_orphan_pool(&self) {
+        let hashes = self
+            .state
+            .clean_expired_blocks(self.active_chain().epoch_ext().number());
+        for hash in hashes {
+            self.state.remove_header_view(&hash);
+        }
+    }
+
     pub(crate) fn accept_block(
         &self,
         chain: &ChainController,
@@ -1817,6 +1828,10 @@ impl SyncState {
 
     pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
         self.orphan_block_pool.get_block(block_hash)
+    }
+
+    pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
+        self.orphan_block_pool.clean_expired_blocks(epoch)
     }
 
     pub fn insert_peer_unknown_header_list(&self, pi: PeerIndex, header_list: Vec<Byte32>) {
