@@ -28,9 +28,10 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       runner_label: ${{ steps.prologue.outputs.runner_label }}
     steps:
+    - uses: actions/checkout@v2
     - name: prologue
       id: prologue
-      uses: liya2017/composite-action@v1
+      uses: ./.github/actions/ci_prologue
       with:
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
