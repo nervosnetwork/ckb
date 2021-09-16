@@ -87,15 +87,15 @@ function run-setup-ckb-test {
 
 function run-integration-release {
   run-submodule-init
-  run-setup-ckb-test
   run-prod
+  run-setup-ckb-test
   run-integration-directly
 }
 
 function run-integration {
   run-submodule-init
-  run-setup-ckb-test
   cargo build --features deadlock_detection
+  run-setup-ckb-test
   run-integration-directly
 }
 

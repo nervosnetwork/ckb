@@ -1,4 +1,4 @@
-status = [ "ci" ]
+status = [ "ci_cargo_deny_ubuntu","ci_benchmarks_ubuntu","ci_integration_tests_ubuntu","ci_linters_ubuntu","ci_quick_checks_ubuntu","ci_unit_tests_ubuntu","ci_wasm_build_ubuntu" ]
 
 timeout_sec = 7200
 delete_merged_branches = true
