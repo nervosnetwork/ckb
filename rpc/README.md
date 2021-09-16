@@ -4181,8 +4181,8 @@ Status for transaction
 *   Status "pending". The transaction is in the pool, and not proposed yet.
 *   Status "proposed". The transaction is in the pool and has been proposed.
 *   Status "committed". The transaction has been committed to the canonical chain.
-*   Status "Unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
-*   Status "Rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
+*   Status "unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
+*   Status "rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
 
 
 ### Type `SyncState`
@@ -4484,7 +4484,7 @@ Transaction status and the block hash if it is committed.
 
 `TxStatus` is a JSON object with the following fields.
 
-*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
+*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
 

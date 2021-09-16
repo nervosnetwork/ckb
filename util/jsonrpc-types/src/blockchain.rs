@@ -589,10 +589,10 @@ pub enum Status {
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
-    /// Status "Unknown". The node has not seen the transaction,
+    /// Status "unknown". The node has not seen the transaction,
     /// or it should be rejected but was cleared due to storage limitations.
     Unknown,
-    /// Status "Rejected". The transaction has been recently removed from the pool.
+    /// Status "rejected". The transaction has been recently removed from the pool.
     /// Due to storage limitations, the node can only hold the most recently removed transactions.
     Rejected,
 }
@@ -600,7 +600,7 @@ pub enum Status {
 /// Transaction status and the block hash if it is committed.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TxStatus {
-    /// The transaction status, allowed values: "pending", "proposed" and "committed".
+    /// The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
     pub status: Status,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
