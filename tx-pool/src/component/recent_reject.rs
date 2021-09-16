@@ -2,9 +2,10 @@ use crate::error::Reject;
 use ckb_db::DBWithTTL;
 use ckb_error::AnyError;
 use ckb_types::{packed::Byte32, prelude::*};
+use rand::distributions::Uniform;
+use rand::{thread_rng, Rng};
 use std::path::Path;
 
-const SHRINK_SHARD: &str = "0";
 const DEFAULT_SHARDS: u32 = 5;
 
 #[derive(Debug)]
@@ -75,8 +76,10 @@ impl RecentReject {
     }
 
     fn shrink(&mut self) -> Result<u64, AnyError> {
-        self.db.drop_cf(SHRINK_SHARD)?;
-        self.db.create_cf_with_ttl(SHRINK_SHARD, self.ttl)?;
+        let mut rng = thread_rng();
+        let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();
+        self.db.drop_cf(&shard)?;
+        self.db.create_cf_with_ttl(&shard, self.ttl)?;
 
         let estimate_keys_num = (0..self.shard_num)
             .map(|num| self.db.estimate_num_keys_cf(&num.to_string()))

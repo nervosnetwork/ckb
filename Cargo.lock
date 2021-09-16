@@ -1318,6 +1318,7 @@ dependencies = [
  "ckb-verification",
  "faketime",
  "lru",
+ "rand 0.8.4",
  "sentry",
  "serde_json",
  "tempfile",
