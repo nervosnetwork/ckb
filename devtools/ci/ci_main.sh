@@ -29,15 +29,16 @@ case $GITHUB_WORKFLOW in
 ci_integration_tests*)
     echo "ci_integration_test"
     github_workflow_os=`echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}'`
-    git submodule update --init
+    make submodule-init
     cp -f Cargo.lock test/Cargo.lock
-    cargo build --features deadlock_detection --target-dir $CARGO_TARGET_DIR
     rm -rf test/target && ln -snf ${CARGO_TARGET_DIR} test/target
+    cargo build --release --features deadlock_detection --target-dir $CARGO_TARGET_DIR
+    git diff --exit-code Cargo.lock
     cd test
     if [[ $github_workflow_os == 'windows' ]];then
-      cargo run -- --bin ${CARGO_TARGET_DIR}/debug/ckb.exe --log-file target/integration.log ${CKB_TEST_ARGS}
+      cargo run -- --bin ${CARGO_TARGET_DIR}/release/ckb.exe --log-file target/integration.log ${CKB_TEST_ARGS}
     else
-      cargo run -- --bin ${CARGO_TARGET_DIR}/debug/ckb --log-file target/integration.log ${CKB_TEST_ARGS}
+      cargo run -- --bin ${CARGO_TARGET_DIR}/release/ckb --log-file target/integration.log ${CKB_TEST_ARGS}
     fi
     EXIT_CODE="${PIPESTATUS[0]}"
     ;;

@@ -55,4 +55,3 @@ jobs:
         fi
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
-
