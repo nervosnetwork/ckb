@@ -1,1 +1,2 @@
+mod miner;
 mod pool;
