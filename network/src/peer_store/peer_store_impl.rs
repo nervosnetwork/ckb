@@ -91,7 +91,7 @@ impl PeerStore {
     }
 
     /// Report peer behaviours
-    pub fn report(&mut self, addr: &Multiaddr, behaviour: Behaviour) -> Result<ReportResult> {
+    pub fn report(&mut self, addr: &Multiaddr, behaviour: Behaviour) -> ReportResult {
         if let Some(peer_addr) = self.addr_manager.get_mut(addr) {
             let score = peer_addr.score.saturating_add(behaviour.score());
             peer_addr.score = score;
@@ -101,10 +101,10 @@ impl PeerStore {
                     self.score_config.ban_timeout_ms,
                     format!("report behaviour {:?}", behaviour),
                 );
-                return Ok(ReportResult::Banned);
+                return ReportResult::Banned;
             }
         }
-        Ok(ReportResult::Ok)
+        ReportResult::Ok
     }
 
     /// Remove peer id

@@ -172,8 +172,6 @@ impl CKBProtocol {
             protocol_name: format!("/ckb/{}", protocol_name),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
-                // TODO: https://github.com/rust-lang/rust-clippy/issues/6001
-                #[allow(clippy::unnecessary_sort_by)]
                 versions.sort_by(|a, b| b.cmp(a));
                 versions.to_vec()
             },

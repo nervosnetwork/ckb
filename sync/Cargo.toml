@@ -45,6 +45,8 @@ ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.100.0-pre" }
 ckb-chain = { path = "../chain", version = "= 0.100.0-pre", features = ["mock"] }
 ckb-launcher = { path = "../util/launcher", version = "= 0.100.0-pre" }
 faux = "^0.1"
+tokio = "1"
+tempfile = "3.0"
 
 [features]
 default = []

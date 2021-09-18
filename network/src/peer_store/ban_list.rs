@@ -7,7 +7,7 @@ use p2p::utils::multiaddr_to_socketaddr;
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-const CLEAR_EXPIRES_PERIOD: usize = 1024;
+pub(crate) const CLEAR_INTERVAL_COUNTER: usize = 1024;
 
 /// Ban list
 pub struct BanList {
@@ -35,7 +35,7 @@ impl BanList {
         self.inner.insert(banned_addr.address, banned_addr);
         let (insert_count, _) = self.insert_count.overflowing_add(1);
         self.insert_count = insert_count;
-        if self.insert_count % CLEAR_EXPIRES_PERIOD == 0 {
+        if self.insert_count % CLEAR_INTERVAL_COUNTER == 0 {
             self.clear_expires();
         }
     }
@@ -84,6 +84,6 @@ impl BanList {
 
     /// Get the numbers of banned address
     pub fn count(&self) -> usize {
-        self.inner.keys().count()
+        self.inner.len()
     }
 }

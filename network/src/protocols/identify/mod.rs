@@ -104,6 +104,12 @@ impl<T: Callback> IdentifyProtocol<T> {
         }
     }
 
+    #[cfg(test)]
+    pub fn global_ip_only(mut self, only: bool) -> Self {
+        self.global_ip_only = only;
+        self
+    }
+
     fn check_duplicate(&mut self, context: &mut ProtocolContextMutRef) -> MisbehaveResult {
         let session = context.session;
         let info = self

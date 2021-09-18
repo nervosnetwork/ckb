@@ -132,7 +132,7 @@ impl Launcher {
     }
 
     // internal check
-    // panic immediately if migration_verson is none
+    // panic immediately if migration_version is none
     fn assert_migrate_version_is_some(&self, shared: &Shared) {
         let store = shared.store();
         assert!(store.get_migration_verson().is_some());

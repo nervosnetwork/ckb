@@ -1,4 +1,5 @@
 use super::{
+    disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
@@ -7,6 +8,7 @@ use super::{
 
 use crate::{
     network::{DefaultExitHandler, EventHandler},
+    services::protocol_type_checker::ProtocolTypeCheckerService,
     NetworkState, PeerIdentifyInfo, SupportProtocols,
 };
 
@@ -111,6 +113,12 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: true,
         bootnode_mode: true,
         reuse_port_on_linux: true,
+        public_addresses: vec![format!(
+            "/ip4/225.0.0.1/tcp/42/p2p/{}",
+            crate::PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap()],
         ..Default::default()
     };
 
@@ -154,15 +162,28 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: config.discovery_local_address,
     };
     let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr, None)))
+        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
+            addr_mgr,
+            Some(Duration::from_secs(1)),
+        )))
     });
 
     // Identify protocol
     let identify_callback =
         IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
     let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+        ProtocolHandle::Callback(Box::new(
+            IdentifyProtocol::new(identify_callback).global_ip_only(false),
+        ))
     });
+
+    let disconnect_message_state = Arc::clone(&network_state);
+    let disconnect_message_meta = SupportProtocols::DisconnectMessage
+        .build_meta_with_service_handle(move || {
+            ProtocolHandle::Callback(Box::new(DisconnectMessageProtocol::new(
+                disconnect_message_state,
+            )))
+        });
 
     // Feeler protocol
     let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
@@ -174,6 +195,7 @@ fn net_service_start(name: String) -> Node {
         .insert_protocol(ping_meta)
         .insert_protocol(disc_meta)
         .insert_protocol(identify_meta)
+        .insert_protocol(disconnect_message_meta)
         .insert_protocol(feeler_meta);
 
     let mut p2p_service = service_builder
@@ -293,7 +315,7 @@ fn test_identify_behavior() {
     let sessions = node3.connected_sessions();
     assert_eq!(sessions.len(), 1);
 
-    if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 3) {
+    if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 4) {
         panic!("identify can't open other protocols")
     }
 
@@ -310,7 +332,8 @@ fn test_identify_behavior() {
         vec![
             SupportProtocols::Ping.protocol_id(),
             SupportProtocols::Discovery.protocol_id(),
-            SupportProtocols::Identify.protocol_id()
+            SupportProtocols::Identify.protocol_id(),
+            SupportProtocols::DisconnectMessage.protocol_id()
         ]
     );
 }
@@ -395,6 +418,32 @@ fn test_discovery_behavior() {
     wait_connect_state(&node1, 2);
     wait_connect_state(&node2, 2);
     wait_connect_state(&node3, 2);
+
+    thread::sleep(Duration::from_secs(10));
+
+    let checker = ProtocolTypeCheckerService::new(
+        node1.network_state,
+        node1.control,
+        vec![SupportProtocols::Identify.protocol_id()],
+    );
+
+    checker.check_protocol_type();
+
+    let checker = ProtocolTypeCheckerService::new(
+        node2.network_state,
+        node2.control,
+        vec![SupportProtocols::Sync.protocol_id()],
+    );
+
+    checker.check_protocol_type();
+
+    let checker = ProtocolTypeCheckerService::new(
+        node3.network_state,
+        node3.control,
+        vec![SupportProtocols::Identify.protocol_id()],
+    );
+
+    checker.check_protocol_type();
 }
 
 #[test]
