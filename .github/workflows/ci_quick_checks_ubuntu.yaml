@@ -40,7 +40,7 @@ jobs:
   ci_quick_checks_ubuntu:
     name: ci_quick_checks_ubuntu
     needs: prologue
-    runs-on: macos-11
+    runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
     - run: |
