@@ -11,9 +11,11 @@ case "$OSTYPE" in
             exit 1
         fi
         SED=gsed
+        NEW_RUSTFLAGS="${RUSTFLAGS:-}"
         ;;
     *)
         SED=sed
+        NEW_RUSTFLAGS="${RUSTFLAGS:-} -C link-args=-Wl,--build-id"
         ;;
 esac
 
@@ -25,7 +27,7 @@ trap restore_manifest_file EXIT
 
 function main() {
     ${SED} -i "/\[profile.release\]/adebug = true" Cargo.toml
-    make "$@"
+    RUSTFLAGS="${NEW_RUSTFLAGS}" make "$@"
 }
 
 main "$@"
