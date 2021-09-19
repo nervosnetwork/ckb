@@ -1,6 +1,7 @@
 //! CKB chain service.
 #![allow(missing_docs)]
 
+use ckb_app_config::ChainConfig;
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
@@ -185,6 +186,8 @@ impl GlobalIndex {
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
+    #[allow(dead_code)]
+    chain_config: Option<ChainConfig>,
 }
 
 impl ChainService {
@@ -193,6 +196,19 @@ impl ChainService {
         ChainService {
             shared,
             proposal_table,
+            chain_config: None,
+        }
+    }
+
+    pub fn new_with_config(
+        shared: Shared,
+        proposal_table: ProposalTable,
+        chain_config: Option<ChainConfig>,
+    ) -> ChainService {
+        ChainService {
+            shared,
+            proposal_table,
+            chain_config,
         }
     }
 
@@ -687,6 +703,14 @@ impl ChainService {
         self.find_fork_until_latest_common(fork, &mut index);
 
         is_sorted_assert(fork);
+    }
+
+    #[allow(dead_code)]
+    fn is_tx_block_stat_enabled(&self) -> bool {
+        if let Some(chain_cfg) = &self.chain_config {
+            return chain_cfg.tx_block_stat_enable;
+        }
+        false
     }
 
     // we found new best_block

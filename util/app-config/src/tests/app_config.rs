@@ -48,6 +48,7 @@ fn test_export_dev_config_files() {
             ckb_config.chain.spec,
             Resource::file_system(dir.path().join("specs").join("dev.toml"))
         );
+        assert_eq!(ckb_config.chain.tx_block_stat_enable, false);
         assert_eq!(
             ckb_config.network.listen_addresses,
             vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -98,6 +99,7 @@ fn test_log_to_stdout_only() {
             .unwrap_or_else(|err| std::panic::panic_any(err));
         assert_eq!(ckb_config.logger.log_to_file, false);
         assert_eq!(ckb_config.logger.log_to_stdout, true);
+        assert_eq!(ckb_config.chain.tx_block_stat_enable, false);
     }
     {
         Resource::bundled_miner_config()
@@ -141,6 +143,7 @@ fn test_export_testnet_config_files() {
             ckb_config.chain.spec,
             Resource::bundled("specs/testnet.toml".to_string())
         );
+        assert_eq!(ckb_config.chain.tx_block_stat_enable, false);
         assert_eq!(
             ckb_config.network.listen_addresses,
             vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -193,6 +196,7 @@ fn test_export_integration_config_files() {
             ckb_config.chain.spec,
             Resource::file_system(dir.path().join("specs").join("integration.toml"))
         );
+        assert_eq!(ckb_config.chain.tx_block_stat_enable, false);
         assert_eq!(
             ckb_config.network.listen_addresses,
             vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -245,6 +249,7 @@ fn test_export_dev_config_files_assembly() {
             ckb_config.chain.spec,
             Resource::file_system(dir.path().join("specs").join("dev.toml"))
         );
+        assert_eq!(ckb_config.chain.tx_block_stat_enable, false);
         assert_eq!(
             ckb_config.network.listen_addresses,
             vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]

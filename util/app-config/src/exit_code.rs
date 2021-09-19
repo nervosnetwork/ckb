@@ -1,4 +1,5 @@
 use std::io;
+use std::str::ParseBoolError;
 
 /// Uses 0, 64 - 113 as exit code.
 #[repr(i32)]
@@ -46,5 +47,12 @@ impl From<clap::Error> for ExitCode {
     fn from(err: clap::Error) -> ExitCode {
         eprintln!("Args Error: {:?}", err);
         ExitCode::Cli
+    }
+}
+
+impl From<ParseBoolError> for ExitCode {
+    fn from(err: ParseBoolError) -> ExitCode {
+        eprintln!("Config Error: {:?}", err);
+        ExitCode::Config
     }
 }

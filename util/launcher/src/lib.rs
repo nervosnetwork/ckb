@@ -9,6 +9,7 @@ pub mod migrate;
 mod migrations;
 mod shared_builder;
 
+use ckb_app_config::ChainConfig;
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs, SupportProtocol};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
@@ -223,8 +224,13 @@ impl Launcher {
     }
 
     /// Start chain service, return ChainController
-    pub fn start_chain_service(&self, shared: &Shared, table: ProposalTable) -> ChainController {
-        let chain_service = ChainService::new(shared.clone(), table);
+    pub fn start_chain_service(
+        &self,
+        shared: &Shared,
+        table: ProposalTable,
+        chain_cfg: ChainConfig,
+    ) -> ChainController {
+        let chain_service = ChainService::new_with_config(shared.clone(), table, Some(chain_cfg));
         let chain_controller = chain_service.start(Some("ChainService"));
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller

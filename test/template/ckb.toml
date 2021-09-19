@@ -7,6 +7,7 @@ data_dir = "data"
 # - { file = "specs/dev.toml" }
 # - { bundled = "specs/testnet.toml" }
 # - { bundled = "specs/mainnet.toml" }
+tx_block_stat_enable = false
 spec = { file = "specs/integration.toml" }
 
 [logger]

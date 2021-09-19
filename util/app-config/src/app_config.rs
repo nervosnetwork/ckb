@@ -131,6 +131,9 @@ pub struct MinerAppConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChainConfig {
+    #[serde(default)]
+    /// Specifies if transaction_block_statistics(tx_size, tx_cycles) feature is enabled
+    pub tx_block_stat_enable: bool,
     /// Specifies the chain spec.
     pub spec: Resource,
 }
@@ -301,6 +304,7 @@ impl CKBAppConfig {
             touch(self.logger.log_dir.join(&self.logger.file))?;
         }
         self.chain.spec.absolutize(root_dir);
+        self.chain.tx_block_stat_enable = false;
 
         Ok(self)
     }
@@ -330,6 +334,7 @@ impl MinerAppConfig {
             touch(self.logger.log_dir.join(&self.logger.file))?;
         }
         self.chain.spec.absolutize(root_dir);
+        self.chain.tx_block_stat_enable = true;
 
         Ok(self)
     }

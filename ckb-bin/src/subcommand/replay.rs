@@ -10,6 +10,7 @@ use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
+    let chain_cfg = args.config.chain.clone();
     let shared_builder = SharedBuilder::new(
         &args.config.bin_name,
         args.config.root_dir.as_path(),
@@ -48,7 +49,8 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             .consensus(args.consensus)
             .tx_pool_config(args.config.tx_pool)
             .build()?;
-        let chain = ChainService::new(tmp_shared, pack.take_proposal_table());
+        let chain =
+            ChainService::new_with_config(tmp_shared, pack.take_proposal_table(), Some(chain_cfg));
 
         if let Some((from, to)) = args.profile {
             profile(shared, chain, from, to);

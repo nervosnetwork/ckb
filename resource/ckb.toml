@@ -8,6 +8,7 @@
 data_dir = "data"
 
 [chain]
+tx_block_stat_enable = false
 # Choose the kind of chains to run, possible values:
 # - { file = "specs/dev.toml" }
 # - { bundled = "specs/testnet.toml" }
