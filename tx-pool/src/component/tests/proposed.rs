@@ -1,37 +1,17 @@
+use crate::component::tests::util::{
+    build_tx, DEFAULT_MAX_ANCESTORS_SIZE, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
+};
+use crate::component::{entry::TxEntry, proposed::ProposedPool};
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{get_related_dep_out_points, CellMeta, ResolvedTransaction},
-        Capacity, Cycle, DepType, TransactionBuilder, TransactionView,
+        Capacity, DepType, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
-
-use crate::component::{entry::TxEntry, proposed::ProposedPool};
-
-const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
-
-fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
-    TransactionBuilder::default()
-        .inputs(
-            inputs
-                .into_iter()
-                .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
-        )
-        .outputs((0..outputs_len).map(|i| {
-            CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap().pack())
-                .build()
-        }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
-        .build()
-}
-
-const MOCK_CYCLES: Cycle = 0;
-const MOCK_FEE: Capacity = Capacity::zero();
-const MOCK_SIZE: usize = 0;
 
 fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
     tx: TransactionView,

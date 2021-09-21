@@ -174,7 +174,7 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        let inserted = self.pending.add_entry(entry).is_none();
+        let inserted = self.pending.add_entry(entry);
         if inserted {
             self.touch_last_txs_updated_at();
         }
@@ -184,7 +184,7 @@ impl TxPool {
     /// Add tx which proposed but still uncommittable to gap pool
     pub fn add_gap(&mut self, entry: TxEntry) -> bool {
         trace!("add_gap {}", entry.transaction().hash());
-        self.gap.add_entry(entry).is_none()
+        self.gap.add_entry(entry)
     }
 
     /// Add tx to proposed pool
@@ -266,26 +266,66 @@ impl TxPool {
         callbacks: &Callbacks,
     ) {
         for (tx, related_out_points) in txs {
-            let hash = tx.hash();
-            trace!("committed {}", hash);
-            // try remove committed tx from proposed
-            if let Some(entry) = self.proposed.remove_committed_tx(tx, &related_out_points) {
-                callbacks.call_committed(self, &entry)
-            } else {
-                // if committed tx is not in proposed, it may conflict
-                let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
-
-                for (entry, reject) in input_conflict {
-                    callbacks.call_reject(self, &entry, reject);
-                }
-
-                for (entry, reject) in deps_consumed {
-                    callbacks.call_reject(self, &entry, reject);
-                }
-            }
+            self.remove_committed_tx(tx, &related_out_points, callbacks);
 
             self.committed_txs_hash_cache
-                .put(tx.proposal_short_id(), hash.to_owned());
+                .put(tx.proposal_short_id(), tx.hash());
+        }
+    }
+
+    pub(crate) fn remove_committed_tx(
+        &mut self,
+        tx: &TransactionView,
+        related_out_points: &[OutPoint],
+        callbacks: &Callbacks,
+    ) {
+        let hash = tx.hash();
+        trace!("committed {}", hash);
+        // try remove committed tx from proposed
+        // proposed tx should not contain conflict, if exists just skip resolve conflict
+        if let Some(entry) = self.proposed.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        } else {
+            let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
+
+            for (entry, reject) in input_conflict {
+                callbacks.call_reject(self, &entry, reject);
+            }
+
+            for (entry, reject) in deps_consumed {
+                callbacks.call_reject(self, &entry, reject);
+            }
+        }
+
+        // pending and gap should resolve conflict no matter exists or not
+        if let Some(entry) = self.gap.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        }
+        {
+            let (input_conflict, deps_consumed) = self.gap.resolve_conflict(tx);
+
+            for (entry, reject) in input_conflict {
+                callbacks.call_reject(self, &entry, reject);
+            }
+
+            for (entry, reject) in deps_consumed {
+                callbacks.call_reject(self, &entry, reject);
+            }
+        }
+
+        if let Some(entry) = self.pending.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        }
+        {
+            let (input_conflict, deps_consumed) = self.pending.resolve_conflict(tx);
+
+            for (entry, reject) in input_conflict {
+                callbacks.call_reject(self, &entry, reject);
+            }
+
+            for (entry, reject) in deps_consumed {
+                callbacks.call_reject(self, &entry, reject);
+            }
         }
     }
 

@@ -20,8 +20,8 @@ type ConflictEntry = (TxEntry, Reject);
 pub(crate) struct Edges {
     /// output-op<txid> map represent in-pool tx's outputs
     pub(crate) outputs: HashMap<OutPoint, Option<ProposalShortId>>,
-    /// input-op<txid> map represent in-pool tx's inputs
-    pub(crate) inputs: HashMap<OutPoint, Option<ProposalShortId>>,
+    /// input-txid map represent in-pool tx's inputs
+    pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
     /// dep-set<txid> map represent in-pool tx's deps
     pub(crate) deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
 }
@@ -38,11 +38,11 @@ impl Edges {
     }
 
     pub(crate) fn insert_input(&mut self, out_point: OutPoint, txid: ProposalShortId) {
-        self.inputs.insert(out_point, Some(txid));
+        self.inputs.insert(out_point, txid);
     }
 
     pub(crate) fn remove_input(&mut self, out_point: &OutPoint) -> Option<ProposalShortId> {
-        self.inputs.remove(out_point).unwrap_or(None)
+        self.inputs.remove(out_point)
     }
 
     pub(crate) fn remove_output(&mut self, out_point: &OutPoint) -> Option<ProposalShortId> {
@@ -57,7 +57,7 @@ impl Edges {
         self.outputs.get(out_point)
     }
 
-    pub(crate) fn get_input_ref(&self, out_point: &OutPoint) -> Option<&Option<ProposalShortId>> {
+    pub(crate) fn get_input_ref(&self, out_point: &OutPoint) -> Option<&ProposalShortId> {
         self.inputs.get(out_point)
     }
 
@@ -242,6 +242,10 @@ impl ProposedPool {
         let outputs = entry.transaction().output_pts();
 
         let tx_short_id = entry.proposal_short_id();
+
+        if self.inner.contains_key(&tx_short_id) {
+            return Ok(false);
+        }
 
         // if input reference a in-pool output, connnect it
         // otherwise, record input for conflict check
