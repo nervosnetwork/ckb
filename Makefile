@@ -16,7 +16,7 @@ GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_
 
 ##@ Testing
 .PHONY: test
-test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+test: quick-test ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
 	cargo test ${VERBOSE} --all -- --nocapture --ignored
 
 .PHONY: quick-test

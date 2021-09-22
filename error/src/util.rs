@@ -28,13 +28,13 @@ macro_rules! assert_error_eq {
 ///
 /// ## Examples
 ///
-/// ```no_run
+/// ```text
 /// impl_error_conversion_with_kind!(SourceType, error_kind, TargetType)
 /// ```
 ///
 /// the expanded code:
 ///
-/// ```no_run
+/// ```text
 /// impl From<SourceType> for TargetType {
 ///     fn from(source: SourceType) -> TargetType {
 ///         TargetType {
@@ -60,13 +60,13 @@ macro_rules! impl_error_conversion_with_kind {
 ///
 /// ## Examples
 ///
-/// ```no_run
+/// ```text
 /// impl_error_conversion_with_adaptor!(SourceType, AdaptorType, TargetType)
 /// ```
 ///
 /// the expanded code:
 ///
-/// ```no_run
+/// ```text
 /// impl From<SourceType> for TargetType {
 ///     fn from(source: SourceType) -> TargetType {
 ///         let adaptor: AdaptorType = source.into();
