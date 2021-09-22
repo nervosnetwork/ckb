@@ -389,6 +389,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockTemplates),
         Box::new(BootstrapCellbase),
         Box::new(TemplateSizeLimit),
+        Box::new(GetRawTxPool),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
         #[cfg(not(target_os = "windows"))]

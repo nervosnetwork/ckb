@@ -7,7 +7,7 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
     CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
-    LocalNode, OutPoint, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
+    LocalNode, OutPoint, RawTxPool, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
     TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
@@ -200,6 +200,12 @@ impl RpcClient {
             .send_transaction(tx, Some("passthrough".to_string()))
     }
 
+    pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool {
+        self.inner
+            .get_raw_tx_pool(verbose)
+            .expect("rpc call get_raw_tx_pool")
+    }
+
     pub fn dry_run_transaction(&self, tx: Transaction) -> DryRunResult {
         self.inner
             .dry_run_transaction(tx)
@@ -327,6 +333,7 @@ jsonrpc!(pub struct Inner {
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
+    pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool;
 
     pub fn send_alert(&self, alert: Alert) -> ();
 
