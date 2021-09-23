@@ -729,8 +729,10 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
+ "faketime",
  "num_cpus",
  "once_cell",
+ "tempfile",
  "tentacle",
 ]
 
