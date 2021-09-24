@@ -103,6 +103,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `ChainInfo`](#type-chaininfo)
     * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
+    * [Type `DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
     * [Type `DepType`](#type-deptype)
     * [Type `DryRunResult`](#type-dryrunresult)
     * [Type `EpochNumber`](#type-epochnumber)
@@ -1475,22 +1476,26 @@ Response
 ```
 
 #### Method `calculate_dao_maximum_withdraw`
-* `calculate_dao_maximum_withdraw(out_point, block_hash)`
+* `calculate_dao_maximum_withdraw(out_point, kind)`
     * `out_point`: [`OutPoint`](#type-outpoint)
-    * `block_hash`: [`H256`](#type-h256)
+    * `kind`: [`DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
 * result: [`Capacity`](#type-capacity)
 
 Calculates the maximum withdrawal one can get, given a referenced DAO cell, and a withdrawing block hash.
 
 ##### Params
 
-*   `out_point` - Reference to the DAO cell.
+*   `out_point` - Reference to the DAO cell, the depositing transaction's output.
 
-*   `block_hash` - The assumed reference block for withdrawing. This block must be in the [canonical chain](#canonical-chain).
+*   `kind` - Two kinds of dao withdrawal amount calculation option.
+
+option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the [canonical chain](#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction's output, assuming the output of phase 1 transaction is the same as the depositing transaction's output.
+
+option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction's output.
 
 ##### Returns
 
-The RPC returns the final capacity when the cell `out_point` is withdrawn using the block `block_hash` as the reference.
+The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
 
 In CKB, scripts cannot get the information about in which block the transaction is committed. A workaround is letting the transaction reference a block hash so the script knows that the transaction is committed at least after the reference block.
 
@@ -3475,6 +3480,16 @@ Consensus defines various parameters that influence chain consensus
 Count of cycles consumed by CKB VM to run scripts.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `DaoWithdrawingCalculationKind`
+
+An enum to represent the two kinds of dao withdrawal amount calculation option. `DaoWithdrawingCalculationKind` is equivalent to [`H256`](#type-h256) `|` [`OutPoint`](#type-outpoint).
+
+`DaoWithdrawingCalculationKind` is equivalent to `"withdrawing_header_hash" | "withdrawing_out_point"`.
+
+*   the assumed reference block hash for withdrawing phase 1 transaction
+*   the out point of the withdrawing phase 1 transaction
+
 
 ### Type `DepType`
 
