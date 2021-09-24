@@ -407,7 +407,9 @@ impl Callback for IdentifyCallback {
             // it is possible that the node will be accidentally evicted, so it is necessary
             // to reset the information of the node when disconnected.
             self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_outbound_addr(context.session.address.clone());
+                if !peer_store.is_addr_banned(&context.session.address) {
+                    peer_store.add_outbound_addr(context.session.address.clone());
+                }
             });
         }
     }
