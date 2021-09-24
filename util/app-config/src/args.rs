@@ -1,5 +1,6 @@
 use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
 use ckb_types::packed::Byte32;
@@ -188,6 +189,14 @@ pub struct MigrateArgs {
 pub struct RepairArgs {
     /// Parsed `ckb.toml`.
     pub config: Box<CKBAppConfig>,
+}
+
+/// Parsed command line arguments for `ckb doctor`.
+pub struct DoctorArgs {
+    /// The parsed `ckb.toml.`
+    pub chain: ChainSpec,
+    /// Parsed `doctor --gen_report`
+    pub gen_report: Option<bool>,
 }
 
 impl CustomizeSpec {

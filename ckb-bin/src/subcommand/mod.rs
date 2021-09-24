@@ -1,4 +1,5 @@
 mod db_repair;
+mod doctor;
 mod export;
 mod import;
 mod init;
@@ -12,6 +13,7 @@ mod run;
 mod stats;
 
 pub use self::db_repair::db_repair;
+pub use self::doctor::doctor;
 pub use self::export::export;
 pub use self::import::import;
 pub use self::init::init;

@@ -43,6 +43,8 @@ rayon = "1.0"
 sentry = { version = "0.23.0", optional = true }
 atty = "0.2"
 fdlimit = "0.2.1"
+bugreport = "0.4.1"
+sysinfo = "0.19.0"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]

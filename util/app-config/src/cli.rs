@@ -33,6 +33,8 @@ pub const CMD_FROM_SECRET: &str = "from-secret";
 pub const CMD_MIGRATE: &str = "migrate";
 /// Subcommand `db-repair`.
 pub const CMD_DB_REPAIR: &str = "db-repair";
+/// Subcommand `doctor`.
+pub const CMD_DOCTOR: &str = "doctor";
 
 /// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
@@ -110,6 +112,8 @@ pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
+/// Command line argument `--bug_report_path`.
+pub const ARG_GEN_BUG_REPORT: &str = "gen_report";
 
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
@@ -141,6 +145,7 @@ pub(crate) fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(peer_id())
         .subcommand(migrate())
         .subcommand(db_repair())
+        .subcommand(doctor())
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -355,6 +360,20 @@ fn migrate() -> App<'static, 'static> {
 
 fn db_repair() -> App<'static, 'static> {
     SubCommand::with_name(CMD_DB_REPAIR).about("Try repair ckb database")
+}
+
+fn doctor() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_DOCTOR)
+        .about(
+            "ckb generate bug report\n\
+             Example:\n\
+             ckb doctor --gen_report",
+        )
+        .arg(
+            Arg::with_name(ARG_GEN_BUG_REPORT)
+                .long(ARG_GEN_BUG_REPORT)
+                .help("generate bug report template."),
+        )
 }
 
 fn list_hashes() -> App<'static, 'static> {

@@ -15,8 +15,8 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
-    ResetDataArgs, RunArgs, StatsArgs,
+    DoctorArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs,
+    ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
@@ -123,6 +123,14 @@ impl Setup {
         let config = self.config.into_ckb()?;
 
         Ok(RepairArgs { config })
+    }
+
+    /// `doctor` subcommand
+    pub fn doctor(self, matches: &ArgMatches<'_>) -> Result<DoctorArgs, ExitCode> {
+        let chain = self.chain_spec()?;
+        let gen_report = matches.is_present(cli::ARG_GEN_BUG_REPORT).then(|| true);
+
+        Ok(DoctorArgs { chain, gen_report })
     }
 
     /// Executes `ckb miner`.

@@ -67,6 +67,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(&matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(&matches)?),
         cli::CMD_DB_REPAIR => subcommand::db_repair(setup.db_repair(&matches)?),
+        cli::CMD_DOCTOR => subcommand::doctor(setup.doctor(&matches)?),
         _ => unreachable!(),
     };
 
