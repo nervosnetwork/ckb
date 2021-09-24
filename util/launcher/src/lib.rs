@@ -8,6 +8,8 @@ extern crate num_cpus;
 pub mod migrate;
 mod migrations;
 mod shared_builder;
+#[cfg(test)]
+mod tests;
 
 use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs, SupportProtocol};
 use ckb_async_runtime::Handle;
