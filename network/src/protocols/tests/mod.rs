@@ -312,8 +312,16 @@ fn test_identify_behavior() {
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 0);
 
+    if !wait_until(10, || {
+        node1.network_state.with_peer_store_mut(|peer_store| {
+            peer_store.is_addr_banned(&node2.listen_addr)
+                && peer_store.addr_manager().get(&node2.listen_addr).is_none()
+        })
+    }) {
+        panic!("identify can't ban not same net")
+    }
+
     let sessions = node3.connected_sessions();
-    assert_eq!(sessions.len(), 1);
 
     if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 4) {
         panic!("identify can't open other protocols")
