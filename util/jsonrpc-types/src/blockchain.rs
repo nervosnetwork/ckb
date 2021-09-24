@@ -519,34 +519,63 @@ impl From<Transaction> for packed::Transaction {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
     /// The transaction.
-    pub transaction: TransactionView,
+    pub transaction: Option<TransactionView>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: core::TransactionView) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::pending(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: core::TransactionView) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
         Self {
             tx_status: TxStatus::proposed(),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
     }
 
     /// Build with committed status
-    pub fn with_committed(tx: core::TransactionView, hash: H256) -> Self {
+    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
         Self {
             tx_status: TxStatus::committed(hash),
-            transaction: tx.into(),
+            transaction: tx.map(Into::into),
         }
+    }
+
+    /// Build with rejected status
+    pub fn with_rejected(reason: String) -> Self {
+        Self {
+            tx_status: TxStatus::rejected(reason),
+            transaction: None,
+        }
+    }
+
+    /// Build with rejected status
+    pub fn with_unknown() -> Self {
+        Self {
+            tx_status: TxStatus::unknown(),
+            transaction: None,
+        }
+    }
+
+    /// Build with status only
+    pub fn status_only(tx_status: TxStatus) -> Self {
+        Self {
+            tx_status,
+            transaction: None,
+        }
+    }
+
+    /// Returns true if the tx_status is Unknown.
+    pub fn is_unknown(&self) -> bool {
+        self.tx_status.is_unknown()
     }
 }
 
@@ -560,15 +589,23 @@ pub enum Status {
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
+    /// Status "unknown". The node has not seen the transaction,
+    /// or it should be rejected but was cleared due to storage limitations.
+    Unknown,
+    /// Status "rejected". The transaction has been recently removed from the pool.
+    /// Due to storage limitations, the node can only hold the most recently removed transactions.
+    Rejected,
 }
 
 /// Transaction status and the block hash if it is committed.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TxStatus {
-    /// The transaction status, allowed values: "pending", "proposed" and "committed".
+    /// The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
     pub status: Status,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
+    /// The reason why the transaction is rejected
+    pub reason: Option<String>,
 }
 
 impl TxStatus {
@@ -577,6 +614,7 @@ impl TxStatus {
         Self {
             status: Status::Pending,
             block_hash: None,
+            reason: None,
         }
     }
 
@@ -585,6 +623,7 @@ impl TxStatus {
         Self {
             status: Status::Proposed,
             block_hash: None,
+            reason: None,
         }
     }
 
@@ -597,7 +636,35 @@ impl TxStatus {
         Self {
             status: Status::Committed,
             block_hash: Some(hash),
+            reason: None,
         }
+    }
+
+    /// Transaction which has already been rejected recently.
+    ///
+    /// ## Params
+    ///
+    /// * `reason` - the reason why the transaction is rejected.
+    pub fn rejected(reason: String) -> Self {
+        Self {
+            status: Status::Rejected,
+            block_hash: None,
+            reason: Some(reason),
+        }
+    }
+
+    /// The node has not seen the transaction,
+    pub fn unknown() -> Self {
+        Self {
+            status: Status::Unknown,
+            block_hash: None,
+            reason: None,
+        }
+    }
+
+    /// Returns true if the status is Unknown.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self.status, Status::Unknown)
     }
 }
 

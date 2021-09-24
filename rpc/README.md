@@ -619,8 +619,9 @@ The response looks like below when `verbosity` is 0.
 ```
 
 #### Method `get_transaction`
-* `get_transaction(tx_hash)`
+* `get_transaction(tx_hash, verbosity)`
     * `tx_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
 * result: [`TransactionWithStatus`](#type-transactionwithstatus) `|` `null`
 
 Returns the information about a transaction requested by transaction hash.
@@ -634,6 +635,16 @@ If the transaction is in the chain, the block hash is also returned.
 ##### Params
 
 *   `tx_hash` - Hash of a transaction
+
+*   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+
+##### Returns
+
+When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release. It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+
+When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
+
+When verbosity is 2: if tx_status.status is pending, proposed, or committed, the RPC returns the transaction content as field transaction, otherwise the field is null.
 
 ##### Examples
 
@@ -699,7 +710,8 @@ Response
     },
     "tx_status": {
       "block_hash": null,
-      "status": "pending"
+      "status": "pending",
+      "reason": null
     }
   }
 }
@@ -4164,11 +4176,13 @@ This is a 0x-prefix hex string. It is the block header serialized by molecule us
 
 Status for transaction
 
-`Status` is equivalent to `"pending" | "proposed" | "committed"`.
+`Status` is equivalent to `"pending" | "proposed" | "committed" | "unknown" | "rejected"`.
 
 *   Status "pending". The transaction is in the pool, and not proposed yet.
 *   Status "proposed". The transaction is in the pool and has been proposed.
 *   Status "committed". The transaction has been committed to the canonical chain.
+*   Status "unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
+*   Status "rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
 
 
 ### Type `SyncState`
@@ -4373,7 +4387,7 @@ The JSON view of a transaction as well as its status.
 
 `TransactionWithStatus` is a JSON object with the following fields.
 
-*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
+*   `transaction`: [`TransactionView`](#type-transactionview) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
@@ -4470,9 +4484,11 @@ Transaction status and the block hash if it is committed.
 
 `TxStatus` is a JSON object with the following fields.
 
-*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
+*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
+
+*   `reason`: `string` `|` `null` - The reason why the transaction is rejected
 
 
 ### Type `U256`

@@ -13,7 +13,7 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
-use ckb_logger::info;
+use ckb_logger::{error, info};
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
@@ -440,6 +440,16 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
             // update statics
             tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+
+            let tx_hash = entry.transaction().hash();
+            // record recent reject
+            if matches!(reject, Reject::Resolve(..)) {
+                if let Some(ref mut recent_reject) = tx_pool.recent_reject {
+                    if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
+                        error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+                    }
+                }
+            }
 
             // notify
             let notify_tx_entry = PoolTransactionEntry {

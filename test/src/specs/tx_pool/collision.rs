@@ -1,5 +1,5 @@
-use crate::util::mining::mine;
-use crate::utils::{blank, commit, propose};
+use crate::util::{check::is_transaction_committed, mining::mine};
+use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
 use ckb_types::core::{Capacity, TransactionView};
@@ -122,6 +122,26 @@ impl Spec for ConflictInProposed {
 
         node.submit_block(&propose(node, &[&txa, &txb]));
         mine(node, window.farthest());
+    }
+}
+
+pub struct SubmitConflict;
+
+impl Spec for SubmitConflict {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        let window = node.consensus().tx_proposal_window();
+        mine(node, window.farthest() + 2);
+
+        let (txa, txb) = conflict_transactions(node);
+        node.submit_transaction(&txa);
+        mine(node, window.farthest());
+        assert!(is_transaction_committed(node, &txa));
+        assert_send_transaction_fail(
+            node,
+            &txb,
+            "TransactionFailedToResolve: Resolve failed Unknown",
+        );
     }
 }
 

@@ -31,7 +31,14 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.100.0-pre" }
 ckb-network = { path = "../network", version = "= 0.100.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.100.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.100.0-pre" }
+ckb-db = { path = "../db", version = "= 0.100.0-pre" }
 sentry = { version = "0.23.0", optional = true }
+serde_json = "1.0"
+rand = "0.8.4"
+
+[dev-dependencies]
+tempfile = "3.0"
+ckb-hash = { path = "../util/hash", version = "= 0.100.0-pre" }
 
 [features]
 default = []
