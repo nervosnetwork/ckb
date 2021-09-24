@@ -4,7 +4,7 @@ use std::convert::{TryFrom, TryInto};
 use crate::packed;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
     Data = 0,
@@ -67,7 +67,7 @@ impl Into<packed::Byte> for ScriptHashType {
 }
 
 /// TODO(doc): @quake
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum DepType {
     /// TODO(doc): @quake
     Code = 0,
