@@ -44,12 +44,12 @@ type TruncateRequest = Request<Byte32, Result<(), Error>>;
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
     truncate_sender: Sender<TruncateRequest>, // Used for testing only
-    stop: StopHandler<()>,
+    stop: Option<StopHandler<()>>,
 }
 
 impl Drop for ChainController {
     fn drop(&mut self) {
-        self.stop();
+        self.try_stop();
     }
 }
 
@@ -63,7 +63,7 @@ impl ChainController {
         ChainController {
             process_block_sender,
             truncate_sender,
-            stop,
+            stop: Some(stop),
         }
     }
     /// Inserts the block into database.
@@ -103,8 +103,20 @@ impl ChainController {
         })
     }
 
-    pub fn stop(&mut self) {
-        self.stop.try_send(());
+    pub fn try_stop(&mut self) {
+        if let Some(ref mut stop) = self.stop {
+            stop.try_send(());
+        }
+    }
+
+    /// Since a non-owning reference does not count towards ownership,
+    /// it will not prevent the value stored in the allocation from being dropped
+    pub fn non_owning_clone(&self) -> Self {
+        ChainController {
+            stop: None,
+            truncate_sender: self.truncate_sender.clone(),
+            process_block_sender: self.process_block_sender.clone(),
+        }
     }
 }
 
@@ -240,7 +252,11 @@ impl ChainService {
                 }
             })
             .expect("Start ChainService failed");
-        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
+        let stop = StopHandler::new(
+            SignalSender::Crossbeam(signal_sender),
+            Some(thread),
+            "chain".to_string(),
+        );
 
         ChainController::new(process_block_sender, truncate_sender, stop)
     }

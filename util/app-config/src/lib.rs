@@ -369,6 +369,7 @@ impl Setup {
         result
     }
 
+    /// Gets the consensus.
     #[cfg(not(feature = "with_sentry"))]
     pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         consensus_from_spec(&self.chain_spec()?)

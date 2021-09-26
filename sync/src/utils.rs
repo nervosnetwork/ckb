@@ -92,7 +92,8 @@ pub(crate) fn is_internal_db_error(error: &CKBError) -> bool {
         if error_kind == InternalErrorKind::DataCorrupted {
             panic!("{}", error)
         } else {
-            return error_kind == InternalErrorKind::Database;
+            return error_kind == InternalErrorKind::Database
+                || error_kind == InternalErrorKind::System;
         }
     }
     false
