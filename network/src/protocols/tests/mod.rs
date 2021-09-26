@@ -304,6 +304,17 @@ fn test_identify_behavior() {
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
 
+    if !wait_until(10, || {
+        node2
+            .network_state
+            .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
+            || node3
+                .network_state
+                .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
+    }) {
+        panic!("identify can't ban not same net")
+    }
+
     node1.dial(
         &node2,
         TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
@@ -313,10 +324,12 @@ fn test_identify_behavior() {
     wait_connect_state(&node2, 0);
 
     if !wait_until(10, || {
-        node1.network_state.with_peer_store_mut(|peer_store| {
-            peer_store.is_addr_banned(&node2.listen_addr)
-                && peer_store.addr_manager().get(&node2.listen_addr).is_none()
-        })
+        node1
+            .network_state
+            .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
+            || node2
+                .network_state
+                .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
     }) {
         panic!("identify can't ban not same net")
     }
