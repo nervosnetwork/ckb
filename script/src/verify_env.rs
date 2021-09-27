@@ -117,4 +117,9 @@ impl TxVerifyEnv {
     pub fn epoch(&self) -> EpochNumberWithFraction {
         self.epoch
     }
+
+    /// Current epoch number without proposal window
+    pub fn current_epoch_number(&self) -> EpochNumber {
+        self.epoch.number()
+    }
 }
