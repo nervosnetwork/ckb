@@ -4,6 +4,7 @@ mod dead_cell_deps;
 mod depend_tx_in_same_block;
 mod descendant;
 mod different_txs_with_same_input;
+mod get_raw_tx_pool;
 mod limit;
 #[cfg(not(target_os = "windows"))]
 mod pool_persisted;
@@ -28,6 +29,7 @@ pub use dead_cell_deps::*;
 pub use depend_tx_in_same_block::*;
 pub use descendant::*;
 pub use different_txs_with_same_input::*;
+pub use get_raw_tx_pool::*;
 pub use limit::*;
 #[cfg(not(target_os = "windows"))]
 pub use pool_persisted::*;
