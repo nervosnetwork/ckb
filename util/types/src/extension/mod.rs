@@ -13,5 +13,5 @@ mod serialized_size;
 mod shortcuts;
 mod std_traits;
 
-#[cfg(tests)]
+#[cfg(test)]
 mod tests;

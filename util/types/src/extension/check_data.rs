@@ -51,7 +51,7 @@ impl<'r> packed::RawTransactionReader<'r> {
 }
 
 impl<'r> packed::TransactionReader<'r> {
-    fn check_data(&self) -> bool {
+    pub(crate) fn check_data(&self) -> bool {
         self.raw().check_data()
     }
 }
