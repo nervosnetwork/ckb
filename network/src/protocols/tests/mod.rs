@@ -99,7 +99,7 @@ impl Node {
     }
 }
 
-fn net_service_start(name: String) -> Node {
+fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
     let config = NetworkConfig {
         max_peers: 19,
         max_outbound_peers: 5,
@@ -164,7 +164,11 @@ fn net_service_start(name: String) -> Node {
     let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
         ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
             addr_mgr,
-            Some(Duration::from_secs(1)),
+            if enable_discovery_push {
+                Some(Duration::from_secs(1))
+            } else {
+                None
+            },
         )))
     });
 
@@ -212,26 +216,29 @@ fn net_service_start(name: String) -> Node {
     let control = p2p_service.control().clone();
     let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
-    thread::spawn(move || {
+    static RT: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
+        once_cell::sync::OnceCell::new();
+
+    let rt = RT.get_or_init(|| {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
-        let rt = tokio::runtime::Builder::new_multi_thread()
+        tokio::runtime::Builder::new_multi_thread()
             .worker_threads(num_threads)
             .enable_all()
             .build()
+            .unwrap()
+    });
+    rt.spawn(async move {
+        let mut listen_addr = p2p_service
+            .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .await
             .unwrap();
-        rt.block_on(async move {
-            let mut listen_addr = p2p_service
-                .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-                .await
-                .unwrap();
-            listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
-            addr_sender.send(listen_addr).unwrap();
-            loop {
-                if p2p_service.next().await.is_none() {
-                    break;
-                }
+        listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
+        addr_sender.send(listen_addr).unwrap();
+        loop {
+            if p2p_service.next().await.is_none() {
+                break;
             }
-        })
+        }
     });
 
     let listen_addr = addr_receiver.recv().unwrap();
@@ -283,9 +290,9 @@ fn wait_discovery(node: &Node) {
 
 #[test]
 fn test_identify_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/2".to_string());
-    let node3 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), false);
+    let node2 = net_service_start("/test/2".to_string(), false);
+    let node3 = net_service_start("/test/1".to_string(), false);
 
     node1.dial(
         &node3,
@@ -365,8 +372,8 @@ fn test_identify_behavior() {
 
 #[test]
 fn test_feeler_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -387,9 +394,9 @@ fn test_feeler_behavior() {
 
 #[test]
 fn test_discovery_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
-    let node3 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
+    let node3 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -473,8 +480,8 @@ fn test_discovery_behavior() {
 
 #[test]
 fn test_dial_all() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(&node2, TargetProtocol::All);
 
@@ -484,8 +491,8 @@ fn test_dial_all() {
 
 #[test]
 fn test_ban() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -523,12 +530,12 @@ fn test_ban() {
 
 #[test]
 fn test_bootnode_mode_inbound_eviction() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
-    let node3 = net_service_start("/test/1".to_string());
-    let node4 = net_service_start("/test/1".to_string());
-    let node5 = net_service_start("/test/1".to_string());
-    let node6 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
+    let node3 = net_service_start("/test/1".to_string(), true);
+    let node4 = net_service_start("/test/1".to_string(), true);
+    let node5 = net_service_start("/test/1".to_string(), true);
+    let node6 = net_service_start("/test/1".to_string(), true);
 
     node2.dial(
         &node1,

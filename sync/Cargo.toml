@@ -47,6 +47,7 @@ ckb-launcher = { path = "../util/launcher", version = "= 0.100.0-pre" }
 faux = "^0.1"
 tokio = "1"
 tempfile = "3.0"
+once_cell = "1.8.0"
 
 [features]
 default = []
