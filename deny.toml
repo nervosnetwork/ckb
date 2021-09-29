@@ -3,10 +3,7 @@ vulnerability = "deny"
 unmaintained = "warn"
 yanked = "deny"
 notice = "deny"
-ignore = [
-    "RUSTSEC-2020-0082", # TODO ordered_float:NotNan may contain NaN after panic in assignment operators
-                         #      Could be removed after heim 0.1.0 released.
-]
+ignore = []
 
 [licenses]
 unlicensed = "deny"
