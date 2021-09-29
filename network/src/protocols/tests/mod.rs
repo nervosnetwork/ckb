@@ -304,14 +304,25 @@ fn test_identify_behavior() {
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
 
-    if !wait_until(10, || {
-        node2
+    let check_nodes_ban_count = |node_a: &Node, node_b: &Node| {
+        let node_a_ban_count = node_a
             .network_state
-            .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
-            || node3
-                .network_state
-                .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
-    }) {
+            .peer_store
+            .lock()
+            .ban_list()
+            .get_banned_addrs()
+            .len();
+        let node_b_ban_count = node_b
+            .network_state
+            .peer_store
+            .lock()
+            .ban_list()
+            .get_banned_addrs()
+            .len();
+        node_a_ban_count != 0 || node_b_ban_count != 0
+    };
+
+    if !wait_until(10, || check_nodes_ban_count(&node2, &node3)) {
         panic!("identify can't ban not same net")
     }
 
@@ -323,14 +334,7 @@ fn test_identify_behavior() {
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 0);
 
-    if !wait_until(10, || {
-        node1
-            .network_state
-            .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
-            || node2
-                .network_state
-                .with_peer_store_mut(|peer_store| peer_store.ban_list().count() != 0)
-    }) {
+    if !wait_until(10, || check_nodes_ban_count(&node1, &node2)) {
         panic!("identify can't ban not same net")
     }
 

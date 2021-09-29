@@ -15,8 +15,7 @@ impl Spec for GetRawTxPool {
         mine_until_out_bootstrap_period(node0);
 
         info!("Generate 6 txs on node0");
-        let mut txs_hash = Vec::new();
-        txs_hash.push(node0.generate_transaction());
+        let mut txs_hash = vec![node0.generate_transaction()];
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(txs_hash.last().unwrap().clone());
