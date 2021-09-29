@@ -196,9 +196,7 @@ impl ChainService {
         }
     }
 
-    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
     /// start background single-threaded service with specified thread_name.
-    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
         let (signal_sender, signal_receiver) = channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
         let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
