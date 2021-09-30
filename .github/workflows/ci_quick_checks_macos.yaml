@@ -44,6 +44,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - run: |
+        brew install grep gnu-sed
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
         else
