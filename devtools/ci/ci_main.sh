@@ -6,7 +6,6 @@ if [[ $is_self_runner == "self" ]];then
 fi
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$GITHUB_WORKSPACE/target"}
 EXIT_CODE=0
-CLIPPY_OPTS='-D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from -A clippy::mutable_key_type -A clippy::upper_case_acronyms'
 case $GITHUB_WORKFLOW in
   ci_linters*)
     echo "ci_linters"
@@ -26,9 +25,7 @@ case $GITHUB_WORKFLOW in
 	     EXIT_CODE=1
     fi
 
-    cp -f Cargo.lock test/Cargo.lock
-    rm -rf test/target && ln -snf ${CARGO_TARGET_DIR} test/target
-    cargo fmt --verbose --all -- --check
+    make fmt
     if [ $? -eq 0 ]; then
 	     printf "SUCCESS\n"
     else
@@ -36,31 +33,13 @@ case $GITHUB_WORKFLOW in
 	     EXIT_CODE=1
     fi
 
-    cargo clippy --verbose --all --all-targets --all-features -- ${CLIPPY_OPTS} -D missing_docs
+    make clippy
     if [ $? -eq 0 ]; then
 	     printf "SUCCESS\n"
     else
 	     printf "FAILURE\n"
 	     EXIT_CODE=1
     fi
-
-    cd test
-    cargo fmt --verbose --all -- --check
-    if [ $? -eq 0 ]; then
-	     printf "SUCCESS\n"
-    else
-	     printf "FAILURE\n"
-	     EXIT_CODE=1
-    fi
-
-    cargo clippy --verbose --all --all-targets --all-features -- ${CLIPPY_OPTS}
-    if [ $? -eq 0 ]; then
-	     printf "SUCCESS\n"
-    else
-	     printf "FAILURE\n"
-	     EXIT_CODE=1
-    fi
-    cd ../
     git diff --exit-code Cargo.lock
     if [ $? -eq 0 ]; then
 	     printf "SUCCESS\n"
