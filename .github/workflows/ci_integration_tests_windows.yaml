@@ -48,7 +48,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install required tools
-      if: ${{ needs.prologue.outputs.windows_runner_label == "windows-2019" }}
+      if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
       run: |
         iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
         echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
