@@ -29,9 +29,12 @@ outputs:
   job_skip:
     description: "The flag for skip run jobs or not"
     value: ${{ steps.prologue.outputs.job_skip }}
-  runner_label:
-    description: "The runner_label for ubuntu"
-    value: ${{ steps.prologue.outputs.runner_label }}
+  linux_runner_label:
+    description: "The linux_runner_label for ubuntu"
+    value: ${{ steps.prologue.outputs.linux_runner_label }}
+  windows_runner_label:
+    description: "The windows_runner_label for windows"
+    value: ${{ steps.prologue.outputs.windows_runner_label }}
 runs:
   using: "composite"
   steps:

@@ -26,7 +26,7 @@ jobs:
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
       job_skip: ${{ steps.prologue.outputs.job_skip }}
-      runner_label: ${{ steps.prologue.outputs.runner_label }}
+      linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
     - name: prologue
@@ -44,7 +44,7 @@ jobs:
     name: ci_integration_tests_ubuntu
     needs: prologue
     timeout-minutes: 70
-    runs-on: ${{ needs.prologue.outputs.runner_label }}
+    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
     - run: |
@@ -60,4 +60,4 @@ jobs:
         name: Integration Logs (${{ runner.os }}, ${{ matrix.os }})
         path: ${{ github.workspace }}/integration.log
     env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+      RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}

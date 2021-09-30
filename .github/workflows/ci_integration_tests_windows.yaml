@@ -26,7 +26,7 @@ jobs:
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
       job_skip: ${{ steps.prologue.outputs.job_skip }}
-      runner_label: ${{ steps.prologue.outputs.runner_label }}
+      windows_runner_label: ${{ steps.prologue.outputs.windows_runner_label }}
     steps:
     - uses: actions/checkout@v2
     - name: prologue
@@ -43,11 +43,13 @@ jobs:
   ci_integration_tests_windows:
     name: ci_integration_tests_windows
     needs: prologue
-    runs-on: windows-2019
+    runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
     timeout-minutes: 70
     steps:
     - uses: actions/checkout@v2
-    - run: |
+    - name: install required tools
+      if: ${{ needs.prologue.outputs.windows_runner_label == "windows-2019" }}
+      run: |
         iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
         echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -67,4 +69,4 @@ jobs:
         name: Integration Logs (${{ runner.os }}, ${{ matrix.os }})
         path: ${{ github.workspace }}/integration.log
     env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+      RUNNER_LABEL: ${{ needs.prologue.outputs.windows_runner_label }}

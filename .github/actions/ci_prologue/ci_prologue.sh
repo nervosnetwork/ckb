@@ -69,12 +69,16 @@ fun_pasing_message(){
   fun_jobs "$job_run_list"
   echo "GITHUB_REPOSITORY is "$GITHUB_REPOSITORY
   if [[ "$ci_uses_self_runner" == "true" ]] || [[ "$GITHUB_REPOSITORY" == "nervosnetwork/ckb" ]];then
-    runner_label='self-hosted-ci-ubuntu-20.04'
+    linux_runner_label='self-hosted-ci-ubuntu-20.04'
+    windows_runner_label='self-hosted-ci-windows-2019'
   else
-    runner_label='ubuntu-20.04'
+    linux_runner_label='ubuntu-20.04'
+    windows_runner_label='windows-2019'
   fi
-  echo "runner_label is "$runner_label
-  echo "::set-output name=runner_label::$runner_label"
+  echo "linux_runner_label is "$linux_runner_label
+  echo "windows_runner_label is "$windows_runner_label
+  echo "::set-output name=linux_runner_label::$linux_runner_label"
+  echo "::set-output name=windows_runner_label::$windows_runner_label"
 }
 
 if [[ $GITHUB_EVENT_NAME == "push" ]];then
@@ -97,9 +101,11 @@ if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
     job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny ] "
     fun_jobs "$job_run_list"
     if [[ "$GITHUB_REPOSITORY" == "nervosnetwork/ckb" ]];then
-      echo "::set-output name=runner_label::self-hosted-ci-ubuntu-20.04"
+      echo "::set-output name=linux_runner_label::self-hosted-ci-ubuntu-20.04"
+      echo "::set-output name=windows_runner_label::self-hosted-ci-windows-2019"
     else
-      echo "::set-output name=runner_label::ubuntu-20.04"
+      echo "::set-output name=linux_runner_label::ubuntu-20.04"
+      echo "::set-output name=windows_runner_label::windows-2019"
     fi
   fi
 fi

@@ -23,7 +23,7 @@ jobs:
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
       job_skip: ${{ steps.prologue.outputs.job_skip }}
-      runner_label: ${{ steps.prologue.outputs.runner_label }}
+      linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
     - name: prologue
@@ -40,7 +40,7 @@ jobs:
   ci_benchmarks_ubuntu:
     name: ci_benchmarks_ubuntu
     needs: prologue
-    runs-on: ${{ needs.prologue.outputs.runner_label }}
+    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
     - run: |
@@ -52,4 +52,4 @@ jobs:
         fi
       shell: bash
     env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+      RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
