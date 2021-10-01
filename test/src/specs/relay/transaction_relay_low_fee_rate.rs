@@ -10,8 +10,6 @@ use ckb_types::core::{FeeRate, TransactionBuilder};
 pub struct TransactionRelayLowFeeRate;
 
 impl Spec for TransactionRelayLowFeeRate {
-    crate::setup!(num_nodes: 2);
-
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
         connect_all(nodes);
@@ -28,18 +26,11 @@ impl Spec for TransactionRelayLowFeeRate {
             .output_data(Default::default())
             .cell_dep(node0.always_success_cell_dep())
             .build();
-        let low_cycles = node0
-            .rpc_client()
-            .dry_run_transaction(low_fee.data().into())
-            .cycles;
 
         debug!("make sure node1 has the cell");
         waiting_for_sync(nodes);
 
-        node0
-            .rpc_client()
-            .broadcast_transaction(low_fee.data().into(), low_cycles)
-            .unwrap();
+        node0.rpc_client().send_transaction(low_fee.data().into());
 
         assert!(monitor_log_until_expected_show(
             node1,
@@ -50,7 +41,19 @@ impl Spec for TransactionRelayLowFeeRate {
         .is_some());
     }
 
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
+    fn before_run(&self) -> Vec<Node> {
+        let mut node0 = Node::new(self.name(), "node0");
+        let mut node1 = Node::new(self.name(), "node1");
+
+        node0.modify_app_config(|config: &mut ckb_app_config::CKBAppConfig| {
+            config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
+        });
+        node0.start();
+
+        node1.modify_app_config(|config: &mut ckb_app_config::CKBAppConfig| {
+            config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
+        });
+        node1.start();
+        vec![node0, node1]
     }
 }

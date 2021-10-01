@@ -238,9 +238,7 @@ impl Spec for RelayWithWrongTx {
         );
         net.connect(node0);
 
-        let message = build_relay_tx(tx, 100_000_000);
-        net.send(node0, SupportProtocols::Relay, message.as_bytes());
-
+        relay_tx(&net, &node0, tx, 100_000_000);
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()
@@ -259,9 +257,7 @@ impl Spec for RelayWithWrongTx {
 
         net.connect(node0);
 
-        let message = build_relay_tx(tx_wrong_pk, 100_000_000);
-        net.send(node0, SupportProtocols::Relay, message.as_bytes());
-
+        relay_tx(&net, &node0, tx_wrong_pk, 100_000_000);
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()
@@ -350,13 +346,29 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
         .build()
 }
 
-fn build_relay_tx(tx: TransactionView, cycles: u64) -> packed::RelayMessage {
+fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
+    let tx_hashes_msg = packed::RelayMessage::new_builder()
+        .set(
+            packed::RelayTransactionHashes::new_builder()
+                .tx_hashes(vec![tx.hash()].pack())
+                .build(),
+        )
+        .build();
+    net.send(node, SupportProtocols::Relay, tx_hashes_msg.as_bytes());
+
+    let ret = net.should_receive(node, |data: &Bytes| {
+        packed::RelayMessage::from_slice(&data)
+            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
+            .unwrap_or(false)
+    });
+    assert!(ret, "node should ask for tx");
+
     let relay_tx = packed::RelayTransaction::new_builder()
         .cycles(cycles.pack())
         .transaction(tx.data())
         .build();
 
-    packed::RelayMessage::new_builder()
+    let tx_msg = packed::RelayMessage::new_builder()
         .set(
             packed::RelayTransactions::new_builder()
                 .transactions(
@@ -366,5 +378,6 @@ fn build_relay_tx(tx: TransactionView, cycles: u64) -> packed::RelayMessage {
                 )
                 .build(),
         )
-        .build()
+        .build();
+    net.send(node, SupportProtocols::Relay, tx_msg.as_bytes());
 }

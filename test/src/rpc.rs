@@ -6,7 +6,7 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
+    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
     LocalNode, OutPoint, RawTxPool, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
     TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
 };
@@ -212,10 +212,6 @@ impl RpcClient {
             .expect("rpc call dry_run_transaction")
     }
 
-    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> Result<H256, AnyError> {
-        self.inner.broadcast_transaction(tx, cycles)
-    }
-
     pub fn send_alert(&self, alert: Alert) {
         self.inner.send_alert(alert).expect("rpc call send_alert")
     }
@@ -348,7 +344,6 @@ jsonrpc!(pub struct Inner {
     pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
-    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
     pub fn tx_pool_ready(&self) -> bool;
 });

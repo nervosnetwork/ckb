@@ -1518,6 +1518,14 @@ impl UnknownTxHashPriority {
     pub fn push_peer(&mut self, peer_index: PeerIndex) {
         self.peers.push(peer_index);
     }
+
+    pub fn requesting_peer(&self) -> Option<PeerIndex> {
+        if self.requested {
+            self.peers.get(0).cloned()
+        } else {
+            None
+        }
+    }
 }
 
 impl Ord for UnknownTxHashPriority {
@@ -1749,6 +1757,12 @@ impl SyncState {
 
     pub fn tx_filter(&self) -> MutexGuard<Filter<Byte32>> {
         self.tx_filter.lock()
+    }
+
+    pub fn unknown_tx_hashes(
+        &self,
+    ) -> MutexGuard<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>> {
+        self.unknown_tx_hashes.lock()
     }
 
     // Return true when the block is that we have requested and received first time.
