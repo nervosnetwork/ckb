@@ -359,10 +359,19 @@ fn test_package_basic() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 300 size best scored txs
-    let block_template = shared
+    let mut block_template = shared
         .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
+
+    // wait tx-pool sync with chain
+    while block_template.transactions.is_empty() {
+        block_template = shared
+            .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
+            .unwrap()
+            .unwrap()
+    }
+
     check_txs(
         &block_template,
         vec![&tx2_1, &tx2_2, &tx2_3],
@@ -499,10 +508,19 @@ fn test_package_multi_best_scores() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // 250 size best scored txs
-    let block_template = shared
+    let mut block_template = shared
         .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
         .unwrap()
         .unwrap();
+
+    // wait tx-pool sync with chain
+    while block_template.transactions.is_empty() {
+        block_template = shared
+            .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
+            .unwrap()
+            .unwrap()
+    }
+
     check_txs(
         &block_template,
         vec![&tx1, &tx2, &tx3],
@@ -604,10 +622,19 @@ fn test_package_low_fee_decendants() {
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     // best scored txs
-    let block_template = shared
+    let mut block_template = shared
         .get_block_template(None, None, None)
         .unwrap()
         .unwrap();
+
+    // wait tx-pool sync with chain
+    while block_template.transactions.is_empty() {
+        block_template = shared
+            .get_block_template(None, None, None)
+            .unwrap()
+            .unwrap()
+    }
+
     check_txs(
         &block_template,
         vec![&tx1, &tx2, &tx3, &tx4, &tx5],
