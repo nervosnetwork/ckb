@@ -389,6 +389,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockTemplates),
         Box::new(BootstrapCellbase),
         Box::new(TemplateSizeLimit),
+        Box::new(OrphanTxAccepted),
         Box::new(GetRawTxPool),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
