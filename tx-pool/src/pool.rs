@@ -136,21 +136,6 @@ impl TxPool {
         Arc::clone(&self.snapshot)
     }
 
-    /// Tx-pool information
-    pub fn info(&self) -> TxPoolInfo {
-        let tip_header = self.snapshot.tip_header();
-        TxPoolInfo {
-            tip_hash: tip_header.hash(),
-            tip_number: tip_header.number(),
-            pending_size: self.pending.size() + self.gap.size(),
-            proposed_size: self.proposed.size(),
-            orphan_size: 0,
-            total_tx_size: self.total_tx_size,
-            total_tx_cycles: self.total_tx_cycles,
-            last_txs_updated_at: self.get_last_txs_updated_at(),
-        }
-    }
-
     /// Whether Tx-pool reach size limit
     pub fn reach_size_limit(&self, tx_size: usize) -> bool {
         (self.total_tx_size + tx_size) > self.config.max_mem_size

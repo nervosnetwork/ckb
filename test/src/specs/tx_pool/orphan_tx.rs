@@ -26,10 +26,8 @@ impl Spec for OrphanTxAccepted {
 
         relay_tx(&net, &node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
         let result = wait_until(5, || {
-            // TODO the orphan size is hardcoded to 0 in rpc
-            // let tx_pool_info = node0.get_tip_tx_pool_info();
-            // tx_pool_info.orphan.value() == 1
-            true
+            let tx_pool_info = node0.get_tip_tx_pool_info();
+            tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
         });
         assert!(
             result,
