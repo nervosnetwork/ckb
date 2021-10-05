@@ -30,9 +30,9 @@ pub struct TxPoolInfo {
     /// An orphan transaction has an input cell from the transaction which is neither in the chain
     /// nor in the transaction pool.
     pub orphan: Uint64,
-    /// Total count of transactions in the pool of all the different kinds of states.
+    /// Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
     pub total_tx_size: Uint64,
-    /// Total consumed VM cycles of all the transactions in the pool.
+    /// Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
     pub total_tx_cycles: Uint64,
     /// Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
     ///

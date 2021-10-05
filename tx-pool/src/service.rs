@@ -705,7 +705,7 @@ pub(crate) struct TxPoolService {
 async fn process(mut service: TxPoolService, message: Message) {
     match message {
         Message::GetTxPoolInfo(Request { responder, .. }) => {
-            let info = service.tx_pool.read().await.info();
+            let info = service.info().await;
             if let Err(e) = responder.send(info) {
                 error!("responder send get_tx_pool_info failed {:?}", e);
             };
@@ -945,6 +945,25 @@ async fn process(mut service: TxPoolService, message: Message) {
             if let Err(e) = responder.send(()) {
                 error!("responder send save_pool failed {:?}", e)
             };
+        }
+    }
+}
+
+impl TxPoolService {
+    /// Tx-pool information
+    async fn info(&self) -> TxPoolInfo {
+        let tx_pool = self.tx_pool.read().await;
+        let orphan = self.orphan.read().await;
+        let tip_header = tx_pool.snapshot.tip_header();
+        TxPoolInfo {
+            tip_hash: tip_header.hash(),
+            tip_number: tip_header.number(),
+            pending_size: tx_pool.pending.size() + tx_pool.gap.size(),
+            proposed_size: tx_pool.proposed.size(),
+            orphan_size: orphan.len(),
+            total_tx_size: tx_pool.total_tx_size,
+            total_tx_cycles: tx_pool.total_tx_cycles,
+            last_txs_updated_at: tx_pool.get_last_txs_updated_at(),
         }
     }
 }
