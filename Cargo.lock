@@ -4171,9 +4171,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.4.0-alpha.1"
+version = "0.4.0-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffabdb8e3f6190aee35f6d2fa2b3c640ad8aa883e0183f714ccdc5b45704d6da"
+checksum = "287ab001dd594fc2cfb4866e41e9d58f183de555ee636b0ef9a86dc4b70d45d4"
 dependencies = [
  "bytes 1.1.0",
  "futures",
