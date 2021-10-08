@@ -1,8 +1,15 @@
 #!/bin/bash
 set -u
 is_self_runner=`echo $RUNNER_LABEL | awk -F '-' '{print $1}'`
+clean_threshold=40000
+available_space=`df -m "$GITHUB_WORKSPACE" | tail -1 | awk '{print $4}'`
 if [[ $is_self_runner == "self" ]];then
   CARGO_TARGET_DIR=$GITHUB_WORKSPACE/../target
+  #clean space when disk full
+  if [[ $available_space -lt $clean_threshold ]]; then
+          echo "Run clean command"
+          cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
+  fi
 fi
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$GITHUB_WORKSPACE/target"}
 EXIT_CODE=0
