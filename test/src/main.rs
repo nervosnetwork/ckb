@@ -390,6 +390,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BootstrapCellbase),
         Box::new(TemplateSizeLimit),
         Box::new(OrphanTxAccepted),
+        Box::new(OrphanTxRejected),
         Box::new(GetRawTxPool),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
