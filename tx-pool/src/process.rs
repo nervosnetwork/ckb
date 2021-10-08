@@ -16,7 +16,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, error, info, warn};
+use ckb_logger::{debug, error, info};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -697,29 +697,16 @@ impl TxPoolService {
 
         match remote {
             Some((declared_cycle, peer)) => match ret {
-                Ok(verified) => {
-                    if declared_cycle == verified.cycles {
-                        self.broadcast_tx(Some(peer), tx_hash, with_vm_2021);
-                        self.process_orphan_tx(&tx).await;
-                    } else {
-                        warn!(
-                            "peer {} declared cycles {} mismatch actual {} tx_hash: {}",
-                            peer, declared_cycle, verified.cycles, tx_hash
-                        );
-                        self.ban_malformed(
-                            peer,
-                            format!(
-                                "peer {} declared cycles {} mismatch actual {} tx_hash: {}",
-                                peer, declared_cycle, verified.cycles, tx_hash
-                            ),
-                        );
-                    }
+                Ok(_) => {
+                    self.broadcast_tx(Some(peer), tx_hash, with_vm_2021);
+                    self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
-                        self.add_orphan(tx, peer, declared_cycle).await;
-                    } else if reject.is_malformed_tx() {
+                    debug!("after_process {} reject: {} ", tx_hash, reject);
+                    if reject.is_malformed_tx() {
                         self.ban_malformed(peer, format!("reject {}", reject));
+                    } else if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
+                        self.add_orphan(tx, peer, declared_cycle).await;
                     }
                 }
             },
@@ -782,7 +769,9 @@ impl TxPoolService {
                         .await
                         .add_remote_tx(orphan.tx, (orphan.cycle, orphan.peer));
                 } else {
-                    let (ret, snapshot) = self._process_tx(orphan.tx.clone(), None).await;
+                    let (ret, snapshot) = self
+                        ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
+                        .await;
                     let with_vm_2021 = {
                         let epoch = snapshot.tip_header().epoch().number();
                         self.consensus
@@ -959,7 +948,7 @@ impl TxPoolService {
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
-        max_cycles: Option<Cycle>,
+        declared_cycles: Option<Cycle>,
     ) -> (Result<Completed, Reject>, Arc<Snapshot>) {
         let tx_hash = tx.hash();
 
@@ -968,12 +957,21 @@ impl TxPoolService {
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
-        let max_cycles = max_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
+        let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
         let verified_ret = verify_rtx(&snapshot, &rtx, &tx_env, &verify_cache, max_cycles);
 
         let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
+
+        if let Some(declared) = declared_cycles {
+            if declared != verified.cycles {
+                return (
+                    Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
+                    snapshot,
+                );
+            }
+        }
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 

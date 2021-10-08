@@ -3931,7 +3931,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "Resolve" | "Verification"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -3941,6 +3941,7 @@ Different reject types:
 *   `Full`: Transaction pool exceeded maximum size or cycles limit,
 *   `Duplicated`: Transaction already exist in transaction_pool
 *   `Malformed`: Malformed transaction
+*   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 
