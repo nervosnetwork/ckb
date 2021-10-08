@@ -45,14 +45,14 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let (network_controller, rpc_server) = launcher.start_network_and_rpc(
         &shared,
-        chain_controller,
+        chain_controller.non_owning_clone(),
         &exit_handler,
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller);
+    tx_pool_builder.start(network_controller.non_owning_clone());
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -66,6 +66,9 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         eprintln!("TxPool Error: {}", err);
         ExitCode::Failure
     })?;
+
     drop(rpc_server);
+    drop(network_controller);
+    drop(chain_controller);
     Ok(())
 }

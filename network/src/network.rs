@@ -1116,13 +1116,13 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Tokio(sender), None);
+        let stop = StopHandler::new(SignalSender::Tokio(sender), None, "network".to_string());
         Ok(NetworkController {
             version,
             network_state,
             p2p_control,
             ping_controller,
-            stop,
+            stop: Some(stop),
         })
     }
 }
@@ -1134,7 +1134,7 @@ pub struct NetworkController {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     ping_controller: Option<Sender<()>>,
-    stop: StopHandler<()>,
+    stop: Option<StopHandler<()>>,
 }
 
 impl NetworkController {
@@ -1323,11 +1323,25 @@ impl NetworkController {
             let _ignore = ping_controller.try_send(());
         }
     }
+
+    /// Since a non-owning reference does not count towards ownership,
+    /// it will not prevent the value stored in the allocation from being dropped
+    pub fn non_owning_clone(&self) -> Self {
+        NetworkController {
+            stop: None,
+            version: self.version.clone(),
+            network_state: Arc::clone(&self.network_state),
+            p2p_control: self.p2p_control.clone(),
+            ping_controller: self.ping_controller.clone(),
+        }
+    }
 }
 
 impl Drop for NetworkController {
     fn drop(&mut self) {
-        self.stop.try_send(());
+        if let Some(ref mut stop) = self.stop {
+            stop.try_send(());
+        }
     }
 }
 

@@ -127,7 +127,11 @@ impl NotifyService {
             reject_transaction_notifier: reject_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
-            stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(join_handle)),
+            stop: StopHandler::new(
+                SignalSender::Crossbeam(signal_sender),
+                Some(join_handle),
+                "notify".to_string(),
+            ),
         }
     }
 

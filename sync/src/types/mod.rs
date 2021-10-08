@@ -1372,8 +1372,8 @@ impl SyncShared {
             }
         };
         if let Err(ref error) = ret {
-            error!("accept block {:?} {}", block, error);
             if !is_internal_db_error(&error) {
+                error!("accept block {:?} {}", block, error);
                 self.state
                     .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
             }

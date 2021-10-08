@@ -90,7 +90,7 @@ impl Rpc {
 
         Rpc {
             sender,
-            stop: StopHandler::new(SignalSender::Tokio(stop), None),
+            stop: StopHandler::new(SignalSender::Tokio(stop), None, "miner".to_string()),
         }
     }
 

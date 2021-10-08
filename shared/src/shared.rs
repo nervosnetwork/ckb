@@ -111,7 +111,11 @@ impl Shared {
                 })
                 .expect("Start FreezerService failed");
 
-            let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
+            let stop = StopHandler::new(
+                SignalSender::Crossbeam(signal_sender),
+                Some(thread),
+                "freezer".to_string(),
+            );
             return Some(FreezerClose {
                 stopped: Arc::clone(&freezer.stopped),
                 stop,

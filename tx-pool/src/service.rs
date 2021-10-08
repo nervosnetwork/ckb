@@ -544,8 +544,16 @@ impl TxPoolServiceBuilder {
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
-        let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
-        let chunk_stop = StopHandler::new(SignalSender::Crossbeam(chunk_tx.clone()), None);
+        let stop = StopHandler::new(
+            SignalSender::Watch(signal_sender),
+            None,
+            "tx-pool".to_string(),
+        );
+        let chunk_stop = StopHandler::new(
+            SignalSender::Crossbeam(chunk_tx.clone()),
+            None,
+            "chunk".to_string(),
+        );
         let controller = TxPoolController {
             sender,
             reorg_sender,
