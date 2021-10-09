@@ -1017,7 +1017,11 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
+        let fetched_cache = if hardfork_during_detach || hardfork_during_attach {
+            HashMap::new()
+        } else {
+            self.fetch_txs_verify_cache(retain.iter()).await
+        };
 
         {
             let txs_opt = {
