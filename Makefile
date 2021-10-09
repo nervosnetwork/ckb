@@ -60,6 +60,7 @@ wasm-build-test: ## Build core packages for wasm target
 .PHONY: setup-ckb-test
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
+	[ -x "${CARGO_TARGET_DIR}" ] || mkdir -p "${CARGO_TARGET_DIR}"
 	rm -rf test/target && ln -snf ${CARGO_TARGET_DIR} test/target
 
 .PHONY: submodule-init

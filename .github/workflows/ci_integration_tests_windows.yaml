@@ -16,9 +16,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
-  RUST_LOG: info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
-  CKB_TEST_SEC_COEFFICIENT: 5
-  CKB_TEST_ARGS: -c 4 --no-report --no-fail-fast
 jobs:
   prologue:
     name: prologue
