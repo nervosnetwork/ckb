@@ -74,6 +74,60 @@ fn test_b_extension() {
 }
 
 #[test]
+fn test_cycles_difference() {
+    let script_version = SCRIPT_VERSION;
+
+    let always_success_cell_data = Bytes::from(
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/mop_adc_lock")).unwrap(),
+    );
+    let always_success_cell = CellOutput::new_builder()
+        .capacity(
+            Capacity::bytes(always_success_cell_data.len())
+                .unwrap()
+                .pack(),
+        )
+        .build();
+    let always_success_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(CellOutput::calc_data_hash(&always_success_cell_data))
+        .build();
+
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(always_success_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+
+    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build();
+    let always_success_cell =
+        CellMetaBuilder::from_cell_output(always_success_cell, always_success_cell_data)
+            .transaction_info(default_transaction_info())
+            .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![always_success_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_ok());
+    let cycles_actual = result.unwrap();
+    let cycles_expected = if script_version >= ScriptVersion::V1 {
+        686
+    } else {
+        696
+    };
+    assert_eq!(cycles_actual, cycles_expected);
+}
+
+#[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 
