@@ -633,7 +633,6 @@ impl TxPoolService {
     }
 
     pub(crate) async fn resumeble_process_tx(&self, tx: TransactionView) -> Result<(), Reject> {
-        let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
@@ -641,7 +640,7 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        let (ret, snapshot) = self._resumeble_process_tx(tx.clone(), limit_cycles).await;
+        let (ret, snapshot) = self._resumeble_process_tx(tx.clone()).await;
 
         match ret {
             Ok(processed) => {
@@ -835,11 +834,11 @@ impl TxPoolService {
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
     }
 
-    pub(crate) async fn _resumeble_process_tx(
+    async fn _resumeble_process_tx(
         &self,
         tx: TransactionView,
-        limit_cycles: Cycle,
     ) -> (Result<ProcessResult, Reject>, Arc<Snapshot>) {
+        let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
@@ -871,7 +870,7 @@ impl TxPoolService {
         } else {
             let consensus = snapshot.consensus();
             let data_provider = snapshot.as_data_provider();
-            let is_chunk_full = !self.is_chunk_full().await;
+            let is_chunk_full = self.is_chunk_full().await;
 
             let ret = block_in_place(|| {
                 let verifier =
@@ -885,13 +884,13 @@ impl TxPoolService {
                     ScriptVerifyResult::Completed(cycles) => Ok(CacheEntry::completed(cycles, fee)),
                     ScriptVerifyResult::Suspended(state) => {
                         if is_chunk_full {
-                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
-                            Ok(CacheEntry::suspended(snap, fee))
-                        } else {
                             Err(Reject::Full(
                                 "chunk".to_owned(),
                                 DEFAULT_MAX_CHUNK_TRANSACTIONS as u64,
                             ))
+                        } else {
+                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
+                            Ok(CacheEntry::suspended(snap, fee))
                         }
                     }
                 }
