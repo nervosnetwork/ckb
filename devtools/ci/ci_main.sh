@@ -60,5 +60,3 @@ ci_integration_tests*)
     echo -n "unknown"
     ;;
 esac
-echo " EXIT_CODE is "$EXIT_CODE
-exit $EXIT_CODE
