@@ -1,5 +1,8 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
+use crate::util::{
+    mining::{mine, mine_until_out_bootstrap_period},
+    transaction::relay_tx,
+};
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
@@ -12,7 +15,7 @@ use ckb_types::{
         capacity_bytes, BlockView, Capacity, DepType, ScriptHashType, TransactionBuilder,
         TransactionView,
     },
-    packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     H256,
 };
@@ -344,40 +347,4 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
     tx.as_advanced_builder()
         .witness(witness.as_bytes().pack())
         .build()
-}
-
-fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
-    let tx_hashes_msg = packed::RelayMessage::new_builder()
-        .set(
-            packed::RelayTransactionHashes::new_builder()
-                .tx_hashes(vec![tx.hash()].pack())
-                .build(),
-        )
-        .build();
-    net.send(node, SupportProtocols::Relay, tx_hashes_msg.as_bytes());
-
-    let ret = net.should_receive(node, |data: &Bytes| {
-        packed::RelayMessage::from_slice(&data)
-            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
-            .unwrap_or(false)
-    });
-    assert!(ret, "node should ask for tx");
-
-    let relay_tx = packed::RelayTransaction::new_builder()
-        .cycles(cycles.pack())
-        .transaction(tx.data())
-        .build();
-
-    let tx_msg = packed::RelayMessage::new_builder()
-        .set(
-            packed::RelayTransactions::new_builder()
-                .transactions(
-                    packed::RelayTransactionVec::new_builder()
-                        .set(vec![relay_tx])
-                        .build(),
-                )
-                .build(),
-        )
-        .build();
-    net.send(node, SupportProtocols::Relay, tx_msg.as_bytes());
 }

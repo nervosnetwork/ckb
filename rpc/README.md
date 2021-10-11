@@ -3931,7 +3931,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "Resolve" | "Verification"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -3941,6 +3941,7 @@ Different reject types:
 *   `Full`: Transaction pool exceeded maximum size or cycles limit,
 *   `Duplicated`: Transaction already exist in transaction_pool
 *   `Malformed`: Malformed transaction
+*   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 
@@ -4465,9 +4466,9 @@ Transaction pool information.
 
     An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
 
-*   `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states.
+*   `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
 
-*   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool.
+*   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
 *   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
 

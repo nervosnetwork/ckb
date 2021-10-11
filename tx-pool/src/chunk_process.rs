@@ -272,6 +272,18 @@ impl TxChunkProcess {
             }
         };
 
+        if let Some((declared_cycle, _peer)) = remote {
+            if declared_cycle != completed.cycles {
+                return (
+                    Err(Reject::DeclaredWrongCycles(
+                        declared_cycle,
+                        completed.cycles,
+                    )),
+                    snapshot,
+                );
+            }
+        }
+
         let entry = TxEntry::new(rtx.clone(), completed.cycles, fee, tx_size);
         let (ret, submit_snapshot) = self.handle.block_on(
             self.service
