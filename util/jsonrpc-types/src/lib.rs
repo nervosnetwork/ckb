@@ -33,7 +33,7 @@ pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
-pub use self::experiment::DryRunResult;
+pub use self::experiment::{DaoWithdrawingCalculationKind, DryRunResult};
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
 pub use self::net::{
