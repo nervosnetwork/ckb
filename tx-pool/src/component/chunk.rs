@@ -90,22 +90,27 @@ impl ChunkQueue {
         self.shrink_to_fit();
     }
 
-    pub fn add_remote_tx(&mut self, tx: TransactionView, remote: (Cycle, PeerIndex)) {
+    /// If the queue did not have this tx present, true is returned.
+    ///
+    /// If the queue did have this tx present, false is returned.
+    pub fn add_remote_tx(&mut self, tx: TransactionView, remote: (Cycle, PeerIndex)) -> bool {
         if self.len() > DEFAULT_MAX_CHUNK_TRANSACTIONS {
-            return;
+            return false;
         }
 
         if self.contains_key(&tx.proposal_short_id()) {
-            return;
+            return false;
         }
 
-        self.inner.insert(
-            tx.proposal_short_id(),
-            Entry {
-                tx,
-                remote: Some(remote),
-            },
-        );
+        self.inner
+            .insert(
+                tx.proposal_short_id(),
+                Entry {
+                    tx,
+                    remote: Some(remote),
+                },
+            )
+            .is_none()
     }
 
     /// If the queue did not have this tx present, true is returned.
