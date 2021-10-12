@@ -403,7 +403,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         // it will cause proposal tx to start a new vm in the blocks before hardfork,
         // destroying the assumption that the transaction execution only uses the old vm
         // before hardfork, leading to unexpected network splits.
-        let epoch_number = self.tx_env.current_epoch_number();
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
         let hardfork_switch = self.consensus.hardfork_switch();
         let is_vm_version_1_and_syscalls_2_enabled =
             hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number);
