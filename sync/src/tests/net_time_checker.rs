@@ -113,25 +113,28 @@ fn net_service_start() -> Node {
     let control = p2p_service.control().clone();
     let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
-    thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
+    static RT: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
+        once_cell::sync::OnceCell::new();
+
+    let rt = RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
             .enable_all()
             .build()
+            .unwrap()
+    });
+    rt.spawn(async move {
+        let mut listen_addr = p2p_service
+            .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .await
             .unwrap();
-        rt.block_on(async move {
-            let mut listen_addr = p2p_service
-                .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-                .await
-                .unwrap();
-            listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
-            addr_sender.send(listen_addr).unwrap();
-            loop {
-                if p2p_service.next().await.is_none() {
-                    break;
-                }
+        listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
+        addr_sender.send(listen_addr).unwrap();
+        loop {
+            if p2p_service.next().await.is_none() {
+                break;
             }
-        })
+        }
     });
 
     let listen_addr = addr_receiver.recv().unwrap();
