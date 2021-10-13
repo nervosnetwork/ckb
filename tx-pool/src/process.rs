@@ -688,7 +688,10 @@ impl TxPoolService {
         // The network protocol is switched after tx-pool confirms the cache,
         // there will be no problem with the current state as the choice of the broadcast protocol.
         let with_vm_2021 = {
-            let epoch = snapshot.tip_header().epoch().number();
+            let epoch = snapshot
+                .tip_header()
+                .epoch()
+                .minimum_epoch_number_after_n_blocks(1);
             self.consensus
                 .hardfork_switch
                 .is_vm_version_1_and_syscalls_2_enabled(epoch)
@@ -772,7 +775,10 @@ impl TxPoolService {
                         ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
                         .await;
                     let with_vm_2021 = {
-                        let epoch = snapshot.tip_header().epoch().number();
+                        let epoch = snapshot
+                            .tip_header()
+                            .epoch()
+                            .minimum_epoch_number_after_n_blocks(1);
                         self.consensus
                             .hardfork_switch
                             .is_vm_version_1_and_syscalls_2_enabled(epoch)
@@ -1003,7 +1009,10 @@ impl TxPoolService {
             check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
         let hardfork_during_attach =
             check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
-        let epoch = snapshot.tip_header().epoch().number();
+        let epoch_of_next_block = snapshot
+            .tip_header()
+            .epoch()
+            .minimum_epoch_number_after_n_blocks(1);
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().into_iter().skip(1))
@@ -1015,12 +1024,17 @@ impl TxPoolService {
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
         let fetched_cache = if hardfork_during_detach || hardfork_during_attach {
+            // If the hardfork was happened, don't use the cache.
             HashMap::new()
         } else {
             self.fetch_txs_verify_cache(retain.iter()).await
         };
 
         {
+            // If there are any transactions requires re-process, return them.
+            //
+            // At present, there is only one situation:
+            // - If the hardfork was happened, then re-process all transactions.
             let txs_opt = {
                 // This closure is used to limit the lifetime of mutable tx_pool.
                 let mut tx_pool = self.tx_pool.write().await;
@@ -1046,6 +1060,20 @@ impl TxPoolService {
                     snapshot,
                     &self.callbacks,
                 );
+
+                // Updates network fork switch if required.
+                //
+                // This operation should be ahead of any transaction which is processsed with new
+                // hardfork features.
+                if !self.network.load_ckb2021()
+                    && self
+                        .consensus
+                        .hardfork_switch
+                        .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+                {
+                    self.network.init_ckb2021()
+                }
+
                 self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache);
 
                 txs_opt
@@ -1064,18 +1092,6 @@ impl TxPoolService {
         {
             let mut chunk = self.chunk.write().await;
             chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
-        }
-
-        // update network fork switch each block
-        {
-            if !self.network.load_ckb2021()
-                && self
-                    .consensus
-                    .hardfork_switch
-                    .is_vm_version_1_and_syscalls_2_enabled(epoch)
-            {
-                self.network.init_ckb2021()
-            }
         }
     }
 
