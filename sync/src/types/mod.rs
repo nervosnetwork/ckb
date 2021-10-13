@@ -353,23 +353,6 @@ impl<T: Eq + Hash> Filter<T> {
 }
 
 #[derive(Default)]
-pub struct KnownFilter {
-    inner: HashMap<PeerIndex, Filter<Byte32>>,
-}
-
-impl KnownFilter {
-    /// Adds a value to the filter.
-    /// If the filter did not have this value present, `true` is returned.
-    /// If the filter did have this value present, `false` is returned.
-    pub fn insert(&mut self, index: PeerIndex, hash: Byte32) -> bool {
-        self.inner
-            .entry(index)
-            .or_insert_with(Filter::default)
-            .insert(hash)
-    }
-}
-
-#[derive(Default)]
 pub struct Peers {
     pub state: DashMap<PeerIndex, PeerState>,
 }
@@ -1222,7 +1205,6 @@ impl SyncShared {
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
-            known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
@@ -1557,7 +1539,6 @@ pub struct SyncState {
 
     /* Status relevant to peers */
     peers: Peers,
-    known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
@@ -1600,10 +1581,6 @@ impl SyncState {
 
     pub fn peers(&self) -> &Peers {
         &self.peers
-    }
-
-    pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
-        self.known_txs.lock()
     }
 
     pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
@@ -1835,7 +1812,6 @@ impl SyncState {
     }
 
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
-        self.known_txs().inner.remove(&pi);
         self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
