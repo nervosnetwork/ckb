@@ -31,7 +31,7 @@ use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
-use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -641,11 +641,16 @@ impl InflightBlocks {
         entry.insert(peer)
     }
 
-    pub fn remove_compact(&mut self, peer: PeerIndex, hash: &Byte32) {
-        self.compact_reconstruct_inflight
-            .get_mut(&hash)
-            .map(|peers| peers.remove(&peer));
-        self.trace_number.retain(|k, _| &k.hash != hash)
+    pub fn remove_compact_by_peer(&mut self, peer: PeerIndex, hash: &Byte32) {
+        if let hash_map::Entry::Occupied(mut entry) =
+            self.compact_reconstruct_inflight.entry(hash.clone())
+        {
+            let peers = entry.get_mut();
+            peers.remove(&peer);
+            if peers.is_empty() {
+                entry.remove_entry();
+            }
+        }
     }
 
     pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&HashSet<PeerIndex>> {
@@ -718,6 +723,7 @@ impl InflightBlocks {
                 true
             }
         });
+        shrink_to_fit!(download_schedulers, SHRINK_THRESHOLD);
 
         if self.restart_number != 0 && tip + 1 > self.restart_number {
             self.restart_number = 0;
@@ -757,6 +763,8 @@ impl InflightBlocks {
             }
             true
         });
+        shrink_to_fit!(trace, SHRINK_THRESHOLD);
+        shrink_to_fit!(compact_inflight, SHRINK_THRESHOLD);
 
         disconnect_list
     }
@@ -796,15 +804,18 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let state = &mut self.inflight_states;
         let compact = &mut self.compact_reconstruct_inflight;
+
+        if !compact.is_empty() {
+            compact.retain(|_, peers| {
+                peers.remove(&peer);
+                !peers.is_empty()
+            });
+        }
+
         self.download_schedulers
             .remove(&peer)
             .map(|blocks| {
                 for block in blocks.hashes {
-                    if !compact.is_empty() {
-                        compact
-                            .get_mut(&block.hash)
-                            .map(|peers| peers.remove(&peer));
-                    }
                     state.remove(&block);
                     if !trace.is_empty() {
                         trace.remove(&block);

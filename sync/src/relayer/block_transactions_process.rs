@@ -67,7 +67,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 .shared
                 .state()
                 .write_inflight_blocks()
-                .remove_compact(self.peer, &block_hash);
+                .remove_compact_by_peer(self.peer, &block_hash);
         }
 
         if let Entry::Occupied(mut pending) = shared
