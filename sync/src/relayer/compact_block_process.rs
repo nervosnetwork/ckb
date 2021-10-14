@@ -189,7 +189,7 @@ impl<'a> CompactBlockProcess<'a> {
                 self.relayer.request_proposal_txs(
                     self.nc.as_ref(),
                     self.peer,
-                    block_hash.clone(),
+                    (header.number(), block_hash.clone()).into(),
                     proposals,
                 );
             }

@@ -21,7 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{ActiveChain, SyncShared};
+use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
@@ -252,7 +252,7 @@ impl Relayer {
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        block_hash: Byte32,
+        block_hash_and_number: BlockNumberAndHash,
         mut proposals: Vec<packed::ProposalShortId>,
     ) {
         proposals.dedup();
@@ -272,14 +272,14 @@ impl Relayer {
         let to_ask_proposals: Vec<ProposalShortId> = self
             .shared()
             .state()
-            .insert_inflight_proposals(fresh_proposals.clone())
+            .insert_inflight_proposals(fresh_proposals.clone(), block_hash_and_number.number)
             .into_iter()
             .zip(fresh_proposals)
             .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block_hash)
+                .block_hash(block_hash_and_number.hash)
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();

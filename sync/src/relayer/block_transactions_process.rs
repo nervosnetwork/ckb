@@ -112,7 +112,11 @@ impl<'a> BlockTransactionsProcess<'a> {
                     self.relayer.request_proposal_txs(
                         self.nc.as_ref(),
                         self.peer,
-                        block_hash.clone(),
+                        (
+                            compact_block.header().into_view().number(),
+                            block_hash.clone(),
+                        )
+                            .into(),
                         proposals,
                     );
                 }
