@@ -1016,6 +1016,10 @@ impl TxPoolService {
             .tip_header()
             .epoch()
             .minimum_epoch_number_after_n_blocks(1);
+        let detached_headers: HashSet<Byte32> = detached_blocks
+            .iter()
+            .map(|blk| blk.header().hash())
+            .collect();
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().into_iter().skip(1))
@@ -1059,6 +1063,7 @@ impl TxPoolService {
                 _update_tx_pool_for_reorg(
                     &mut tx_pool,
                     &attached,
+                    &detached_headers,
                     detached_proposal_id,
                     snapshot,
                     &self.callbacks,
@@ -1269,6 +1274,7 @@ fn _submit_entry(
 fn _update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
     attached: &LinkedHashSet<TransactionView>,
+    detached_headers: &HashSet<Byte32>,
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
@@ -1290,7 +1296,7 @@ fn _update_tx_pool_for_reorg(
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(txs_iter, callbacks);
+    tx_pool.remove_committed_txs(txs_iter, callbacks, detached_headers);
     tx_pool.remove_expired(detached_proposal_id.iter());
 
     let mut entries = Vec::new();

@@ -8,7 +8,7 @@ use ckb_types::{
         error::OutPointError,
         TransactionView,
     },
-    packed::{CellOutput, OutPoint, ProposalShortId},
+    packed::{Byte32, CellOutput, OutPoint, ProposalShortId},
     prelude::*,
 };
 use std::collections::{HashMap, HashSet};
@@ -24,6 +24,8 @@ pub(crate) struct Edges {
     pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
     /// dep-set<txid> map represent in-pool tx's deps
     pub(crate) deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
+    /// dep-set<txid-headers> map represent in-pool tx's header deps
+    pub(crate) header_deps: HashMap<ProposalShortId, Vec<Byte32>>,
 }
 
 impl Edges {
@@ -93,6 +95,7 @@ impl Edges {
         self.outputs.clear();
         self.inputs.clear();
         self.deps.clear();
+        self.header_deps.clear();
     }
 }
 
@@ -199,6 +202,8 @@ impl ProposedPool {
                 self.edges.remove_output(&o);
                 // self.edges.remove_deps(&o);
             }
+
+            self.edges.header_deps.remove(&entry.proposal_short_id());
         }
         removed_entries
     }
@@ -210,7 +215,6 @@ impl ProposedPool {
     ) -> Option<TxEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
-        // TODO: handle header deps
         let id = tx.proposal_short_id();
 
         if let Some(entry) = self.inner.remove_entry(&id) {
@@ -231,6 +235,8 @@ impl ProposedPool {
             for d in related_out_points {
                 self.edges.delete_txid_by_dep(&d, &id);
             }
+
+            self.edges.header_deps.remove(&id);
 
             return Some(entry);
         }
@@ -267,16 +273,20 @@ impl ProposedPool {
             self.edges.insert_output(o);
         }
 
+        // record header_deps
+        let header_deps = entry.transaction().header_deps();
+        if !header_deps.is_empty() {
+            self.edges
+                .header_deps
+                .insert(tx_short_id, header_deps.into_iter().collect());
+        }
+
         self.inner.add_entry(entry)
     }
 
-    pub(crate) fn resolve_conflict(
-        &mut self,
-        tx: &TransactionView,
-    ) -> (Vec<ConflictEntry>, Vec<ConflictEntry>) {
+    pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
         let inputs = tx.input_pts_iter();
-        let mut input_conflict = Vec::new();
-        let mut deps_consumed = Vec::new();
+        let mut conflicts = Vec::new();
 
         for i in inputs {
             if let Some(id) = self.edges.remove_input(&i) {
@@ -284,7 +294,7 @@ impl ProposedPool {
                 if !entries.is_empty() {
                     let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
                     let rejects = iter::repeat(reject).take(entries.len());
-                    input_conflict.extend(entries.into_iter().zip(rejects));
+                    conflicts.extend(entries.into_iter().zip(rejects));
                 }
             }
 
@@ -295,12 +305,42 @@ impl ProposedPool {
                     if !entries.is_empty() {
                         let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
                         let rejects = iter::repeat(reject).take(entries.len());
-                        deps_consumed.extend(entries.into_iter().zip(rejects));
+                        conflicts.extend(entries.into_iter().zip(rejects));
                     }
                 }
             }
         }
-        (input_conflict, deps_consumed)
+
+        conflicts
+    }
+
+    pub(crate) fn resolve_conflict_header_dep(
+        &mut self,
+        headers: &HashSet<Byte32>,
+    ) -> Vec<ConflictEntry> {
+        let mut conflicts = Vec::new();
+
+        // invalid header deps
+        let mut invalid_header_ids = Vec::new();
+        for (tx_id, deps) in self.edges.header_deps.iter() {
+            for hash in deps {
+                if headers.contains(hash) {
+                    invalid_header_ids.push((hash.clone(), tx_id.clone()));
+                    break;
+                }
+            }
+        }
+
+        for (blk_hash, id) in invalid_header_ids {
+            let entries = self.remove_entry_and_descendants(&id);
+            if !entries.is_empty() {
+                let reject = Reject::Resolve(OutPointError::InvalidHeader(blk_hash));
+                let rejects = iter::repeat(reject).take(entries.len());
+                conflicts.extend(entries.into_iter().zip(rejects));
+            }
+        }
+
+        conflicts
     }
 
     /// sorted by ancestor score from higher to lower

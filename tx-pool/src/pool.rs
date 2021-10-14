@@ -270,12 +270,33 @@ impl TxPool {
         &mut self,
         txs: impl Iterator<Item = (&'a TransactionView, Vec<OutPoint>)>,
         callbacks: &Callbacks,
+        detached_headers: &HashSet<Byte32>,
     ) {
         for (tx, related_out_points) in txs {
             self.remove_committed_tx(tx, &related_out_points, callbacks);
 
             self.committed_txs_hash_cache
                 .put(tx.proposal_short_id(), tx.hash());
+        }
+
+        if !detached_headers.is_empty() {
+            self.resolve_conflict_header_dep(detached_headers, callbacks)
+        }
+    }
+
+    pub(crate) fn resolve_conflict_header_dep(
+        &mut self,
+        detached_headers: &HashSet<Byte32>,
+        callbacks: &Callbacks,
+    ) {
+        for (entry, reject) in self.proposed.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
+        }
+        for (entry, reject) in self.gap.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
+        }
+        for (entry, reject) in self.pending.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
         }
     }
 
@@ -292,13 +313,9 @@ impl TxPool {
         if let Some(entry) = self.proposed.remove_committed_tx(tx, related_out_points) {
             callbacks.call_committed(self, &entry)
         } else {
-            let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
+            let conflicts = self.proposed.resolve_conflict(tx);
 
-            for (entry, reject) in input_conflict {
-                callbacks.call_reject(self, &entry, reject);
-            }
-
-            for (entry, reject) in deps_consumed {
+            for (entry, reject) in conflicts {
                 callbacks.call_reject(self, &entry, reject);
             }
         }
@@ -308,13 +325,9 @@ impl TxPool {
             callbacks.call_committed(self, &entry)
         }
         {
-            let (input_conflict, deps_consumed) = self.gap.resolve_conflict(tx);
+            let conflicts = self.gap.resolve_conflict(tx);
 
-            for (entry, reject) in input_conflict {
-                callbacks.call_reject(self, &entry, reject);
-            }
-
-            for (entry, reject) in deps_consumed {
+            for (entry, reject) in conflicts {
                 callbacks.call_reject(self, &entry, reject);
             }
         }
@@ -323,13 +336,9 @@ impl TxPool {
             callbacks.call_committed(self, &entry)
         }
         {
-            let (input_conflict, deps_consumed) = self.pending.resolve_conflict(tx);
+            let conflicts = self.pending.resolve_conflict(tx);
 
-            for (entry, reject) in input_conflict {
-                callbacks.call_reject(self, &entry, reject);
-            }
-
-            for (entry, reject) in deps_consumed {
+            for (entry, reject) in conflicts {
                 callbacks.call_reject(self, &entry, reject);
             }
         }
