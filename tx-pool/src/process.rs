@@ -621,18 +621,11 @@ impl TxPoolService {
         Ok(())
     }
 
-    pub(crate) async fn enqueue_remote_chunk_tx(
+    pub(crate) async fn resumeble_process_tx(
         &self,
         tx: TransactionView,
-        remote: (Cycle, PeerIndex),
+        remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
-        // non contextual verify first
-        self.non_contextual_verify(&tx, Some(remote))?;
-        self.chunk.write().await.add_remote_tx(tx, remote);
-        Ok(())
-    }
-
-    pub(crate) async fn resumeble_process_tx(&self, tx: TransactionView) -> Result<(), Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
@@ -640,18 +633,18 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        let (ret, snapshot) = self._resumeble_process_tx(tx.clone()).await;
+        let (ret, snapshot) = self._resumeble_process_tx(tx.clone(), remote).await;
 
         match ret {
             Ok(processed) => {
                 if let ProcessResult::Completed(completed) = processed {
-                    self.after_process(tx, None, &snapshot, &Ok(completed))
+                    self.after_process(tx, remote, &snapshot, &Ok(completed))
                         .await;
                 }
                 Ok(())
             }
             Err(e) => {
-                self.after_process(tx, None, &snapshot, &Err(e.clone()))
+                self.after_process(tx, remote, &snapshot, &Err(e.clone()))
                     .await;
                 Err(e)
             }
@@ -837,6 +830,7 @@ impl TxPoolService {
     async fn _resumeble_process_tx(
         &self,
         tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
     ) -> (Result<ProcessResult, Reject>, Arc<Snapshot>) {
         let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let tx_hash = tx.hash();
@@ -881,7 +875,14 @@ impl TxPoolService {
                     .map_err(Reject::Verification)?;
 
                 match ret {
-                    ScriptVerifyResult::Completed(cycles) => Ok(CacheEntry::completed(cycles, fee)),
+                    ScriptVerifyResult::Completed(cycles) => {
+                        if let Some((declared, _)) = remote {
+                            if declared != cycles {
+                                return Err(Reject::DeclaredWrongCycles(declared, cycles));
+                            }
+                        }
+                        Ok(CacheEntry::completed(cycles, fee))
+                    }
                     ScriptVerifyResult::Suspended(state) => {
                         if is_chunk_full {
                             Err(Reject::Full(
@@ -900,7 +901,7 @@ impl TxPoolService {
             match entry {
                 cached @ CacheEntry::Suspended(_) => {
                     let ret = self
-                        .enqueue_suspended_tx(rtx.transaction.clone(), cached)
+                        .enqueue_suspended_tx(rtx.transaction.clone(), cached, remote)
                         .await;
                     try_or_return_with_snapshot!(ret, snapshot);
                     return (Ok(ProcessResult::Suspended), snapshot);
@@ -934,13 +935,25 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         cached: CacheEntry,
+        remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
         let tx_hash = tx.hash();
         let mut chunk = self.chunk.write().await;
-        if chunk.add_tx(tx) {
-            let mut guard = self.txs_verify_cache.write().await;
-            guard.put(tx_hash, cached);
+        match remote {
+            Some(remote) => {
+                if chunk.add_remote_tx(tx, remote) {
+                    let mut guard = self.txs_verify_cache.write().await;
+                    guard.put(tx_hash, cached);
+                }
+            }
+            None => {
+                if chunk.add_tx(tx) {
+                    let mut guard = self.txs_verify_cache.write().await;
+                    guard.put(tx_hash, cached);
+                }
+            }
         }
+
         Ok(())
     }
 
