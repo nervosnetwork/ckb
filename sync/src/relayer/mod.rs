@@ -623,7 +623,6 @@ impl Relayer {
             .take_relay_tx_hashes(MAX_RELAY_TXS_NUM_PER_BATCH);
         let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
-            let mut known_txs = self.shared.state().known_txs();
             for (origin_peer, is_ckb2021, hash) in &tx_hashes {
                 // must all fork or all no-fork
                 if ckb2021 != *is_ckb2021 {
@@ -634,7 +633,7 @@ impl Relayer {
                     match origin_peer {
                         Some(origin) => {
                             // broadcast tx hash to all connected peers except origin peer
-                            if known_txs.insert(*target, hash.clone()) && (origin != target) {
+                            if origin != target {
                                 let hashes = selected
                                     .entry(*target)
                                     .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
