@@ -12,10 +12,10 @@ fn basic() {
     let id = tx.proposal_short_id();
     let mut queue = ChunkQueue::new();
 
-    assert!(queue.add_tx(tx.clone()));
+    assert!(queue.add_tx(tx.clone(), None));
     assert_eq!(queue.pop_front().as_ref(), Some(&entry));
     assert!(queue.contains_key(&id));
-    assert!(!queue.add_tx(tx));
+    assert!(!queue.add_tx(tx, None));
 
     queue.clean_front();
     assert!(!queue.contains_key(&id));

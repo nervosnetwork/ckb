@@ -759,7 +759,7 @@ impl TxPoolService {
                     self.chunk
                         .write()
                         .await
-                        .add_remote_tx(orphan.tx, (orphan.cycle, orphan.peer));
+                        .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
                 } else {
                     let (ret, snapshot) = self
                         ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
@@ -939,19 +939,9 @@ impl TxPoolService {
     ) -> Result<(), Reject> {
         let tx_hash = tx.hash();
         let mut chunk = self.chunk.write().await;
-        match remote {
-            Some(remote) => {
-                if chunk.add_remote_tx(tx, remote) {
-                    let mut guard = self.txs_verify_cache.write().await;
-                    guard.put(tx_hash, cached);
-                }
-            }
-            None => {
-                if chunk.add_tx(tx) {
-                    let mut guard = self.txs_verify_cache.write().await;
-                    guard.put(tx_hash, cached);
-                }
-            }
+        if chunk.add_tx(tx, remote) {
+            let mut guard = self.txs_verify_cache.write().await;
+            guard.put(tx_hash, cached);
         }
 
         Ok(())
