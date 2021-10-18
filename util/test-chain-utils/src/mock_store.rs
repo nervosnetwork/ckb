@@ -5,11 +5,12 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
-        BlockView, EpochExt, HeaderView,
+        BlockExt, BlockView, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint},
     prelude::*,
 };
+use faketime::unix_time_as_millis;
 use std::sync::Arc;
 
 /// A temporary RocksDB for mocking chain storage.
@@ -33,7 +34,21 @@ impl MockStore {
             .get_block_epoch_index(&parent.hash())
             .and_then(|index| chain_store.get_epoch_ext(&index))
             .unwrap();
+        let parent_block_ext = BlockExt {
+            received_at: unix_time_as_millis(),
+            total_difficulty: Default::default(),
+            total_uncles_count: 0,
+            verified: Some(true),
+            txs_fees: vec![],
+        };
         let store = Self::default();
+        {
+            let db_txn = store.0.begin_transaction();
+            db_txn
+                .insert_block_ext(&block.parent_hash(), &parent_block_ext)
+                .unwrap();
+            db_txn.commit().unwrap();
+        }
         store.insert_block(&block, &epoch_ext);
         store
     }
@@ -57,6 +72,19 @@ impl MockStore {
         db_txn
             .insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch_ext)
             .unwrap();
+        {
+            let parent_block_ext = self.0.get_block_ext(&block.parent_hash()).unwrap();
+            let block_ext = BlockExt {
+                received_at: unix_time_as_millis(),
+                total_difficulty: parent_block_ext.total_difficulty.to_owned()
+                    + block.header().difficulty(),
+                total_uncles_count: parent_block_ext.total_uncles_count
+                    + block.data().uncles().len() as u64,
+                verified: Some(true),
+                txs_fees: vec![],
+            };
+            db_txn.insert_block_ext(&block.hash(), &block_ext).unwrap();
+        }
         db_txn.commit().unwrap();
     }
 

@@ -118,8 +118,13 @@ impl TxVerifyEnv {
         self.epoch
     }
 
-    /// Current epoch number without proposal window
-    pub fn current_epoch_number(&self) -> EpochNumber {
-        self.epoch.number()
+    /// The epoch number of the earliest epoch which the transaction will committed in without
+    /// consider about the proposal window.
+    pub fn epoch_number_without_proposal_window(&self) -> EpochNumber {
+        let n_blocks = match self.phase {
+            TxVerifyPhase::Submitted | TxVerifyPhase::Proposed(_) => 1,
+            TxVerifyPhase::Committed => 0,
+        };
+        self.epoch.minimum_epoch_number_after_n_blocks(n_blocks)
     }
 }

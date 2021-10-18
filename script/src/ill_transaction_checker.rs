@@ -34,7 +34,7 @@ impl<'a> IllTransactionChecker<'a> {
 
     /// Checks whether the transaction is ill formed.
     pub fn check(&self) -> Result<(), ScriptError> {
-        let epoch_number = self.tx_env.current_epoch_number();
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
         let hardfork_switch = self.consensus.hardfork_switch();
         // Assume that after ckb2021 is activated, developers will only upload code for vm v1.
         if !hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number) {
