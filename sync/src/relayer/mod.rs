@@ -145,7 +145,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
@@ -161,7 +161,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
@@ -172,7 +172,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
