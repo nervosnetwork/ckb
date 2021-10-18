@@ -3,7 +3,10 @@ vulnerability = "deny"
 unmaintained = "warn"
 yanked = "deny"
 notice = "deny"
-ignore = []
+ignore = [
+    # TODO Potential segfault in the time crate; waiting for the fix from upstream (chrono)
+    "RUSTSEC-2020-0071"
+]
 
 [licenses]
 unlicensed = "deny"
