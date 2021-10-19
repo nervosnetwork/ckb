@@ -5,7 +5,9 @@ yanked = "deny"
 notice = "deny"
 ignore = [
     # TODO Potential segfault in the time crate; waiting for the fix from upstream (chrono)
-    "RUSTSEC-2020-0071"
+    "RUSTSEC-2020-0071",
+    # TODO Potential segfault in the chrono crate; waiting for the new release of chrono
+    "RUSTSEC-2020-0159"
 ]
 
 [licenses]
