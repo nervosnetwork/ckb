@@ -391,6 +391,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TemplateSizeLimit),
         Box::new(DeclaredWrongCycles),
         Box::new(DeclaredWrongCyclesChunk),
+        Box::new(DeclaredWrongCyclesAndRelayAgain),
         Box::new(OrphanTxAccepted),
         Box::new(OrphanTxRejected),
         Box::new(GetRawTxPool),
