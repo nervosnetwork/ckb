@@ -22,12 +22,13 @@ use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
-use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
+use ckb_tx_pool::{
+    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
+    TxPoolServiceBuilder,
+};
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
-use ckb_types::packed::Byte32;
 use ckb_verification::cache::init_cache;
-use p2p::SessionId as PeerIndex;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -356,7 +357,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     table: Option<ProposalTable>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<(Option<PeerIndex>, bool, Byte32)>>,
+    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
 }
 
 impl SharedPackage {
@@ -371,7 +372,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(Option<PeerIndex>, bool, Byte32)> {
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")

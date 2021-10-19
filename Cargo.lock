@@ -774,7 +774,6 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "tempfile",
- "tentacle",
 ]
 
 [[package]]
@@ -1172,7 +1171,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "faketime",
- "tentacle",
 ]
 
 [[package]]

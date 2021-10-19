@@ -19,7 +19,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::HeaderProvider;
-use ckb_types::packed::ProposalShortId;
+use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -350,6 +350,10 @@ impl<T: Eq + Hash> Filter<T> {
 
     pub fn insert(&mut self, item: T) -> bool {
         self.inner.put(item, ()).is_none()
+    }
+
+    pub fn remove(&mut self, item: &T) -> bool {
+        self.inner.pop(item).is_some()
     }
 }
 
@@ -1179,7 +1183,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
+        tx_relay_receiver: Receiver<TxVerificationResult>,
     ) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
@@ -1189,7 +1193,7 @@ impl SyncShared {
         shared: Shared,
         sync_config: SyncConfig,
         tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
+        tx_relay_receiver: Receiver<TxVerificationResult>,
     ) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1563,7 +1567,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
+    tx_relay_receiver: Receiver<TxVerificationResult>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1607,7 +1611,7 @@ impl SyncState {
         self.inflight_blocks.write()
     }
 
-    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
+    pub fn take_relay_tx_verify_results(&self, limit: usize) -> Vec<TxVerificationResult> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
@@ -1664,6 +1668,10 @@ impl SyncState {
 
     pub fn mark_as_known_tx(&self, hash: Byte32) {
         self.mark_as_known_txs(iter::once(hash));
+    }
+
+    pub fn remove_from_known_txs(&self, hash: &Byte32) {
+        self.tx_filter.lock().remove(hash);
     }
 
     // maybe someday we can use
@@ -1797,7 +1805,7 @@ impl SyncState {
             .retain(|_, block_number| *block_number >= keep_min_block_number);
     }
 
-    pub fn contains_inflight_proposal(&self, proposal_id: &ProposalShortId) -> bool {
+    pub fn contains_inflight_proposal(&self, proposal_id: &packed::ProposalShortId) -> bool {
         self.inflight_proposals.contains_key(proposal_id)
     }
 
