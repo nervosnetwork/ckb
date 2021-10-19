@@ -6,7 +6,7 @@ use ckb_types::{
         tx_pool::Reject,
         TransactionView,
     },
-    packed::{OutPoint, ProposalShortId},
+    packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
 use ckb_util::{LinkedHashMap, LinkedHashMapEntries};
@@ -21,6 +21,8 @@ pub(crate) struct PendingQueue {
     pub(crate) deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// input-txid map represent in-pool tx's inputs
     pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
+    /// dep-set<txid-headers> map represent in-pool tx's header deps
+    pub(crate) header_deps: HashMap<ProposalShortId, Vec<Byte32>>,
 }
 
 impl PendingQueue {
@@ -29,6 +31,7 @@ impl PendingQueue {
             inner: Default::default(),
             deps: Default::default(),
             inputs: Default::default(),
+            header_deps: Default::default(),
         }
     }
 
@@ -56,23 +59,26 @@ impl PendingQueue {
                 .insert(tx_short_id.clone());
         }
 
+        // record header_deps
+        let header_deps = entry.transaction().header_deps();
+        if !header_deps.is_empty() {
+            self.header_deps
+                .insert(tx_short_id.clone(), header_deps.into_iter().collect());
+        }
+
         self.inner.insert(tx_short_id, entry);
         true
     }
 
-    pub(crate) fn resolve_conflict(
-        &mut self,
-        tx: &TransactionView,
-    ) -> (Vec<ConflictEntry>, Vec<ConflictEntry>) {
+    pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
         let inputs = tx.input_pts_iter();
-        let mut input_conflict = Vec::new();
-        let mut deps_consumed = Vec::new();
+        let mut conflicts = Vec::new();
 
         for i in inputs {
             if let Some(id) = self.inputs.remove(&i) {
                 if let Some(entry) = self.remove_entry(&id) {
                     let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                    input_conflict.push((entry, reject));
+                    conflicts.push((entry, reject));
                 }
             }
 
@@ -81,12 +87,39 @@ impl PendingQueue {
                 for id in x {
                     if let Some(entry) = self.remove_entry(&id) {
                         let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                        deps_consumed.push((entry, reject));
+                        conflicts.push((entry, reject));
                     }
                 }
             }
         }
-        (input_conflict, deps_consumed)
+
+        conflicts
+    }
+
+    pub(crate) fn resolve_conflict_header_dep(
+        &mut self,
+        headers: &HashSet<Byte32>,
+    ) -> Vec<ConflictEntry> {
+        let mut conflicts = Vec::new();
+
+        // invalid header deps
+        let mut ids = Vec::new();
+        for (tx_id, deps) in self.header_deps.iter() {
+            for hash in deps {
+                if headers.contains(hash) {
+                    ids.push((hash.clone(), tx_id.clone()));
+                    break;
+                }
+            }
+        }
+
+        for (blk_hash, id) in ids {
+            if let Some(entry) = self.remove_entry(&id) {
+                let reject = Reject::Resolve(OutPointError::InvalidHeader(blk_hash));
+                conflicts.push((entry, reject));
+            }
+        }
+        conflicts
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
@@ -130,6 +163,8 @@ impl PendingQueue {
                 }
             }
 
+            self.header_deps.remove(&id);
+
             return Some(entry);
         }
         None
@@ -165,6 +200,7 @@ impl PendingQueue {
                 self.deps.remove(d);
             }
         }
+        self.header_deps.remove(&tx_short_id);
     }
 
     pub(crate) fn remove_entries_by_filter<P: FnMut(&ProposalShortId, &TxEntry) -> bool>(
@@ -215,6 +251,7 @@ impl PendingQueue {
         self.inner.clear();
         self.deps.clear();
         self.inputs.clear();
+        self.header_deps.clear();
         txs
     }
 }

@@ -1,5 +1,6 @@
 use crate::component::tests::util::{
-    build_tx, DEFAULT_MAX_ANCESTORS_SIZE, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
+    build_tx, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_SIZE, MOCK_CYCLES, MOCK_FEE,
+    MOCK_SIZE,
 };
 use crate::component::{entry::TxEntry, proposed::ProposedPool};
 use ckb_types::{
@@ -12,6 +13,8 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
     tx: TransactionView,
@@ -470,4 +473,29 @@ fn test_dep_group() {
     assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
+}
+
+#[test]
+fn test_resolve_conflict_header_dep() {
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+
+    let header: Byte32 = h256!("0x1").pack();
+    let tx = build_tx_with_header_dep(
+        vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)],
+        vec![header.clone()],
+        1,
+    );
+
+    let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+
+    assert!(pool.add_entry(entry.clone()).is_ok());
+
+    let mut headers = HashSet::new();
+    headers.insert(header);
+
+    let conflicts = pool.resolve_conflict_header_dep(&headers);
+    assert_eq!(
+        conflicts.into_iter().map(|i| i.0).collect::<HashSet<_>>(),
+        HashSet::from_iter(vec![entry])
+    );
 }

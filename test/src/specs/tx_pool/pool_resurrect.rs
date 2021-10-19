@@ -52,3 +52,46 @@ impl Spec for PoolResurrect {
         node0.assert_tx_pool_size(0, 0);
     }
 }
+
+pub struct InvalidHeaderDep;
+
+impl Spec for InvalidHeaderDep {
+    crate::setup!(num_nodes: 2);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+
+        info!("Generate 1 block on node0");
+        mine_until_out_bootstrap_period(node0);
+        mine(node0, 1);
+
+        info!("Generate header dep tx on node0");
+        let hash = node0.generate_transaction();
+
+        let tip = node0.get_tip_block();
+
+        let tx = node0.new_transaction(hash);
+
+        node0.rpc_client().send_transaction(
+            tx.as_advanced_builder()
+                .set_header_deps(vec![tip.hash()])
+                .build()
+                .data()
+                .into(),
+        );
+
+        let tx_pool_info = node0.get_tip_tx_pool_info();
+        assert_eq!(tx_pool_info.pending.value(), 2);
+
+        mine_until_out_bootstrap_period(node1);
+        mine(node1, 2);
+
+        info!("Connect node0 to node1, waiting for sync");
+        node0.connect(node1);
+        waiting_for_sync(nodes);
+
+        info!("invalid header dep tx should be removed");
+        node0.assert_tx_pool_size(1, 0);
+    }
+}
