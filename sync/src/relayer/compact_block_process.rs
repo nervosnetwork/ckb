@@ -7,6 +7,7 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::HeaderProvider;
 use ckb_types::{core, packed, prelude::*};
+use ckb_util::shrink_to_fit;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
 use std::collections::HashMap;
@@ -205,6 +206,12 @@ impl<'a> CompactBlockProcess<'a> {
             match ret {
                 ReconstructionResult::Block(block) => {
                     pending_compact_blocks.remove(&block_hash);
+                    // remove all pending request below this block number
+                    pending_compact_blocks.retain(|_, (v, _)| {
+                        Unpack::<core::BlockNumber>::unpack(&v.header().as_reader().raw().number())
+                            >= block.number()
+                    });
+                    shrink_to_fit!(pending_compact_blocks, 20);
                     self.relayer
                         .accept_block(self.nc.as_ref(), self.peer, block);
                     return Status::ok();
