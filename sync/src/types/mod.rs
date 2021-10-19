@@ -19,6 +19,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::HeaderProvider;
+use ckb_types::packed::ProposalShortId;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -27,7 +28,7 @@ use ckb_types::{
 };
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
-use dashmap::{DashMap, DashSet};
+use dashmap::{self, DashMap};
 use faketime::unix_time_as_millis;
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
@@ -1219,7 +1220,7 @@ impl SyncShared {
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: DashSet::new(),
+            inflight_proposals: DashMap::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
@@ -1558,7 +1559,7 @@ pub struct SyncState {
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: DashSet<packed::ProposalShortId>,
+    inflight_proposals: DashMap<packed::ProposalShortId, BlockNumber>,
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
@@ -1604,10 +1605,6 @@ impl SyncState {
 
     pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
         self.inflight_blocks.write()
-    }
-
-    pub fn inflight_proposals(&self) -> &DashSet<packed::ProposalShortId> {
-        &self.inflight_proposals
     }
 
     pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
@@ -1766,9 +1763,26 @@ impl SyncState {
         }
     }
 
-    pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
+    pub fn insert_inflight_proposals(
+        &self,
+        ids: Vec<packed::ProposalShortId>,
+        block_number: BlockNumber,
+    ) -> Vec<bool> {
         ids.into_iter()
-            .map(|id| self.inflight_proposals.insert(id))
+            .map(|id| match self.inflight_proposals.entry(id) {
+                dashmap::mapref::entry::Entry::Occupied(mut occupied) => {
+                    if *occupied.get() < block_number {
+                        occupied.insert(block_number);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                    vacant.insert(block_number);
+                    true
+                }
+            })
             .collect()
     }
 
@@ -1776,6 +1790,15 @@ impl SyncState {
         ids.iter()
             .map(|id| self.inflight_proposals.remove(id).is_some())
             .collect()
+    }
+
+    pub fn clear_expired_inflight_proposals(&self, keep_min_block_number: BlockNumber) {
+        self.inflight_proposals
+            .retain(|_, block_number| *block_number >= keep_min_block_number);
+    }
+
+    pub fn contains_inflight_proposal(&self, proposal_id: &ProposalShortId) -> bool {
+        self.inflight_proposals.contains_key(proposal_id)
     }
 
     pub fn insert_orphan_block(&self, block: core::BlockView) {

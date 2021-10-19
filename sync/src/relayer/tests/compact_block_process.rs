@@ -413,8 +413,7 @@ fn test_send_missing_indexes() {
     assert!(!relayer
         .shared
         .state()
-        .inflight_proposals()
-        .contains(&proposal_id));
+        .contains_inflight_proposal(&proposal_id));
     assert_eq!(
         compact_block_process.execute(),
         StatusCode::CompactBlockRequiresFreshTransactions.into()
@@ -435,8 +434,7 @@ fn test_send_missing_indexes() {
     assert!(relayer
         .shared
         .state()
-        .inflight_proposals()
-        .contains(&proposal_id));
+        .contains_inflight_proposal(&proposal_id));
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
@@ -641,8 +639,7 @@ fn test_collision() {
     assert!(!relayer
         .shared
         .state()
-        .inflight_proposals()
-        .contains(&proposal_id));
+        .contains_inflight_proposal(&proposal_id));
     assert_eq!(
         compact_block_process.execute(),
         StatusCode::CompactBlockMeetsShortIdsCollision.into(),

@@ -92,8 +92,7 @@ fn test_accept_block() {
     assert!(relayer
         .shared
         .state()
-        .inflight_proposals()
-        .contains(&tx3.proposal_short_id()));
+        .contains_inflight_proposal(&tx3.proposal_short_id()));
 }
 
 #[test]
