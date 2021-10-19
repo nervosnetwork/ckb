@@ -408,6 +408,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             cycles: entry.cycles,
             size: entry.size,
             fee: entry.fee,
+            timestamp: entry.timestamp,
         };
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
@@ -426,6 +427,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
+                timestamp: entry.timestamp,
             };
             notify_proposed.notify_proposed_transaction(notify_tx_entry);
         },
@@ -457,6 +459,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
+                timestamp: entry.timestamp,
             };
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },

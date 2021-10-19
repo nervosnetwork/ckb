@@ -53,6 +53,8 @@ pub struct PoolTransactionEntry {
     pub size: Uint64,
     /// The transaction fee.
     pub fee: Capacity,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: Uint64,
 }
 
 impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
@@ -62,6 +64,7 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
             cycles: entry.cycles.into(),
             size: (entry.size as u64).into(),
             fee: entry.fee.into(),
+            timestamp: entry.timestamp.into(),
         }
     }
 }
@@ -118,6 +121,8 @@ pub struct TxPoolEntry {
     pub ancestors_cycles: Uint64,
     /// Number of in-tx-pool ancestor transactions
     pub ancestors_count: Uint64,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: Uint64,
 }
 
 impl From<TxEntryInfo> for TxPoolEntry {
@@ -129,6 +134,7 @@ impl From<TxEntryInfo> for TxPoolEntry {
             ancestors_size: info.ancestors_size.into(),
             ancestors_cycles: info.ancestors_cycles.into(),
             ancestors_count: info.ancestors_count.into(),
+            timestamp: info.timestamp.into(),
         }
     }
 }

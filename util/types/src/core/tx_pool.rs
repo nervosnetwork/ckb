@@ -102,6 +102,8 @@ pub struct TxEntryInfo {
     pub ancestors_cycles: u64,
     /// Number of in-tx-pool ancestor transactions
     pub ancestors_count: u64,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: u64,
 }
 
 /// Array of transaction ids
