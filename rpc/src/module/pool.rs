@@ -201,7 +201,8 @@ pub trait PoolRpc {
     ///                "fee": "0x16923f7dcf",
     ///                "ancestors_size": "0x112",
     ///                "ancestors_cycles": "0x219",
-    ///                "ancestors_count": "0x1"
+    ///                "ancestors_count": "0x1",
+    ///                "timestamp": "0x17c983e6e44"
     ///            }
     ///        },
     ///        "proposed": {}

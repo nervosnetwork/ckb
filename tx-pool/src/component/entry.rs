@@ -4,6 +4,7 @@ use ckb_types::{
     core::{cell::ResolvedTransaction, tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
+use faketime::unix_time_as_millis;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
@@ -26,6 +27,8 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: u64,
 }
 
 impl TxEntry {
@@ -40,6 +43,7 @@ impl TxEntry {
             ancestors_fee: fee,
             ancestors_cycles: cycles,
             ancestors_count: 1,
+            timestamp: unix_time_as_millis(),
         }
     }
 
@@ -109,6 +113,7 @@ impl TxEntry {
             ancestors_size: self.ancestors_size as u64,
             ancestors_cycles: self.ancestors_cycles as u64,
             ancestors_count: self.ancestors_count as u64,
+            timestamp: self.timestamp,
         }
     }
 }

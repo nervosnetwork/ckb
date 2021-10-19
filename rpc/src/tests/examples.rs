@@ -560,6 +560,8 @@ where
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
     use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, RemoteNode, Uint64};
 
+    let example_tx_hash = format!("{:#x}", EXAMPLE_TX_HASH);
+
     match example.request.method.as_str() {
         "local_node_info" => replace_rpc_response::<LocalNode>(example, response),
         "get_peers" => replace_rpc_response::<Vec<RemoteNode>>(example, response),
@@ -579,6 +581,10 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
             response.result["chain"] = example.response.result["chain"].clone()
         }
         "send_alert" => response.error["data"] = example.response.error["data"].clone(),
+        "get_raw_tx_pool" => {
+            response.result["pending"][example_tx_hash.as_str()]["timestamp"] =
+                example.response.result["pending"][example_tx_hash.as_str()]["timestamp"].clone()
+        }
         _ => {}
     }
 }

@@ -42,4 +42,6 @@ pub struct PoolTransactionEntry {
     pub size: usize,
     /// Transaction fee
     pub fee: Capacity,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: u64,
 }

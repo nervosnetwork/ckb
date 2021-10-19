@@ -2500,7 +2500,8 @@ Response
                "fee": "0x16923f7dcf",
                "ancestors_size": "0x112",
                "ancestors_cycles": "0x219",
-               "ancestors_count": "0x1"
+               "ancestors_count": "0x1",
+               "timestamp": "0x17c983e6e44"
            }
        },
        "proposed": {}
@@ -3939,6 +3940,8 @@ The transaction entry in the pool.
 
 *   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
 
+*   `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
+
 
 ### Type `PoolTransactionReject`
 
@@ -4440,6 +4443,8 @@ Transaction entry info
 *   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
 
 *   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
+
+*   `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
 
 
 ### Type `TxPoolIds`
