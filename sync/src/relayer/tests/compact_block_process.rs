@@ -468,14 +468,25 @@ fn test_accept_block() {
         .uncle(uncle.as_uncle())
         .build();
 
-    let mock_block = BlockBuilder::default().number(4.pack()).build();
-    let mock_compact_block = CompactBlock::build_from_block(&mock_block, &Default::default());
+    let mock_block_1 = BlockBuilder::default().number(4.pack()).build();
+    let mock_compact_block_1 = CompactBlock::build_from_block(&mock_block_1, &Default::default());
+
+    let mock_block_2 = block.as_advanced_builder().number(7.pack()).build();
+    let mock_compact_block_2 = CompactBlock::build_from_block(&mock_block_2, &Default::default());
     {
         let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
-            mock_block.header().hash(),
+            mock_block_1.header().hash(),
             (
-                mock_compact_block,
+                mock_compact_block_1,
+                HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
+            ),
+        );
+
+        pending_compact_blocks.insert(
+            mock_block_2.header().hash(),
+            (
+                mock_compact_block_2,
                 HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
             ),
         );
@@ -508,7 +519,12 @@ fn test_accept_block() {
     assert_eq!(compact_block_process.execute(), Status::ok(),);
 
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
-    assert!(pending_compact_blocks.is_empty());
+    assert!(pending_compact_blocks
+        .get(&mock_block_1.header().hash())
+        .is_none());
+    assert!(pending_compact_blocks
+        .get(&mock_block_2.header().hash())
+        .is_some());
 }
 
 #[test]
