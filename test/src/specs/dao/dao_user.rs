@@ -133,7 +133,7 @@ impl<'a> DAOUser<'a> {
         let prepare_utxo_headers = self.utxo_headers(&self.prepare_utxo);
         let inputs = prepare_utxo_headers.iter().map(|(txo, _)| {
             let minimal_unlock_point = self.minimal_unlock_point(&txo.out_point());
-            let since = since_from_absolute_epoch_number(minimal_unlock_point.full_value());
+            let since = since_from_absolute_epoch_number(minimal_unlock_point);
             CellInput::new(txo.out_point(), since)
         });
         let output_capacity = deposit_utxo_headers

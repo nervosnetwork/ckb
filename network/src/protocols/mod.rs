@@ -6,7 +6,7 @@ pub(crate) mod ping;
 pub(crate) mod support_protocols;
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
@@ -34,11 +34,14 @@ pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 use crate::{
     compress::{compress, decompress},
     network::disconnect_with_message,
-    Behaviour, Error, NetworkState, Peer, ProtocolVersion,
+    Behaviour, Error, NetworkState, Peer, ProtocolVersion, SupportProtocols,
 };
 
 /// Abstract protocol context
 pub trait CKBProtocolContext: Send {
+    /// get ckb2021 flag
+    fn ckb2021(&self) -> bool;
+
     /// Set notify to tentacle
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
@@ -248,6 +251,18 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+        if self
+            .network_state
+            .ckb2021
+            .load(std::sync::atomic::Ordering::SeqCst)
+            && version != "2"
+            && context.proto_id != SupportProtocols::Relay.protocol_id()
+        {
+            let id = context.session.id;
+            let _ignore = context.disconnect(id);
+            return;
+        }
+
         self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(context.session.id) {
                 peer.protocols.insert(self.proto_id, version.to_owned());
@@ -345,6 +360,11 @@ struct DefaultCKBProtocolContext {
 }
 
 impl CKBProtocolContext for DefaultCKBProtocolContext {
+    fn ckb2021(&self) -> bool {
+        self.network_state
+            .ckb2021
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
         self.p2p_control
             .set_service_notify(self.proto_id, interval, token)?;

@@ -77,9 +77,9 @@ pub trait MinerRpc {
     ///           {
     ///             "capacity": "0x18e64efc04",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -89,7 +89,7 @@ pub trait MinerRpc {
     ///         ],
     ///         "version": "0x0",
     ///         "witnesses": [
-    ///           "0x590000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac300000000"
+    ///           "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
     ///         ]
     ///       },
     ///       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
@@ -99,6 +99,7 @@ pub trait MinerRpc {
     ///     "cycles_limit": "0xd09dc300",
     ///     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     ///     "epoch": "0x7080019000001",
+    ///     "extension": null,
     ///     "number": "0x401",
     ///     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -110,13 +111,13 @@ pub trait MinerRpc {
     ///           "compact_target": "0x1e083126",
     ///           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///           "epoch": "0x7080018000001",
+    ///           "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///           "nonce": "0x0",
     ///           "number": "0x400",
     ///           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
     ///           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///           "timestamp": "0x5cd2b118",
     ///           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///           "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///           "version":"0x0"
     ///         },
     ///         "proposals": [],
@@ -160,13 +161,13 @@ pub trait MinerRpc {
     ///         "compact_target": "0x1e083126",
     ///         "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///         "epoch": "0x7080018000001",
+    ///         "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///         "nonce": "0x0",
     ///         "number": "0x400",
     ///         "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
     ///         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///         "timestamp": "0x5cd2b117",
     ///         "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///         "version": "0x0"
     ///       },
     ///       "proposals": [],
@@ -187,9 +188,9 @@ pub trait MinerRpc {
     ///             {
     ///               "capacity": "0x18e64b61cf",
     ///               "lock": {
-    ///                 "args": "0x",
     ///                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///                 "hash_type": "data"
+    ///                 "hash_type": "data",
+    ///                 "args": "0x"
     ///               },
     ///               "type": null
     ///             }
@@ -270,9 +271,17 @@ impl MinerRpc for MinerRpcImpl {
             block.hash()
         );
 
-        // Verify header
         let snapshot: &Snapshot = &self.shared.snapshot();
-        HeaderVerifier::new(snapshot, snapshot.consensus())
+        let consensus = snapshot.consensus();
+
+        // Reject block extension for public chain: mainnet and testnet.
+        if block.extension().is_some() && consensus.is_public_chain() {
+            let err = "the block extension should be null";
+            return Err(RPCError::custom_with_error(RPCError::Invalid, err));
+        }
+
+        // Verify header
+        HeaderVerifier::new(snapshot, consensus)
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
@@ -299,9 +308,14 @@ impl MinerRpc for MinerRpcImpl {
             );
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
+            let pid = if self.network_controller.load_ckb2021() {
+                SupportProtocols::RelayV2.protocol_id()
+            } else {
+                SupportProtocols::Relay.protocol_id()
+            };
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+                .quick_broadcast(pid, message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }

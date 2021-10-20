@@ -3,14 +3,22 @@ name: Sync-Mainnet
 on:
   pull_request_review:
     types: [ submitted ]
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   build_ckb:
     name: Build CKB
-    runs-on: [ self-hosted, Linux, X64, building ]
+    runs-on: ubuntu-latest
     if: |
-      contains(github.event.review.body, '#sync-mainnet') &&
-      contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.review.body, '#sync-mainnet') &&
+        contains(fromJson('[ "janx", "doitian", "quake", "xxuejie", "zhangsoledad", "jjyr", "TheWaWaR", "driftluo", "keroro520", "yangby-cryptape", "liya2017" ]'), github.actor)
+      ) || (
+        github.event_name == 'schedule' &&
+        github.repository_owner == 'nervosnetwork'
+      )
 
     env:
       CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
@@ -29,8 +37,9 @@ jobs:
 
   sync:
     name: Sync
-    runs-on: [ self-hosted, Linux, X64, operating ]
+    runs-on: ubuntu-latest
     needs: [ build_ckb ]
+    timeout-minutes: 600
     env:
       TERRAFORM_DIR:     ${{ github.workspace }}/.github/workflows/sync/terraform
       ANSIBLE_DIR:       ${{ github.workspace }}/.github/workflows/sync/ansible
@@ -68,6 +77,7 @@ jobs:
       # Run
       - name: Run Ansible Playbook
         shell: bash
+        timeout-minutes: 600
         working-directory: ${{ env.ANSIBLE_DIR }}
         env:
           QINIU_ACCESS_KEY:         ${{ secrets.QINIU_ACCESS_KEY }}
@@ -90,10 +100,16 @@ jobs:
           echo 'SYNC_MAINNET_REPORT<<EOF' >> $GITHUB_ENV
           cat ${ANSIBLE_DIR}/report.yml   >> $GITHUB_ENV
           echo 'EOF'                      >> $GITHUB_ENV
+
+          if [ ${{ github.event_name }} = 'pull_request_review' ] ; then
+            echo 'ISSUE_NUMBER=${{ github.event.pull_request.number }}' >> $GITHUB_ENV
+          else
+            echo 'ISSUE_NUMBER=2372' >> $GITHUB_ENV
+          fi
       - name: Post Run - Comment Report
         uses: peter-evans/create-or-update-comment@v1
         with:
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
           body: |
             **Sync-Mainnet Report**: https://www.github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 

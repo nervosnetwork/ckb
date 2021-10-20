@@ -17,7 +17,7 @@ use ckb_types::{
         TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{Block, CellInput, CellOutput, CellOutputBuilder, OutPoint},
+    packed::{Block, CellInput, CellOutput, CellOutputBuilder, CellbaseWitness, OutPoint},
     prelude::*,
     H256,
 };
@@ -36,6 +36,8 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         args: Default::default(),
         hash_type: ScriptHashType::Data,
         message: Default::default(),
+        use_binary_version_as_message_prefix: true,
+        binary_version: "TEST".to_string(),
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))
@@ -101,7 +103,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
         .parent_hash(parent_header.hash())
         .timestamp((parent_header.timestamp() + 10).pack())
         .number(number.pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)
@@ -161,6 +163,30 @@ fn test_block_template_timestamp() {
         Into::<u64>::into(block_template.current_time),
         block.header().timestamp() + 1
     );
+}
+
+#[test]
+fn test_block_template_message() {
+    let (_chain_controller, shared) = start_chain(None);
+    let tx_pool = shared.tx_pool_controller();
+
+    let block_template = tx_pool
+        .get_block_template(None, None, None)
+        .unwrap()
+        .unwrap();
+
+    let cellbase_witness = CellbaseWitness::from_slice(
+        block_template
+            .cellbase
+            .data
+            .witnesses
+            .get(0)
+            .unwrap()
+            .as_bytes(),
+    )
+    .expect("should be valid CellbaseWitness slice");
+
+    assert_eq!("TEST".as_bytes(), cellbase_witness.message().raw_data());
 }
 
 #[test]

@@ -7,6 +7,7 @@ use crate::{
     calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
+use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
@@ -16,8 +17,9 @@ use ckb_types::{
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
-        EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
+        EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
+        TransactionView, Version,
     },
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
@@ -177,6 +179,7 @@ impl Default for ConsensusBuilder {
 
         let genesis_block = BlockBuilder::default()
             .compact_target(DIFF_TWO.pack())
+            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
             .dao(dao)
             .transaction(cellbase)
             .build();
@@ -270,6 +273,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
+                hardfork_switch: HardForkSwitch::new_without_any_enabled(),
             },
         }
     }
@@ -390,6 +394,12 @@ impl ConsensusBuilder {
         self
     }
 
+    /// Sets median_time_block_count for the new Consensus.
+    pub fn median_time_block_count(mut self, median_time_block_count: usize) -> Self {
+        self.inner.median_time_block_count = median_time_block_count;
+        self
+    }
+
     /// Sets tx_proposal_window for the new Consensus.
     pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.inner.tx_proposal_window = proposal_window;
@@ -443,6 +453,12 @@ impl ConsensusBuilder {
     #[must_use]
     pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
         self.inner.max_block_proposals_limit = max_block_proposals_limit;
+        self
+    }
+
+    /// Sets a hard fork switch for the new Consensus.
+    pub fn hardfork_switch(mut self, hardfork_switch: HardForkSwitch) -> Self {
+        self.inner.hardfork_switch = hardfork_switch;
         self
     }
 }
@@ -519,6 +535,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// A switch to select hard fork features base on the epoch number.
+    pub hardfork_switch: HardForkSwitch,
 }
 
 // genesis difficulty should not be zero
@@ -909,6 +927,25 @@ impl Consensus {
             self.primary_epoch_reward(epoch.number() + 1)
         }
     }
+
+    /// Returns the hardfork switch.
+    pub fn hardfork_switch(&self) -> &HardForkSwitch {
+        &self.hardfork_switch
+    }
+
+    /// If the CKB block chain specification is for an public chain.
+    pub fn is_public_chain(&self) -> bool {
+        matches!(
+            self.id.as_str(),
+            mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
+        )
+    }
+}
+
+/// Trait for consensus provider.
+pub trait ConsensusProvider {
+    /// Returns the `Consensus`.
+    fn get_consensus(&self) -> &Consensus;
 }
 
 /// Corresponding epoch information of next block
@@ -971,6 +1008,9 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 .primary_epoch_reward_halving_interval
                 .into(),
             permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
+            hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
+                &consensus.hardfork_switch,
+            ),
         }
     }
 }
@@ -978,175 +1018,4 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
 // most simple and efficient way for now
 fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
-}
-
-#[cfg(test)]
-pub mod test {
-    use super::*;
-    use ckb_traits::{BlockEpoch, EpochProvider};
-    use ckb_types::core::{capacity_bytes, BlockBuilder, HeaderBuilder, TransactionBuilder};
-    use ckb_types::packed::Bytes;
-
-    #[test]
-    fn test_init_epoch_reward() {
-        let cellbase = TransactionBuilder::default()
-            .witness(Bytes::default())
-            .build();
-        let epoch_ext = build_genesis_epoch_ext(
-            capacity_bytes!(100),
-            DIFF_TWO,
-            GENESIS_EPOCH_LENGTH,
-            DEFAULT_EPOCH_DURATION_TARGET,
-            DEFAULT_ORPHAN_RATE_TARGET,
-        );
-        let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
-            .initial_primary_epoch_reward(capacity_bytes!(100))
-            .build();
-        assert_eq!(capacity_bytes!(100), consensus.initial_primary_epoch_reward);
-    }
-
-    #[test]
-    fn test_halving_epoch_reward() {
-        let cellbase = TransactionBuilder::default()
-            .witness(Bytes::default())
-            .build();
-        let epoch_ext = build_genesis_epoch_ext(
-            capacity_bytes!(100),
-            DIFF_TWO,
-            GENESIS_EPOCH_LENGTH,
-            DEFAULT_EPOCH_DURATION_TARGET,
-            DEFAULT_ORPHAN_RATE_TARGET,
-        );
-        let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
-            .initial_primary_epoch_reward(capacity_bytes!(100))
-            .build();
-        let genesis_epoch = consensus.genesis_epoch_ext();
-
-        let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
-
-        struct DummyEpochProvider(EpochExt);
-        impl EpochProvider for DummyEpochProvider {
-            fn get_epoch_ext(&self, _block_header: &HeaderView) -> Option<EpochExt> {
-                Some(self.0.clone())
-            }
-            fn get_block_epoch(&self, block_header: &HeaderView) -> Option<BlockEpoch> {
-                let block_epoch =
-                    if block_header.number() == self.0.start_number() + self.0.length() - 1 {
-                        BlockEpoch::TailBlock {
-                            epoch: self.0.clone(),
-                            epoch_uncles_count: 0,
-                            epoch_duration_in_milliseconds: DEFAULT_EPOCH_DURATION_TARGET * 1000,
-                        }
-                    } else {
-                        BlockEpoch::NonTailBlock {
-                            epoch: self.0.clone(),
-                        }
-                    };
-                Some(block_epoch)
-            }
-        }
-        let initial_primary_epoch_reward = genesis_epoch.primary_reward();
-
-        {
-            let epoch = consensus
-                .next_epoch_ext(
-                    &header(genesis_epoch.length() - 1),
-                    &DummyEpochProvider(genesis_epoch.clone()),
-                )
-                .expect("test: get next epoch")
-                .epoch();
-
-            assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
-        }
-
-        let first_halving_epoch_number = consensus.primary_epoch_reward_halving_interval();
-
-        // first_halving_epoch_number - 2
-        let epoch = genesis_epoch
-            .clone()
-            .into_builder()
-            .number(first_halving_epoch_number - 2)
-            .build();
-
-        // first_halving_epoch_number - 1
-        let epoch = consensus
-            .next_epoch_ext(
-                &header(epoch.start_number() + epoch.length() - 1),
-                &DummyEpochProvider(epoch),
-            )
-            .expect("test: get next epoch")
-            .epoch();
-        assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
-
-        // first_halving_epoch_number
-        let epoch = consensus
-            .next_epoch_ext(
-                &header(epoch.start_number() + epoch.length() - 1),
-                &DummyEpochProvider(epoch),
-            )
-            .expect("test: get next epoch")
-            .epoch();
-
-        assert_eq!(
-            initial_primary_epoch_reward.as_u64() / 2,
-            epoch.primary_reward().as_u64()
-        );
-
-        // first_halving_epoch_number + 1
-        let epoch = consensus
-            .next_epoch_ext(
-                &header(epoch.start_number() + epoch.length() - 1),
-                &DummyEpochProvider(epoch),
-            )
-            .expect("test: get next epoch")
-            .epoch();
-
-        assert_eq!(
-            initial_primary_epoch_reward.as_u64() / 2,
-            epoch.primary_reward().as_u64()
-        );
-
-        // first_halving_epoch_number * 4 - 2
-        let epoch = genesis_epoch
-            .clone()
-            .into_builder()
-            .number(first_halving_epoch_number * 4 - 2)
-            .base_block_reward(Capacity::shannons(
-                initial_primary_epoch_reward.as_u64() / 8 / genesis_epoch.length(),
-            ))
-            .remainder_reward(Capacity::shannons(
-                initial_primary_epoch_reward.as_u64() / 8 % genesis_epoch.length(),
-            ))
-            .build();
-
-        // first_halving_epoch_number * 4 - 1
-        let epoch = consensus
-            .next_epoch_ext(
-                &header(epoch.start_number() + epoch.length() - 1),
-                &DummyEpochProvider(epoch),
-            )
-            .expect("test: get next epoch")
-            .epoch();
-
-        assert_eq!(
-            initial_primary_epoch_reward.as_u64() / 8,
-            epoch.primary_reward().as_u64()
-        );
-
-        // first_halving_epoch_number * 4
-        let epoch = consensus
-            .next_epoch_ext(
-                &header(epoch.start_number() + epoch.length() - 1),
-                &DummyEpochProvider(epoch),
-            )
-            .expect("test: get next epoch")
-            .epoch();
-
-        assert_eq!(
-            initial_primary_epoch_reward.as_u64() / 16,
-            epoch.primary_reward().as_u64()
-        );
-    }
 }

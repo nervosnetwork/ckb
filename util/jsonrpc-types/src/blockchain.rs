@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 
-/// Specifies how the script `code_hash` is used to match the script code.
+/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 ///
-/// Allowed values: "data" and "type".
+/// Allowed kinds: "data", "type" and "data1".
 ///
 /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
@@ -18,10 +18,12 @@ use std::fmt;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
-    /// Type "data" matches script code via cell data hash.
-    Data,
+    /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    Data = 0,
     /// Type "type" matches script code via cell type script hash.
-    Type,
+    Type = 1,
+    /// Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
+    Data1 = 2,
 }
 
 impl Default for ScriptHashType {
@@ -35,6 +37,7 @@ impl From<ScriptHashType> for core::ScriptHashType {
         match json {
             ScriptHashType::Data => core::ScriptHashType::Data,
             ScriptHashType::Type => core::ScriptHashType::Type,
+            ScriptHashType::Data1 => core::ScriptHashType::Data1,
         }
     }
 }
@@ -44,6 +47,7 @@ impl From<core::ScriptHashType> for ScriptHashType {
         match core {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
+            core::ScriptHashType::Data1 => ScriptHashType::Data1,
         }
     }
 }
@@ -51,8 +55,9 @@ impl From<core::ScriptHashType> for ScriptHashType {
 impl fmt::Display for ScriptHashType {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            ScriptHashType::Data => write!(f, "data"),
-            ScriptHashType::Type => write!(f, "type"),
+            Self::Data => write!(f, "data"),
+            Self::Type => write!(f, "type"),
+            Self::Data1 => write!(f, "data1"),
         }
     }
 }
@@ -64,9 +69,9 @@ impl fmt::Display for ScriptHashType {
 /// ```
 /// # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#"
 /// {
-///   "args": "0x",
 ///   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///   "hash_type": "data"
+///   "hash_type": "data",
+///   "args": "0x"
 /// }
 /// # "#).unwrap();
 /// ```
@@ -118,9 +123,9 @@ impl From<packed::Script> for Script {
 /// {
 ///   "capacity": "0x2540be400",
 ///   "lock": {
-///     "args": "0x",
 ///     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///     "hash_type": "data"
+///     "hash_type": "data",
+///     "args": "0x"
 ///   },
 ///   "type": null
 /// }
@@ -432,9 +437,9 @@ pub struct Transaction {
 ///     {
 ///       "capacity": "0x2540be400",
 ///       "lock": {
-///         "args": "0x",
 ///         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-///         "hash_type": "data"
+///         "hash_type": "data",
+///         "args": "0x"
 ///       },
 ///       "type": null
 ///     }
@@ -637,10 +642,19 @@ pub struct Header {
     ///
     /// It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
     pub proposals_hash: H256,
-    /// The hash on `uncles` in the block body.
+    /// The hash on `uncles` and extension in the block body.
     ///
-    /// It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
-    pub uncles_hash: H256,
+    /// The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    /// The extension hash is the hash of the extension.
+    /// The extra hash is the hash on uncles hash and extension hash concatenated together.
+    ///
+    /// # Notice
+    ///
+    /// This field is renamed from `uncles_hash` since 0.100.0.
+    /// More details can be found in [CKB RFC 0031].
+    ///
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
+    pub extra_hash: H256,
     /// DAO fields.
     ///
     /// See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
@@ -670,7 +684,7 @@ pub struct Header {
 ///   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "timestamp": "0x5cd2b117",
 ///   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-///   "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+///   "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
 ///   "version": "0x0"
 /// }
 /// # "#).unwrap();
@@ -696,7 +710,7 @@ impl From<packed::Header> for Header {
             transactions_root: raw.transactions_root().unpack(),
             proposals_hash: raw.proposals_hash().unpack(),
             compact_target: raw.compact_target().unpack(),
-            uncles_hash: raw.uncles_hash().unpack(),
+            extra_hash: raw.extra_hash().unpack(),
             dao: raw.dao().into(),
             nonce: input.nonce().unpack(),
         }
@@ -730,7 +744,7 @@ impl From<Header> for packed::Header {
             transactions_root,
             proposals_hash,
             compact_target,
-            uncles_hash,
+            extra_hash,
             dao,
             nonce,
         } = json;
@@ -743,7 +757,7 @@ impl From<Header> for packed::Header {
             .transactions_root(transactions_root.pack())
             .proposals_hash(proposals_hash.pack())
             .compact_target(compact_target.pack())
-            .uncles_hash(uncles_hash.pack())
+            .extra_hash(extra_hash.pack())
             .dao(dao.into())
             .build();
         packed::Header::new_builder()
@@ -843,6 +857,12 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It's a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 /// The JSON view of a Block including header and body.
@@ -856,6 +876,12 @@ pub struct BlockView {
     pub transactions: Vec<TransactionView>,
     /// The proposal IDs in the block body.
     pub proposals: Vec<ProposalShortId>,
+    /// The extension in the block body.
+    ///
+    /// This field is optional. It's a reserved field, please leave it blank.
+    #[doc(hidden)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<JsonBytes>,
 }
 
 impl From<packed::Block> for Block {
@@ -865,6 +891,7 @@ impl From<packed::Block> for Block {
             uncles: input.uncles().into_iter().map(Into::into).collect(),
             transactions: input.transactions().into_iter().map(Into::into).collect(),
             proposals: input.proposals().into_iter().map(Into::into).collect(),
+            extension: input.extension().map(Into::into),
         }
     }
 }
@@ -905,6 +932,7 @@ impl From<core::BlockView> for BlockView {
             uncles,
             transactions,
             proposals: block.proposals().into_iter().map(Into::into).collect(),
+            extension: block.extension().map(Into::into),
         }
     }
 }
@@ -916,13 +944,26 @@ impl From<Block> for packed::Block {
             uncles,
             transactions,
             proposals,
+            extension,
         } = json;
-        packed::Block::new_builder()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).pack())
-            .transactions(transactions.into_iter().map(Into::into).pack())
-            .proposals(proposals.into_iter().map(Into::into).pack())
-            .build()
+        if let Some(extension) = extension {
+            let extension: packed::Bytes = extension.into();
+            packed::BlockV1::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(header.into())
+                .uncles(uncles.into_iter().map(Into::into).pack())
+                .transactions(transactions.into_iter().map(Into::into).pack())
+                .proposals(proposals.into_iter().map(Into::into).pack())
+                .build()
+        }
     }
 }
 
@@ -933,6 +974,7 @@ impl From<BlockView> for core::BlockView {
             uncles,
             transactions,
             proposals,
+            extension,
         } = input;
         let block = Block {
             header: header.inner,
@@ -948,6 +990,7 @@ impl From<BlockView> for core::BlockView {
                 .collect(),
             transactions: transactions.into_iter().map(|tx| tx.inner).collect(),
             proposals,
+            extension,
         };
         let block: packed::Block = block.into();
         block.into_view()
@@ -1153,7 +1196,7 @@ pub struct ProposalWindow {
 }
 
 /// Consensus defines various parameters that influence chain consensus
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Consensus {
     /// Names the network.
     pub id: String,
@@ -1199,88 +1242,46 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: Uint64,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// Hardfork features
+    pub hardfork_features: Vec<HardForkFeature>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
-    use lazy_static::lazy_static;
-    use proptest::{collection::size_range, prelude::*};
-    use regex::Regex;
+/// The information about one hardfork feature.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct HardForkFeature {
+    /// The related RFC ID.
+    pub rfc: String,
+    /// The first epoch when the feature is enabled.
+    pub epoch_number: Option<EpochNumber>,
+}
 
-    fn mock_script(arg: Bytes) -> packed::Script {
-        packed::ScriptBuilder::default()
-            .code_hash(Byte32::zero())
-            .args(arg.pack())
-            .hash_type(core::ScriptHashType::Data.into())
-            .build()
+fn convert(number: core::EpochNumber) -> Option<EpochNumber> {
+    if number == core::EpochNumber::MAX {
+        None
+    } else {
+        Some(number.into())
     }
+}
 
-    fn mock_cell_output(arg: Bytes) -> packed::CellOutput {
-        packed::CellOutputBuilder::default()
-            .capacity(core::Capacity::zero().pack())
-            .lock(packed::Script::default())
-            .type_(Some(mock_script(arg)).pack())
-            .build()
-    }
-
-    fn mock_cell_input() -> packed::CellInput {
-        packed::CellInput::new(packed::OutPoint::default(), 0)
-    }
-
-    fn mock_full_tx(data: Bytes, arg: Bytes) -> core::TransactionView {
-        TransactionBuilder::default()
-            .inputs(vec![mock_cell_input()])
-            .outputs(vec![mock_cell_output(arg.clone())])
-            .outputs_data(vec![data.pack()])
-            .witness(arg.pack())
-            .build()
-    }
-
-    fn mock_uncle() -> core::UncleBlockView {
-        core::BlockBuilder::default()
-            .proposals(vec![packed::ProposalShortId::default()].pack())
-            .build()
-            .as_uncle()
-    }
-
-    fn mock_full_block(data: Bytes, arg: Bytes) -> core::BlockView {
-        core::BlockBuilder::default()
-            .transactions(vec![mock_full_tx(data, arg)])
-            .uncles(vec![mock_uncle()])
-            .proposals(vec![packed::ProposalShortId::default()])
-            .build()
-    }
-
-    fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {
-        let block = mock_full_block(data, arg);
-        let json_block: BlockView = block.clone().into();
-        let encoded = serde_json::to_string(&json_block).unwrap();
-        let decode: BlockView = serde_json::from_str(&encoded).unwrap();
-        let decode_block: core::BlockView = decode.into();
-        header_field_format_check(&encoded);
-        prop_assert_eq!(decode_block.data(), block.data());
-        prop_assert_eq!(decode_block, block);
-        Ok(())
-    }
-
-    fn header_field_format_check(json: &str) {
-        lazy_static! {
-            static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|uncles_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
-        }
-        for caps in RE.captures_iter(json) {
-            assert!(&caps["value"].starts_with("0x"));
+impl HardForkFeature {
+    /// Creates a new struct.
+    pub fn new(rfc: &str, epoch_number: Option<EpochNumber>) -> Self {
+        Self {
+            rfc: rfc.to_owned(),
+            epoch_number,
         }
     }
 
-    proptest! {
-        #[test]
-        fn test_block_convert(
-            data in any_with::<Vec<u8>>(size_range(80).lift()),
-            arg in any_with::<Vec<u8>>(size_range(80).lift()),
-        ) {
-            _test_block_convert(Bytes::from(data), Bytes::from(arg))?;
-        }
+    /// Returns a list of hardfork features from a hardfork switch.
+    pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
+        vec![
+            Self::new("0028", convert(switch.rfc_0028())),
+            Self::new("0029", convert(switch.rfc_0029())),
+            Self::new("0030", convert(switch.rfc_0030())),
+            Self::new("0031", convert(switch.rfc_0031())),
+            Self::new("0032", convert(switch.rfc_0032())),
+            Self::new("0036", convert(switch.rfc_0036())),
+            Self::new("0038", convert(switch.rfc_0038())),
+        ]
     }
 }

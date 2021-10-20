@@ -79,9 +79,6 @@ enable_deprecated_rpc = true
 [tx_pool]
 max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
-max_verify_cache_size = 100_000
-max_conflict_cache_size = 1_000
-max_committed_txs_hash_cache_size = 100_000
 min_fee_rate = 0 # shannons/KB
 max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
@@ -92,7 +89,6 @@ cell_data_cache_size       = 128
 block_proposals_cache_size = 30
 block_tx_hashes_cache_size = 30
 block_uncles_cache_size    = 30
-cellbase_cache_size        = 30
 
 # [notifier]
 # # Execute command when the new tip block changes, first arg is block hash.

@@ -4,16 +4,24 @@ mod args;
 pub mod cli;
 mod configs;
 mod exit_code;
+pub(crate) mod legacy;
 #[cfg(feature = "with_sentry")]
 mod sentry_config;
 
-pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
+#[cfg(test)]
+mod tests;
+
+pub use app_config::{
+    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
+};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
+#[cfg(feature = "with_sentry")]
+pub use sentry_config::SentryConfig;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
@@ -23,7 +31,6 @@ use std::{path::PathBuf, str::FromStr};
 
 // 500_000 total difficulty
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
-// const MIN_CHAIN_WORK_1000K: U256 = u256!("0x6f1e2846acc0c9807d");
 
 /// A struct including all the informations to start the ckb process.
 pub struct Setup {
@@ -40,7 +47,7 @@ pub struct Setup {
 
 impl Setup {
     /// Boots the ckb process by parsing the command line arguments and loading the config file.
-    pub fn from_matches(matches: &ArgMatches<'_>) -> Result<Setup, ExitCode> {
+    pub fn from_matches(bin_name: String, matches: &ArgMatches<'_>) -> Result<Setup, ExitCode> {
         let subcommand_name = match matches.subcommand_name() {
             Some(subcommand_name) => subcommand_name,
             None => {
@@ -50,7 +57,8 @@ impl Setup {
         };
 
         let root_dir = Self::root_dir_from_matches(matches)?;
-        let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        config.set_bin_name(bin_name);
         #[cfg(feature = "with_sentry")]
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
@@ -413,36 +421,4 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cli::CMD_STATS;
-    use clap::{App, AppSettings};
-
-    #[test]
-    fn stats_args() {
-        let app = App::new("stats_args_test")
-            .setting(AppSettings::SubcommandRequiredElseHelp)
-            .subcommand(cli::stats());
-
-        let stats = app.clone().get_matches_from_safe(vec!["", CMD_STATS]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10"]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--to", "100"]);
-        assert!(stats.is_ok());
-
-        let stats = app
-            .clone()
-            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
-        assert!(stats.is_ok());
-    }
 }

@@ -5,7 +5,6 @@ use std::{
 };
 
 use ckb_logger::{debug, trace, warn};
-use ckb_types::bytes::BytesMut;
 use p2p::{
     bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -28,7 +27,7 @@ use self::{
 use crate::{NetworkState, ProtocolId};
 
 mod addr;
-mod protocol;
+pub(crate) mod protocol;
 mod state;
 
 const ANNOUNCE_CHECK_INTERVAL: Duration = Duration::from_secs(60);
@@ -79,8 +78,10 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions
-            .insert(session.id, SessionState::new(context, &self.addr_mgr));
+        self.sessions.insert(
+            session.id,
+            SessionState::new(context, &self.addr_mgr, version == "2"),
+        );
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -106,7 +107,13 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             }
         };
 
-        match decode(&mut BytesMut::from(data.as_ref())) {
+        let v2 = self
+            .sessions
+            .get(&session.id)
+            .map(|state| state.v2)
+            .unwrap_or(false);
+
+        match decode(&data, v2) {
             Some(item) => {
                 match item {
                     DiscoveryMessage::GetNodes {
@@ -160,7 +167,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 items,
                             };
 
-                            let msg = encode(DiscoveryMessage::Nodes(nodes));
+                            let msg = encode(DiscoveryMessage::Nodes(nodes), v2);
                             if context.send_message(msg).is_err() {
                                 debug!("{:?} send discovery msg Nodes fail", session.id)
                             }

@@ -61,9 +61,9 @@ impl AddrInfo {
         }
     }
 
-    /// Whether already connected
-    pub fn had_connected(&self, expires_ms: u64) -> bool {
-        self.last_connected_at_ms > expires_ms
+    /// Connection information
+    pub fn connected<F: FnOnce(u64) -> bool>(&self, f: F) -> bool {
+        f(self.last_connected_at_ms)
     }
 
     /// Whether already try dail within a minute
@@ -71,23 +71,23 @@ impl AddrInfo {
         self.last_tried_at_ms >= now_ms.saturating_sub(60_000)
     }
 
-    /// Whether terrible peer
-    pub fn is_terrible(&self, now_ms: u64) -> bool {
+    /// Whether connectable peer
+    pub fn is_connectable(&self, now_ms: u64) -> bool {
         // do not remove addr tried in last minute
         if self.tried_in_last_minute(now_ms) {
-            return false;
+            return true;
         }
         // we give up if never connect to this addr
         if self.last_connected_at_ms == 0 && self.attempts_count >= ADDR_MAX_RETRIES {
-            return true;
+            return false;
         }
-        // consider addr is terrible if failed too many times
+        // consider addr is not connectable if failed too many times
         if now_ms.saturating_sub(self.last_connected_at_ms) > ADDR_TIMEOUT_MS
             && (self.attempts_count >= ADDR_MAX_FAILURES)
         {
-            return true;
+            return false;
         }
-        false
+        true
     }
 
     /// Try dail count

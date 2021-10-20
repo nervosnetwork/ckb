@@ -16,6 +16,9 @@ use std::{fs, panic, process, sync, thread};
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
 
+#[cfg(test)]
+mod tests;
+
 static CONTROL_HANDLE: OnceCell<ckb_channel::Sender<Message>> = OnceCell::new();
 static RE: OnceCell<regex::Regex> = OnceCell::new();
 
@@ -41,7 +44,6 @@ enum Message {
 /// When a CKB logger is created, a logging service will be started in a background thread.
 ///
 /// [log::Log]: https://docs.rs/log/*/log/trait.Log.html
-#[derive(Debug)]
 pub struct Logger {
     sender: ckb_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
@@ -51,7 +53,6 @@ pub struct Logger {
     extra_loggers: sync::Arc<RwLock<HashMap<String, ExtraLogger>>>,
 }
 
-#[derive(Debug)]
 struct MainLogger {
     file_path: PathBuf,
     file: Option<fs::File>,
@@ -60,7 +61,6 @@ struct MainLogger {
     color: bool,
 }
 
-#[derive(Debug)]
 struct ExtraLogger {
     filter: Filter,
 }
@@ -75,7 +75,7 @@ fn enable_ansi_support() {
 fn enable_ansi_support() {}
 
 // Parse crate name leniently in logger filter: convert "-" to "_".
-fn convert_compatible_crate_name(spec: &str) -> String {
+pub(crate) fn convert_compatible_crate_name(spec: &str) -> String {
     let mut parts = spec.splitn(2, '/');
     let first_part = parts.next();
     let last_part = parts.next();
@@ -95,27 +95,6 @@ fn convert_compatible_crate_name(spec: &str) -> String {
     }
 }
 
-#[test]
-fn test_convert_compatible_crate_name() {
-    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace/*[0-9]";
-    let expected = "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace/*[0-9]";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info,a-b=trace,c-d_e-f=warn,g-h-i=debug,jkl=trace";
-    let expected =
-        "info,a-b=trace,a_b=trace,c-d_e-f=warn,c_d_e_f=warn,g-h-i=debug,g_h_i=debug,jkl=trace";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info/*[0-9]";
-    let expected = "info/*[0-9]";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-    let spec = "info";
-    let expected = "info";
-    let result = convert_compatible_crate_name(&spec);
-    assert_eq!(&result, &expected);
-}
-
 impl Logger {
     fn new(env_opt: Option<&str>, config: Config) -> Logger {
         for name in config.extra.keys() {
@@ -132,13 +111,14 @@ impl Logger {
 
         let Config {
             color,
-            file: file_path,
+            file,
             log_dir,
             log_to_file,
             log_to_stdout,
             ..
         } = config;
         let mut main_logger = {
+            let file_path = log_dir.join(file);
             let file = if log_to_file {
                 match Self::open_log_file(&file_path) {
                     Err(err) => {
@@ -480,6 +460,26 @@ pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, Se
         log::set_max_level(filter);
         LoggerInitGuard
     })
+}
+
+/// Initializes the [SilentLogger](struct.SilentLogger.html).
+pub fn init_silent() -> Result<LoggerInitGuard, SetLoggerError> {
+    log::set_boxed_logger(Box::new(SilentLogger)).map(|_| LoggerInitGuard)
+}
+
+/// The SilentLogger which implements [log::Log].
+///
+/// Silent logger that does nothing.
+pub struct SilentLogger;
+
+impl Log for SilentLogger {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        false
+    }
+
+    fn log(&self, _record: &Record) {}
+
+    fn flush(&self) {}
 }
 
 /// Flushes any buffered records.

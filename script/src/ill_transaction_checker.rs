@@ -1,30 +1,48 @@
-use crate::ScriptError;
+use crate::{verify_env::TxVerifyEnv, ScriptError};
 use byteorder::{ByteOrder, LittleEndian};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_types::core::TransactionView;
 use ckb_vm::{
-    instructions::{extract_opcode, i, m, rvc, Instruction, Itype, Stype},
-    registers::{RA, ZERO},
+    instructions::{extract_opcode, i, m, rvc, Instruction, Itype},
+    machine::VERSION0,
+    registers::ZERO,
 };
 use ckb_vm_definitions::instructions as insts;
 use goblin::elf::{section_header::SHF_EXECINSTR, Elf};
 
-const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
+#[cfg(test)]
+mod tests;
+
+pub(crate) const CKB_VM_ISSUE_92: &str = "https://github.com/nervosnetwork/ckb-vm/issues/92";
 
 /// Ill formed transactions checker.
 pub struct IllTransactionChecker<'a> {
     tx: &'a TransactionView,
+    consensus: &'a Consensus,
+    tx_env: &'a TxVerifyEnv,
 }
 
 impl<'a> IllTransactionChecker<'a> {
     /// Creates the checker for a transaction.
-    pub fn new(tx: &'a TransactionView) -> Self {
-        IllTransactionChecker { tx }
+    pub fn new(tx: &'a TransactionView, consensus: &'a Consensus, tx_env: &'a TxVerifyEnv) -> Self {
+        IllTransactionChecker {
+            tx,
+            consensus,
+            tx_env,
+        }
     }
 
     /// Checks whether the transaction is ill formed.
     pub fn check(&self) -> Result<(), ScriptError> {
-        for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
-            IllScriptChecker::new(&data.raw_data(), i).check()?;
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        let hardfork_switch = self.consensus.hardfork_switch();
+        // Assume that after ckb2021 is activated, developers will only upload code for vm v1.
+        if !hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number) {
+            // IllTransactionChecker is only for vm v0
+            for (i, data) in self.tx.outputs_data().into_iter().enumerate() {
+                IllScriptChecker::new(&data.raw_data(), i).check()?;
+            }
         }
         Ok(())
     }
@@ -56,35 +74,19 @@ impl<'a> IllScriptChecker<'a> {
                 let mut pc = section_header.sh_offset;
                 let end = section_header.sh_offset + section_header.sh_size;
                 while pc < end {
-                    match self.decode_instruction(pc) {
-                        (Some(i), len) => {
-                            match extract_opcode(i) {
-                                insts::OP_JALR => {
-                                    let i = Itype(i);
-                                    if i.rs1() == i.rd() && i.rd() != ZERO {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                insts::OP_RVC_JALR => {
-                                    let i = Stype(i);
-                                    if i.rs1() == RA {
-                                        return Err(ScriptError::EncounteredKnownBugs(
-                                            CKB_VM_ISSUE_92.to_string(),
-                                            self.index,
-                                        ));
-                                    }
-                                }
-                                _ => (),
-                            };
-                            pc += len;
-                        }
-                        (None, len) => {
-                            pc += len;
-                        }
+                    let (option_instruction, len) = self.decode_instruction(pc);
+                    if let Some(i) = option_instruction {
+                        if extract_opcode(i) == insts::OP_JALR {
+                            let i = Itype(i);
+                            if i.rs1() == i.rd() && i.rd() != ZERO {
+                                return Err(ScriptError::EncounteredKnownBugs(
+                                    CKB_VM_ISSUE_92.to_string(),
+                                    self.index,
+                                ));
+                            }
+                        };
                     }
+                    pc += len;
                 }
             }
         }
@@ -105,42 +107,10 @@ impl<'a> IllScriptChecker<'a> {
         }
         let factories = [rvc::factory::<u64>, i::factory::<u64>, m::factory::<u64>];
         for factory in &factories {
-            if let Some(instruction) = factory(i) {
+            if let Some(instruction) = factory(i, VERSION0) {
                 return (Some(instruction), len);
             }
         }
         (None, len)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::read;
-    use std::path::Path;
-
-    #[test]
-    fn check_good_binary() {
-        let data =
-            read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap();
-        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
-    }
-
-    #[test]
-    fn check_defected_binary() {
-        let data =
-            read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/defected_binary"))
-                .unwrap();
-        assert_eq!(
-            IllScriptChecker::new(&data, 13).check().unwrap_err(),
-            ScriptError::EncounteredKnownBugs(CKB_VM_ISSUE_92.to_string(), 13),
-        );
-    }
-
-    #[test]
-    fn check_jalr_zero_binary() {
-        let data = read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/jalr_zero"))
-            .unwrap();
-        assert!(IllScriptChecker::new(&data, 13).check().is_ok());
     }
 }

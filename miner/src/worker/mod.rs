@@ -1,6 +1,7 @@
 mod dummy;
 mod eaglesong_simple;
 
+use crate::Work;
 use ckb_app_config::MinerWorkerConfig;
 use ckb_channel::{unbounded, Sender};
 use ckb_logger::error;
@@ -18,7 +19,11 @@ use std::thread;
 pub enum WorkerMessage {
     Stop,
     Start,
-    NewWork { pow_hash: Byte32, target: U256 },
+    NewWork {
+        pow_hash: Byte32,
+        work: Work,
+        target: U256,
+    },
 }
 
 pub struct WorkerController {
@@ -61,7 +66,7 @@ const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elaps
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
     config: &MinerWorkerConfig,
-    nonce_tx: Sender<(Byte32, u128)>,
+    nonce_tx: Sender<(Byte32, Work, u128)>,
     mp: &MultiProgress,
 ) -> WorkerController {
     match config {

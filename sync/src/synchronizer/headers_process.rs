@@ -109,8 +109,11 @@ impl<'a> HeadersProcess<'a> {
 
         if headers.is_empty() {
             debug!("HeadersProcess is_empty (synchronized)");
-            if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
-                self.synchronizer.shared().state().tip_synced(state);
+            if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
+                self.synchronizer
+                    .shared()
+                    .state()
+                    .tip_synced(state.value_mut());
             }
             return Status::ok();
         }
@@ -175,8 +178,11 @@ impl<'a> HeadersProcess<'a> {
             let start = headers.last().expect("empty checked");
             self.active_chain
                 .send_getheaders_to_peer(self.nc, self.peer, start);
-        } else if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
-            self.synchronizer.shared().state().tip_synced(state);
+        } else if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
+            self.synchronizer
+                .shared()
+                .state()
+                .tip_synced(state.value_mut());
         }
 
         // If we're in IBD, we want outbound peers that will serve us a useful

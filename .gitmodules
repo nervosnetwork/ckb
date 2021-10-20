@@ -1,3 +1,4 @@
 [submodule "test/vendor"]
 	path = test/vendor
 	url = https://github.com/nervosnetwork/ckb-tests.git
+	shallow = true

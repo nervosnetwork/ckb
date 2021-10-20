@@ -107,7 +107,7 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
         bootnode_mode: true,
-        reuse: true,
+        reuse_port_on_linux: true,
         ..Default::default()
     };
 
@@ -230,6 +230,9 @@ impl MockProtocolContext {
 }
 
 impl CKBProtocolContext for MockProtocolContext {
+    fn ckb2021(&self) -> bool {
+        false
+    }
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }

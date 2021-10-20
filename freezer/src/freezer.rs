@@ -37,7 +37,7 @@ pub struct Freezer {
 }
 
 impl Freezer {
-    /// creates a freezer at specified path
+    /// Creates a freezer at specified path
     pub fn open(path: PathBuf) -> Result<Freezer, Error> {
         let lock_path = path.join(LOCKNAME);
         let lock = OpenOptions::new()
@@ -55,9 +55,12 @@ impl Freezer {
                 .retrieve(freezer_number - 1)
                 .map_err(internal_error)?
                 .ok_or_else(|| internal_error("freezer inconsistent"))?;
-            let block = packed::BlockReader::from_slice(&raw_block)
+            let block = packed::BlockReader::from_compatible_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
+            if block.count_extra_fields() > 1 {
+                return Err(internal_error("block has more than one extra fields"));
+            }
             tip = Some(block.header().into_view());
         }
 
@@ -70,7 +73,13 @@ impl Freezer {
         })
     }
 
-    /// freeze background process that periodically checks the chain data for any
+    /// Creates a freezer at temporary path
+    pub fn open_tmp() -> Result<Freezer, Error> {
+        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+        Self::open(tmp_dir.path().to_path_buf())
+    }
+
+    /// Freeze background process that periodically checks the chain data for any
     /// import progress and moves ancient data from the kv-db into the freezer.
     pub fn freeze<F>(
         &self,
@@ -147,9 +156,12 @@ impl Freezer {
                 .retrieve(item)
                 .map_err(internal_error)?
                 .expect("frozen number sync with files");
-            let block = packed::BlockReader::from_slice(&raw_block)
+            let block = packed::BlockReader::from_compatible_slice(&raw_block)
                 .map_err(internal_error)?
                 .to_entity();
+            if block.count_extra_fields() > 1 {
+                return Err(internal_error("block has more than one extra fields"));
+            }
             inner.tip = Some(block.header().into_view());
         }
         Ok(())

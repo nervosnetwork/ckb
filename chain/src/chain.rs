@@ -13,7 +13,10 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
+        cell::{
+            resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
+            ResolveOptions, ResolvedTransaction,
+        },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
@@ -101,7 +104,7 @@ impl ChainController {
     }
 
     pub fn stop(&mut self) {
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 
@@ -206,6 +209,7 @@ impl ChainService {
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
+        let tx_control = self.shared.tx_pool_controller().clone();
 
         let thread = thread_builder
             .spawn(move || loop {
@@ -215,7 +219,9 @@ impl ChainService {
                     },
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
+                            let _ = tx_control.suspend_chunk_process();
                             let _ = responder.send(self.process_block(block, verify));
+                            let _ = tx_control.continue_chunk_process();
                         },
                         _ => {
                             error!("process_block_receiver closed");
@@ -224,7 +230,9 @@ impl ChainService {
                     },
                     recv(truncate_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: target_tip_hash }) => {
+                            let _ = tx_control.suspend_chunk_process();
                             let _ = responder.send(self.truncate(&target_tip_hash));
+                            let _ = tx_control.continue_chunk_process();
                         },
                         _ => {
                             error!("truncate_receiver closed");
@@ -456,23 +464,23 @@ impl ChainService {
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-            if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
-                fork.detached_blocks().clone(),
-                fork.attached_blocks().clone(),
-                fork.detached_proposal_id().clone(),
-                new_snapshot,
-            ) {
-                error!("notify update_tx_pool_for_reorg error {}", e);
-            }
-            for detached_block in fork.detached_blocks() {
-                if let Err(e) = self
-                    .shared
-                    .tx_pool_controller()
-                    .notify_new_uncle(detached_block.as_uncle())
-                {
-                    error!("notify new_uncle error {}", e);
+            let tx_pool_controller = self.shared.tx_pool_controller();
+            if tx_pool_controller.service_started() {
+                if let Err(e) = tx_pool_controller.update_tx_pool_for_reorg(
+                    fork.detached_blocks().clone(),
+                    fork.attached_blocks().clone(),
+                    fork.detached_proposal_id().clone(),
+                    new_snapshot,
+                ) {
+                    error!("notify update_tx_pool_for_reorg error {}", e);
+                }
+                for detached_block in fork.detached_blocks() {
+                    if let Err(e) = tx_pool_controller.notify_new_uncle(detached_block.as_uncle()) {
+                        error!("notify new_uncle error {}", e);
+                    }
                 }
             }
+
             let block_ref: &BlockView = &block;
             self.shared
                 .notify_controller()
@@ -491,13 +499,13 @@ impl ChainService {
                 cannon_total_difficulty,
                 block.transactions().len()
             );
-            let block_ref: &BlockView = &block;
-            if let Err(e) = self
-                .shared
-                .tx_pool_controller()
-                .notify_new_uncle(block_ref.as_uncle())
-            {
-                error!("notify new_uncle error {}", e);
+
+            let tx_pool_controller = self.shared.tx_pool_controller();
+            if tx_pool_controller.service_started() {
+                let block_ref: &BlockView = &block;
+                if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
+                    error!("notify new_uncle error {}", e);
+                }
             }
         }
 
@@ -718,6 +726,14 @@ impl ChainService {
                     };
 
                     let transactions = b.transactions();
+                    let resolve_opts = {
+                        let hardfork_switch = self.shared.consensus().hardfork_switch();
+                        let epoch_number = b.epoch().number();
+                        ResolveOptions::new()
+                            .apply_current_features(hardfork_switch, epoch_number)
+                            .set_for_block_verification(true)
+                    };
+
                     let resolved = {
                         let txn_cell_provider = txn.cell_provider();
                         let cell_provider = OverlayCellProvider::new(&block_cp, &txn_cell_provider);
@@ -725,12 +741,12 @@ impl ChainService {
                             .iter()
                             .cloned()
                             .map(|x| {
-                                resolve_transaction(
+                                resolve_transaction_with_options(
                                     x,
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
-                                    None,
+                                    resolve_opts,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()
@@ -746,11 +762,8 @@ impl ChainService {
                                 switch,
                             ) {
                                 Ok((cycles, cache_entries)) => {
-                                    let txs_fees = cache_entries
-                                        .into_iter()
-                                        .skip(1)
-                                        .map(|entry| entry.fee)
-                                        .collect();
+                                    let txs_fees =
+                                        cache_entries.into_iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
                                     let mut mut_ext = ext.clone();

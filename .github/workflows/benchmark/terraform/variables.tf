@@ -10,13 +10,13 @@ variable "secret_key" {
 
 variable "region" {
   type    = string
-  default = "ap-northeast-1"
+  default = "us-east-2"
   description = "AWS region"
 }
 
 variable "instances_count" {
   type    = number
-  default = 3
+  default = 1
   description = "the count of normal instances"
 }
 

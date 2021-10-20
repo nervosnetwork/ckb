@@ -1,5 +1,5 @@
 //! Top-level Pool type, methods, and tests
-use super::component::TxEntry;
+use super::component::{commit_txs_scanner::CommitTxsScanner, TxEntry};
 use crate::callback::Callbacks;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
@@ -12,13 +12,16 @@ use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
+        cell::{
+            resolve_transaction_with_options, OverlayCellChecker, OverlayCellProvider,
+            ResolveOptions, ResolvedTransaction,
+        },
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use ckb_verification::cache::CacheEntry;
+use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::collections::HashSet;
@@ -26,9 +29,6 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-
-// default max dep expansion count
-const DEFAULT_MAX_DEP_EXPANSION_COUNT: usize = 2048;
 
 /// Tx-pool implementation
 pub struct TxPool {
@@ -90,17 +90,17 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
+        const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
         TxPool {
-            config,
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
-            committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
+            committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            config,
             snapshot,
         }
     }
@@ -174,7 +174,11 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        self.pending.add_entry(entry).is_none()
+        let inserted = self.pending.add_entry(entry).is_none();
+        if inserted {
+            self.touch_last_txs_updated_at();
+        }
+        inserted
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
@@ -186,8 +190,12 @@ impl TxPool {
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
-        self.touch_last_txs_updated_at();
-        self.proposed.add_entry(entry)
+        self.proposed.add_entry(entry).map(|inserted| {
+            if inserted {
+                self.touch_last_txs_updated_at();
+            }
+            inserted
+        })
     }
 
     pub(crate) fn touch_last_txs_updated_at(&self) {
@@ -202,7 +210,7 @@ impl TxPool {
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id) || self.proposed.contains_key(id)
+        self.pending.contains_key(id) || self.gap.contains_key(id) || self.proposed.contains_key(id)
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -298,6 +306,7 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
+        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
@@ -305,12 +314,12 @@ impl TxPool {
         let pending_and_proposed_provider =
             OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(
+        resolve_transaction_with_options(
             tx,
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
-            Some(DEFAULT_MAX_DEP_EXPANSION_COUNT),
+            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -318,6 +327,7 @@ impl TxPool {
     pub(crate) fn check_rtx_from_pending_and_proposed(
         &self,
         rtx: &ResolvedTransaction,
+        resolve_opts: ResolveOptions,
     ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
@@ -325,32 +335,42 @@ impl TxPool {
         let pending_and_proposed_checker =
             OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
         let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &pending_and_proposed_checker, snapshot)
-            .map_err(Reject::Resolve)
+        rtx.check(
+            &mut seen_inputs,
+            &pending_and_proposed_checker,
+            snapshot,
+            resolve_opts,
+        )
+        .map_err(Reject::Resolve)
     }
 
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
+        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(
+        resolve_transaction_with_options(
             tx,
             &mut seen_inputs,
             &cell_provider,
             snapshot,
-            Some(DEFAULT_MAX_DEP_EXPANSION_COUNT),
+            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
+    pub(crate) fn check_rtx_from_proposed(
+        &self,
+        rtx: &ResolvedTransaction,
+        resolve_opts: ResolveOptions,
+    ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &cell_checker, snapshot)
+        rtx.check(&mut seen_inputs, &cell_checker, snapshot, resolve_opts)
             .map_err(Reject::Resolve)
     }
 
@@ -360,15 +380,25 @@ impl TxPool {
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        self.check_rtx_from_pending_and_proposed(&rtx)?;
         let snapshot = self.snapshot();
+        let tip_header = snapshot.tip_header();
+        let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
+
+        let resolve_opts = {
+            let proposal_window = snapshot.consensus().tx_proposal_window();
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            let hardfork_switch = snapshot.consensus().hardfork_switch();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
+        };
+        self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
+
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry) {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }
@@ -380,15 +410,25 @@ impl TxPool {
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        self.check_rtx_from_proposed(&rtx)?;
         let snapshot = self.snapshot();
+        let tip_header = snapshot.tip_header();
+        let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
+
+        let resolve_opts = {
+            let proposal_window = snapshot.consensus().tx_proposal_window();
+            let epoch_number = tx_env.epoch_number(proposal_window);
+            let hardfork_switch = snapshot.consensus().hardfork_switch();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
+        };
+        self.check_rtx_from_proposed(&rtx, resolve_opts)?;
+
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
-            Ok(verified)
+            Ok(CacheEntry::Completed(verified))
         } else {
             Err(Reject::Duplicated(tx_hash))
         }
@@ -457,5 +497,18 @@ impl TxPool {
             .collect();
 
         TxPoolEntryInfo { pending, proposed }
+    }
+
+    pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
+        let mut txs = CommitTxsScanner::new(&self.proposed)
+            .txs_to_commit(self.total_tx_size, self.total_tx_cycles)
+            .0
+            .into_iter()
+            .map(|tx_entry| tx_entry.rtx.transaction)
+            .collect::<Vec<_>>();
+        self.proposed.clear();
+        txs.append(&mut self.gap.drain());
+        txs.append(&mut self.pending.drain());
+        txs
     }
 }

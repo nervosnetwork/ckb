@@ -61,7 +61,7 @@ impl AddrManager {
                 // TODO remove this after fix the network tests.
                 let is_test_ip = ip.is_unspecified() || ip.is_loopback();
                 if (is_test_ip || is_unique_ip)
-                    && !addr_info.is_terrible(now_ms)
+                    && addr_info.is_connectable(now_ms)
                     && filter(&addr_info)
                 {
                     addr_infos.push(addr_info);

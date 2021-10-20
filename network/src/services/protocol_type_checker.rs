@@ -18,7 +18,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::time::Interval;
+use tokio::time::{Interval, MissedTickBehavior};
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -55,6 +55,8 @@ impl std::fmt::Display for ProtocolTypeError {
     }
 }
 
+/// Periodically check whether all connections are normally open sync protocol,
+/// if not, close the connection
 pub struct ProtocolTypeCheckerService {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
@@ -126,17 +128,17 @@ impl Future for ProtocolTypeCheckerService {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
-            self.interval = Some(tokio::time::interval(CHECK_INTERVAL));
-        }
-        let mut interval = self.interval.take().unwrap();
-        loop {
-            match interval.poll_tick(cx) {
-                Poll::Ready(_) => self.check_protocol_type(),
-                Poll::Pending => {
-                    self.interval = Some(interval);
-                    return Poll::Pending;
-                }
+            self.interval = {
+                let mut interval = tokio::time::interval(CHECK_INTERVAL);
+                // The protocol type checker service does not need to urgently compensate for the missed wake,
+                // just skip behavior is enough
+                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                Some(interval)
             }
         }
+        while self.interval.as_mut().unwrap().poll_tick(cx).is_ready() {
+            self.check_protocol_type();
+        }
+        Poll::Pending
     }
 }

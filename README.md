@@ -1,12 +1,12 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.43.2-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
-[![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
-[![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
+[![Version](https://img.shields.io/badge/version-0.100.0-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/t/where-to-discuss-ckb-and-how-to-ask-for-support/6024)
+[![Discord](https://img.shields.io/badge/chat-on%20Discord-7289DA.svg)](https://discord.gg/dBPuQ3qnXS)
 
 master | develop
 -------|----------
-[![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=master)](https://travis-ci.com/nervosnetwork/ckb) | [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
+[![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml?query=branch%3Amaster) | [![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml?query=branch%3Adevelop)
 
 ---
 

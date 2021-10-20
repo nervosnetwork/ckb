@@ -63,6 +63,8 @@ impl Spec for BootstrapCellbase {
             args: JsonBytes::from_bytes(Bytes::from(vec![2, 1])),
             hash_type: ScriptHashType::Data.into(),
             message: Default::default(),
+            use_binary_version_as_message_prefix: false,
+            binary_version: "TEST".to_string(),
         });
     }
 }

@@ -85,7 +85,7 @@ impl RpcClient {
     pub fn get_tip_header(&self) -> HeaderView {
         self.inner
             .get_tip_header()
-            .expect("rpc call get_block_hash")
+            .expect("rpc call get_tip_header")
     }
 
     pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {
@@ -256,6 +256,19 @@ impl RpcClient {
             .get_block_economic_state(hash.unpack())
             .expect("rpc call get_block_economic_state")
     }
+
+    pub fn notify_transaction(&self, tx: Transaction) -> Byte32 {
+        self.inner()
+            .notify_transaction(tx)
+            .expect("rpc call send_transaction")
+            .pack()
+    }
+
+    pub fn tx_pool_ready(&self) -> bool {
+        self.inner()
+            .tx_pool_ready()
+            .expect("rpc call tx_pool_ready")
+    }
 }
 
 jsonrpc!(pub struct Inner {
@@ -311,4 +324,6 @@ jsonrpc!(pub struct Inner {
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
     pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
+    pub fn notify_transaction(&self, tx: Transaction) -> H256;
+    pub fn tx_pool_ready(&self) -> bool;
 });

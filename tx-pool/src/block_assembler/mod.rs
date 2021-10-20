@@ -1,5 +1,8 @@
 mod candidate_uncles;
 
+#[cfg(test)]
+mod tests;
+
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
@@ -131,22 +134,40 @@ impl BlockAssembler {
         cellbase: Transaction,
         uncles: &[UncleBlockView],
         proposals: &HashSet<ProposalShortId>,
+        extension_opt: Option<packed::Bytes>,
     ) -> Result<usize, AnyError> {
         let empty_dao = packed::Byte32::default();
         let raw_header = packed::RawHeader::new_builder().dao(empty_dao).build();
         let header = packed::Header::new_builder().raw(raw_header).build();
-        let block = packed::Block::new_builder()
-            .header(header)
-            .transactions(vec![cellbase].pack())
-            .uncles(uncles.iter().map(|u| u.data()).pack())
-            .proposals(
-                proposals
-                    .iter()
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<_>>()
-                    .pack(),
-            )
-            .build();
+        let block = if let Some(extension) = extension_opt {
+            packed::BlockV1::new_builder()
+                .header(header)
+                .transactions(vec![cellbase].pack())
+                .uncles(uncles.iter().map(|u| u.data()).pack())
+                .proposals(
+                    proposals
+                        .iter()
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                        .pack(),
+                )
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(header)
+                .transactions(vec![cellbase].pack())
+                .uncles(uncles.iter().map(|u| u.data()).pack())
+                .proposals(
+                    proposals
+                        .iter()
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                        .pack(),
+                )
+                .build()
+        };
         let serialized_size = block.serialized_size_without_uncle_proposals();
         let bytes_limit = bytes_limit as usize;
         bytes_limit.checked_sub(serialized_size).ok_or_else(|| {

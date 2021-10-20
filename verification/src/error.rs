@@ -2,7 +2,10 @@ use ckb_error::{def_error_base_on_kind, prelude::*, Error};
 use ckb_types::{core::Version, packed::Byte32};
 use derive_more::Display;
 
-pub use ckb_types::core::error::{TransactionError, TransactionErrorSource};
+pub use ckb_types::core::{
+    error::{TransactionError, TransactionErrorSource},
+    EpochNumberWithFraction,
+};
 
 /// A list specifying categories of ckb header error.
 ///
@@ -102,6 +105,18 @@ pub enum BlockErrorKind {
 
     /// Total bytes of block exceeds limit.
     ExceededMaximumBlockBytes,
+
+    /// Empty block extension.
+    EmptyBlockExtension,
+
+    /// Total bytes of block extension exceeds limit.
+    ExceededMaximumBlockExtensionBytes,
+
+    /// The block has unknown field.
+    UnknownFields,
+
+    /// The calculated extra-hash does not match with the one in the header.
+    InvalidExtraHash,
 }
 
 def_error_base_on_kind!(
@@ -188,15 +203,6 @@ pub enum UnclesError {
         max: u32,
         /// The actual number of block uncles.
         actual: u32,
-    },
-
-    /// The calculated uncle-hash does not match with the one in the header.
-    #[error("InvalidHash(expected: {expected}, actual: {actual})")]
-    InvalidHash {
-        /// The calculated uncle-hash
-        expected: Byte32,
-        /// The actual uncle-hash
-        actual: Byte32,
     },
 
     /// There is an uncle whose number is greater than or equal to current block number.
@@ -309,6 +315,22 @@ pub struct NumberError {
 /// Errors due to the fact that the block epoch is not expected.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
+    /// The format of header epoch is malformed.
+    #[error("Malformed(value: {value:#})")]
+    Malformed {
+        /// The malformed header epoch.
+        value: EpochNumberWithFraction,
+    },
+
+    /// The header epoch is not continuous.
+    #[error("NonContinuous(current: {current:#}, parent: {parent:#})")]
+    NonContinuous {
+        /// The current header epoch.
+        current: EpochNumberWithFraction,
+        /// The parent header epoch.
+        parent: EpochNumberWithFraction,
+    },
+
     /// The compact-target of block epoch is unexpected.
     #[error("TargetMismatch(expected: {expected:x}, actual: {actual:x})")]
     TargetMismatch {
@@ -344,47 +366,5 @@ impl HeaderError {
         self.downcast_ref::<TimestampError>()
             .map(|e| e.is_too_new())
             .unwrap_or(false)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn is_too_new() {
-        let too_old = TimestampError::BlockTimeTooOld { min: 0, actual: 0 };
-        let too_new = TimestampError::BlockTimeTooNew { max: 0, actual: 0 };
-
-        let errors: Vec<HeaderError> = vec![
-            HeaderErrorKind::InvalidParent.into(),
-            HeaderErrorKind::Pow.into(),
-            HeaderErrorKind::Version.into(),
-            HeaderErrorKind::Epoch.into(),
-            HeaderErrorKind::Version.into(),
-            HeaderErrorKind::Timestamp.into(),
-            too_old.into(),
-            too_new.into(),
-        ];
-
-        let is_too_new: Vec<bool> = errors.iter().map(|e| e.is_too_new()).collect();
-        assert_eq!(
-            is_too_new,
-            vec![false, false, false, false, false, false, false, true]
-        );
-    }
-
-    #[test]
-    fn test_version_error_display() {
-        let e: Error = BlockVersionError {
-            expected: 0,
-            actual: 1,
-        }
-        .into();
-
-        assert_eq!(
-            "Header(Version(BlockVersionError(expected: 0, actual: 1)))",
-            format!("{}", e)
-        );
     }
 }

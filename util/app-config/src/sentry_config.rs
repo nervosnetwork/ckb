@@ -1,3 +1,5 @@
+#![doc(hidden)]
+
 use ckb_build_info::Version;
 use sentry::{
     configure_scope, init, protocol::Event, types::Dsn, ClientInitGuard, ClientOptions, Level,
@@ -7,6 +9,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SentryConfig {
     pub dsn: String,
     pub org_ident: Option<String>,

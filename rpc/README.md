@@ -72,6 +72,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
     * [Module Subscription](#module-subscription)
@@ -108,6 +109,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `H256`](#type-h256)
+    * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `JsonBytes`](#type-jsonbytes)
@@ -139,11 +141,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
     * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TxPoolEntries`](#type-txpoolentries)
+    * [Type `TxPoolEntry`](#type-txpoolentry)
     * [Type `TxPoolIds`](#type-txpoolids)
     * [Type `TxPoolInfo`](#type-txpoolinfo)
-    * [Type `TxPoolVerbosity`](#type-txpoolverbosity)
     * [Type `TxStatus`](#type-txstatus)
-    * [Type `TxVerbosity`](#type-txverbosity)
     * [Type `U256`](#type-u256)
     * [Type `Uint128`](#type-uint128)
     * [Type `Uint32`](#type-uint32)
@@ -292,6 +294,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
       "nonce": "0x0",
       "number": "0x400",
@@ -299,7 +302,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b117",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -321,9 +323,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -408,6 +410,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
       "nonce": "0x0",
       "number": "0x400",
@@ -415,7 +418,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b117",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -437,9 +439,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -517,6 +519,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -524,7 +527,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   }
 }
@@ -593,6 +595,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -600,7 +603,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   }
 }
@@ -682,9 +684,9 @@ Response
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -786,6 +788,7 @@ Response
     "compact_target": "0x1e083126",
     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "nonce": "0x0",
     "number": "0x400",
@@ -793,7 +796,6 @@ Response
     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "timestamp": "0x5cd2b117",
     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "version": "0x0"
   },
   "id": 42
@@ -866,9 +868,9 @@ Response
       "output": {
         "capacity": "0x802665800",
         "lock": {
-          "args": "0x",
           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-          "hash_type": "data"
+          "hash_type": "data",
+          "args": "0x"
         },
         "type": null
       }
@@ -1194,6 +1196,7 @@ Response
       "compact_target": "0x1e083126",
       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
       "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
       "nonce": "0x0",
       "number": "0x400",
@@ -1201,7 +1204,6 @@ Response
       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": "0x5cd2b118",
       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-      "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "version": "0x0"
     },
     "proposals": [],
@@ -1223,9 +1225,9 @@ Response
           {
             "capacity": "0x18e64b61cf",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -1260,6 +1262,10 @@ The response looks like below when `verbosity` is 0.
 
 Return various consensus parameters.
 
+##### Returns
+
+If any hardfork feature has `epoch=null`, it means the feature will never be activated.
+
 ##### Examples
 
 Request
@@ -1285,6 +1291,15 @@ Response
         "dao_type_hash": null,
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "hardfork_features": [
+            { "rfc": "0028", "epoch_number": null },
+            { "rfc": "0029", "epoch_number": null },
+            { "rfc": "0030", "epoch_number": null },
+            { "rfc": "0031", "epoch_number": null },
+            { "rfc": "0032", "epoch_number": null },
+            { "rfc": "0036", "epoch_number": null },
+            { "rfc": "0038", "epoch_number": null }
+        ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
         "max_block_bytes": "0x91c08",
@@ -1418,9 +1433,9 @@ Request
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -1570,9 +1585,9 @@ Response
           {
             "capacity": "0x18e64efc04",
             "lock": {
-              "args": "0x",
               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-              "hash_type": "data"
+              "hash_type": "data",
+              "args": "0x"
             },
             "type": null
           }
@@ -1582,7 +1597,7 @@ Response
         ],
         "version": "0x0",
         "witnesses": [
-          "0x590000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac300000000"
+          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
         ]
       },
       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
@@ -1592,6 +1607,7 @@ Response
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
+    "extension": null,
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -1603,13 +1619,13 @@ Response
           "compact_target": "0x1e083126",
           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
           "epoch": "0x7080018000001",
+          "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "nonce": "0x0",
           "number": "0x400",
           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "timestamp": "0x5cd2b118",
           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-          "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
           "version":"0x0"
         },
         "proposals": [],
@@ -1653,13 +1669,13 @@ Request
         "compact_target": "0x1e083126",
         "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
         "epoch": "0x7080018000001",
+        "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "nonce": "0x0",
         "number": "0x400",
         "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "timestamp": "0x5cd2b117",
         "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0"
       },
       "proposals": [],
@@ -1680,9 +1696,9 @@ Request
             {
               "capacity": "0x18e64b61cf",
               "lock": {
-                "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "data"
+                "hash_type": "data",
+                "args": "0x"
               },
               "type": null
             }
@@ -2270,13 +2286,13 @@ RPC Module Pool for transaction memory pool.
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new transaction into the transaction pool.
+Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
 ##### Params
 
 *   `transaction` - The transaction.
 
-*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
 
 ##### Errors
 
@@ -2332,9 +2348,9 @@ Request
         {
           "capacity": "0x2540be400",
           "lock": {
-            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "data"
+            "hash_type": "data",
+            "args": "0x"
           },
           "type": null
         }
@@ -2472,6 +2488,35 @@ Response
        },
        "proposed": {}
    }
+}
+```
+
+#### Method `tx_pool_ready`
+* `tx_pool_ready()`
+* result: `boolean`
+
+Returns whether tx-pool service is started, ready for request.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "tx_pool_ready",
+  "params": []
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
 }
 ```
 
@@ -3059,6 +3104,10 @@ Miners optional pick transactions and then assemble the final block.
 
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
 
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
+
+    This field is optional. It's a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
+
 
 ### Type `BlockView`
 
@@ -3223,9 +3272,9 @@ The fields of an output cell except the cell data.
 {
   "capacity": "0x2540be400",
   "lock": {
-    "args": "0x",
     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    "hash_type": "data"
+    "hash_type": "data",
+    "args": "0x"
   },
   "type": null
 }
@@ -3406,6 +3455,8 @@ Consensus defines various parameters that influence chain consensus
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
 
+*   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+
 
 ### Type `Cycle`
 
@@ -3420,7 +3471,15 @@ The dep cell type. Allowed values: "code" and "dep_group".
 `DepType` is equivalent to `"code" | "dep_group"`.
 
 *   Type "code".
+
+    Use the cell itself as the dep cell.
+
 *   Type "dep_group".
+
+    The cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.
+
+    The dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.
+
 
 
 ### Type `DryRunResult`
@@ -3504,6 +3563,19 @@ In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
 
 
+### Type `HardForkFeature`
+
+The information about one hardfork feature.
+
+#### Fields
+
+`HardForkFeature` is a JSON object with the following fields.
+
+*   `rfc`: `string` - The related RFC ID.
+
+*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled.
+
+
 ### Type `Header`
 
 The block header.
@@ -3548,9 +3620,13 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
     It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
 
-*   `uncles_hash`: [`H256`](#type-h256) - The hash on `uncles` in the block body.
+*   `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
-    It is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together. The extension hash is the hash of the extension. The extra hash is the hash on uncles hash and extension hash concatenated together.
+
+    ### Notice
+
+    This field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
 
 *   `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
@@ -3580,7 +3656,7 @@ This structure is serialized into a JSON object with field `hash` and all the fi
   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "timestamp": "0x5cd2b117",
   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-  "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "version": "0x0"
 }
 ```
@@ -3781,9 +3857,9 @@ Reference to a cell via transaction hash and output index.
 
 Transaction output validators that prevent common mistakes.
 
-`OutputsValidator` is equivalent to `"default" | "passthrough"`.
+`OutputsValidator` is equivalent to `"well_known_scripts_only" | "passthrough"`.
 
-*   "default": The default validator which restricts the lock script and type script usage.
+*   "well_known_scripts_only": The default validator which restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
 *   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
 
 
@@ -3917,7 +3993,7 @@ The ratio which numerator and denominator are both 256-bit unsigned integers.
 
 All transactions in tx-pool.
 
-`RawTxPool` is equivalent to [`TxPoolIds`](#type-txpoolids) `|` [`TxPoolVerbosity`](#type-txpoolverbosity).
+`RawTxPool` is equivalent to [`TxPoolIds`](#type-txpoolids) `|` [`TxPoolEntries`](#type-txpoolentries).
 
 ### Type `RemoteNode`
 
@@ -4043,9 +4119,9 @@ Describes the lock script and type script for a cell.
 
 ```
 {
-  "args": "0x",
   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-  "hash_type": "data"
+  "hash_type": "data",
+  "args": "0x"
 }
 ```
 
@@ -4063,16 +4139,17 @@ Describes the lock script and type script for a cell.
 
 ### Type `ScriptHashType`
 
-Specifies how the script `code_hash` is used to match the script code.
+Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
-Allowed values: "data" and "type".
+Allowed kinds: "data", "type" and "data1".
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
-`ScriptHashType` is equivalent to `"data" | "type"`.
+`ScriptHashType` is equivalent to `"data" | "type" | "data1"`.
 
-*   Type "data" matches script code via cell data hash.
+*   Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
 *   Type "type" matches script code via cell type script hash.
+*   Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
 
 
 ### Type `SerializedBlock`
@@ -4263,9 +4340,9 @@ This structure is serialized into a JSON object with field `hash` and all the fi
     {
       "capacity": "0x2540be400",
       "lock": {
-        "args": "0x",
         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-        "hash_type": "data"
+        "hash_type": "data",
+        "args": "0x"
       },
       "type": null
     }
@@ -4299,6 +4376,40 @@ The JSON view of a transaction as well as its status.
 *   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
+
+
+### Type `TxPoolEntries`
+
+Tx-pool entries object
+
+#### Fields
+
+`TxPoolEntries` is a JSON object with the following fields.
+
+*   `pending`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxPoolEntry`](#type-txpoolentry) `}` - Pending tx verbose info
+
+*   `proposed`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxPoolEntry`](#type-txpoolentry) `}` - Proposed tx verbose info
+
+
+### Type `TxPoolEntry`
+
+Transaction entry info
+
+#### Fields
+
+`TxPoolEntry` is a JSON object with the following fields.
+
+*   `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
+
+*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
+
+*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
+
+*   `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
+
+*   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
+
+*   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
 
 ### Type `TxPoolIds`
@@ -4351,19 +4462,6 @@ Transaction pool information.
 *   `last_txs_updated_at`: [`Timestamp`](#type-timestamp) - Last updated time. This is the Unix timestamp in milliseconds.
 
 
-### Type `TxPoolVerbosity`
-
-Tx-pool verbose object
-
-#### Fields
-
-`TxPoolVerbosity` is a JSON object with the following fields.
-
-*   `pending`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Pending tx verbose info
-
-*   `proposed`: `{ [ key:` [`H256`](#type-h256) `]: ` [`TxVerbosity`](#type-txverbosity) `}` - Proposed tx verbose info
-
-
 ### Type `TxStatus`
 
 Transaction status and the block hash if it is committed.
@@ -4375,27 +4473,6 @@ Transaction status and the block hash if it is committed.
 *   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
-
-
-### Type `TxVerbosity`
-
-Transaction verbose info
-
-#### Fields
-
-`TxVerbosity` is a JSON object with the following fields.
-
-*   `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
-
-*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
-
-*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
-
-*   `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
-
-*   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
-
-*   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
 
 ### Type `U256`

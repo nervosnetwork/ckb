@@ -1,10 +1,14 @@
 pub mod commit_txs_scanner;
 pub mod entry;
 
+pub(crate) mod chunk;
 pub(crate) mod container;
 pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
+
+#[cfg(test)]
+mod tests;
 
 pub use self::entry::TxEntry;
 

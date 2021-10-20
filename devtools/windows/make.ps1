@@ -74,14 +74,32 @@ function run-test {
   cargo test @Verbose --all -- --nocapture
 }
 
-function run-integration {
+function run-submodule-init {
   git submodule update --init
+}
+
+function run-setup-ckb-test {
   cp -Fo Cargo.lock test/Cargo.lock
   rm -Re -Fo -ErrorAction SilentlyContinue test/target
 
-  cargo build --features deadlock_detection
   New-Item -ItemType Junction -Path test/target -Value "$($env:CARGO_TARGET_DIR ?? "$(pwd)/target")"
+}
 
+function run-integration-release {
+  run-submodule-init
+  run-setup-ckb-test
+  run-prod
+  run-integration-directly
+}
+
+function run-integration {
+  run-submodule-init
+  run-setup-ckb-test
+  cargo build --features deadlock_detection
+  run-integration-directly
+}
+
+function run-integration-directly {
   pushd test
 
   Set-Env RUST_BACKTRACE 1
@@ -95,7 +113,7 @@ function run-integration {
     Set-Env CKB_INTEGRATION_FAILURE_FILE "$env:CKB_INTEGRATION_TEST_TMP/integration.failure"
   }
   New-Item -Path "$env:CKB_INTEGRATION_TEST_TMP" -Type Directory -ErrorAction SilentlyContinue
-
+  echo ("CKB_INTEGRATION_TEST_TMP=" +$env:CKB_INTEGRATION_TEST_TMP) >> $env:GITHUB_ENV
   $ckb_bin="target/debug/ckb"
   $logfile="$env:CKB_INTEGRATION_TEST_TMP/integration.log"
   $ckb_release=$(iex "$ckb_bin --version")

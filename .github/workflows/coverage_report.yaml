@@ -1,0 +1,38 @@
+name: coverage_report
+
+on:
+  schedule:
+    - cron: '0 0 * * 5'
+  workflow_dispatch:
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+jobs:
+  coverage_report:
+    name: coverage_report
+    runs-on: self-hosted-coverage_report-ubuntu-20.04
+    if: |
+        github.repository_owner == 'nervosnetwork'
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+      - name: overwrite toolchain
+        # It's easier to clean than `rustup override`
+        run: echo nightly > rust-toolchain
+      - name: unit coverage
+        run: make cov
+      - name: integration cov
+        run: make integration-cov
+      - name: upload unit cov result to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          files: ${{github.workspace}}/lcov-unit-test.info
+          flags: unit
+          override_commit: ${{github.sha}}
+      - name: upload integration cov result to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          files: ${{github.workspace}}/lcov-integration-test.info
+          flags: integration
+          override_commit: ${{github.sha}}

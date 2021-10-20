@@ -13,6 +13,7 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
+use ckb_logger::info;
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
@@ -25,11 +26,11 @@ use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuil
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
-use ckb_verification::cache::TxVerifyCache;
+use ckb_verification::cache::init_cache;
 use p2p::SessionId as PeerIndex;
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -43,11 +44,13 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
-    // async stop handle, only test will be assigned
-    async_stop: Option<StopHandler<()>>,
 }
 
-pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
+pub fn open_or_create_db(
+    bin_name: &str,
+    root_dir: &Path,
+    config: &DBConfig,
+) -> Result<RocksDB, ExitCode> {
     let migrate = Migrate::new(&config.path);
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
@@ -73,10 +76,27 @@ pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
                         You can use the old version CKB if you don't want to do the migration.\n\
                         We strongly recommended you to use the latest stable version of CKB, \
                         since the old versions may have unfixed vulnerabilities.\n\
-                        Run `ckb migrate --help` for more information about migration."
+                        Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
+                        We strongly recommend that you backup the data directory before migration.",
+                        bin_name,
+                        root_dir.display()
                     );
                     Err(ExitCode::Failure)
                 } else {
+                    info!("process fast migrations ...");
+
+                    let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
+                        eprintln!("migrate error {}", e);
+                        ExitCode::Failure
+                    })?;
+
+                    if let Some(db) = bulk_load_db_db {
+                        migrate.migrate(db).map_err(|err| {
+                            eprintln!("Run error: {:?}", err);
+                            ExitCode::Failure
+                        })?;
+                    }
+
                     Ok(RocksDB::open(config, COLUMNS))
                 }
             }
@@ -94,11 +114,13 @@ pub fn open_or_create_db(config: &DBConfig) -> Result<RocksDB, ExitCode> {
 impl SharedBuilder {
     /// Generates the base SharedBuilder with ancient path and async_handle
     pub fn new(
+        bin_name: &str,
+        root_dir: &Path,
         db_config: &DBConfig,
         ancient: Option<PathBuf>,
         async_handle: Handle,
     ) -> Result<SharedBuilder, ExitCode> {
-        let db = open_or_create_db(db_config)?;
+        let db = open_or_create_db(bin_name, root_dir, db_config)?;
 
         Ok(SharedBuilder {
             db,
@@ -109,14 +131,23 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             async_handle,
-            async_stop: None,
         })
     }
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
-        let (handle, stop) = new_global_runtime();
-        SharedBuilder {
+        use once_cell::unsync;
+        use std::borrow::Borrow;
+
+        // once #[thread_local] is stable
+        // #[thread_local]
+        // static RUNTIME_HANDLE: unsync::OnceCell<...
+
+        thread_local! {
+            static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
+        }
+
+        RUNTIME_HANDLE.with(|runtime| SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             ancient_path: None,
             consensus: None,
@@ -124,9 +155,8 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: handle,
-            async_stop: Some(stop),
-        }
+            async_handle: runtime.borrow().get_or_init(new_global_runtime).0.clone(),
+        })
     }
 }
 
@@ -261,7 +291,6 @@ impl SharedBuilder {
             block_assembler_config,
             notify_config,
             async_handle,
-            async_stop,
         } = self;
 
         let tx_pool_config = tx_pool_config.unwrap_or_else(Default::default);
@@ -276,9 +305,7 @@ impl SharedBuilder {
             ExitCode::Failure
         })?;
 
-        let txs_verify_cache = Arc::new(TokioRwLock::new(TxVerifyCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
+        let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 
         let (snapshot, table) =
             Self::init_snapshot(&store, Arc::clone(&consensus)).map_err(|e| {
@@ -311,7 +338,6 @@ impl SharedBuilder {
             consensus,
             snapshot_mgr,
             async_handle,
-            async_stop,
             ibd_finished,
             sender,
         );
@@ -331,7 +357,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     table: Option<ProposalTable>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<(Option<PeerIndex>, Byte32)>>,
+    relay_tx_receiver: Option<Receiver<(Option<PeerIndex>, bool, Byte32)>>,
 }
 
 impl SharedPackage {
@@ -346,7 +372,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(Option<PeerIndex>, Byte32)> {
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(Option<PeerIndex>, bool, Byte32)> {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")

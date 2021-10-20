@@ -19,7 +19,13 @@ struct Statics {
 
 impl Statics {
     pub fn build(args: StatsArgs, async_handle: Handle) -> Result<Self, ExitCode> {
-        let shared_builder = SharedBuilder::new(&args.config.db, None, async_handle)?;
+        let shared_builder = SharedBuilder::new(
+            &args.config.bin_name,
+            args.config.root_dir.as_path(),
+            &args.config.db,
+            None,
+            async_handle,
+        )?;
         let (shared, _) = shared_builder.consensus(args.consensus).build()?;
 
         let tip_number = shared.snapshot().tip_number();

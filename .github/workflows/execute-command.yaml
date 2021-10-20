@@ -1,0 +1,36 @@
+name: Execute Command
+
+on:
+  repository_dispatch:
+    types: [ execute-command ]
+
+env:
+  linux_os: ubuntu-20.04
+  os_matrix: '[ "ubuntu-20.04", "macos-10.15", "windows-2019" ]'
+  rust_toolchain: 1.51.0
+  molc_version: 0.7.2
+  trigger_next_checks: false
+
+jobs:
+
+  execute-command:
+    name: Execute Provided Command
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          event-type: ${{ github.event.client_payload.slash_command.args.unnamed.arg1 }}
+          client-payload: |
+            {
+              "github": {
+                "sha": "${{ github.event.client_payload.slash_command.args.named.github_sha }}"
+              },
+              "env": {
+                "linux_os": "${{ env.linux_os }}",
+                "os_matrix": ${{ env.os_matrix }},
+                "rust_toolchain": "${{ env.rust_toolchain }}",
+                "molc_version": "${{ env.molc_version }}",
+                "trigger_next_checks": ${{ env.trigger_next_checks }}
+              }
+            }

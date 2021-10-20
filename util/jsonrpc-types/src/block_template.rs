@@ -1,6 +1,6 @@
 use crate::{
-    BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
-    Transaction, Uint32, Uint64, Version,
+    BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, JsonBytes, ProposalShortId,
+    Timestamp, Transaction, Uint32, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
@@ -84,6 +84,14 @@ pub struct BlockTemplate {
     ///
     /// See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
     pub dao: Byte32,
+    /// The extension for the new block.
+    ///
+    /// This field is optional. It's a reserved field, please leave it blank.
+    /// More details can be found in [CKB RFC 0031].
+    ///
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
+    #[serde(default)]
+    pub extension: Option<JsonBytes>,
 }
 
 impl From<BlockTemplate> for packed::Block {
@@ -100,6 +108,7 @@ impl From<BlockTemplate> for packed::Block {
             proposals,
             cellbase,
             dao,
+            extension,
             ..
         } = block_template;
         let raw = packed::RawHeader::new_builder()
@@ -116,25 +125,49 @@ impl From<BlockTemplate> for packed::Block {
             .push(cellbase.into())
             .extend(transactions.into_iter().map(|tx| tx.into()))
             .build();
-        packed::Block::new_builder()
-            .header(header)
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(|u| u.into())
-                    .collect::<Vec<packed::UncleBlock>>()
-                    .pack(),
-            )
-            .transactions(txs)
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(|p| p.into())
-                    .collect::<Vec<packed::ProposalShortId>>()
-                    .pack(),
-            )
-            .build()
-            .reset_header()
+        if let Some(extension) = extension {
+            let extension: packed::Bytes = extension.into();
+            packed::BlockV1::new_builder()
+                .header(header)
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(|u| u.into())
+                        .collect::<Vec<packed::UncleBlock>>()
+                        .pack(),
+                )
+                .transactions(txs)
+                .proposals(
+                    proposals
+                        .into_iter()
+                        .map(|p| p.into())
+                        .collect::<Vec<packed::ProposalShortId>>()
+                        .pack(),
+                )
+                .extension(extension)
+                .build()
+                .as_v0()
+        } else {
+            packed::Block::new_builder()
+                .header(header)
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(|u| u.into())
+                        .collect::<Vec<packed::UncleBlock>>()
+                        .pack(),
+                )
+                .transactions(txs)
+                .proposals(
+                    proposals
+                        .into_iter()
+                        .map(|p| p.into())
+                        .collect::<Vec<packed::ProposalShortId>>()
+                        .pack(),
+                )
+                .build()
+        }
+        .reset_header()
     }
 }
 

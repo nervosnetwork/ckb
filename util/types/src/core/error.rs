@@ -35,9 +35,12 @@ pub enum OutPointError {
     #[error("ImmatureHeader({0})")]
     ImmatureHeader(Byte32),
 
-    /// Reach max dep expansion Count
-    #[error("ReachMaxDepExpansionCount")]
-    ReachMaxDepExpansionCount,
+    /// Over max dep expansion limit.
+    #[error("OverMaxDepExpansionLimit")]
+    OverMaxDepExpansionLimit {
+        /// If ban nodes for this error.
+        ban: bool,
+    },
 }
 
 impl From<OutPointError> for Error {
@@ -171,6 +174,20 @@ pub enum TransactionError {
         /// The actual transaction size.
         actual: u64,
     },
+
+    /// The compatible error.
+    #[error("Compatible: the feature \"{feature}\" is used in current transaction but not enabled in current chain")]
+    Compatible {
+        /// The feature name.
+        feature: &'static str,
+    },
+
+    /// The internal error.
+    #[error("Internal: {description}, this error shouldn't happen, please report this bug to developers.")]
+    Internal {
+        /// The error description
+        description: String,
+    },
 }
 
 impl_error_conversion_with_kind!(TransactionError, ErrorKind::Transaction, Error);
@@ -190,7 +207,9 @@ impl TransactionError {
 
             TransactionError::Immature { .. }
             | TransactionError::CellbaseImmaturity { .. }
-            | TransactionError::MismatchedVersion { .. } => false,
+            | TransactionError::MismatchedVersion { .. }
+            | TransactionError::Compatible { .. }
+            | TransactionError::Internal { .. } => false,
         }
     }
 }

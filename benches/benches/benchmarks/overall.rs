@@ -43,6 +43,8 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         hash_type: hash_type.into(),
         args,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "BENCH".to_string(),
     }
 }
 
@@ -57,7 +59,7 @@ fn dummy_network(shared: &Shared) -> NetworkController {
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
         bootnode_mode: true,
-        reuse: true,
+        reuse_port_on_linux: true,
         ..Default::default()
     };
 

@@ -18,7 +18,7 @@ use crate::services::{
     protocol_type_checker::ProtocolTypeCheckerService,
 };
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
-use ckb_app_config::NetworkConfig;
+use ckb_app_config::{NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -75,12 +75,14 @@ pub struct NetworkState {
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
-    bootnodes: Vec<Multiaddr>,
+    pub(crate) bootnodes: Vec<Multiaddr>,
     pub(crate) config: NetworkConfig,
     pub(crate) active: AtomicBool,
     /// Node supported protocols
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
+
+    pub(crate) ckb2021: AtomicBool,
 }
 
 impl NetworkState {
@@ -131,7 +133,14 @@ impl NetworkState {
             local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
+            ckb2021: AtomicBool::new(false),
         })
+    }
+
+    /// fork flag
+    pub fn ckb2021(self, init: bool) -> Self {
+        self.ckb2021.store(init, Ordering::SeqCst);
+        self
     }
 
     pub(crate) fn report_session(
@@ -661,7 +670,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
                             debug!(
-                                "evict peer (disonnect it), {} => {}",
+                                "evict peer (disconnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.connected_addr,
                             );
                             if let Err(err) = disconnect_with_message(
@@ -731,7 +740,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
 pub struct NetworkService<T> {
     p2p_service: Service<EventHandler<T>>,
     network_state: Arc<NetworkState>,
-    ping_controller: Sender<()>,
+    ping_controller: Option<Sender<()>>,
     // Background services
     bg_services: Vec<Pin<Box<dyn Future<Output = ()> + 'static + Send>>>,
     version: String,
@@ -748,65 +757,82 @@ impl<T: ExitHandler> NetworkService<T> {
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
-        // == Build special protocols
-
-        // TODO: how to deny banned node to open those protocols?
-        // Ping protocol
-        let ping_interval = Duration::from_secs(config.ping_interval_secs);
-        let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
-
-        let ping_network_state = Arc::clone(&network_state);
-        let (ping_handler, ping_controller) =
-            PingHandler::new(ping_interval, ping_timeout, ping_network_state);
-        let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(ping_handler))
-        });
-
-        // Discovery protocol
-        let addr_mgr = DiscoveryAddressManager {
-            network_state: Arc::clone(&network_state),
-            discovery_local_address: config.discovery_local_address,
-        };
-        let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
-                addr_mgr,
-                config
-                    .discovery_announce_check_interval_secs
-                    .map(Duration::from_secs),
-            )))
-        });
-
-        // Identify protocol
-        let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
-        let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
-        });
-
-        // Feeler protocol
-        let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
-            let network_state = Arc::clone(&network_state);
-            move || ProtocolHandle::Callback(Box::new(Feeler::new(Arc::clone(&network_state))))
-        });
-
-        let disconnect_message_state = Arc::clone(&network_state);
-        let disconnect_message_meta = SupportProtocols::DisconnectMessage
-            .build_meta_with_service_handle(move || {
-                ProtocolHandle::Callback(Box::new(DisconnectMessageProtocol::new(
-                    disconnect_message_state,
-                )))
-            });
-
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()
             .map(CKBProtocol::build)
             .collect::<Vec<_>>();
-        protocol_metas.push(feeler_meta);
-        protocol_metas.push(disconnect_message_meta);
-        protocol_metas.push(ping_meta);
-        protocol_metas.push(disc_meta);
+
+        // == Build special protocols
+
+        // Identify is a core protocol, user cannot disable it via config
+        let identify_callback =
+            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
+        let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
+            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+        });
         protocol_metas.push(identify_meta);
+
+        // Ping protocol
+        let ping_controller = if config.support_protocols.contains(&SupportProtocol::Ping) {
+            let ping_interval = Duration::from_secs(config.ping_interval_secs);
+            let ping_timeout = Duration::from_secs(config.ping_timeout_secs);
+
+            let ping_network_state = Arc::clone(&network_state);
+            let (ping_handler, ping_controller) =
+                PingHandler::new(ping_interval, ping_timeout, ping_network_state);
+            let ping_meta = SupportProtocols::Ping.build_meta_with_service_handle(move || {
+                ProtocolHandle::Callback(Box::new(ping_handler))
+            });
+            protocol_metas.push(ping_meta);
+            Some(ping_controller)
+        } else {
+            None
+        };
+
+        // Discovery protocol
+        if config
+            .support_protocols
+            .contains(&SupportProtocol::Discovery)
+        {
+            let addr_mgr = DiscoveryAddressManager {
+                network_state: Arc::clone(&network_state),
+                discovery_local_address: config.discovery_local_address,
+            };
+            let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
+                ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
+                    addr_mgr,
+                    config
+                        .discovery_announce_check_interval_secs
+                        .map(Duration::from_secs),
+                )))
+            });
+            protocol_metas.push(disc_meta);
+        }
+
+        // Feeler protocol
+        if config.support_protocols.contains(&SupportProtocol::Feeler) {
+            let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
+                let network_state = Arc::clone(&network_state);
+                move || ProtocolHandle::Callback(Box::new(Feeler::new(Arc::clone(&network_state))))
+            });
+            protocol_metas.push(feeler_meta);
+        }
+
+        // DisconnectMessage protocol
+        if config
+            .support_protocols
+            .contains(&SupportProtocol::DisconnectMessage)
+        {
+            let disconnect_message_state = Arc::clone(&network_state);
+            let disconnect_message_meta = SupportProtocols::DisconnectMessage
+                .build_meta_with_service_handle(move || {
+                    ProtocolHandle::Callback(Box::new(DisconnectMessageProtocol::new(
+                        disconnect_message_state,
+                    )))
+                });
+            protocol_metas.push(disconnect_message_meta);
+        }
 
         let mut service_builder = ServiceBuilder::default();
         let yamux_config = YamuxConfig {
@@ -830,11 +856,12 @@ impl<T: ExitHandler> NetworkService<T> {
             .yamux_config(yamux_config)
             .forever(true)
             .max_connection_number(1024)
-            .set_send_buffer_size(config.max_send_buffer());
+            .set_send_buffer_size(config.max_send_buffer())
+            .timeout(Duration::from_secs(5));
 
         #[cfg(target_os = "linux")]
         let p2p_service = {
-            if config.reuse {
+            if config.reuse_port_on_linux {
                 let iter = config.listen_addresses.iter();
 
                 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1106,11 +1133,21 @@ pub struct NetworkController {
     version: String,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
-    ping_controller: Sender<()>,
+    ping_controller: Option<Sender<()>>,
     stop: StopHandler<()>,
 }
 
 impl NetworkController {
+    /// set ckb2021 start
+    pub fn init_ckb2021(&self) {
+        self.network_state.ckb2021.store(true, Ordering::SeqCst);
+    }
+
+    /// get ckb2021 flag
+    pub fn load_ckb2021(&self) -> bool {
+        self.network_state.ckb2021.load(Ordering::SeqCst)
+    }
+
     /// Node listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)
@@ -1282,14 +1319,15 @@ impl NetworkController {
 
     /// Try ping all connected peers
     pub fn ping_peers(&self) {
-        let mut ping_controller = self.ping_controller.clone();
-        let _ignore = ping_controller.try_send(());
+        if let Some(mut ping_controller) = self.ping_controller.clone() {
+            let _ignore = ping_controller.try_send(());
+        }
     }
 }
 
 impl Drop for NetworkController {
     fn drop(&mut self) {
-        self.stop.try_send();
+        self.stop.try_send(());
     }
 }
 

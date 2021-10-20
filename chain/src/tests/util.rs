@@ -117,6 +117,8 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         args: Default::default(),
         hash_type: ScriptHashType::Data,
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "TEST".to_string(),
     };
 
     let (shared, mut pack) = builder
@@ -284,7 +286,7 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
         bootnode_mode: true,
-        reuse: true,
+        reuse_port_on_linux: true,
         ..Default::default()
     };
 
@@ -531,13 +533,7 @@ pub fn dao_data(
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(
-            tx.clone(),
-            &mut seen_inputs,
-            &overlay_cell_provider,
-            store,
-            None,
-        );
+        let rtx = resolve_transaction(tx.clone(), &mut seen_inputs, &overlay_cell_provider, store);
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);

@@ -94,6 +94,7 @@ pub trait ChainRpc {
     ///       "compact_target": "0x1e083126",
     ///       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///       "epoch": "0x7080018000001",
+    ///       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///       "nonce": "0x0",
     ///       "number": "0x400",
@@ -101,7 +102,6 @@ pub trait ChainRpc {
     ///       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "timestamp": "0x5cd2b117",
     ///       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///       "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "version": "0x0"
     ///     },
     ///     "proposals": [],
@@ -123,9 +123,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -213,6 +213,7 @@ pub trait ChainRpc {
     ///       "compact_target": "0x1e083126",
     ///       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///       "epoch": "0x7080018000001",
+    ///       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///       "nonce": "0x0",
     ///       "number": "0x400",
@@ -220,7 +221,6 @@ pub trait ChainRpc {
     ///       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "timestamp": "0x5cd2b117",
     ///       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///       "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "version": "0x0"
     ///     },
     ///     "proposals": [],
@@ -242,9 +242,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -328,6 +328,7 @@ pub trait ChainRpc {
     ///     "compact_target": "0x1e083126",
     ///     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///     "epoch": "0x7080018000001",
+    ///     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "nonce": "0x0",
     ///     "number": "0x400",
@@ -335,7 +336,6 @@ pub trait ChainRpc {
     ///     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "timestamp": "0x5cd2b117",
     ///     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///     "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "version": "0x0"
     ///   }
     /// }
@@ -409,6 +409,7 @@ pub trait ChainRpc {
     ///     "compact_target": "0x1e083126",
     ///     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///     "epoch": "0x7080018000001",
+    ///     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "nonce": "0x0",
     ///     "number": "0x400",
@@ -416,7 +417,6 @@ pub trait ChainRpc {
     ///     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "timestamp": "0x5cd2b117",
     ///     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///     "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "version": "0x0"
     ///   }
     /// }
@@ -500,9 +500,9 @@ pub trait ChainRpc {
     ///         {
     ///           "capacity": "0x2540be400",
     ///           "lock": {
-    ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": "data"
+    ///             "hash_type": "data",
+    ///             "args": "0x"
     ///           },
     ///           "type": null
     ///         }
@@ -606,6 +606,7 @@ pub trait ChainRpc {
     ///     "compact_target": "0x1e083126",
     ///     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///     "epoch": "0x7080018000001",
+    ///     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "nonce": "0x0",
     ///     "number": "0x400",
@@ -613,7 +614,6 @@ pub trait ChainRpc {
     ///     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "timestamp": "0x5cd2b117",
     ///     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///     "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///     "version": "0x0"
     ///   },
     ///   "id": 42
@@ -688,9 +688,9 @@ pub trait ChainRpc {
     ///       "output": {
     ///         "capacity": "0x802665800",
     ///         "lock": {
-    ///           "args": "0x",
     ///           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    ///           "hash_type": "data"
+    ///           "hash_type": "data",
+    ///           "args": "0x"
     ///         },
     ///         "type": null
     ///       }
@@ -1014,6 +1014,7 @@ pub trait ChainRpc {
     ///       "compact_target": "0x1e083126",
     ///       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
     ///       "epoch": "0x7080018000001",
+    ///       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
     ///       "nonce": "0x0",
     ///       "number": "0x400",
@@ -1021,7 +1022,6 @@ pub trait ChainRpc {
     ///       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "timestamp": "0x5cd2b118",
     ///       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-    ///       "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///       "version": "0x0"
     ///     },
     ///     "proposals": [],
@@ -1043,9 +1043,9 @@ pub trait ChainRpc {
     ///           {
     ///             "capacity": "0x18e64b61cf",
     ///             "lock": {
-    ///               "args": "0x",
     ///               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///               "hash_type": "data"
+    ///               "hash_type": "data",
+    ///               "args": "0x"
     ///             },
     ///             "type": null
     ///           }
@@ -1082,6 +1082,10 @@ pub trait ChainRpc {
 
     /// Return various consensus parameters.
     ///
+    /// ## Returns
+    ///
+    /// If any hardfork feature has `epoch=null`, it means the feature will never be activated.
+    ///
     /// ## Examples
     ///
     /// Request
@@ -1107,6 +1111,15 @@ pub trait ChainRpc {
     ///         "dao_type_hash": null,
     ///         "epoch_duration_target": "0x3840",
     ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+    ///         "hardfork_features": [
+    ///             { "rfc": "0028", "epoch_number": null },
+    ///             { "rfc": "0029", "epoch_number": null },
+    ///             { "rfc": "0030", "epoch_number": null },
+    ///             { "rfc": "0031", "epoch_number": null },
+    ///             { "rfc": "0032", "epoch_number": null },
+    ///             { "rfc": "0036", "epoch_number": null },
+    ///             { "rfc": "0038", "epoch_number": null }
+    ///         ],
     ///         "id": "main",
     ///         "initial_primary_epoch_reward": "0x71afd498d000",
     ///         "max_block_bytes": "0x91c08",

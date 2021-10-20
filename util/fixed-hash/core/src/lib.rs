@@ -21,6 +21,9 @@ mod std_fmt;
 mod std_hash;
 mod std_str;
 
+#[cfg(test)]
+mod tests;
+
 /// The 20-byte fixed-length binary data.
 ///
 /// The name comes from the number of bits in the data.

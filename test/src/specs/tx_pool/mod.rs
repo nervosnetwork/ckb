@@ -4,8 +4,9 @@ mod dead_cell_deps;
 mod depend_tx_in_same_block;
 mod descendant;
 mod different_txs_with_same_input;
-mod duplicate_cell_deps;
 mod limit;
+#[cfg(not(target_os = "windows"))]
+mod pool_persisted;
 mod pool_reconcile;
 mod pool_resurrect;
 mod proposal_expire_rule;
@@ -27,8 +28,9 @@ pub use dead_cell_deps::*;
 pub use depend_tx_in_same_block::*;
 pub use descendant::*;
 pub use different_txs_with_same_input::*;
-pub use duplicate_cell_deps::*;
 pub use limit::*;
+#[cfg(not(target_os = "windows"))]
+pub use pool_persisted::*;
 pub use pool_reconcile::*;
 pub use pool_resurrect::*;
 pub use proposal_expire_rule::*;
@@ -66,5 +68,7 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         hash_type: hash_type.into(),
         args: JsonBytes::from_bytes(lock_arg),
         message: Default::default(),
+        use_binary_version_as_message_prefix: false,
+        binary_version: "TEST".to_string(),
     }
 }

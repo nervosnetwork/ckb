@@ -70,13 +70,8 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputsValidator {
-    /// "default": The default validator which restricts the lock script and type script usage.
-    ///
-    /// The default validator only allows outputs (a.k.a., cells) that
-    ///
-    /// * use either the secp256k1 or the secp256k1 multisig bundled in the genesis block via type script hash as the lock script,
-    /// * and the type script is either empty or DAO.
-    Default,
+    /// "well_known_scripts_only": The default validator which restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
+    WellKnownScriptsOnly,
     /// "passthrough": bypass the validator, thus allow any kind of transaction outputs.
     Passthrough,
 }
@@ -108,9 +103,9 @@ impl From<CoreTxPoolIds> for TxPoolIds {
     }
 }
 
-/// Transaction verbose info
+/// Transaction entry info
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct TxVerbosity {
+pub struct TxPoolEntry {
     /// Consumed cycles.
     pub cycles: Uint64,
     /// The transaction serialized size in block.
@@ -125,9 +120,9 @@ pub struct TxVerbosity {
     pub ancestors_count: Uint64,
 }
 
-impl From<TxEntryInfo> for TxVerbosity {
+impl From<TxEntryInfo> for TxPoolEntry {
     fn from(info: TxEntryInfo) -> Self {
-        TxVerbosity {
+        TxPoolEntry {
             cycles: info.cycles.into(),
             size: info.size.into(),
             fee: info.fee.into(),
@@ -138,20 +133,20 @@ impl From<TxEntryInfo> for TxVerbosity {
     }
 }
 
-/// Tx-pool verbose object
+/// Tx-pool entries object
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct TxPoolVerbosity {
+pub struct TxPoolEntries {
     /// Pending tx verbose info
-    pub pending: HashMap<H256, TxVerbosity>,
+    pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
-    pub proposed: HashMap<H256, TxVerbosity>,
+    pub proposed: HashMap<H256, TxPoolEntry>,
 }
 
-impl From<TxPoolEntryInfo> for TxPoolVerbosity {
+impl From<TxPoolEntryInfo> for TxPoolEntries {
     fn from(info: TxPoolEntryInfo) -> Self {
         let TxPoolEntryInfo { pending, proposed } = info;
 
-        TxPoolVerbosity {
+        TxPoolEntries {
             pending: pending
                 .into_iter()
                 .map(|(hash, entry)| (hash.unpack(), entry.into()))
@@ -166,17 +161,17 @@ impl From<TxPoolEntryInfo> for TxPoolVerbosity {
 
 /// All transactions in tx-pool.
 ///
-/// `RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolVerbosity`][].
+/// `RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolEntries`][].
 ///
 /// [`TxPoolIds`]: struct.TxPoolIds.html
-/// [`TxPoolVerbosity`]: struct.TxPoolVerbosity.html
+/// [`TxPoolEntries`]: struct.TxPoolEntries.html
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(untagged)]
 pub enum RawTxPool {
     /// verbose = false
     Ids(TxPoolIds),
     /// verbose = true
-    Verbose(TxPoolVerbosity),
+    Verbose(TxPoolEntries),
 }
 
 /// TX reject message
@@ -218,16 +213,5 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Resolve(_) => Self::Resolve(format!("{}", reject)),
             Reject::Verification(_) => Self::Verification(format!("{}", reject)),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_outputs_validator_json_display() {
-        assert_eq!("default", OutputsValidator::Default.json_display());
-        assert_eq!("passthrough", OutputsValidator::Passthrough.json_display());
     }
 }

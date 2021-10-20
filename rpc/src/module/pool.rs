@@ -1,11 +1,12 @@
 use crate::error::RPCError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Transaction, TxPoolInfo};
+use ckb_constant::hardfork::{mainnet, testnet};
+use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Script, Transaction, TxPoolInfo};
 use ckb_logger::error;
 use ckb_script::IllTransactionChecker;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
-use ckb_verification::{Since, SinceMetric};
+use ckb_verification::{Since, SinceMetric, TxVerifyEnv};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::convert::TryInto;
@@ -14,12 +15,13 @@ use std::sync::Arc;
 /// RPC Module Pool for transaction memory pool.
 #[rpc(server)]
 pub trait PoolRpc {
-    /// Submits a new transaction into the transaction pool.
+    /// Submits a new transaction into the transaction pool. If the transaction is already in the
+    /// pool, rebroadcast it to peers.
     ///
     /// ## Params
     ///
     /// * `transaction` - The transaction.
-    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
     ///
     /// ## Errors
     ///
@@ -68,9 +70,9 @@ pub trait PoolRpc {
     ///         {
     ///           "capacity": "0x2540be400",
     ///           "lock": {
-    ///             "args": "0x",
     ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-    ///             "hash_type": "data"
+    ///             "hash_type": "data",
+    ///             "args": "0x"
     ///           },
     ///           "type": null
     ///         }
@@ -206,15 +208,43 @@ pub trait PoolRpc {
     ///    }
     /// }
     /// ```
-
     #[rpc(name = "get_raw_tx_pool")]
     fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
+
+    /// Returns whether tx-pool service is started, ready for request.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "tx_pool_ready",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
+    #[rpc(name = "tx_pool_ready")]
+    fn tx_pool_ready(&self) -> Result<bool>;
 }
 
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
     min_fee_rate: core::FeeRate,
     reject_ill_transactions: bool,
+    well_known_lock_scripts: Vec<packed::Script>,
+    well_known_type_scripts: Vec<packed::Script>,
 }
 
 impl PoolRpcImpl {
@@ -222,16 +252,108 @@ impl PoolRpcImpl {
         shared: Shared,
         min_fee_rate: core::FeeRate,
         reject_ill_transactions: bool,
+        mut extra_well_known_lock_scripts: Vec<packed::Script>,
+        mut extra_well_known_type_scripts: Vec<packed::Script>,
     ) -> PoolRpcImpl {
+        let mut well_known_lock_scripts =
+            build_well_known_lock_scripts(shared.consensus().id.as_str());
+        let mut well_known_type_scripts =
+            build_well_known_type_scripts(shared.consensus().id.as_str());
+
+        well_known_lock_scripts.append(&mut extra_well_known_lock_scripts);
+        well_known_type_scripts.append(&mut extra_well_known_type_scripts);
+
         PoolRpcImpl {
             shared,
             min_fee_rate,
             reject_ill_transactions,
+            well_known_lock_scripts,
+            well_known_type_scripts,
         }
     }
 }
 
+/// Build well known lock scripts
+/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md
+/// 1. anyone_can_pay
+/// 2. cheque
+fn build_well_known_lock_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
+    serde_json::from_str::<Vec<Script>>(
+    match chain_spec_name {
+        mainnet::CHAIN_SPEC_NAME => {
+            r#"
+            [
+                {
+                    "code_hash": "0xd369597ff47f29fbc0d47d2e3775370d1250b85140c670e4718af712983a2354",
+                    "hash_type": "type",
+                    "args": "0x"
+                },
+                {
+                    "code_hash": "0xe4d4ecc6e5f9a059bf2f7a82cca292083aebc0c421566a52484fe2ec51a9fb0c",
+                    "hash_type": "type",
+                    "args": "0x"
+                }
+            ]
+            "#
+        }
+        testnet::CHAIN_SPEC_NAME => {
+            r#"
+            [
+                {
+                    "code_hash": "0x3419a1c09eb2567f6552ee7a8ecffd64155cffe0f1796e6e61ec088d740c1356",
+                    "hash_type": "type",
+                    "args": "0x"
+                },
+                {
+                    "code_hash": "0x60d5f39efce409c587cb9ea359cefdead650ca128f0bd9cb3855348f98c70d5b",
+                    "hash_type": "type",
+                    "args": "0x"
+                }
+            ]
+            "#
+        }
+        _ => "[]"
+    }).expect("checked json str").into_iter().map(Into::into).collect()
+}
+
+/// Build well known type scripts
+/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md
+/// 1. Simple UDT
+fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
+    serde_json::from_str::<Vec<Script>>(
+    match chain_spec_name {
+        mainnet::CHAIN_SPEC_NAME => {
+            r#"
+            [
+                {
+                    "code_hash": "0x5e7a36a77e68eecc013dfa2fe6a23f3b6c344b04005808694ae6dd45eea4cfd5",
+                    "hash_type": "type",
+                    "args": "0x"
+                }
+            ]
+            "#
+        }
+        testnet::CHAIN_SPEC_NAME => {
+            r#"
+            [
+                {
+                    "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
+                    "hash_type": "type",
+                    "args": "0x"
+                }
+            ]
+            "#
+        }
+        _ => "[]"
+    }).expect("checked json str").into_iter().map(Into::into).collect()
+}
+
 impl PoolRpc for PoolRpcImpl {
+    fn tx_pool_ready(&self) -> Result<bool> {
+        let tx_pool = self.shared.tx_pool_controller();
+        Ok(tx_pool.service_started())
+    }
+
     fn send_transaction(
         &self,
         tx: Transaction,
@@ -241,24 +363,35 @@ impl PoolRpc for PoolRpcImpl {
         let tx: core::TransactionView = tx.into_view();
 
         if let Err(e) = match outputs_validator {
-            Some(OutputsValidator::Default) => {
-                DefaultOutputsValidator::new(self.shared.consensus()).validate(&tx)
+            Some(OutputsValidator::WellKnownScriptsOnly) | None => {
+                WellKnownScriptsOnlyValidator::new(
+                    self.shared.consensus(),
+                    &self.well_known_lock_scripts,
+                    &self.well_known_type_scripts,
+                )
+                .validate(&tx)
             }
-            Some(OutputsValidator::Passthrough) | None => Ok(()),
+            Some(OutputsValidator::Passthrough) => Ok(()),
         } {
             return Err(RPCError::custom_with_data(
                 RPCError::PoolRejectedTransactionByOutputsValidator,
                 format!(
                     "The transction is rejected by OutputsValidator set in params[1]: {}. \
-                    Please set it to passthrough if you really want to send transactions with advanced scripts.",
-                    outputs_validator.unwrap_or(OutputsValidator::Default).json_display()
+                    Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
+                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
                 ),
                 e,
             ));
         }
 
         if self.reject_ill_transactions {
-            if let Err(e) = IllTransactionChecker::new(&tx).check() {
+            let snapshot: &Snapshot = &self.shared.snapshot();
+            let consensus = snapshot.consensus();
+            let tx_env = {
+                let tip_header = snapshot.tip_header();
+                TxVerifyEnv::new_submit(&tip_header)
+            };
+            if let Err(e) = IllTransactionChecker::new(&tx, consensus, &tx_env).check() {
                 return Err(RPCError::custom_with_data(
                     RPCError::PoolRejectedTransactionByIllTransactionChecker,
                     "The transaction is rejected by IllTransactionChecker",
@@ -336,8 +469,10 @@ impl PoolRpc for PoolRpcImpl {
     }
 }
 
-struct DefaultOutputsValidator<'a> {
+pub(crate) struct WellKnownScriptsOnlyValidator<'a> {
     consensus: &'a Consensus,
+    well_known_lock_scripts: &'a [packed::Script],
+    well_known_type_scripts: &'a [packed::Script],
 }
 
 #[derive(Debug)]
@@ -346,11 +481,21 @@ enum DefaultOutputsValidatorError {
     CodeHash,
     ArgsLen,
     ArgsSince,
+    NotWellKnownLockScript,
+    NotWellKnownTypeScript,
 }
 
-impl<'a> DefaultOutputsValidator<'a> {
-    pub fn new(consensus: &'a Consensus) -> Self {
-        Self { consensus }
+impl<'a> WellKnownScriptsOnlyValidator<'a> {
+    pub fn new(
+        consensus: &'a Consensus,
+        well_known_lock_scripts: &'a [packed::Script],
+        well_known_type_scripts: &'a [packed::Script],
+    ) -> Self {
+        Self {
+            consensus,
+            well_known_lock_scripts,
+            well_known_type_scripts,
+        }
     }
 
     pub fn validate(&self, tx: &core::TransactionView) -> std::result::Result<(), String> {
@@ -370,6 +515,7 @@ impl<'a> DefaultOutputsValidator<'a> {
     ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         self.validate_secp256k1_blake160_sighash_all(output)
             .or_else(|_| self.validate_secp256k1_blake160_multisig_all(output))
+            .or_else(|_| self.validate_well_known_lock_scripts(output))
     }
 
     fn validate_type_script(
@@ -377,6 +523,7 @@ impl<'a> DefaultOutputsValidator<'a> {
         output: &packed::CellOutput,
     ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         self.validate_dao(output)
+            .or_else(|_| self.validate_well_known_type_scripts(output))
     }
 
     fn validate_secp256k1_blake160_sighash_all(
@@ -430,6 +577,22 @@ impl<'a> DefaultOutputsValidator<'a> {
         }
     }
 
+    fn validate_well_known_lock_scripts(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
+        let script = output.lock();
+        if self
+            .well_known_lock_scripts
+            .iter()
+            .any(|well_known_script| is_well_known_script(&script, well_known_script))
+        {
+            Ok(())
+        } else {
+            Err(DefaultOutputsValidatorError::NotWellKnownLockScript)
+        }
+    }
+
     fn validate_dao(
         &self,
         output: &packed::CellOutput,
@@ -459,6 +622,25 @@ impl<'a> DefaultOutputsValidator<'a> {
             None => Ok(()),
         }
     }
+
+    fn validate_well_known_type_scripts(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
+        if let Some(script) = output.type_().to_opt() {
+            if self
+                .well_known_type_scripts
+                .iter()
+                .any(|well_known_script| is_well_known_script(&script, well_known_script))
+            {
+                Ok(())
+            } else {
+                Err(DefaultOutputsValidatorError::NotWellKnownTypeScript)
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 const BLAKE160_LEN: usize = 20;
@@ -472,171 +654,11 @@ fn extract_since_from_secp256k1_blake160_multisig_all_args(script: &packed::Scri
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ckb_test_chain_utils::ckb_testnet_consensus;
-    use ckb_types::{core, packed};
-
-    #[test]
-    fn test_default_outputs_validator() {
-        let consensus = ckb_testnet_consensus();
-        let validator = DefaultOutputsValidator::new(&consensus);
-
-        {
-            let type_hash = consensus
-                .secp256k1_blake160_sighash_all_type_hash()
-                .unwrap();
-            // valid output lock
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, vec![1; 20]);
-            assert!(validator.validate(&tx).is_ok());
-
-            // invalid args len
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, vec![1; 19]);
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid code hash
-            let tx = build_tx(
-                &consensus.dao_type_hash().unwrap(),
-                core::ScriptHashType::Type,
-                vec![1; 20],
-            );
-            assert!(validator.validate(&tx).is_err());
-        }
-
-        {
-            let type_hash = consensus
-                .secp256k1_blake160_multisig_all_type_hash()
-                .unwrap();
-            // valid output lock
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, vec![1; 20]);
-            assert!(validator.validate(&tx).is_ok());
-
-            // valid output lock
-            let since: u64 = (0b1100_0000 << 56) | 42; // relative timestamp 42 seconds
-            let mut args = vec![1; 20];
-            args.extend_from_slice(&since.to_le_bytes());
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, args);
-            assert!(validator.validate(&tx).is_ok());
-
-            // invalid args len
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, vec![1; 19]);
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid hash type
-            let tx = build_tx(&type_hash, core::ScriptHashType::Data, vec![1; 20]);
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid since args format
-            let tx = build_tx(&type_hash, core::ScriptHashType::Type, vec![1; 28]);
-            assert!(validator.validate(&tx).is_err());
-        }
-
-        {
-            let lock_type_hash = consensus
-                .secp256k1_blake160_multisig_all_type_hash()
-                .unwrap();
-            let type_type_hash = consensus.dao_type_hash().unwrap();
-            // valid output lock
-            let tx = build_tx_with_type(
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-                vec![1; 20],
-                &type_type_hash,
-                core::ScriptHashType::Type,
-            );
-            assert!(validator.validate(&tx).is_ok());
-
-            // valid output lock
-            let since: u64 = (0b0010_0000 << 56) | 42; // absolute epoch
-            let mut args = vec![1; 20];
-            args.extend_from_slice(&since.to_le_bytes());
-            let tx = build_tx_with_type(
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-                args,
-                &type_type_hash,
-                core::ScriptHashType::Type,
-            );
-            assert!(validator.validate(&tx).is_ok());
-
-            // invalid since arg lock
-            let since: u64 = (0b1100_0000 << 56) | 42; // relative timestamp 42 seconds
-            let mut args = vec![1; 20];
-            args.extend_from_slice(&since.to_le_bytes());
-            let tx = build_tx_with_type(
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-                args,
-                &type_type_hash,
-                core::ScriptHashType::Type,
-            );
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid since args type
-            let tx = build_tx_with_type(
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-                vec![1; 20],
-                &type_type_hash,
-                core::ScriptHashType::Data,
-            );
-            assert!(validator.validate(&tx).is_err());
-
-            // invalid code hash
-            let tx = build_tx_with_type(
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-                vec![1; 20],
-                &lock_type_hash,
-                core::ScriptHashType::Type,
-            );
-            assert!(validator.validate(&tx).is_err());
-        }
-    }
-
-    fn build_tx(
-        code_hash: &packed::Byte32,
-        hash_type: core::ScriptHashType,
-        args: Vec<u8>,
-    ) -> core::TransactionView {
-        let lock = packed::ScriptBuilder::default()
-            .code_hash(code_hash.clone())
-            .hash_type(hash_type.into())
-            .args(args.pack())
-            .build();
-        core::TransactionBuilder::default()
-            .output(packed::CellOutput::new_builder().lock(lock).build())
-            .build()
-    }
-
-    fn build_tx_with_type(
-        lock_code_hash: &packed::Byte32,
-        lock_hash_type: core::ScriptHashType,
-        lock_args: Vec<u8>,
-        type_code_hash: &packed::Byte32,
-        type_hash_type: core::ScriptHashType,
-    ) -> core::TransactionView {
-        let lock = packed::ScriptBuilder::default()
-            .code_hash(lock_code_hash.clone())
-            .hash_type(lock_hash_type.into())
-            .args(lock_args.pack())
-            .build();
-        let type_ = packed::ScriptBuilder::default()
-            .code_hash(type_code_hash.clone())
-            .hash_type(type_hash_type.into())
-            .build();
-        core::TransactionBuilder::default()
-            .output(
-                packed::CellOutput::new_builder()
-                    .lock(lock)
-                    .type_(Some(type_).pack())
-                    .build(),
-            )
-            .build()
-    }
+fn is_well_known_script(script: &packed::Script, well_known_script: &packed::Script) -> bool {
+    script.hash_type() == well_known_script.hash_type()
+        && script.code_hash() == well_known_script.code_hash()
+        && script
+            .args()
+            .as_slice()
+            .starts_with(well_known_script.args().as_slice())
 }

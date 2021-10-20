@@ -11,6 +11,7 @@ const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
 /// Network config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Only connect to whitelist peers.
     #[serde(default)]
@@ -70,11 +71,14 @@ pub struct Config {
     /// `bootnodes`.
     #[serde(default)]
     pub bootnode_mode: bool,
+    /// Supported protocols list
+    #[serde(default = "default_support_all_protocols")]
+    pub support_protocols: Vec<SupportProtocol>,
     /// Max send buffer size in bytes.
     pub max_send_buffer: Option<usize>,
     /// Network use reuse port or not
     #[serde(default = "default_reuse")]
-    pub reuse: bool,
+    pub reuse_port_on_linux: bool,
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
@@ -82,6 +86,7 @@ pub struct Config {
 
 /// Chain synchronization config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SyncConfig {
     /// Header map config options.
     #[serde(default)]
@@ -98,6 +103,7 @@ pub struct SyncConfig {
 ///
 /// Header map stores the block headers before fully verifying the block.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeaderMapConfig {
     /// The maximum size of data in memory
     pub primary_limit: usize,
@@ -112,6 +118,34 @@ impl Default for HeaderMapConfig {
             backend_close_threshold: 20_000,
         }
     }
+}
+
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum SupportProtocol {
+    Ping,
+    Discovery,
+    Identify,
+    Feeler,
+    DisconnectMessage,
+    Sync,
+    Relay,
+    Time,
+    Alert,
+}
+
+fn default_support_all_protocols() -> Vec<SupportProtocol> {
+    vec![
+        SupportProtocol::Ping,
+        SupportProtocol::Discovery,
+        SupportProtocol::Identify,
+        SupportProtocol::Feeler,
+        SupportProtocol::DisconnectMessage,
+        SupportProtocol::Sync,
+        SupportProtocol::Relay,
+        SupportProtocol::Time,
+        SupportProtocol::Alert,
+    ]
 }
 
 pub(crate) fn generate_random_key() -> [u8; 32] {

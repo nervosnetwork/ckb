@@ -8,21 +8,49 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
+COV_PROFRAW_DIR = ${CARGO_TARGET_DIR}/cov
+GRCOV_OUTPUT ?= lcov.info
+GRCOV_EXCL_START = ^\s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_)?assert(_eq|_ne|_error_eq))!\($$
+GRCOV_EXCL_STOP  = ^\s*\)(;)?$$
+GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_)?assert(_eq|_ne|_error_eq))!\(.*\)(;)?$$
 
 ##@ Testing
 .PHONY: test
 test: ## Run all tests.
 	cargo test ${VERBOSE} --all -- --nocapture
 
-# Tarpaulin only supports x86_64 processors running Linux.
-# https://github.com/xd009642/tarpaulin/issues/161
-# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
+.PHONY: cov-install-tools
+cov-install-tools:
+	rustup component add llvm-tools-preview --toolchain nightly
+	grcov --version || cargo +nightly install grcov
+
+.PHONY: cov-collect-data
+cov-collect-data:
+	RUSTUP_TOOLCHAIN=nightly \
+	grcov "${COV_PROFRAW_DIR}" --binary-path "${CARGO_TARGET_DIR}/debug/" \
+		-s . -t lcov --branch --ignore-not-existing --ignore "/*" \
+		--ignore "*/tests/*" \
+		--ignore "*/tests.rs" \
+		--ignore "*/generated/*" \
+		--excl-br-start "${GRCOV_EXCL_START}" --excl-br-stop "${GRCOV_EXCL_STOP}" \
+		--excl-start    "${GRCOV_EXCL_START}" --excl-stop    "${GRCOV_EXCL_STOP}" \
+		--excl-br-line  "${GRCOV_EXCL_LINE}" \
+		--excl-line     "${GRCOV_EXCL_LINE}" \
+		-o "${GRCOV_OUTPUT}"
+
+.PHONY: cov-gen-report
+cov-gen-report:
+	genhtml -o "$(GRCOV_OUTPUT:.info=)" "${GRCOV_OUTPUT}"
+
 .PHONY: cov
-cov: ## Run code coverage.
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files "*/generated/" "test/*" "*/tests/" --all -v --out Xml
+cov: cov-install-tools ## Run code coverage.
+	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly test --all
+	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
 .PHONY: wasm-build-test
 wasm-build-test: ## Build core packages for wasm target
+	cp -f Cargo.lock wasm-build-test/
 	cd wasm-build-test && cargo build --target=wasm32-unknown-unknown
 
 .PHONY: setup-ckb-test
@@ -42,6 +70,13 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
+
+.PHONY: integration-cov
+integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integration tests and genearte coverage report.
+	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly build --features deadlock_detection
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
+	GRCOV_OUTPUT=lcov-integration-test.info make cov-collect-data
 
 ##@ Document
 .PHONY: doc

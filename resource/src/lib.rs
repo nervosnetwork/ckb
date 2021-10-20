@@ -18,6 +18,9 @@
 
 mod template;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::template::Template;
 pub use self::template::{
     TemplateContext, AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC,
@@ -32,7 +35,6 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
 
 use ckb_system_scripts::BUNDLED_CELL;
 
@@ -215,12 +217,11 @@ impl Resource {
         };
         let target = join_bundled_key(root_dir.as_ref().to_path_buf(), key);
         let template = Template::new(from_utf8(self.get()?)?);
-        let mut out = NamedTempFile::new_in(root_dir.as_ref())?;
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
         }
-        template.render_to(&mut out, context)?;
-        out.persist(target)?;
+        let mut f = fs::File::create(&target)?;
+        template.render_to(&mut f, context)?;
         Ok(())
     }
 }
@@ -263,57 +264,4 @@ fn join_bundled_key(mut root_dir: PathBuf, key: &str) -> PathBuf {
     key.split('/')
         .for_each(|component| root_dir.push(component));
     root_dir
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-
-    fn mkdir() -> tempfile::TempDir {
-        tempfile::Builder::new()
-            .prefix("ckb_resource_test")
-            .tempdir()
-            .unwrap()
-    }
-
-    fn touch<P: AsRef<Path>>(path: P) -> PathBuf {
-        fs::create_dir_all(path.as_ref().parent().unwrap()).expect("create dir in test");
-        fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .expect("touch file in test");
-
-        path.as_ref().to_path_buf()
-    }
-
-    #[test]
-    fn test_exported_in() {
-        let root_dir = mkdir();
-        assert!(!Resource::exported_in(root_dir.path()));
-        touch(root_dir.path().join(CKB_CONFIG_FILE_NAME));
-        assert!(Resource::exported_in(root_dir.path()));
-    }
-
-    #[test]
-    fn test_export() {
-        let root_dir = mkdir();
-        let context = TemplateContext::new(
-            "dev",
-            vec![
-                ("rpc_port", "7000"),
-                ("p2p_port", "8000"),
-                ("log_to_file", "true"),
-                ("log_to_stdout", "true"),
-                ("block_assembler", ""),
-                ("spec_source", "bundled"),
-            ],
-        );
-        Resource::bundled_ckb_config()
-            .export(&context, root_dir.path())
-            .expect("export ckb.toml");
-        assert!(Resource::exported_in(root_dir.path()));
-    }
 }

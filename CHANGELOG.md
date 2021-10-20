@@ -1,3 +1,134 @@
+# [v0.100.0](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
+
+This version contains the [fork features in ckb2021](https://github.com/nervosnetwork/rfcs/pull/242) which are disabled in testnet and mainnet.
+
+### Features
+
+* #2715 **hardfork:** ckb2021 hardfork features (@yangby-cryptape)
+
+    See https://github.com/nervosnetwork/rfcs/pull/242
+
+* #2756 **hardfork:** Ckb2021 hardfork features (vm related part) (@yangby-cryptape)
+
+    See https://github.com/nervosnetwork/rfcs/pull/242
+
+    * #2818 **hardfork:** Change field "hash_type" to an enumerated type (@yangby-cryptape)
+
+        **BREAKING CHANGES**: Revert breaking changes which were introduced in #2756.
+
+* #2796 **hardfork:** Net hardfork (@driftluo)
+
+    See https://github.com/nervosnetwork/rfcs/pull/234
+
+* #2797 **hardfork:** Reject vm1 lock script before hardfork started to keep compatible with old clients (@yangby-cryptape)
+
+* #2798 **hardfork:** Remove the header deps immature rule (@yangby-cryptape)
+
+      See [CKB-RFCs PR 240: RFC: Remove header deps immature rule](https://github.com/nervosnetwork/rfcs/pull/240)
+
+* #2819: Only send notifications when service is stated (@zhangsoledad)
+* #2817: Prepend the binary version to BlockAssemblerConfig message (@quake)
+* #2821: Change default `OutputsValidator` to `well_known_scripts_only` (@quake)
+* #2792 **hardfork:** Verify the epoch in since more strictly (@yangby-cryptape)
+
+    - A transaction with since absolute (or relative) epoch is valid only if `epoch_index` is less than `epoch_length` or both `epoch_index` and `epoch_length` are zero.
+    - Using rational number operations for both since absolute epoch and since relative epoch.
+
+    See more in https://github.com/nervosnetwork/rfcs/pull/223
+
+* #2776 **hardfork:** Rename JSON RPC field "uncles_hash" to "extra_hash" (@yangby-cryptape)
+* #2799: Resumeble verification, which removes the cycles limit to relay tx (@zhangsoledad)
+* #2846: Dial bootnode randomly (@driftluo)
+* #2854: Better tips for "migrate" subcomamnd (@yangby-cryptape)
+* #2849: Remove old version peer from peer store on fork (@driftluo)
+* #2641: Add network protocol config (@quake)
+* #2879 **hardfork:** Add a new field "hardfork_features" to the return of RPC method "get_consensus" (@yangby-cryptape)
+* #2913: Upgrade hyper, and ckb-vm (@driftluo)
+* #2656: Persistent tx-pool data into a file when it has been shutdown (@quake)
+* #2921: Reduce cellbase maturity on staging spec (@keroro520)
+* #2963: Update ckb-vm to 0.20.0-rc4 (@mohanson)
+
+    ckb-vm 0.20.0-rc4 release note: https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc4
+
+* #3004: Update ckb-vm to 0.20.0-rc5 (@mohanson)
+
+    Contains a bug fix, see release notes below:
+
+    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc5
+
+### Bug Fixes
+
+* #2785: Put migration version (@zhangsoledad)
+
+    A bug introduced by https://github.com/nervosnetwork/ckb/commit/220464f, cause the migration version do not put in the new created DB.
+
+* #2827: Fix peer store evict (@driftluo)
+
+    Originally, only the data in the largest group was considered, but now it is changed to traverse at least half of the groups
+
+* #3012: Fix dummy miner solve (@driftluo)
+* #3011: Shouldn't override the `log.file` after touch it (@yangby-cryptape)
+* #2787: Put migration version (@zhangsoledad)
+* #2829: Fix peer store evict (@driftluo)
+* #2833: Display full path for deprecated fields in warning messages (@yangby-cryptape)
+* #2856: Touch `last_txs_updated_at` in tx pool (@zhangsoledad)
+* #2857: Fix the status marking problem of header sync (@driftluo)
+* #2877: Don't panic when the database is created by a higher version executable binary (@yangby-cryptape)
+* #2894: There may be competition between header sync and eviction (@driftluo)
+* #2897 **metrics:** There is no reactor running (@yangby-cryptape)
+* #2906: Try traverse all unknown parent hash (@driftluo)
+* #2923: Callback potentially incorrect trigger on concurrent context (@zhangsoledad)
+* #2924 **test:** Make sure testnode graceful shutdown basic sync (@zhangsoledad)
+* #2934: Fix stream body read (@driftluo)
+* #2932: Persisted test wait tx-pool ready (@zhangsoledad)
+* #2950 **reset-data:** The argument `--network-peer-store` couldn't work (@yangby-cryptape)
+* #2971: Snapshot cycles calculation (@zhangsoledad)
+
+### Improvements
+
+* #2755: Avoid unnecessary db creation (@zhangsoledad)
+* #2685: Replace `RwLock/Mutex<HashMap/HashSet>` with DashMap (@quake)
+* #2736: Move state flag to `HeadersSyncState` enum (@quake)
+
+    We are using 3 fields `sync_started` / `sync_connected` / `not_sync_until` in the headers sync process, this PR refactored them to a state machine enum `HeadersSyncState`
+
+* #2707: Use KeyedPriorityQueue to replace BTreeMap/HashSet (@quake)
+
+* #2791: Verify the epoch in block headers explicitly (@yangby-cryptape)
+
+    The data of epoch in bytes is not same as the `EpochNumberWithFraction`, which causes a few unintended consequences.
+
+* #2822: Compatibility policy for configuration files (@yangby-cryptape)
+
+    - Deny unknown configuration items.
+
+      To avoid several kinds of mistakes, for example, typos.
+
+    - Allow deprecated configuration items, but they will be ignored; and warning messages will be output.
+      After several versions,  if these deprecated items satisfied any of the following conditions, they will be fully removed (denied):
+      - Not list in the default configuration files.
+      - Be tagged as "Experimental".
+
+    - The default configuration files will not include any deprecated configuration items.
+
+    - The default configuration files will not enable any experimental configuration items.
+
+* #2770: Use community contributed site for script error codes (@doitian)
+
+* #2779: Give an unique id to each global runtime thread (@yangby-cryptape)
+
+* #3006 **rpc:** Change struct from "TxPoolVerbosity" to "TxPoolEntries… (@chanhsu001)
+
+    Breaking change for using ckb crates.
+
+* #2841: Remove redudant `as_ref` (@doitian)
+* #2863: Avoid duplicate cell check (@zhangsoledad)
+* #2870: Replace metrics-rs with opentelemetry-rust (@yangby-cryptape)
+* #2925: Enum tuple struct (@zhangsoledad)
+* #2948: Remove dependency on tempfile in ckb-resource (@chanhsu001)
+* #2982: Regex new is expensive (@driftluo)
+* #2964: Refactor peer store (@driftluo)
+
 # [v0.43.2](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
 
 ### Bug Fixes

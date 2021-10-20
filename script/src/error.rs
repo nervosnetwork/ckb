@@ -1,6 +1,8 @@
 use crate::types::{ScriptGroup, ScriptGroupType};
 use ckb_error::{prelude::*, Error, ErrorKind};
-use ckb_types::core::Cycle;
+use ckb_types::core::{Cycle, ScriptHashType};
+use ckb_types::packed::Script;
+use std::convert::TryFrom;
 use std::{error::Error as StdError, fmt};
 
 /// Script execution error.
@@ -14,17 +16,29 @@ pub enum ScriptError {
     #[error("ExceededMaximumCycles: expect cycles <= {0}")]
     ExceededMaximumCycles(Cycle),
 
+    /// Internal error cycles overflow
+    #[error("CyclesOverflow: lhs {0} rhs {1}")]
+    CyclesOverflow(Cycle, Cycle),
+
     /// `script.type_hash` hits multiple cells with different data
     #[error("MultipleMatches")]
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[error("ValidationFailure({0}): the exit code is per script specific, for system scripts, please check https://github.com/nervosnetwork/ckb-system-scripts/wiki/Error-codes")]
-    ValidationFailure(i8),
+    #[error("ValidationFailure: see the error code {1} in the page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
+    ValidationFailure(String, i8),
 
     /// Known bugs are detected in transaction script outputs
     #[error("Known bugs encountered in output {1}: {0}")]
     EncounteredKnownBugs(String, usize),
+
+    /// InvalidScriptHashType
+    #[error("InvalidScriptHashType: {0}")]
+    InvalidScriptHashType(String),
+
+    /// InvalidVmVersion
+    #[error("Invalid VM Version: {0}")]
+    InvalidVmVersion(u8),
 
     /// Known bugs are detected in transaction script outputs
     #[error("VM Internal Error: {0}")]
@@ -83,7 +97,22 @@ impl fmt::Display for TransactionScriptError {
 }
 
 impl ScriptError {
-    pub(crate) fn source(self, script_group: &ScriptGroup) -> TransactionScriptError {
+    /// Creates a script error originated the script and its exit code.
+    pub fn validation_failure(script: &Script, exit_code: i8) -> ScriptError {
+        let url_path = match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
+            ScriptHashType::Data | ScriptHashType::Data1 => {
+                format!("by-data-hash/{:x}", script.code_hash())
+            }
+            ScriptHashType::Type => {
+                format!("by-type-hash/{:x}", script.code_hash())
+            }
+        };
+
+        ScriptError::ValidationFailure(url_path, exit_code)
+    }
+
+    ///  Creates a script error originated from the script group.
+    pub fn source(self, script_group: &ScriptGroup) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::from_script_group(script_group),
             cause: self,
@@ -110,6 +139,14 @@ impl ScriptError {
     pub fn output_type_script(self, index: usize) -> TransactionScriptError {
         TransactionScriptError {
             source: TransactionScriptErrorSource::Outputs(index, ScriptGroupType::Type),
+            cause: self,
+        }
+    }
+
+    /// Creates a script error with unknown source, usually a internal error
+    pub fn unknown_source(self) -> TransactionScriptError {
+        TransactionScriptError {
+            source: TransactionScriptErrorSource::Unknown,
             cause: self,
         }
     }

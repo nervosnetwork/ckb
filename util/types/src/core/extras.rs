@@ -317,7 +317,11 @@ impl EpochExtBuilder {
 /// Represents an epoch number with a fraction unit, it can be
 /// used to accurately represent the position for a block within
 /// an epoch.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+// Don't derive `Default` trait:
+// - If we set default inner value to 0, it would panic when call `to_rational()`
+// - But when uses it as an increment, "length == 0" is allowed, it's a valid default value.
+// So, use `new()` or `new_unchecked()` to construct the instance depends on the context.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct EpochNumberWithFraction(u64);
 
 impl fmt::Display for EpochNumberWithFraction {
@@ -428,6 +432,21 @@ impl EpochNumberWithFraction {
         self.0
     }
 
+    /// Estimate the floor limit of epoch number after N blocks.
+    ///
+    /// Since we couldn't know the length of next epoch before reach the next epoch,
+    /// this function could only return `self.number()` or `self.number()+1`.
+    pub fn minimum_epoch_number_after_n_blocks(self, n: BlockNumber) -> EpochNumber {
+        let number = self.number();
+        let length = self.length();
+        let index = self.index();
+        if index + n >= length {
+            number + 1
+        } else {
+            number
+        }
+    }
+
     /// TODO(doc): @quake
     // One caveat here, is that if the user specifies a zero epoch length either
     // deliberately, or by accident, calling to_rational() after that might
@@ -435,16 +454,64 @@ impl EpochNumberWithFraction {
     // automatically rewrite the value to epoch index 0 with epoch length to
     // prevent panics
     pub fn from_full_value(value: u64) -> Self {
-        let epoch = Self(value);
-        if epoch.length() == 0 {
-            Self::new(epoch.number(), 0, 1)
+        Self::from_full_value_unchecked(value).normalize()
+    }
+
+    /// Converts from an unsigned 64 bits number without checks.
+    ///
+    /// # Notice
+    ///
+    /// The `EpochNumberWithFraction` constructed by this method has a potential risk that when
+    /// call `self.to_rational()` may lead to a panic if the user specifies a zero epoch length.
+    pub fn from_full_value_unchecked(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Prevents leading to a panic if the `EpochNumberWithFraction` is constructed without checks.
+    pub fn normalize(self) -> Self {
+        if self.length() == 0 {
+            Self::new(self.number(), 0, 1)
         } else {
-            epoch
+            self
         }
     }
 
-    /// TODO(doc): @quake
+    /// Converts the epoch to an unsigned 256 bits rational.
+    ///
+    /// # Panics
+    ///
+    /// Only genesis epoch's length could be zero, otherwise causes a division-by-zero panic.
     pub fn to_rational(self) -> RationalU256 {
-        RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
+        if self.0 == 0 {
+            RationalU256::zero()
+        } else {
+            RationalU256::new(self.index().into(), self.length().into()) + U256::from(self.number())
+        }
+    }
+
+    /// Check if current value is another value's successor.
+    pub fn is_successor_of(self, predecessor: Self) -> bool {
+        if predecessor.index() + 1 == predecessor.length() {
+            self.number() == predecessor.number() + 1 && self.index() == 0
+        } else {
+            self.number() == predecessor.number()
+                && self.index() == predecessor.index() + 1
+                && self.length() == predecessor.length()
+        }
+    }
+
+    /// Check the data format.
+    ///
+    /// The epoch length should be greater than zero.
+    /// The epoch index should be less than the epoch length.
+    pub fn is_well_formed(self) -> bool {
+        self.length() > 0 && self.length() > self.index()
+    }
+
+    /// Check the data format as an increment.
+    ///
+    /// The epoch index should be less than the epoch length or both of them are zero.
+    pub fn is_well_formed_increment(self) -> bool {
+        self.length() > self.index() || (self.length() == 0 && self.index() == 0)
     }
 }

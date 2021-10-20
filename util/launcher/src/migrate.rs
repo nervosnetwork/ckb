@@ -25,6 +25,7 @@ impl Migrate {
         migrations.add_migration(Box::new(migrations::CellMigration));
         migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
         migrations.add_migration(Box::new(migrations::AddExtraDataHash));
+        migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily));
 
         Migrate {
             migrations,

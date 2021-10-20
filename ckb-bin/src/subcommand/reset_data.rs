@@ -6,6 +6,7 @@ use ckb_app_config::{ExitCode, ResetDataArgs};
 pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
     let mut target_dirs = vec![];
     let mut target_files = vec![];
+    let mut errors_count = 0;
 
     if args.all {
         target_dirs.push(args.data_dir);
@@ -20,7 +21,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
     }
 
     if args.network_peer_store {
-        target_files.push(args.network_peer_store_path);
+        target_dirs.push(args.network_peer_store_path);
     }
 
     if args.network_secret_key {
@@ -33,7 +34,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         }
     }
 
-    if !args.force {
+    if !args.force && (!target_dirs.is_empty() || !target_files.is_empty()) {
         let to_be_deleted_targets = target_dirs
             .iter()
             .chain(target_files.iter())
@@ -49,21 +50,27 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
 
     for dir in target_dirs.iter() {
         if dir.exists() {
-            println!("deleting {:?}", dir);
+            println!("deleting {}", dir.display());
             if let Some(e) = fs::remove_dir_all(dir).err() {
                 eprintln!("{}", e);
+                errors_count += 1;
             }
         }
     }
 
     for file in target_files.iter() {
         if file.exists() {
-            println!("deleting {:?}", file);
+            println!("deleting {}", file.display());
             if let Some(e) = fs::remove_file(file).err() {
                 eprintln!("{}", e);
+                errors_count += 1;
             }
         }
     }
 
-    Ok(())
+    if errors_count == 0 {
+        Ok(())
+    } else {
+        Err(ExitCode::Failure)
+    }
 }

@@ -9,7 +9,7 @@ pub mod migrate;
 mod migrations;
 mod shared_builder;
 
-use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs};
+use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs, SupportProtocol};
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -64,7 +64,7 @@ impl Launcher {
             self.args.config.rpc.miner_enable(),
             self.args.config.block_assembler.clone(),
         ) {
-            (true, Some(block_assembler)) => {
+            (true, Some(mut block_assembler)) => {
                 let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
                     let secp_cell_data =
                         Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
@@ -96,6 +96,9 @@ impl Launcher {
                         && block_assembler.args.len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
                         && check_lock_code_hash(&block_assembler.code_hash.pack())?)
                 {
+                    if block_assembler.use_binary_version_as_message_prefix {
+                        block_assembler.binary_version = self.version.long();
+                    }
                     Some(block_assembler)
                 } else {
                     info!(
@@ -185,6 +188,8 @@ impl Launcher {
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
         let shared_builder = SharedBuilder::new(
+            &self.args.config.bin_name,
+            self.args.config.root_dir.as_path(),
             &self.args.config.db,
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
@@ -192,7 +197,7 @@ impl Launcher {
 
         let (shared, pack) = shared_builder
             .consensus(self.args.consensus.clone())
-            .tx_pool_config(self.args.config.tx_pool)
+            .tx_pool_config(self.args.config.tx_pool.clone())
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
             .block_assembler_config(block_assembler_config)
@@ -232,7 +237,7 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        relay_tx_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
@@ -240,19 +245,61 @@ impl Launcher {
             self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
+        let fork_enable = {
+            let epoch = shared.snapshot().tip_header().epoch().number();
+            shared
+                .consensus()
+                .hardfork_switch
+                .is_vm_version_1_and_syscalls_2_enabled(epoch)
+        };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
+                .map(|t| NetworkState::ckb2021(t, fork_enable))
                 .expect("Init network state failed"),
         );
-        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
-        let relayer = Relayer::new(
-            chain_controller.clone(),
-            Arc::clone(&sync_shared),
-            self.args.config.tx_pool.min_fee_rate,
-            self.args.config.tx_pool.max_tx_verify_cycles,
-        );
-        let net_timer = NetTimeProtocol::default();
+        // Sync is a core protocol, user cannot disable it via config
+        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+        let mut protocols = vec![CKBProtocol::new_with_support_protocol(
+            SupportProtocols::Sync,
+            Box::new(synchronizer),
+            Arc::clone(&network_state),
+        )];
+
+        let support_protocols = &self.args.config.network.support_protocols;
+
+        if support_protocols.contains(&SupportProtocol::Relay) {
+            let relayer = Relayer::new(
+                chain_controller.clone(),
+                Arc::clone(&sync_shared),
+                self.args.config.tx_pool.min_fee_rate,
+                self.args.config.tx_pool.max_tx_verify_cycles,
+            );
+
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::RelayV2,
+                Box::new(relayer.clone().v2()),
+                Arc::clone(&network_state),
+            ));
+
+            if !fork_enable {
+                protocols.push(CKBProtocol::new_with_support_protocol(
+                    SupportProtocols::Relay,
+                    Box::new(relayer),
+                    Arc::clone(&network_state),
+                ))
+            }
+        }
+
+        if support_protocols.contains(&SupportProtocol::Time) {
+            let net_timer = NetTimeProtocol::default();
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Time,
+                Box::new(net_timer),
+                Arc::clone(&network_state),
+            ));
+        }
+
         let alert_signature_config = self.args.config.alert_signature.clone().unwrap_or_default();
         let alert_relayer = AlertRelayer::new(
             self.version.to_string(),
@@ -262,29 +309,13 @@ impl Launcher {
 
         let alert_notifier = Arc::clone(alert_relayer.notifier());
         let alert_verifier = Arc::clone(alert_relayer.verifier());
-
-        let protocols = vec![
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Sync,
-                Box::new(synchronizer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Relay,
-                Box::new(relayer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Time,
-                Box::new(net_timer),
-                Arc::clone(&network_state),
-            ),
-            CKBProtocol::new_with_support_protocol(
+        if support_protocols.contains(&SupportProtocol::Alert) {
+            protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Alert,
                 Box::new(alert_relayer),
                 Arc::clone(&network_state),
-            ),
-        ];
+            ));
+        }
 
         let required_protocol_ids = vec![SupportProtocols::Sync.protocol_id()];
 
@@ -305,6 +336,20 @@ impl Launcher {
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
                 self.args.config.rpc.reject_ill_transactions,
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_lock_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+                self.args
+                    .config
+                    .rpc
+                    .extra_well_known_type_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
             )
             .enable_miner(
                 shared.clone(),

@@ -1,0 +1,97 @@
+name: Preflight Checks
+
+# Required secrets:
+#
+# * `REPO_ACCESS_TOKEN`: (optional) A repo scoped [GitHub Personal Access Token][pat]. See [token] for further details.
+#
+# [pat]: https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token
+# [token]: https://github.com/peter-evans/repository-dispatch#token
+
+on:
+  push:
+
+env:
+  linux_os: ubuntu-20.04
+  os_matrix: '[ "ubuntu-20.04", "macos-10.15", "windows-2019" ]'
+  rust_toolchain: 1.51.0
+  molc_version: 0.7.2
+  trigger_next_checks: true
+
+jobs:
+
+  if-workflow-is-required:
+    name: Check If Workflow is Required
+    if: |
+      (github.repository_owner != 'nervosnetwork'
+          && ! contains(github.event.head_commit.message, 'disable github-hosted ci'))
+      || contains(github.event.head_commit.message, 'enable github-hosted ci')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Succeeded
+        run: exit 0
+
+  repo-access-token:
+    name: Check whether REPO_ACCESS_TOKEN is set
+    needs: [ if-workflow-is-required ]
+    runs-on: ubuntu-latest
+    env:
+      REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+    outputs:
+      is-set: ${{ steps.is-set.outputs.is-set }}
+    steps:
+      - name: Check is set
+        id: is-set
+        run: |
+          if [ ${#REPO_ACCESS_TOKEN} = 0 ]; then
+            echo "::set-output name=is-set::false"
+          else
+            echo "::set-output name=is-set::true"
+          fi
+
+  trigger-required-checks:
+    name: Trigger Required Checks
+    if: ${{ needs.repo-access-token.outputs.is-set == 'true' }}
+    needs: [ if-workflow-is-required, repo-access-token ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.repos.createCommitStatus({
+              state: 'pending',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              context: '${{ github.workflow }}',
+              sha: '${{ github.sha }}',
+              target_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            })
+      - uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          event-type: no-compile-checks
+          client-payload: |
+            {
+              "github": {
+                "sha": "${{ github.sha }}"
+              },
+              "env": {
+                "linux_os": "${{ env.linux_os }}",
+                "os_matrix": ${{ env.os_matrix }},
+                "rust_toolchain": "${{ env.rust_toolchain }}",
+                "molc_version": "${{ env.molc_version }}",
+                "trigger_next_checks": ${{ env.trigger_next_checks }}
+              }
+            }
+      - uses: actions/github-script@v4.0.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.repos.createCommitStatus({
+              state: '${{ job.status }}',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              context: '${{ github.workflow }}',
+              sha: '${{ github.sha }}',
+              target_url: 'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            })

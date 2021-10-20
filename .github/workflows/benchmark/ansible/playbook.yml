@@ -24,8 +24,8 @@
         name: ansible-ckb-benchmark
         public: false
       tags:
+        - ckb_benchmark_setup
         - ckb_benchmark_install
-        - ckb_benchmark_configure
 
     - name: Set Facts - `ckb_urls`
       block:
@@ -41,6 +41,7 @@
             ckb_urls: "{{ ckb_urls + [ ckb_url ] }}"
           with_items: "{{ groups.instances }}"
       tags:
+        - ckb_benchmark_prepare
         - ckb_benchmark_start
 
     # NOTE: It seems bug that when uses `include_role` inside block statement,
@@ -53,31 +54,20 @@
         name: ansible-ckb-benchmark
         public: false
       tags:
+        - ckb_benchmark_prepare
         - ckb_benchmark_start
-
-    - name: Fetch CKB Config Files And Log Files
-      become: true
-      fetch:
-        flat: true
-        src: "{{ item }}"
-        dest: "{{ inventory_hostname }}.{{ item | basename }}"
-      with_items:
-        - "{{ ckb_workspace }}/ckb.toml"
-        - "{{ ckb_data_dir }}/logs/run.log"
-      tags:
-        - fetch_ckb_logfiles
 
     - name: Fetch CKB Benchmark Logfiles
       become: true
       fetch:
         flat: true
-        src: "{{ item }}"
-        dest: "{{ item | basename }}"
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
       with_items:
-        - "{{ ckb_benchmark_data_dir }}/bench.log"
-        - "{{ ckb_benchmark_data_dir }}/metrics.json"
+        - { src: "/var/lib/ckb-benchmark/data/ckb-bench.json", dest: "ckb-bench.json" }
+        - { src: "/var/lib/ckb-benchmark/data/ckb-bench.log", dest: "ckb-bench.log" }
       tags:
-        - fetch_ckb_benchmark_logfiles
+        - process_result
 
     - name: Process TPS-Bench Result `metrics.yml`
       run_once: true
@@ -85,30 +75,6 @@
       environment:
         INSTANCE_TYPE: "{{ hostvars['instance-0'].instance_type }}"
         INSTANCE_BASTION_TYPE: "{{ hostvars['bastion-0'].instance_type }}"
-      shell: ./files/process-metrics.py metrics.json > metrics.yml
-      tags:
-        - process_result
-
-    - name: Produce TPS-Bench Report `report.yml`
-      run_once: true
-      delegate_to: localhost
-      shell: |
-        ln=$(grep '^-' metrics.yml -n |  cut -f1 -d: | tail -n 1)
-        tail -n +$ln metrics.yml > report.yml
-      tags:
-        - process_result
-
-    - name: Create Archive Of Result Files
-      run_once: true
-      delegate_to: localhost
-      archive:
-        format: xz
-        dest: result.tar.xz
-        path:
-          - "bench.log"
-          - "metrics.yml"
-          - "report.yml"
-          - "*.ckb.toml"
-          - "*.run.log"
+      shell: ./files/process-metrics.py ckb-bench.json > report.yml
       tags:
         - process_result

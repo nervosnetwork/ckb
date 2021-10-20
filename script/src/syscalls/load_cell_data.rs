@@ -112,7 +112,7 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
             0,
         )?;
 
-        machine.add_cycles(transferred_byte_cycles(memory_size))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(memory_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
     }
@@ -133,7 +133,7 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
             .ok_or(VMError::Unexpected)?;
 
         let wrote_size = store_data(machine, &data)?;
-        machine.add_cycles(transferred_byte_cycles(wrote_size))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
     }

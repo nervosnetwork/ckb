@@ -75,6 +75,7 @@ pub struct Relayer {
     pub(crate) min_fee_rate: FeeRate,
     pub(crate) max_tx_verify_cycles: Cycle,
     rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
+    v2: bool,
 }
 
 impl Relayer {
@@ -100,7 +101,14 @@ impl Relayer {
             min_fee_rate,
             max_tx_verify_cycles,
             rate_limiter,
+            v2: false,
         }
+    }
+
+    /// set relay to v2
+    pub fn v2(mut self) -> Self {
+        self.v2 = true;
+        self
     }
 
     /// Get shared state
@@ -133,17 +141,41 @@ impl Relayer {
                 CompactBlockProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
+                // after ckb2021, v1 doesn't work with relay tx
+                // before ckb2021, v2 doesn't work with relay tx
+                match RelaySwitch::new(&nc, self.v2) {
+                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
+                        return Status::ok()
+                    }
+                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
+                }
                 if reader.check_data() {
-                    TransactionsProcess::new(reader, self, peer).execute()
+                    TransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed
                         .with_context("RelayTransactions is invalid")
                 }
             }
             packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
+                // after ckb2021, v1 doesn't work with relay tx
+                // before ckb2021, v2 doesn't work with relay tx
+                match RelaySwitch::new(&nc, self.v2) {
+                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
+                        return Status::ok()
+                    }
+                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
+                }
                 TransactionHashesProcess::new(reader, self, peer).execute()
             }
             packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
+                // after ckb2021, v1 doesn't work with relay tx
+                // before ckb2021, v2 doesn't work with relay tx
+                match RelaySwitch::new(&nc, self.v2) {
+                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
+                        return Status::ok()
+                    }
+                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
+                }
                 GetTransactionsProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
@@ -445,13 +477,24 @@ impl Relayer {
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
-            let block = packed::Block::new_builder()
-                .header(compact_block.header())
-                .uncles(uncles.pack())
-                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
-                .proposals(compact_block.proposals())
-                .build()
-                .into_view();
+            let block = if let Some(extension) = compact_block.extension() {
+                packed::BlockV1::new_builder()
+                    .header(compact_block.header())
+                    .uncles(uncles.pack())
+                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .proposals(compact_block.proposals())
+                    .extension(extension)
+                    .build()
+                    .as_v0()
+            } else {
+                packed::Block::new_builder()
+                    .header(compact_block.header())
+                    .uncles(uncles.pack())
+                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .proposals(compact_block.proposals())
+                    .build()
+            }
+            .into_view();
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -499,10 +542,15 @@ impl Relayer {
     }
 
     fn prune_tx_proposal_request(&self, nc: &dyn CKBProtocolContext) {
-        let get_block_proposals = self.shared().state().clear_get_block_proposals();
+        let get_block_proposals = self.shared().state().drain_get_block_proposals();
         let tx_pool = self.shared.shared().tx_pool_controller();
 
-        let fetch_txs = tx_pool.fetch_txs(get_block_proposals.keys().cloned().collect());
+        let fetch_txs = tx_pool.fetch_txs(
+            get_block_proposals
+                .iter()
+                .map(|kv_pair| kv_pair.key().clone())
+                .collect(),
+        );
         if let Err(err) = fetch_txs {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -538,22 +586,7 @@ impl Relayer {
 
     /// Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
-        let state = self.shared().state();
-        for (peer, peer_state) in state.peers().state.write().iter_mut() {
-            let tx_hashes = peer_state
-                .pop_ask_for_txs()
-                .into_iter()
-                .filter(|tx_hash| {
-                    let already_known = state.already_known_tx(&tx_hash);
-                    if already_known {
-                        // Remove tx_hash from `tx_ask_for_set`
-                        peer_state.remove_ask_for_tx(&tx_hash);
-                    }
-                    !already_known
-                })
-                .take(MAX_RELAY_TXS_NUM_PER_BATCH)
-                .collect::<Vec<_>>();
-
+        for (peer, mut tx_hashes) in self.shared().state().pop_ask_for_txs() {
             if !tx_hashes.is_empty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -561,11 +594,12 @@ impl Relayer {
                     tx_hashes.len(),
                     peer,
                 );
+                tx_hashes.truncate(MAX_RELAY_TXS_NUM_PER_BATCH);
                 let content = packed::GetRelayTransactions::new_builder()
                     .tx_hashes(tx_hashes.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to(nc, *peer, &message);
+                let status = send_message_to(nc, peer, &message);
                 if !status.is_ok() {
                     ckb_logger::error!("break asking for transactions, status: {:?}", status);
                 }
@@ -582,6 +616,7 @@ impl Relayer {
             return;
         }
 
+        let ckb2021 = nc.ckb2021();
         let tx_hashes = self
             .shared
             .state()
@@ -589,7 +624,12 @@ impl Relayer {
         let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
             let mut known_txs = self.shared.state().known_txs();
-            for (origin_peer, hash) in &tx_hashes {
+            for (origin_peer, is_ckb2021, hash) in &tx_hashes {
+                // must all fork or all no-fork
+                if ckb2021 != *is_ckb2021 {
+                    continue;
+                }
+
                 for target in &connected_peers {
                     match origin_peer {
                         Some(origin) => {
@@ -654,8 +694,52 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
-        let msg = match packed::RelayMessage::from_slice(&data) {
-            Ok(msg) => msg.to_enum(),
+        let msg = match packed::RelayMessageReader::from_compatible_slice(&data) {
+            Ok(msg) => {
+                let item = msg.to_enum();
+                if let packed::RelayMessageUnionReader::CompactBlock(ref reader) = item {
+                    if reader.count_extra_fields() > 1 {
+                        info_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "Peer {} sends us a malformed message: \
+                             too many fields in CompactBlock",
+                            peer_index
+                        );
+                        nc.ban_peer(
+                            peer_index,
+                            BAD_MESSAGE_BAN_TIME,
+                            String::from(
+                                "send us a malformed message: \
+                                 too many fields in CompactBlock",
+                            ),
+                        );
+                        return;
+                    } else {
+                        item
+                    }
+                } else {
+                    match packed::RelayMessageReader::from_slice(&data) {
+                        Ok(msg) => msg.to_enum(),
+                        _ => {
+                            info_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "Peer {} sends us a malformed message: \
+                                 too many fields",
+                                peer_index
+                            );
+                            nc.ban_peer(
+                                peer_index,
+                                BAD_MESSAGE_BAN_TIME,
+                                String::from(
+                                    "send us a malformed message \
+                                     too many fields",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
             _ => {
                 info_target!(
                     crate::LOG_TARGET_RELAY,
@@ -688,7 +772,7 @@ impl CKBProtocolHandler for Relayer {
         }
 
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg.as_reader());
+        self.process(nc, peer_index, msg);
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "process message={}, peer={}, cost={:?}",
@@ -729,6 +813,32 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
+        match RelaySwitch::new(&nc, self.v2) {
+            RelaySwitch::Ckb2019RelayV2 => return,
+            RelaySwitch::Ckb2021RelayV1 => {
+                if nc.remove_notify(TX_PROPOSAL_TOKEN).is_err() {
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                }
+                if nc.remove_notify(ASK_FOR_TXS_TOKEN).is_err() {
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                }
+                if nc.remove_notify(TX_HASHES_TOKEN).is_err() {
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                }
+                if nc.remove_notify(SEARCH_ORPHAN_POOL_TOKEN).is_err() {
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                }
+                for kv_pair in self.shared().state().peers().state.iter() {
+                    let (peer, state) = kv_pair.pair();
+                    if !state.peer_flags.is_2021edition {
+                        let _ignore = nc.disconnect(*peer, "Evict low-version clients ");
+                    }
+                }
+                return;
+            }
+            RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
+        }
+
         let start_time = Instant::now();
         trace_target!(crate::LOG_TARGET_RELAY, "start notify token={}", token);
         match token {
@@ -752,5 +862,24 @@ impl CKBProtocolHandler for Relayer {
             token,
             start_time.elapsed()
         );
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+enum RelaySwitch {
+    Ckb2019RelayV1,
+    Ckb2019RelayV2,
+    Ckb2021RelayV1,
+    Ckb2021RelayV2,
+}
+
+impl RelaySwitch {
+    fn new(nc: &Arc<dyn CKBProtocolContext + Sync>, is_relay_v2: bool) -> Self {
+        match (nc.ckb2021(), is_relay_v2) {
+            (true, true) => Self::Ckb2021RelayV2,
+            (true, false) => Self::Ckb2021RelayV1,
+            (false, true) => Self::Ckb2019RelayV2,
+            (false, false) => Self::Ckb2019RelayV1,
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use ckb_hash::new_blake2b;
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
@@ -35,6 +36,17 @@ pub struct TransactionView {
     pub(crate) data: packed::Transaction,
     pub(crate) hash: packed::Byte32,
     pub(crate) witness_hash: packed::Byte32,
+}
+
+/// A readonly and immutable struct which includes extra hash and the decoupled
+/// parts of it.
+#[derive(Debug, Clone)]
+pub struct ExtraHashView {
+    /// The uncles hash which is used to combine to the extra hash.
+    pub(crate) uncles_hash: packed::Byte32,
+    /// The first item is the new filed hash, which is used to combine to the extra hash.
+    /// The second item is the extra hash.
+    pub(crate) extension_hash_and_extra_hash: Option<(packed::Byte32, packed::Byte32)>,
 }
 
 /// A readonly and immutable struct which includes [`Header`] and its hash.
@@ -111,6 +123,24 @@ impl ::std::fmt::Display for TransactionView {
             "TransactionView {{ data: {}, hash: {}, witness_hash: {} }}",
             self.data, self.hash, self.witness_hash
         )
+    }
+}
+
+impl ::std::fmt::Display for ExtraHashView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        if let Some((ref extension_hash, ref extra_hash)) = self.extension_hash_and_extra_hash {
+            write!(
+                f,
+                "uncles_hash: {}, extension_hash: {}, extra_hash: {}",
+                self.uncles_hash, extension_hash, extra_hash
+            )
+        } else {
+            write!(
+                f,
+                "uncles_hash: {}, extension_hash: None, extra_hash: uncles_hash",
+                self.uncles_hash
+            )
+        }
     }
 }
 
@@ -394,6 +424,44 @@ impl TransactionView {
     }
 }
 
+impl ExtraHashView {
+    /// Creates `ExtraHashView` with `uncles_hash` and optional `extension_hash`.
+    pub fn new(uncles_hash: packed::Byte32, extension_hash_opt: Option<packed::Byte32>) -> Self {
+        let extension_hash_and_extra_hash = extension_hash_opt.map(|extension_hash| {
+            let mut ret = [0u8; 32];
+            let mut blake2b = new_blake2b();
+            blake2b.update(&uncles_hash.as_slice());
+            blake2b.update(&extension_hash.as_slice());
+            blake2b.finalize(&mut ret);
+            (extension_hash, ret.pack())
+        });
+        Self {
+            uncles_hash,
+            extension_hash_and_extra_hash,
+        }
+    }
+
+    /// Gets `uncles_hash`.
+    pub fn uncles_hash(&self) -> packed::Byte32 {
+        self.uncles_hash.clone()
+    }
+
+    /// Gets `extension_hash`.
+    pub fn extension_hash(&self) -> Option<packed::Byte32> {
+        self.extension_hash_and_extra_hash
+            .as_ref()
+            .map(|(ref extension_hash, _)| extension_hash.clone())
+    }
+
+    /// Gets `extra_hash`.
+    pub fn extra_hash(&self) -> packed::Byte32 {
+        self.extension_hash_and_extra_hash
+            .as_ref()
+            .map(|(_, ref extra_hash)| extra_hash.clone())
+            .unwrap_or_else(|| self.uncles_hash.clone())
+    }
+}
+
 impl HeaderView {
     define_data_getter!(Header);
     define_cache_getter!(hash, Byte32);
@@ -407,12 +475,8 @@ impl HeaderView {
     define_inner_getter!(header, packed, parent_hash, Byte32);
     define_inner_getter!(header, packed, transactions_root, Byte32);
     define_inner_getter!(header, packed, proposals_hash, Byte32);
-    define_inner_getter!(header, packed, uncles_hash, Byte32);
-
-    /// Gets `raw.dao`.
-    pub fn dao(&self) -> packed::Byte32 {
-        self.data().raw().dao()
-    }
+    define_inner_getter!(header, packed, extra_hash, Byte32);
+    define_inner_getter!(header, packed, dao, Byte32);
 
     /// Gets `raw.difficulty`.
     pub fn difficulty(&self) -> U256 {
@@ -449,12 +513,8 @@ impl UncleBlockView {
     define_inner_getter!(uncle, packed, parent_hash, Byte32);
     define_inner_getter!(uncle, packed, transactions_root, Byte32);
     define_inner_getter!(uncle, packed, proposals_hash, Byte32);
-    define_inner_getter!(uncle, packed, uncles_hash, Byte32);
-
-    /// Gets `header.raw.dao`.
-    pub fn dao(&self) -> packed::Byte32 {
-        self.data().header().raw().dao()
-    }
+    define_inner_getter!(uncle, packed, extra_hash, Byte32);
+    define_inner_getter!(uncle, packed, dao, Byte32);
 
     /// Gets `header.raw.difficulty`.
     pub fn difficulty(&self) -> U256 {
@@ -560,12 +620,8 @@ impl BlockView {
     define_inner_getter!(block, packed, parent_hash, Byte32);
     define_inner_getter!(block, packed, transactions_root, Byte32);
     define_inner_getter!(block, packed, proposals_hash, Byte32);
-    define_inner_getter!(block, packed, uncles_hash, Byte32);
-
-    /// Gets `header.raw.dao`.
-    pub fn dao(&self) -> packed::Byte32 {
-        self.data().header().raw().dao()
-    }
+    define_inner_getter!(block, packed, extra_hash, Byte32);
+    define_inner_getter!(block, packed, dao, Byte32);
 
     /// Gets `header.nonce`.
     pub fn nonce(&self) -> u128 {
@@ -591,6 +647,15 @@ impl BlockView {
             data: self.data.uncles(),
             hashes: self.uncle_hashes(),
         }
+    }
+
+    /// Gets `extension`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the extension exists but not a valid [`Bytes`](../packed/struct.Bytes.html).
+    pub fn extension(&self) -> Option<packed::Bytes> {
+        self.data.extension()
     }
 
     /// Converts into an uncle block.
@@ -668,6 +733,16 @@ impl BlockView {
         self.data().as_reader().calc_uncles_hash()
     }
 
+    /// Calculates the hash for extension.
+    pub fn calc_extension_hash(&self) -> Option<packed::Byte32> {
+        self.data().as_reader().calc_extension_hash()
+    }
+
+    /// Calculates the extra hash.
+    pub fn calc_extra_hash(&self) -> ExtraHashView {
+        self.data().as_reader().calc_extra_hash()
+    }
+
     /// Calculates the hash for proposals.
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.data().as_reader().calc_proposals_hash()
@@ -741,6 +816,38 @@ impl BlockView {
             .uncles(uncles.data())
             .proposals(proposals)
             .build();
+        let tx_hashes = body.iter().map(|tx| tx.hash()).collect::<Vec<_>>();
+        let tx_witness_hashes = body.iter().map(|tx| tx.witness_hash()).collect::<Vec<_>>();
+        Self {
+            data: block,
+            hash: header.hash(),
+            uncle_hashes: uncles.hashes(),
+            tx_hashes,
+            tx_witness_hashes,
+        }
+    }
+
+    /// Creates a new `BlockView` with a extension.
+    ///
+    /// # Notice
+    ///
+    /// [`BlockView`] created by this method could have invalid hashes or
+    /// invalid merkle roots in the header.
+    pub fn new_unchecked_with_extension(
+        header: HeaderView,
+        uncles: UncleBlockVecView,
+        body: Vec<TransactionView>,
+        proposals: packed::ProposalShortIdVec,
+        extension: packed::Bytes,
+    ) -> Self {
+        let block = packed::BlockV1::new_builder()
+            .header(header.data())
+            .transactions(body.iter().map(|tx| tx.data()).pack())
+            .uncles(uncles.data())
+            .proposals(proposals)
+            .extension(extension)
+            .build()
+            .as_v0();
         let tx_hashes = body.iter().map(|tx| tx.hash()).collect::<Vec<_>>();
         let tx_witness_hashes = body.iter().map(|tx| tx.witness_hash()).collect::<Vec<_>>();
         Self {

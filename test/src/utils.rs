@@ -4,7 +4,7 @@ use crate::util::mining::mine;
 use crate::{Node, TXOSet};
 use ckb_network::bytes::Bytes;
 use ckb_types::{
-    core::{BlockNumber, BlockView, EpochNumber, HeaderView, TransactionView},
+    core::{BlockNumber, BlockView, EpochNumberWithFraction, HeaderView, TransactionView},
     packed::{
         BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
         RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders, SyncMessage,
@@ -161,12 +161,12 @@ pub fn since_from_absolute_block_number(block_number: BlockNumber) -> u64 {
     FLAG_SINCE_BLOCK_NUMBER | block_number
 }
 
-pub fn since_from_relative_epoch_number(epoch_number: EpochNumber) -> u64 {
-    FLAG_SINCE_RELATIVE | FLAG_SINCE_EPOCH_NUMBER | epoch_number
+pub fn since_from_relative_epoch_number(epoch_number: EpochNumberWithFraction) -> u64 {
+    FLAG_SINCE_RELATIVE | FLAG_SINCE_EPOCH_NUMBER | epoch_number.full_value()
 }
 
-pub fn since_from_absolute_epoch_number(epoch_number: EpochNumber) -> u64 {
-    FLAG_SINCE_EPOCH_NUMBER | epoch_number
+pub fn since_from_absolute_epoch_number(epoch_number: EpochNumberWithFraction) -> u64 {
+    FLAG_SINCE_EPOCH_NUMBER | epoch_number.full_value()
 }
 
 pub fn since_from_relative_timestamp(timestamp: u64) -> u64 {

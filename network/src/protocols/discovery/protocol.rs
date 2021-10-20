@@ -10,27 +10,36 @@ use tokio_util::codec::{Decoder, Encoder};
 use ckb_logger::debug;
 use ckb_types::{packed, prelude::*};
 
-pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
-    // Length Delimited Codec is not a mandatory requirement.
-    // For historical reasons, this must exist as compatibility
-    let mut codec = LengthDelimitedCodec::new();
-    let mut bytes = BytesMut::new();
-    codec
-        .encode(data.encode(), &mut bytes)
-        .expect("encode must be success");
-    bytes.freeze()
+pub(crate) fn encode(data: DiscoveryMessage, v2: bool) -> Bytes {
+    if v2 {
+        data.encode()
+    } else {
+        // Length Delimited Codec is not a mandatory requirement.
+        // For historical reasons, this must exist as compatibility
+        let mut codec = LengthDelimitedCodec::new();
+        let mut bytes = BytesMut::new();
+        codec
+            .encode(data.encode(), &mut bytes)
+            .expect("encode must be success");
+        bytes.freeze()
+    }
 }
 
-pub(crate) fn decode(data: &mut BytesMut) -> Option<DiscoveryMessage> {
-    // Length Delimited Codec is not a mandatory requirement.
-    // For historical reasons, this must exist as compatibility
-    let mut codec = LengthDelimitedCodec::new();
-    match codec.decode(data) {
-        Ok(Some(frame)) => DiscoveryMessage::decode(&frame),
-        Ok(None) => None,
-        Err(err) => {
-            debug!("decode error: {:?}", err);
-            None
+pub(crate) fn decode(data: &Bytes, v2: bool) -> Option<DiscoveryMessage> {
+    if v2 {
+        DiscoveryMessage::decode(&data)
+    } else {
+        let mut data = BytesMut::from(data.as_ref());
+        // Length Delimited Codec is not a mandatory requirement.
+        // For historical reasons, this must exist as compatibility
+        let mut codec = LengthDelimitedCodec::new();
+        match codec.decode(&mut data) {
+            Ok(Some(frame)) => DiscoveryMessage::decode(&frame),
+            Ok(None) => None,
+            Err(err) => {
+                debug!("decode error: {:?}", err);
+                None
+            }
         }
     }
 }
@@ -87,9 +96,7 @@ impl DiscoveryMessage {
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {
                 let bool_ = if announce { 1u8 } else { 0 };
-                let announce = packed::DiscoveryBool::new_builder()
-                    .set([bool_.into()])
-                    .build();
+                let announce = packed::Bool::new_builder().set([bool_.into()]).build();
                 let mut item_vec = Vec::with_capacity(items.len());
                 for item in items {
                     let mut vec_addrs = Vec::with_capacity(item.addresses.len());
@@ -196,36 +203,5 @@ impl std::fmt::Display for DiscoveryMessage {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::{decode, encode, DiscoveryMessage};
-    use ckb_types::bytes::BytesMut;
-
-    #[test]
-    fn test_codec() {
-        let msg1 = DiscoveryMessage::GetNodes {
-            version: 0,
-            count: 1,
-            listen_port: Some(1),
-        };
-
-        let msg2 = DiscoveryMessage::GetNodes {
-            version: 0,
-            count: 1,
-            listen_port: Some(2),
-        };
-
-        let b1 = encode(msg1.clone());
-
-        let decode1 = decode(&mut BytesMut::from(b1.as_ref())).unwrap();
-        assert_eq!(decode1, msg1);
-
-        let b2 = encode(msg2.clone());
-
-        let decode2 = decode(&mut BytesMut::from(b2.as_ref())).unwrap();
-        assert_eq!(decode2, msg2);
     }
 }

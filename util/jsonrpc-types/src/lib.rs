@@ -16,14 +16,17 @@ mod proposal_short_id;
 mod subscription;
 mod uints;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::alert::{Alert, AlertId, AlertMessage, AlertPriority};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
-    DepType, EpochView, Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow,
-    Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
+    DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof, MinerReward, OutPoint,
+    ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
     TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
@@ -38,13 +41,12 @@ pub use self::net::{
     RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{
-    OutputsValidator, PoolTransactionEntry, PoolTransactionReject, RawTxPool, TxPoolIds,
-    TxPoolInfo, TxPoolVerbosity, TxVerbosity,
+    OutputsValidator, PoolTransactionEntry, PoolTransactionReject, RawTxPool, TxPoolEntries,
+    TxPoolEntry, TxPoolIds, TxPoolInfo,
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
-pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
     Timestamp, Version,

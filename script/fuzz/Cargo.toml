@@ -1,0 +1,43 @@
+[package]
+name = "ckb-script-fuzz"
+version = "0.100.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+description = "ckb-script crate fuzz test"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = { version="0.4.0", features=["arbitrary-derive"] }
+ckb-traits = { path = "../../traits", version = "= 0.100.0" }
+ckb-types = { path = "../../util/types", version = "= 0.100.0" }
+ckb-script = { path = "../../script", version = "= 0.100.0" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.100.0" }
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "transaction_scripts_verifier_data0"
+path = "fuzz_targets/transaction_scripts_verifier_data0.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "transaction_scripts_verifier_data1"
+path = "fuzz_targets/transaction_scripts_verifier_data1.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "syscall_exec"
+path = "fuzz_targets/syscall_exec.rs"
+test = false
+doc = false

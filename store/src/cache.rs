@@ -1,8 +1,8 @@
 use ckb_app_config::StoreConfig;
 use ckb_types::{
     bytes::Bytes,
-    core::{HeaderView, TransactionView, UncleBlockVecView},
-    packed::{Byte32, ProposalShortIdVec},
+    core::{HeaderView, UncleBlockVecView},
+    packed::{self, Byte32, ProposalShortIdVec},
 };
 use ckb_util::Mutex;
 use lru::LruCache;
@@ -21,8 +21,8 @@ pub struct StoreCache {
     pub block_tx_hashes: Mutex<LruCache<Byte32, Vec<Byte32>>>,
     /// TODO(doc): @quake
     pub block_uncles: Mutex<LruCache<Byte32, UncleBlockVecView>>,
-    /// TODO(doc): @quake
-    pub cellbase: Mutex<LruCache<Byte32, TransactionView>>,
+    /// The cache of block extension sections.
+    pub block_extensions: Mutex<LruCache<Byte32, Option<packed::Bytes>>>,
 }
 
 impl Default for StoreCache {
@@ -41,7 +41,7 @@ impl StoreCache {
             block_proposals: Mutex::new(LruCache::new(config.block_proposals_cache_size)),
             block_tx_hashes: Mutex::new(LruCache::new(config.block_tx_hashes_cache_size)),
             block_uncles: Mutex::new(LruCache::new(config.block_uncles_cache_size)),
-            cellbase: Mutex::new(LruCache::new(config.cellbase_cache_size)),
+            block_extensions: Mutex::new(LruCache::new(config.block_extensions_cache_size)),
         }
     }
 }

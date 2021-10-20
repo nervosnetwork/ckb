@@ -2,15 +2,19 @@ use crate::error::RPCError;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Cycle, JsonBytes, Script, Transaction};
+use ckb_jsonrpc_types::{
+    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Cycle, JsonBytes, Script, Transaction,
+};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
+        self,
         cell::{
-            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
+            resolve_transaction_with_options, OverlayCellProvider, ResolveOptions,
+            ResolvedTransaction, TransactionsProvider,
         },
         BlockView,
     },
@@ -40,11 +44,17 @@ pub trait IntegrationTestRpc {
         block_assembler_message: Option<JsonBytes>,
     ) -> Result<H256>;
 
+    #[rpc(name = "notify_transaction")]
+    fn notify_transaction(&self, transaction: Transaction) -> Result<H256>;
+
     #[rpc(name = "broadcast_transaction")]
     fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
 
     #[rpc(name = "generate_block_with_template")]
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
+
+    #[rpc(name = "calculate_dao_field")]
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -122,6 +132,8 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             hash_type: script.hash_type,
             args: script.args,
             message: block_assembler_message.unwrap_or_default(),
+            use_binary_version_as_message_prefix: false,
+            binary_version: "TEST".to_string(),
         });
         let block_template = tx_pool
             .get_block_template_with_block_assembler_config(
@@ -162,7 +174,28 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         }
     }
 
+    fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
+        let tx: packed::Transaction = tx.into();
+        let tx: core::TransactionView = tx.into_view();
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_hash = tx.hash();
+        if let Err(e) = tx_pool.notify_txs(vec![tx]) {
+            error!("send notify_txs request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        }
+        Ok(tx_hash.unpack())
+    }
+
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
+        let dao_field = self.calculate_dao_field(block_template.clone())?;
+
+        let mut update_dao_template = block_template;
+        update_dao_template.dao = dao_field;
+        let block = update_dao_template.into();
+        self.process_and_announce_block(block)
+    }
+
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let parent_header = snapshot
@@ -178,30 +211,37 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
+        let resolve_opts = {
+            let epoch_number = block_template.epoch.epoch_number();
+            let hardfork_switch = consensus.hardfork_switch();
+            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
+        };
 
-        let rtxs = txs.iter().map(|tx| {
-            resolve_transaction(
-                tx.clone(),
-                &mut seen_inputs,
-                &overlay_cell_provider,
-                snapshot,
-                Some(2048)
-            ).map_err(|err| {
-                error!(
-                    "resolve transactions error when generating block with block template, error: {:?}",
-                    err
-                );
-                RPCError::invalid_params(err.to_string())
+        let rtxs = txs
+            .iter()
+            .map(|tx| {
+                resolve_transaction_with_options(
+                    tx.clone(),
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    snapshot,
+                    resolve_opts,
+                )
+                .map_err(|err| {
+                    error!(
+                        "resolve transactions error when generating block \
+                         with block template, error: {:?}",
+                        err
+                    );
+                    RPCError::invalid_params(err.to_string())
+                })
             })
-        }).collect::<Result<Vec<ResolvedTransaction>>>()?;
+            .collect::<Result<Vec<ResolvedTransaction>>>()?;
 
-        let mut update_dao_template = block_template;
-        update_dao_template.dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
+        Ok(DaoCalculator::new(consensus, &snapshot.as_data_provider())
             .dao_field(&rtxs, &parent_header)
             .expect("dao calculation should be OK")
-            .into();
-        let block = update_dao_template.into();
-        self.process_and_announce_block(block)
+            .into())
     }
 }
 

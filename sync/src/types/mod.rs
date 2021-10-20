@@ -13,7 +13,7 @@ use ckb_constant::sync::{
     POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
-use ckb_logger::{debug, debug_target, error, trace};
+use ckb_logger::{debug, error, trace};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -27,16 +27,17 @@ use ckb_types::{
 };
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
+use dashmap::{DashMap, DashSet};
 use faketime::unix_time_as_millis;
+use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
-use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, iter, mem};
+use std::{cmp, fmt, iter};
 
 mod header_map;
 
@@ -44,13 +45,11 @@ use crate::utils::send_message;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
-const MAX_ASK_MAP_SIZE: usize = 50000;
-const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
+const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const TX_FILTER_SIZE: usize = 50000;
-const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
@@ -139,6 +138,7 @@ pub struct PeerFlags {
     pub is_outbound: bool,
     pub is_protect: bool,
     pub is_whitelist: bool,
+    pub is_2021edition: bool,
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -269,10 +269,6 @@ pub struct PeerState {
     pub headers_sync_controller: Option<HeadersSyncController>,
     pub peer_flags: PeerFlags,
     pub chain_sync: ChainSyncState,
-    // The key is a `timeout`, means do not ask the tx before `timeout`.
-    tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
-    tx_ask_for_set: HashSet<Byte32>,
-
     // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
     // The last block we both stored
@@ -288,8 +284,6 @@ impl PeerState {
             headers_sync_controller: None,
             peer_flags,
             chain_sync: ChainSyncState::default(),
-            tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::new(),
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
@@ -328,71 +322,6 @@ impl PeerState {
 
     pub(crate) fn sync_connected(&mut self) {
         self.chain_sync.connected()
-    }
-
-    pub fn add_ask_for_tx(
-        &mut self,
-        tx_hash: Byte32,
-        last_ask_timeout: Option<Instant>,
-    ) -> Option<Instant> {
-        if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_map is full, ignore {}",
-                tx_hash
-            );
-            return None;
-        }
-        if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_set is full, ignore {}",
-                tx_hash
-            );
-            return None;
-        }
-        // This peer already register asked for this tx
-        if self.tx_ask_for_set.contains(&tx_hash) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "this peer already register ask tx({})",
-                tx_hash
-            );
-            return None;
-        }
-
-        // Retry ask tx `RETRY_ASK_TX_TIMEOUT_INCREASE` later
-        //  NOTE: last_ask_timeout is some when other peer already asked for this tx_hash
-        let next_ask_timeout = last_ask_timeout
-            .map(|time| cmp::max(time + RETRY_ASK_TX_TIMEOUT_INCREASE, Instant::now()))
-            .unwrap_or_else(Instant::now);
-        self.tx_ask_for_map
-            .entry(next_ask_timeout)
-            .or_default()
-            .push(tx_hash.clone());
-        self.tx_ask_for_set.insert(tx_hash);
-        Some(next_ask_timeout)
-    }
-
-    pub fn remove_ask_for_tx(&mut self, tx_hash: &Byte32) {
-        self.tx_ask_for_set.remove(tx_hash);
-    }
-
-    pub fn pop_ask_for_txs(&mut self) -> Vec<Byte32> {
-        let mut all_txs = Vec::new();
-        let mut timeouts = Vec::new();
-        let now = Instant::now();
-        for (timeout, txs) in &self.tx_ask_for_map {
-            if *timeout >= now {
-                break;
-            }
-            timeouts.push(*timeout);
-            all_txs.extend(txs.clone());
-        }
-        for timeout in timeouts {
-            self.tx_ask_for_map.remove(&timeout);
-        }
-        all_txs
     }
 }
 
@@ -441,7 +370,7 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
+    pub state: DashMap<PeerIndex, PeerState>,
 }
 
 #[derive(Debug, Clone)]
@@ -928,7 +857,6 @@ impl InflightBlocks {
 impl Peers {
     pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
         self.state
-            .write()
             .entry(peer)
             .and_modify(|state| {
                 state.peer_flags = peer_flags;
@@ -943,20 +871,18 @@ impl Peers {
 
     pub fn relay_connected(&self, peer: PeerIndex) {
         self.state
-            .write()
             .entry(peer)
             .or_insert_with(|| PeerState::new(PeerFlags::default()));
     }
 
     pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
         self.state
-            .read()
             .get(&pi)
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
     pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
-        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+        if let Some(mut peer_state) = self.state.get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.is_better_than(&hv.total_difficulty()) {
                     peer_state.best_known_header = Some(header_view);
@@ -969,14 +895,12 @@ impl Peers {
 
     pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
         self.state
-            .read()
             .get(&pi)
             .and_then(|peer_state| peer_state.last_common_header.clone())
     }
 
     pub fn set_last_common_header(&self, pi: PeerIndex, header: core::HeaderView) {
         self.state
-            .write()
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
     }
@@ -986,26 +910,24 @@ impl Peers {
     }
 
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        self.state.write().remove(&peer)
+        self.state.remove(&peer).map(|(_, peer_state)| peer_state)
     }
 
     pub fn insert_unknown_header_hash(&self, peer: PeerIndex, hash: Byte32) {
         self.state
-            .write()
             .entry(peer)
             .and_modify(|state| state.unknown_header_list.push(hash));
     }
 
     pub fn unknown_header_list_is_empty(&self, peer: PeerIndex) -> bool {
         self.state
-            .read()
             .get(&peer)
             .map(|state| state.unknown_header_list.is_empty())
             .unwrap_or(true)
     }
 
     pub fn clear_unknown_list(&self) {
-        self.state.write().values_mut().for_each(|state| {
+        self.state.iter_mut().for_each(|mut state| {
             if !state.unknown_header_list.is_empty() {
                 state.unknown_header_list.clear()
             }
@@ -1017,14 +939,14 @@ impl Peers {
         tip: BlockNumber,
     ) -> Vec<PeerIndex> {
         self.state
-            .read()
             .iter()
-            .filter_map(|(pi, state)| {
+            .filter_map(|kv_pair| {
+                let (peer_index, state) = kv_pair.pair();
                 if !state.unknown_header_list.is_empty() {
                     return None;
                 }
                 match state.best_known_header {
-                    Some(ref header) if header.number() < tip => Some(*pi),
+                    Some(ref header) if header.number() < tip => Some(*peer_index),
                     _ => None,
                 }
             })
@@ -1033,13 +955,18 @@ impl Peers {
 
     pub fn take_unknown_last(&self, peer: PeerIndex) -> Option<Byte32> {
         self.state
-            .write()
             .get_mut(&peer)
-            .and_then(|state| state.unknown_header_list.pop())
+            .and_then(|mut state| state.unknown_header_list.pop())
     }
 
     pub fn get_flag(&self, peer: PeerIndex) -> Option<PeerFlags> {
-        self.state.read().get(&peer).map(|state| state.peer_flags)
+        self.state.get(&peer).map(|state| state.peer_flags)
+    }
+
+    pub fn is_2021edition(&self, peer: PeerIndex) -> Option<bool> {
+        self.state
+            .get(&peer)
+            .map(|state| state.peer_flags.is_2021edition)
     }
 }
 
@@ -1048,7 +975,7 @@ pub struct HeaderView {
     inner: core::HeaderView,
     total_difficulty: U256,
     // pointer to the index of some further predecessor of this block
-    skip_hash: Option<Byte32>,
+    pub(crate) skip_hash: Option<Byte32>,
 }
 
 impl HeaderView {
@@ -1256,7 +1183,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
@@ -1266,7 +1193,7 @@ impl SyncShared {
         shared: Shared,
         sync_config: SyncConfig,
         tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+        tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     ) -> SyncShared
     where
         P: AsRef<Path>,
@@ -1290,15 +1217,15 @@ impl SyncShared {
             n_protected_outbound_peers: AtomicUsize::new(0),
             shared_best_header,
             header_map,
-            block_status_map: Mutex::new(HashMap::new()),
+            block_status_map: DashMap::new(),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
+            unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
             known_txs: Mutex::new(KnownFilter::default()),
-            pending_get_block_proposals: Mutex::new(HashMap::default()),
+            pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: Mutex::new(HashSet::default()),
-            inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+            inflight_proposals: DashSet::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
@@ -1373,7 +1300,10 @@ impl SyncShared {
 
     /// Try to find blocks from the orphan block pool that may no longer be orphan
     pub fn try_search_orphan_pool(&self, chain: &ChainController) {
-        for hash in self.state.orphan_pool().clone_leaders() {
+        let leaders = self.state.orphan_pool().clone_leaders();
+        debug!("orphan pool leader parents hash len: {}", leaders.len());
+
+        for hash in leaders {
             if self.state.orphan_pool().is_empty() {
                 break;
             }
@@ -1539,6 +1469,60 @@ impl HeaderProvider for SyncShared {
     }
 }
 
+#[derive(Eq, PartialEq, Clone)]
+pub struct UnknownTxHashPriority {
+    request_time: Instant,
+    peers: Vec<PeerIndex>,
+    requested: bool,
+}
+
+impl UnknownTxHashPriority {
+    pub fn should_request(&self, now: Instant) -> bool {
+        self.next_request_at() < now
+    }
+
+    pub fn next_request_at(&self) -> Instant {
+        if self.requested {
+            self.request_time + RETRY_ASK_TX_TIMEOUT_INCREASE
+        } else {
+            self.request_time
+        }
+    }
+
+    pub fn next_request_peer(&mut self) -> Option<PeerIndex> {
+        if self.requested {
+            if self.peers.len() > 1 {
+                self.request_time = Instant::now();
+                self.peers.swap_remove(0);
+                self.peers.get(0).cloned()
+            } else {
+                None
+            }
+        } else {
+            self.requested = true;
+            self.peers.get(0).cloned()
+        }
+    }
+
+    pub fn push_peer(&mut self, peer_index: PeerIndex) {
+        self.peers.push(peer_index);
+    }
+}
+
+impl Ord for UnknownTxHashPriority {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.next_request_at()
+            .cmp(&other.next_request_at())
+            .reverse()
+    }
+}
+
+impl PartialOrd for UnknownTxHashPriority {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 pub struct SyncState {
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
@@ -1546,26 +1530,28 @@ pub struct SyncState {
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
     header_map: HeaderMap,
-    block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
+    block_status_map: DashMap<Byte32, BlockStatus>,
     tx_filter: Mutex<Filter<Byte32>>,
+
+    // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
+    unknown_tx_hashes: Mutex<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>>,
 
     /* Status relevant to peers */
     peers: Peers,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
-    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, HashSet<PeerIndex>>>,
+    pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
     pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
-    inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
+    inflight_proposals: DashSet<packed::ProposalShortId>,
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<(Option<PeerIndex>, Byte32)>,
+    tx_relay_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
     assume_valid_target: Mutex<Option<H256>>,
     min_chain_work: U256,
 }
@@ -1605,10 +1591,6 @@ impl SyncState {
         self.pending_compact_blocks.lock()
     }
 
-    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<Byte32, Instant>> {
-        self.inflight_transactions.lock()
-    }
-
     pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
         self.inflight_blocks.read()
     }
@@ -1617,11 +1599,11 @@ impl SyncState {
         self.inflight_blocks.write()
     }
 
-    pub fn inflight_proposals(&self) -> MutexGuard<HashSet<packed::ProposalShortId>> {
-        self.inflight_proposals.lock()
+    pub fn inflight_proposals(&self) -> &DashSet<packed::ProposalShortId> {
+        &self.inflight_proposals
     }
 
-    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, Byte32)> {
+    pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
@@ -1684,17 +1666,69 @@ impl SyncState {
     // where T: Iterator<Item=Byte32>,
     // for<'a> &'a T: Iterator<Item=&'a Byte32>,
     pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
-        {
-            let mut inflight_transactions = self.inflight_transactions.lock();
-            for hash in hashes.clone() {
-                inflight_transactions.pop(&hash);
-            }
-        }
-
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
         let mut tx_filter = self.tx_filter.lock();
 
         for hash in hashes {
+            unknown_tx_hashes.remove(&hash);
             tx_filter.insert(hash);
+        }
+    }
+
+    pub fn pop_ask_for_txs(&self) -> HashMap<PeerIndex, Vec<Byte32>> {
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+        let mut result: HashMap<PeerIndex, Vec<Byte32>> = HashMap::new();
+        let now = Instant::now();
+
+        if !unknown_tx_hashes
+            .peek()
+            .map(|(_tx_hash, priority)| priority.should_request(now))
+            .unwrap_or_default()
+        {
+            return result;
+        }
+
+        while let Some((tx_hash, mut priority)) = unknown_tx_hashes.pop() {
+            if priority.should_request(now) {
+                if let Some(peer_index) = priority.next_request_peer() {
+                    result
+                        .entry(peer_index)
+                        .and_modify(|hashes| hashes.push(tx_hash.clone()))
+                        .or_insert_with(|| vec![tx_hash.clone()]);
+                    unknown_tx_hashes.push(tx_hash, priority);
+                }
+            } else {
+                unknown_tx_hashes.push(tx_hash, priority);
+                break;
+            }
+        }
+        result
+    }
+
+    pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) {
+        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE {
+            return;
+        }
+
+        for tx_hash in tx_hashes
+            .into_iter()
+            .take(MAX_UNKNOWN_TX_HASHES_SIZE - unknown_tx_hashes.len())
+        {
+            match unknown_tx_hashes.entry(tx_hash) {
+                keyed_priority_queue::Entry::Occupied(entry) => {
+                    let mut priority = entry.get_priority().clone();
+                    priority.push_peer(peer_index);
+                    entry.set_priority(priority);
+                }
+                keyed_priority_queue::Entry::Vacant(entry) => {
+                    entry.set_priority(UnknownTxHashPriority {
+                        request_time: Instant::now(),
+                        peers: vec![peer_index],
+                        requested: false,
+                    })
+                }
+            }
         }
     }
 
@@ -1720,13 +1754,15 @@ impl SyncState {
     }
 
     pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
-        let mut locked = self.inflight_proposals.lock();
-        ids.into_iter().map(|id| locked.insert(id)).collect()
+        ids.into_iter()
+            .map(|id| self.inflight_proposals.insert(id))
+            .collect()
     }
 
     pub fn remove_inflight_proposals(&self, ids: &[packed::ProposalShortId]) -> Vec<bool> {
-        let mut locked = self.inflight_proposals.lock();
-        ids.iter().map(|id| locked.remove(id)).collect()
+        ids.iter()
+            .map(|id| self.inflight_proposals.remove(id).is_some())
+            .collect()
     }
 
     pub fn insert_orphan_block(&self, block: core::BlockView) {
@@ -1736,11 +1772,10 @@ impl SyncState {
 
     pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
-        let mut block_status_map = self.block_status_map.lock();
         blocks.iter().for_each(|block| {
-            block_status_map.remove(&block.hash());
+            self.block_status_map.remove(&block.hash());
         });
-        shrink_to_fit!(block_status_map, SHRINK_THRESHOLD);
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
         blocks
     }
 
@@ -1749,29 +1784,28 @@ impl SyncState {
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
-        self.block_status_map.lock().insert(block_hash, status);
+        self.block_status_map.insert(block_hash, status);
     }
 
     pub fn remove_block_status(&self, block_hash: &Byte32) {
-        let mut guard = self.block_status_map.lock();
-        guard.remove(block_hash);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        self.block_status_map.remove(block_hash);
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
     }
 
-    pub fn clear_get_block_proposals(
+    pub fn drain_get_block_proposals(
         &self,
-    ) -> HashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
-        let mut locked = self.pending_get_block_proposals.lock();
-        let old = locked.deref_mut();
-        let mut ret = HashMap::default();
-        mem::swap(old, &mut ret);
+    ) -> DashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
+        let ret = self.pending_get_block_proposals.clone();
+        self.pending_get_block_proposals.clear();
         ret
     }
 
     pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<packed::ProposalShortId>) {
-        let mut locked = self.pending_get_block_proposals.lock();
         for id in ids.into_iter() {
-            locked.entry(id).or_default().insert(pi);
+            self.pending_get_block_proposals
+                .entry(id)
+                .or_default()
+                .insert(pi);
         }
     }
 
@@ -2076,8 +2110,8 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.state.block_status_map.lock().get(block_hash).cloned() {
-            Some(status) => status,
+        match self.state.block_status_map.get(block_hash) {
+            Some(status_ref) => *status_ref.value(),
             None => {
                 if self.state.header_map.contains_key(block_hash) {
                     BlockStatus::HEADER_VALID
@@ -2123,98 +2157,6 @@ impl From<IBDState> for bool {
         match s {
             IBDState::In => true,
             IBDState::Out => false,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::HeaderView;
-    use ckb_types::{
-        core::{BlockNumber, HeaderBuilder},
-        packed::Byte32,
-        prelude::*,
-        U256,
-    };
-    use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, HashMap};
-
-    const SKIPLIST_LENGTH: u64 = 10_000;
-
-    #[test]
-    fn test_get_ancestor_use_skip_list() {
-        let mut header_map: HashMap<Byte32, HeaderView> = HashMap::default();
-        let mut hashes: BTreeMap<BlockNumber, Byte32> = BTreeMap::default();
-
-        let mut parent_hash = None;
-        for number in 0..SKIPLIST_LENGTH {
-            let mut header_builder = HeaderBuilder::default().number(number.pack());
-            if let Some(parent_hash) = parent_hash.take() {
-                header_builder = header_builder.parent_hash(parent_hash);
-            }
-            let header = header_builder.build();
-            hashes.insert(number, header.hash());
-            parent_hash = Some(header.hash());
-
-            let mut view = HeaderView::new(header, U256::zero());
-            view.build_skip(0, |hash, _| header_map.get(hash).cloned(), |_, _| None);
-            header_map.insert(view.hash(), view);
-        }
-
-        for (number, hash) in &hashes {
-            if *number > 0 {
-                let skip_view = header_map
-                    .get(hash)
-                    .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
-                    .unwrap();
-                assert_eq!(
-                    Some(skip_view.hash()).as_ref(),
-                    hashes.get(&skip_view.number())
-                );
-                assert!(skip_view.number() < *number);
-            } else {
-                assert!(header_map[hash].skip_hash.is_none());
-            }
-        }
-
-        let mut rng = thread_rng();
-        let a_to_b = |a, b, limit| {
-            let mut count = 0;
-            let header = header_map
-                .get(&hashes[&a])
-                .cloned()
-                .unwrap()
-                .get_ancestor(
-                    0,
-                    b,
-                    |hash, _| {
-                        count += 1;
-                        header_map.get(hash).cloned()
-                    },
-                    |_, _| None,
-                )
-                .unwrap();
-
-            // Search must finished in <limit> steps
-            assert!(count <= limit);
-
-            header
-        };
-        for _ in 0..100 {
-            let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
-            let to: u64 = rng.gen_range(0, from + 1);
-            let view_from = &header_map[&hashes[&from]];
-            let view_to = &header_map[&hashes[&to]];
-            let view_0 = &header_map[&hashes[&0]];
-
-            let found_from_header = a_to_b(SKIPLIST_LENGTH - 1, from, 120);
-            assert_eq!(found_from_header.hash(), view_from.hash());
-
-            let found_to_header = a_to_b(from, to, 120);
-            assert_eq!(found_to_header.hash(), view_to.hash());
-
-            let found_0_header = a_to_b(from, 0, 120);
-            assert_eq!(found_0_header.hash(), view_0.hash());
         }
     }
 }

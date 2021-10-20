@@ -16,6 +16,7 @@ use std::collections::HashSet;
 /// Contains:
 /// - [`CellbaseVerifier`](./struct.CellbaseVerifier.html)
 /// - [`BlockBytesVerifier`](./struct.BlockBytesVerifier.html)
+/// - [`BlockExtensionVerifier`](./struct.BlockExtensionVerifier.html)
 /// - [`BlockProposalsLimitVerifier`](./struct.BlockProposalsLimitVerifier.html)
 /// - [`DuplicateVerifier`](./struct.DuplicateVerifier.html)
 /// - [`MerkleRootVerifier`](./struct.MerkleRootVerifier.html)
@@ -39,6 +40,7 @@ impl<'a> Verifier for BlockVerifier<'a> {
         let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
+        BlockExtensionVerifier::new(self.consensus).verify(target)?;
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
@@ -233,6 +235,59 @@ impl BlockBytesVerifier {
         } else {
             Err(BlockErrorKind::ExceededMaximumBlockBytes.into())
         }
+    }
+}
+
+/// BlockExtensionVerifier.
+///
+/// Check block extension.
+#[derive(Clone)]
+pub struct BlockExtensionVerifier<'a> {
+    consensus: &'a Consensus,
+}
+
+impl<'a> BlockExtensionVerifier<'a> {
+    pub fn new(consensus: &'a Consensus) -> Self {
+        BlockExtensionVerifier { consensus }
+    }
+
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
+        let epoch_number = block.epoch().number();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        let extra_fields_count = block.data().count_extra_fields();
+        let is_reuse_uncles_hash_as_extra_hash_enabled =
+            hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number);
+
+        if is_reuse_uncles_hash_as_extra_hash_enabled {
+            match extra_fields_count {
+                0 => {}
+                1 => {
+                    let extension = if let Some(data) = block.extension() {
+                        data
+                    } else {
+                        return Err(BlockErrorKind::UnknownFields.into());
+                    };
+                    if extension.is_empty() {
+                        return Err(BlockErrorKind::EmptyBlockExtension.into());
+                    }
+                    if extension.len() > 96 {
+                        return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
+                    }
+                }
+                _ => {
+                    return Err(BlockErrorKind::UnknownFields.into());
+                }
+            }
+        } else if extra_fields_count > 0 {
+            return Err(BlockErrorKind::UnknownFields.into());
+        }
+
+        let actual_extra_hash = block.calc_extra_hash().extra_hash();
+        if actual_extra_hash != block.extra_hash() {
+            return Err(BlockErrorKind::InvalidExtraHash.into());
+        }
+
+        Ok(())
     }
 }
 

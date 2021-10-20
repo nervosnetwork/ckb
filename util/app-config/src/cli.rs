@@ -3,6 +3,8 @@ use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
+pub(crate) const BIN_NAME: &str = "ckb";
+
 /// Subcommand `run`.
 pub const CMD_RUN: &str = "run";
 /// Subcommand `miner`.
@@ -112,8 +114,8 @@ pub const ARG_MIGRATE_CHECK: &str = "check";
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
 
-fn basic_app<'b>() -> App<'static, 'b> {
-    App::new("ckb")
+pub(crate) fn basic_app<'b>() -> App<'static, 'b> {
+    App::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -144,11 +146,15 @@ fn basic_app<'b>() -> App<'static, 'b> {
 /// Parse the command line arguments by supplying the version information.
 ///
 /// The version is used to generate the help message and output for `--version`.
-pub fn get_matches(version: &Version) -> ArgMatches<'static> {
-    basic_app()
+pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches<'static>) {
+    let bin_name = std::env::args()
+        .next()
+        .unwrap_or_else(|| BIN_NAME.to_owned());
+    let matches = basic_app()
         .version(version.short().as_str())
         .long_version(version.long().as_str())
-        .get_matches()
+        .get_matches();
+    (bin_name, matches)
 }
 
 fn run() -> App<'static, 'static> {
@@ -178,9 +184,8 @@ fn run() -> App<'static, 'static> {
             \
             It should be noted that when this option is enabled, the header is first synchronized to \
             the highest currently found. During this period, if the assume valid target is found, \
-            the download of the block starts; \
-            If the timestamp of the best known header is already within 24 hours of the current time
-            and the assume valid target is not found, the target will automatically become invalid,
+            the download of the block starts; If the assume valid target is not found or it's \
+            timestamp within 24 hours of the current time, the target will automatically become invalid, \
             and the download of the block will be started with verify")
     )
 }
@@ -446,7 +451,7 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_BA_HASH_TYPE)
                 .value_name("hash_type")
                 .takes_value(true)
-                .possible_values(&["data", "type"])
+                .possible_values(&["data", "type", "data1"])
                 .default_value("type")
                 .help("Sets hash type in [block_assembler]"),
         )
@@ -535,81 +540,5 @@ fn is_hex(hex: String) -> Result<(), String> {
         Ok(())
     } else {
         Err("Must 0x-prefixed hexadecimal string".to_string())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ba_message_requires_ba_arg_or_ba_code_hash() {
-        let ok_ba_arg = basic_app().get_matches_from_safe(&[
-            "ckb",
-            "init",
-            "--ba-message",
-            "0x00",
-            "--ba-arg",
-            "0x00",
-        ]);
-        let ok_ba_code_hash = basic_app().get_matches_from_safe(&[
-            "ckb",
-            "init",
-            "--ba-message",
-            "0x00",
-            "--ba-code-hash",
-            "0x00",
-        ]);
-        let err = basic_app().get_matches_from_safe(&["ckb", "init", "--ba-message", "0x00"]);
-
-        assert!(
-            ok_ba_arg.is_ok(),
-            "--ba-message is ok with --ba-arg, but gets error: {:?}",
-            ok_ba_arg.err()
-        );
-        assert!(
-            ok_ba_code_hash.is_ok(),
-            "--ba-message is ok with --ba-code-hash, but gets error: {:?}",
-            ok_ba_code_hash.err()
-        );
-        assert!(
-            err.is_err(),
-            "--ba-message requires --ba-arg or --ba-code-hash"
-        );
-
-        let err = err.err().unwrap();
-        assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind);
-        assert!(err
-            .message
-            .contains("The following required arguments were not provided"));
-        assert!(err.message.contains("--ba-arg"));
-        assert!(err.message.contains("--ba-code-hash"));
-    }
-
-    #[test]
-    fn ba_arg_and_ba_code_hash() {
-        let ok_matches = basic_app().get_matches_from_safe(&[
-            "ckb",
-            "init",
-            "--ba-code-hash",
-            "0x00",
-            "--ba-arg",
-            "0x00",
-        ]);
-        assert!(
-            ok_matches.is_ok(),
-            "--ba-code-hash is OK with --ba-arg, but gets error: {:?}",
-            ok_matches.err()
-        );
-    }
-
-    #[test]
-    fn ba_advanced() {
-        let matches = basic_app()
-            .get_matches_from_safe(&["ckb", "run", "--ba-advanced"])
-            .unwrap();
-        let sub_matches = matches.subcommand().1.unwrap();
-
-        assert_eq!(1, sub_matches.occurrences_of(ARG_BA_ADVANCED));
     }
 }

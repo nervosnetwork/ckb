@@ -77,10 +77,19 @@ fn main() {
             ..Default::default()
         };
         if let Some(log_file) = log_file_opt {
-            if log_file.is_relative() {
-                logger_config.log_dir = current_dir();
-            }
-            logger_config.file = log_file;
+            let full_log_file = if log_file.is_relative() {
+                current_dir().join(log_file)
+            } else {
+                log_file
+            };
+            logger_config.file = full_log_file
+                .file_name()
+                .map(|name| Path::new(name).to_path_buf())
+                .unwrap_or_else(|| panic!("failed to get the filename for log_file"));
+            logger_config.log_dir = full_log_file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| panic!("failed to get the parent path for log_file"));
             logger_config.log_to_file = true;
         } else {
             logger_config.log_to_file = false;
@@ -382,6 +391,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TemplateSizeLimit),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
+        #[cfg(not(target_os = "windows"))]
+        Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
         // TODO failed on poor CI server
@@ -400,6 +411,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
+        Box::new(NotifyLargeCyclesTx::new()),
+        Box::new(LoadProgramFailedTx::new()),
         Box::new(TxsRelayOrder),
         Box::new(SendTxChain),
         Box::new(DifferentTxsWithSameInput),
@@ -446,7 +459,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(WhitelistOnSessionLimit),
         // Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
-        Box::new(InsufficientReward),
+        // Box::new(InsufficientReward),
         Box::new(UncleInheritFromForkBlock),
         Box::new(UncleInheritFromForkUncle),
         Box::new(PackUnclesIntoEpochStarting),
@@ -488,12 +501,19 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
-        Box::new(DuplicateCellDeps),
         Box::new(HeaderSyncCycle),
         Box::new(InboundSync),
         Box::new(OutboundSync),
         Box::new(InboundMinedDuringSync),
         Box::new(OutboundMinedDuringSync),
+        // Test hard fork features
+        Box::new(CheckCellDeps),
+        Box::new(CheckAbsoluteEpochSince),
+        Box::new(CheckRelativeEpochSince),
+        Box::new(CheckBlockExtension),
+        Box::new(CheckVmVersion),
+        Box::new(CheckVmBExtension),
+        Box::new(ImmatureHeaderDeps),
     ];
     specs.shuffle(&mut thread_rng());
     specs
