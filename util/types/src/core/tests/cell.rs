@@ -147,10 +147,12 @@ fn resolve_transaction_should_resolve_dep_group() {
     )
     .unwrap();
 
-    assert_eq!(result.resolved_cell_deps.len(), 3);
-    assert_eq!(result.resolved_cell_deps[0].out_point, op_1);
-    assert_eq!(result.resolved_cell_deps[1].out_point, op_2);
-    assert_eq!(result.resolved_cell_deps[2].out_point, op_3);
+    let resolved_cell_deps = result.all_cell_deps();
+
+    assert_eq!(resolved_cell_deps.len(), 3);
+    assert_eq!(resolved_cell_deps[0].out_point, op_1);
+    assert_eq!(resolved_cell_deps[1].out_point, op_2);
+    assert_eq!(resolved_cell_deps[2].out_point, op_3);
 }
 
 #[test]
@@ -352,7 +354,7 @@ fn resolve_transaction_should_allow_dep_cell_in_current_tx_input() {
     let mut seen_inputs = HashSet::new();
     let rtx = resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker).unwrap();
 
-    assert_eq!(rtx.resolved_cell_deps[0], dummy_cell_meta,);
+    assert_eq!(rtx.all_cell_deps()[0], dummy_cell_meta,);
 }
 
 #[test]

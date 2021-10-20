@@ -11,6 +11,7 @@ use ckb_db::{
     DBPinnableSlice, RocksDB,
 };
 use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
@@ -160,7 +161,7 @@ impl ChainDB {
             txs_fees: vec![],
         };
 
-        attach_block_cell(&db_txn, &genesis)?;
+        attach_block_cell(&db_txn, &genesis, &mut DepGroupCache::new())?;
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;

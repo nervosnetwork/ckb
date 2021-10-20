@@ -39,6 +39,7 @@ ckb-freezer = { path = "../../freezer", version = "= 0.100.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.100.0-pre" }
 ckb-snapshot = { path = "../snapshot", version = "= 0.100.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.100.0-pre" }
+ckb-dep-group-cache = { path = "../dep-group-cache", version = "= 0.100.0-pre" }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.100.0-pre" }
 p2p = { version="0.4.0-alpha.1", package="tentacle" }
 num_cpus = "1.10"

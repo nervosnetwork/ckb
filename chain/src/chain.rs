@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 
 use ckb_channel::{self as channel, select, Sender};
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_metrics::{metrics, Timer};
@@ -277,6 +278,7 @@ impl ChainService {
     // Use for testing only
     pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
         let snapshot = Arc::clone(&self.shared.snapshot());
+        let mut dep_group_cache = snapshot.cloned_dep_group_cache();
         assert!(snapshot.is_main_chain(target_tip_hash));
 
         let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
@@ -289,7 +291,7 @@ impl ChainService {
         let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
 
         let db_txn = self.shared.store().begin_transaction();
-        self.rollback(&fork, &db_txn)?;
+        self.rollback(&fork, &db_txn, &mut dep_group_cache)?;
 
         db_txn.insert_tip_header(&target_tip_header)?;
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
@@ -310,6 +312,7 @@ impl ChainService {
             target_block_ext.total_difficulty,
             target_epoch_ext,
             new_proposals,
+            dep_group_cache,
         );
 
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
@@ -419,6 +422,7 @@ impl ChainService {
         }
 
         let shared_snapshot = Arc::clone(&self.shared.snapshot());
+        let mut dep_group_cache = shared_snapshot.cloned_dep_group_cache();
         let origin_proposals = shared_snapshot.proposals();
         let current_tip_header = shared_snapshot.tip_header();
 
@@ -439,11 +443,11 @@ impl ChainService {
                 &cannon_total_difficulty - &current_total_difficulty
             );
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
-            self.rollback(&fork, &db_txn)?;
+            self.rollback(&fork, &db_txn, &mut dep_group_cache)?;
 
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
+            self.reconcile_main_chain(&db_txn, &mut fork, switch, &mut dep_group_cache)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -472,9 +476,13 @@ impl ChainService {
                 .finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
-            let new_snapshot =
-                self.shared
-                    .new_snapshot(tip_header, total_difficulty, epoch, new_proposals);
+            let new_snapshot = self.shared.new_snapshot(
+                tip_header,
+                total_difficulty,
+                epoch,
+                new_proposals,
+                dep_group_cache,
+            );
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
@@ -574,10 +582,15 @@ impl ChainService {
         }
     }
 
-    pub(crate) fn rollback(&self, fork: &ForkChanges, txn: &StoreTransaction) -> Result<(), Error> {
+    pub(crate) fn rollback(
+        &self,
+        fork: &ForkChanges,
+        txn: &StoreTransaction,
+        dep_group_cache: &mut DepGroupCache,
+    ) -> Result<(), Error> {
         for block in fork.detached_blocks().iter().rev() {
             txn.detach_block(block)?;
-            detach_block_cell(txn, block)?;
+            detach_block_cell(txn, block, dep_group_cache)?;
         }
         Ok(())
     }
@@ -709,13 +722,14 @@ impl ChainService {
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
         switch: Switch,
+        dep_group_cache: &mut DepGroupCache,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
             txn.attach_block(b)?;
-            attach_block_cell(txn, b)?;
+            attach_block_cell(txn, b, dep_group_cache)?;
         }
 
         let verify_context = VerifyContext::new(txn, self.shared.consensus());
@@ -778,7 +792,7 @@ impl ChainService {
                                     let txs_fees =
                                         cache_entries.into_iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
-                                    attach_block_cell(txn, b)?;
+                                    attach_block_cell(txn, b, dep_group_cache)?;
                                     let mut mut_ext = ext.clone();
                                     mut_ext.verified = Some(true);
                                     mut_ext.txs_fees = txs_fees;
@@ -822,7 +836,7 @@ impl ChainService {
                 }
             } else {
                 txn.attach_block(b)?;
-                attach_block_cell(txn, b)?;
+                attach_block_cell(txn, b, dep_group_cache)?;
                 let mut mut_ext = ext.clone();
                 mut_ext.verified = Some(true);
                 txn.insert_block_ext(&b.header().hash(), &mut_ext)?;

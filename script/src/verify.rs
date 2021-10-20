@@ -129,6 +129,8 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
+
+    resolved_cell_deps: Vec<CellMeta>,
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
@@ -145,7 +147,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         tx_env: &'a TxVerifyEnv,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
-        let resolved_cell_deps = &rtx.resolved_cell_deps;
+        let resolved_cell_deps = rtx.resolved_cell_deps().cloned().collect::<Vec<_>>();
         let resolved_inputs = &rtx.resolved_inputs;
         let outputs = rtx
             .transaction
@@ -170,7 +172,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         let mut binaries_by_data_hash: HashMap<Byte32, LazyData> = HashMap::default();
         let mut binaries_by_type_hash: HashMap<Byte32, Binaries> = HashMap::default();
-        for cell_meta in resolved_cell_deps {
+        for cell_meta in &resolved_cell_deps {
             let data_hash = data_loader
                 .load_cell_data_hash(cell_meta)
                 .expect("cell data hash");
@@ -217,6 +219,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             tx_env,
             binaries_by_data_hash,
             binaries_by_type_hash,
+            resolved_cell_deps,
             outputs,
             rtx,
             lock_groups,
@@ -261,7 +264,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.resolved_cell_deps
     }
 
     #[inline]

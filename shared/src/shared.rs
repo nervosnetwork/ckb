@@ -9,6 +9,7 @@ use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::{AnyError, Error};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
@@ -313,6 +314,7 @@ impl Shared {
         total_difficulty: U256,
         epoch_ext: EpochExt,
         proposals: ProposalView,
+        dep_group_cache: DepGroupCache,
     ) -> Arc<Snapshot> {
         Arc::new(Snapshot::new(
             tip_header,
@@ -321,6 +323,7 @@ impl Shared {
             self.store.get_snapshot(),
             proposals,
             Arc::clone(&self.consensus),
+            dep_group_cache,
         ))
     }
 

@@ -15,8 +15,8 @@ use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::convert::TryInto;
-use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::{fmt, iter};
 
 /// TODO(doc): @quake
 #[derive(Debug)]
@@ -212,7 +212,7 @@ pub struct ResolvedTransaction {
     /// TODO(doc): @quake
     pub resolved_inputs: Vec<CellMeta>,
     /// TODO(doc): @quake
-    pub resolved_dep_groups: Vec<CellMeta>,
+    pub resolved_dep_groups: Vec<(CellMeta, Vec<CellMeta>)>,
 }
 
 impl Hash for ResolvedTransaction {
@@ -266,11 +266,12 @@ impl ResolvedTransaction {
                 .into_iter()
                 .filter_map(|dep| {
                     if dep.dep_type() == DepType::DepGroup.into() {
-                        Some(
+                        Some((
                             CellMetaBuilder::default()
                                 .out_point(dep.out_point())
                                 .build(),
-                        )
+                            vec![],
+                        ))
                     } else {
                         None
                     }
@@ -299,12 +300,23 @@ impl ResolvedTransaction {
         self.transaction.outputs_capacity()
     }
 
+    pub fn resolved_cell_deps(&self) -> impl Iterator<Item = &CellMeta> {
+        self.resolved_cell_deps.iter().chain(
+            self.resolved_dep_groups
+                .iter()
+                .map(|g| g.1.iter())
+                .flatten(),
+        )
+    }
+
     /// TODO(doc): @quake
     pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
-        self.resolved_cell_deps
-            .iter()
-            .map(|d| &d.out_point)
-            .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
+        self.resolved_cell_deps.iter().map(|d| &d.out_point).chain(
+            self.resolved_dep_groups
+                .iter()
+                .map(|g| iter::once(&g.0.out_point).chain(g.1.iter().map(|meta| &meta.out_point)))
+                .flatten(),
+        )
     }
 
     /// Check if all inputs and deps are still valid
@@ -340,19 +352,25 @@ impl ResolvedTransaction {
             check_cell(&cell_meta.out_point)?;
         }
 
-        let mut resolved_system_deps: HashSet<&OutPoint> = HashSet::new();
+        // let mut resolved_system_deps: HashSet<&OutPoint> = HashSet::new();
         if let Some(system_cell) = SYSTEM_CELL.get() {
-            for cell_meta in &self.resolved_dep_groups {
+            for (cell_meta, subs) in &self.resolved_dep_groups {
                 let cell_dep = CellDep::new_builder()
                     .out_point(cell_meta.out_point.clone())
                     .dep_type(DepType::DepGroup.into())
                     .build();
 
-                let dep_group = system_cell.get(&cell_dep);
-                if let Some(ResolvedDep::Group(_, cell_deps)) = dep_group {
-                    resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
+                if let Some(_) = system_cell.get(&cell_dep) {
+                    // resolved_system_deps.extend(cell_deps.iter().map(|dep| &dep.out_point));
                 } else {
-                    check_cell(&cell_meta.out_point)?;
+                    if let Some(_) = cell_checker.is_dep_group_live(&cell_meta.out_point) {
+                    } else {
+                        check_cell(&cell_meta.out_point)?;
+
+                        for sub in subs {
+                            check_cell(&sub.out_point)?;
+                        }
+                    }
                 }
             }
 
@@ -362,19 +380,24 @@ impl ResolvedTransaction {
                     .dep_type(DepType::Code.into())
                     .build();
 
-                if system_cell.get(&cell_dep).is_none()
-                    && !resolved_system_deps.contains(&cell_meta.out_point)
-                {
+                if system_cell.get(&cell_dep).is_none() {
                     check_cell(&cell_meta.out_point)?;
                 }
             }
         } else {
-            for cell_meta in self
-                .resolved_cell_deps
-                .iter()
-                .chain(self.resolved_dep_groups.iter())
-            {
+            for cell_meta in &self.resolved_cell_deps {
                 check_cell(&cell_meta.out_point)?;
+            }
+
+            for (group, subs) in &self.resolved_dep_groups {
+                if let Some(_) = cell_checker.is_dep_group_live(&group.out_point) {
+                } else {
+                    check_cell(&group.out_point)?;
+
+                    for sub in subs {
+                        check_cell(&sub.out_point)?;
+                    }
+                }
             }
         }
 
@@ -398,6 +421,10 @@ impl ResolvedTransaction {
 pub trait CellChecker {
     /// Returns true if the cell is live corresponding to specified out_point.
     fn is_live(&self, out_point: &OutPoint) -> Option<bool>;
+
+    fn is_dep_group_live(&self, out_point: &OutPoint) -> Option<bool> {
+        None
+    }
 }
 
 /// Overlay cell checker wrapper
@@ -430,12 +457,24 @@ where
             .is_live(out_point)
             .or_else(|| self.cell_checker.is_live(out_point))
     }
+
+    fn is_dep_group_live(&self, out_point: &OutPoint) -> Option<bool> {
+        self.overlay
+            .is_dep_group_live(out_point)
+            .or_else(|| self.cell_checker.is_dep_group_live(out_point))
+    }
 }
 
 /// TODO(doc): @quake
 pub trait CellProvider {
     /// TODO(doc): @quake
     fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus;
+
+    fn resolve_dep_group(&self, out_point: &OutPoint) -> Option<(CellMeta, Vec<CellMeta>)> {
+        None
+    }
+
+    fn update_dep_group(&self, out_point: OutPoint, resolved: (CellMeta, Vec<CellMeta>)) {}
 }
 
 /// TODO(doc): @quake
@@ -469,6 +508,16 @@ where
             CellStatus::Dead => CellStatus::Dead,
             CellStatus::Unknown => self.cell_provider.cell(out_point, eager_load),
         }
+    }
+
+    fn resolve_dep_group(&self, out_point: &OutPoint) -> Option<(CellMeta, Vec<CellMeta>)> {
+        self.overlay
+            .resolve_dep_group(out_point)
+            .or_else(|| self.cell_provider.resolve_dep_group(out_point))
+    }
+
+    fn update_dep_group(&self, out_point: OutPoint, resolved: (CellMeta, Vec<CellMeta>)) {
+        self.cell_provider.update_dep_group(out_point, resolved)
     }
 }
 
@@ -825,6 +874,7 @@ pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: 
 
     resolve_transaction_deps_with_system_cell_cache(
         &transaction,
+        cell_provider,
         &mut resolve_cell,
         &mut resolved_cell_deps,
         &mut resolved_dep_groups,
@@ -852,11 +902,13 @@ pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: 
 
 fn resolve_transaction_deps_with_system_cell_cache<
     F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>,
+    CP: CellProvider,
 >(
     transaction: &TransactionView,
+    cell_provider: &CP,
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
-    resolved_dep_groups: &mut Vec<CellMeta>,
+    resolved_dep_groups: &mut Vec<(CellMeta, Vec<CellMeta>)>,
     resolve_opts: &ResolveOptions,
 ) -> Result<(), OutPointError> {
     // - If the dep expansion count of the transaction is not over the `MAX_DEP_EXPANSION_LIMIT`,
@@ -891,8 +943,8 @@ fn resolve_transaction_deps_with_system_cell_cache<
                             .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
                     }
                     ResolvedDep::Group(dep_group, cell_deps) => {
-                        resolved_dep_groups.push(dep_group.clone());
-                        resolved_cell_deps.extend(cell_deps.clone());
+                        resolved_dep_groups.push((dep_group.clone(), cell_deps.clone()));
+                        // resolved_cell_deps.extend(cell_deps.clone());
                         remaining_dep_slots = remaining_dep_slots
                             .checked_sub(cell_deps.len())
                             .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
@@ -901,6 +953,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
             } else {
                 resolve_transaction_dep(
                     &cell_dep,
+                    cell_provider,
                     cell_resolver,
                     resolved_cell_deps,
                     resolved_dep_groups,
@@ -914,6 +967,7 @@ fn resolve_transaction_deps_with_system_cell_cache<
         for cell_dep in transaction.cell_deps_iter() {
             resolve_transaction_dep(
                 &cell_dep,
+                cell_provider,
                 cell_resolver,
                 resolved_cell_deps,
                 resolved_dep_groups,
@@ -926,11 +980,15 @@ fn resolve_transaction_deps_with_system_cell_cache<
     Ok(())
 }
 
-fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(
+fn resolve_transaction_dep<
+    F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>,
+    CP: CellProvider,
+>(
     cell_dep: &CellDep,
+    cell_provider: &CP,
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
-    resolved_dep_groups: &mut Vec<CellMeta>,
+    resolved_dep_groups: &mut Vec<(CellMeta, Vec<CellMeta>)>,
     eager_load: bool,
     remaining_dep_slots: &mut usize,
     resolve_opts: &ResolveOptions,
@@ -938,22 +996,33 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     let ban = resolve_opts.if_disallow_over_max_dep_expansion_limit();
     if cell_dep.dep_type() == DepType::DepGroup.into() {
         let outpoint = cell_dep.out_point();
+
+        if let Some((dep_group, cell_deps)) = cell_provider.resolve_dep_group(&outpoint) {
+            // resolved_cell_deps.extend(cell_deps);
+            resolved_dep_groups.push((dep_group, cell_deps));
+            return Ok(());
+        }
+
         let dep_group = cell_resolver(&outpoint, true)?;
         let data = dep_group
             .mem_cell_data
             .as_ref()
             .expect("Load cell meta must with data");
-        let sub_out_points =
-            parse_dep_group_data(data).map_err(|_| OutPointError::InvalidDepGroup(outpoint))?;
+        let sub_out_points = parse_dep_group_data(data)
+            .map_err(|_| OutPointError::InvalidDepGroup(outpoint.clone()))?;
 
         *remaining_dep_slots = remaining_dep_slots
             .checked_sub(sub_out_points.len())
             .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
 
-        for sub_out_point in sub_out_points.into_iter() {
-            resolved_cell_deps.push(cell_resolver(&sub_out_point, eager_load)?);
-        }
-        resolved_dep_groups.push(dep_group);
+        let sub_deps = sub_out_points
+            .into_iter()
+            .map(|sub_out_point| cell_resolver(&sub_out_point, eager_load))
+            .collect::<Result<Vec<_>, OutPointError>>()?;
+
+        cell_provider.update_dep_group(outpoint, (dep_group.clone(), sub_deps.clone()));
+        // resolved_cell_deps.extend(sub_deps);
+        resolved_dep_groups.push((dep_group, sub_deps));
     } else {
         *remaining_dep_slots = remaining_dep_slots
             .checked_sub(1)

@@ -191,6 +191,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bitmaps"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031043d04099746d8db04daf1fa424b2bc8bd69d92b25962dcde24da39ab64a2"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
 name = "bitvec"
 version = "0.19.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -520,6 +529,7 @@ dependencies = [
  "ckb-channel",
  "ckb-dao",
  "ckb-dao-utils",
+ "ckb-dep-group-cache",
  "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-launcher",
@@ -649,6 +659,14 @@ name = "ckb-db-schema"
 version = "0.100.0-pre"
 
 [[package]]
+name = "ckb-dep-group-cache"
+version = "0.100.0-pre"
+dependencies = [
+ "ckb-types",
+ "im",
+]
+
+[[package]]
 name = "ckb-error"
 version = "0.100.0-pre"
 dependencies = [
@@ -749,6 +767,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-migration",
  "ckb-db-schema",
+ "ckb-dep-group-cache",
  "ckb-error",
  "ckb-freezer",
  "ckb-jsonrpc-types",
@@ -1160,6 +1179,7 @@ dependencies = [
  "ckb-constant",
  "ckb-db",
  "ckb-db-schema",
+ "ckb-dep-group-cache",
  "ckb-error",
  "ckb-logger",
  "ckb-notify",
@@ -1182,6 +1202,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-schema",
+ "ckb-dep-group-cache",
  "ckb-error",
  "ckb-freezer",
  "ckb-proposal-table",
@@ -1189,6 +1210,7 @@ dependencies = [
  "ckb-store",
  "ckb-traits",
  "ckb-types",
+ "ckb-util",
 ]
 
 [[package]]
@@ -1213,6 +1235,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-schema",
+ "ckb-dep-group-cache",
  "ckb-error",
  "ckb-freezer",
  "ckb-traits",
@@ -2399,6 +2422,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "im"
+version = "15.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "111c1983f3c5bb72732df25cddacee9b546d08325fb584b5ebd38148be7b0246"
+dependencies = [
+ "bitmaps",
+ "rand_core 0.5.1",
+ "rand_xoshiro",
+ "sized-chunks",
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "includedir"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3573,6 +3610,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_xoshiro"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9fcdd2e881d02f1d9390ae47ad8e5696a9e4be7b547a1da2afbc61973217004"
+dependencies = [
+ "rand_core 0.5.1",
+]
+
+[[package]]
 name = "rayon"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4055,6 +4101,16 @@ name = "siphasher"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbce6d4507c7e4a3962091436e56e95290cb71fa302d0d270e32130b75fbff27"
+
+[[package]]
+name = "sized-chunks"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16d69225bde7a69b235da73377861095455d298f2b970996eec25ddbb42b3d1e"
+dependencies = [
+ "bitmaps",
+ "typenum",
+]
 
 [[package]]
 name = "slab"

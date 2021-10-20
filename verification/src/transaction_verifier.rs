@@ -523,8 +523,7 @@ impl<'a> MaturityVerifier<'a> {
 
         if let Some(index) = self
             .transaction
-            .resolved_cell_deps
-            .iter()
+            .resolved_cell_deps()
             .position(cellbase_immature)
         {
             return Err(TransactionError::CellbaseImmaturity {

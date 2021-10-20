@@ -11,6 +11,7 @@ use ckb_chain_spec::SpecError;
 use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_logger::{error, info};
@@ -267,6 +268,7 @@ impl SharedBuilder {
             .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
+        let dep_group_cache = DepGroupCache::new();
 
         let snapshot = Snapshot::new(
             tip_header,
@@ -275,6 +277,7 @@ impl SharedBuilder {
             store.get_snapshot(),
             proposal_view,
             consensus,
+            dep_group_cache,
         );
 
         Ok((snapshot, proposal_table))

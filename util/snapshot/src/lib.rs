@@ -7,12 +7,14 @@ use ckb_db::{
     DBPinnableSlice,
 };
 use ckb_db_schema::Col;
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::HeaderProvider;
+use ckb_types::core::cell::CellMeta;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
@@ -22,6 +24,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint, Script},
     U256,
 };
+use ckb_util::RwLock;
 use std::sync::Arc;
 
 /// An Atomic wrapper for Snapshot
@@ -62,6 +65,7 @@ pub struct Snapshot {
     store: StoreSnapshot,
     proposals: ProposalView,
     consensus: Arc<Consensus>,
+    dep_group_cache: RwLock<DepGroupCache>,
 }
 
 impl Snapshot {
@@ -73,6 +77,7 @@ impl Snapshot {
         store: StoreSnapshot,
         proposals: ProposalView,
         consensus: Arc<Consensus>,
+        dep_group_cache: DepGroupCache,
     ) -> Snapshot {
         Snapshot {
             tip_header,
@@ -81,6 +86,7 @@ impl Snapshot {
             store,
             proposals,
             consensus,
+            dep_group_cache: RwLock::new(dep_group_cache),
         }
     }
 
@@ -95,6 +101,7 @@ impl Snapshot {
             epoch_ext: self.epoch_ext.clone(),
             proposals: self.proposals.clone(),
             consensus: Arc::clone(&self.consensus),
+            dep_group_cache: RwLock::new(self.cloned_dep_group_cache()),
         }
     }
 
@@ -126,6 +133,10 @@ impl Snapshot {
     /// Makes a clone of the `Arc<Consensus>`
     pub fn cloned_consensus(&self) -> Arc<Consensus> {
         Arc::clone(&self.consensus)
+    }
+
+    pub fn cloned_dep_group_cache(&self) -> DepGroupCache {
+        self.dep_group_cache.read().clone()
     }
 
     /// Return reference of proposals view
@@ -189,6 +200,14 @@ impl CellProvider for Snapshot {
             }
             None => CellStatus::Unknown,
         }
+    }
+
+    fn resolve_dep_group(&self, out_point: &OutPoint) -> Option<(CellMeta, Vec<CellMeta>)> {
+        self.dep_group_cache.read().get(out_point)
+    }
+
+    fn update_dep_group(&self, out_point: OutPoint, resolved: (CellMeta, Vec<CellMeta>)) {
+        self.dep_group_cache.write().insert(out_point, resolved)
     }
 }
 

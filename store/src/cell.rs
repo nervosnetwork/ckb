@@ -1,4 +1,5 @@
 use crate::{ChainStore, StoreTransaction};
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::Error;
 use ckb_types::{core::BlockView, packed, prelude::*};
 use std::collections::HashMap;
@@ -23,7 +24,11 @@ use std::collections::HashMap;
  */
 
 // Apply the effects of this block on the live cell set.
-pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
+pub fn attach_block_cell(
+    txn: &StoreTransaction,
+    block: &BlockView,
+    dep_group_cache: &mut DepGroupCache,
+) -> Result<(), Error> {
     let transactions = block.transactions();
 
     // add new live cells
@@ -78,13 +83,17 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
         .skip(1)
         .map(|tx| tx.input_pts_iter())
         .flatten();
-    txn.delete_cells(deads)?;
+    txn.delete_cells(deads, dep_group_cache)?;
 
     Ok(())
 }
 
 /// Undoes the effects of this block on the live cell set.
-pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
+pub fn detach_block_cell(
+    txn: &StoreTransaction,
+    block: &BlockView,
+    dep_group_cache: &mut DepGroupCache,
+) -> Result<(), Error> {
     let transactions = block.transactions();
     let mut input_pts = HashMap::with_capacity(transactions.len());
 
@@ -147,7 +156,7 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
 
     // undo live cells
     let undo_cells = transactions.iter().map(|tx| tx.output_pts_iter()).flatten();
-    txn.delete_cells(undo_cells)?;
+    txn.delete_cells(undo_cells, dep_group_cache)?;
 
     Ok(())
 }

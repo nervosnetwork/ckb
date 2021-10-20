@@ -11,6 +11,7 @@ use ckb_db_schema::{
     COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
     META_TIP_HEADER_KEY,
 };
+use ckb_dep_group_cache::DepGroupCache;
 use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -329,12 +330,14 @@ impl StoreTransaction {
     pub fn delete_cells(
         &self,
         out_points: impl Iterator<Item = packed::OutPoint>,
+        dep_group_cache: &mut DepGroupCache,
     ) -> Result<(), Error> {
         for out_point in out_points {
             let key = out_point.to_cell_key();
             self.delete(COLUMN_CELL, &key)?;
             self.delete(COLUMN_CELL_DATA, &key)?;
             self.delete(COLUMN_CELL_DATA_HASH, &key)?;
+            dep_group_cache.remove(&out_point);
         }
         Ok(())
     }
