@@ -2,7 +2,7 @@ use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::utils::send_message_to;
-use crate::{attempt, Status, StatusCode};
+use crate::{attempt, block_status::BlockStatus, Status, StatusCode};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use std::collections::hash_map::Entry;
@@ -47,6 +47,18 @@ impl<'a> BlockTransactionsProcess<'a> {
         let active_chain = shared.active_chain();
         let block_transactions = self.message.to_entity();
         let block_hash = block_transactions.block_hash();
+
+        shared
+            .state()
+            .write_inflight_blocks()
+            .remove_compact_by_peer(self.peer, &block_hash);
+
+        // if this block has already been inserted into the chain, it can be quick return
+        if active_chain.contains_block_status(&block_hash, BlockStatus::BLOCK_STORED) {
+            shared.state().pending_compact_blocks().remove(&block_hash);
+            return Status::ignored();
+        }
+
         let received_transactions: Vec<core::TransactionView> = block_transactions
             .transactions()
             .into_iter()
@@ -61,14 +73,6 @@ impl<'a> BlockTransactionsProcess<'a> {
         let missing_transactions: Vec<u32>;
         let missing_uncles: Vec<u32>;
         let mut collision = false;
-
-        {
-            self.relayer
-                .shared
-                .state()
-                .write_inflight_blocks()
-                .remove_compact_by_peer(self.peer, &block_hash);
-        }
 
         if let Entry::Occupied(mut pending) = shared
             .state()
