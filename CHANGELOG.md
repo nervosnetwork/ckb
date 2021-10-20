@@ -1,4 +1,38 @@
-# [v0.100.0](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
+# [v0.101.0](https://github.com/nervosnetwork/ckb/compare/v0.100.0...v0.101.0) (2021-10-20)
+
+### Features
+
+* #2989: Cleanup expired blocks in orphan block (@chanhsu001)
+* #2979: Remove conflict pending for reorg (@zhangsoledad)
+* #3029 **rpc:** Record recent reject (@zhangsoledad)
+* #3113 **fork:** Activate ckb2021 in testnet since epoch 3113 (@doitian)
+* #3095: Remove invalid header dep tx for reorg (@zhangsoledad)
+* #3100: Tx-pool entry timestamp (@zhangsoledad)
+
+### Bug Fixes
+
+* #2984: Tx-pool snapshot consistency (@zhangsoledad)
+* #3052: Fix identify disconnect (@driftluo)
+* #3058: Ignore proposal window on vm version selection (@driftluo)
+* #3068: Block-template test (@zhangsoledad)
+* #3059: Graceful shutdown (@zhangsoledad)
+* #3079: Don't use cache if tx-pool does re-org process during hardfork (@yangby-cryptape)
+* #3077: Fix declared cycles check (@zhangsoledad)
+* #3055: Resolve rpc `calculate_dao_maximum_withdraw` issue (@quake)
+* #3090: Tx-pool refreshes caches with the incorrect VM version after hardfork (@yangby-cryptape)
+* #3094: Fix inflight block potential memory bloat issues (@driftluo)
+* #3093: Resolve inflight proposals memory bloat issue (@quake)
+* #3110: Fix pending compact block memory bloat on abnormal flow (@driftluo)
+
+### Improvements
+
+* #3023: Switch global alloc to tikv-jemallocator (@zhangsoledad)
+* #2914: Remove impl cell_provider on store (@zhangsoledad)
+* #3028 **rpc:** Change 'connected_duration' duration unit to milliseconds (@chanhsu001)
+
+    **BREAKING RPC**. Change field `connected_duration` time unit from seconds to **milliseconds** in `get_peers` RPC to make time unit  used  consistently in `get_peers` , RPC clients are suggested to modify time quantity correspond with this change.
+
+# [v0.100.0](https://github.com/nervosnetwork/ckb/compare/v0.43.2...v0.100.0) (2021-08-09)
 
 This version contains the [fork features in ckb2021](https://github.com/nervosnetwork/rfcs/pull/242) which are disabled in testnet and mainnet.
 
