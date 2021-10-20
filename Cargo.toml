@@ -89,6 +89,7 @@ members = [
 
 [profile.release]
 overflow-checks = true
+panic = "abort"
 
 [profile.release.build-override]
 opt-level = 3
