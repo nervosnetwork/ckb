@@ -110,7 +110,7 @@ pub fn new_global_runtime() -> (Handle, StopHandler<()>) {
 
     (
         Handle { inner: handle },
-        StopHandler::new(SignalSender::Tokio(tx), Some(thread)),
+        StopHandler::new(SignalSender::Tokio(tx), Some(thread), "GT".to_string()),
     )
 }
 

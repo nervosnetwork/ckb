@@ -1,10 +1,14 @@
-use super::random_addr;
+use super::{random_addr, random_addr_v6};
 use crate::{
     extract_peer_id,
     multiaddr::Multiaddr,
-    peer_store::{PeerStore, Status, ADDR_COUNT_LIMIT, ADDR_TRY_TIMEOUT_MS},
+    peer_store::{
+        ban_list::CLEAR_INTERVAL_COUNTER, types::multiaddr_to_ip_network, PeerStore, Status,
+        ADDR_COUNT_LIMIT, ADDR_TRY_TIMEOUT_MS,
+    },
     Behaviour, PeerId, SessionType,
 };
+use std::collections::HashSet;
 
 #[test]
 fn test_add_connected_peer() {
@@ -31,8 +35,17 @@ fn test_add_addr() {
 #[test]
 fn test_report() {
     let mut peer_store: PeerStore = Default::default();
-    let addr = random_addr();
+    let addr = random_addr_v6();
+    peer_store.add_addr(addr.clone()).unwrap();
     assert!(peer_store.report(&addr, Behaviour::TestGood).is_ok());
+
+    for _ in 0..7 {
+        assert!(peer_store.report(&addr, Behaviour::TestBad).is_ok());
+    }
+
+    assert!(peer_store.report(&addr, Behaviour::TestBad).is_banned());
+    assert!(peer_store.add_addr(addr.clone()).is_ok());
+    assert!(peer_store.addr_manager().get(&addr).is_none())
 }
 
 #[test]
@@ -46,13 +59,44 @@ fn test_update_status() {
     );
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_ban_peer() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_connected_peer(addr.clone(), SessionType::Inbound);
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert!(peer_store.is_addr_banned(&addr));
+    peer_store
+        .mut_ban_list()
+        .unban_network(&multiaddr_to_ip_network(&addr).unwrap());
+    assert!(!peer_store.is_addr_banned(&addr));
+
+    let mut set = HashSet::with_capacity(CLEAR_INTERVAL_COUNTER);
+    for _ in 0..CLEAR_INTERVAL_COUNTER - 2 {
+        let addr: Multiaddr = loop {
+            let addr = std::net::Ipv4Addr::new(
+                rand::random(),
+                rand::random(),
+                rand::random(),
+                rand::random(),
+            );
+            if set.insert(addr) {
+                break Multiaddr::from(addr);
+            }
+        };
+        peer_store.ban_addr(&addr, 10_000, "no reason".into());
+    }
+
+    faketime::write_millis(&faketime_file, 30_000).expect("write millis");
+
+    // Cleanup will be performed every 1024 inserts
+    let addr = random_addr_v6();
+    peer_store.ban_addr(&addr, 10_000, "no reason".into());
+    assert_eq!(peer_store.ban_list().count(), 1)
 }
 
 #[cfg(not(disable_faketime))]
@@ -276,9 +320,7 @@ fn test_eviction() {
     .parse()
     .unwrap();
     peer_store.add_addr(addr).unwrap();
-    let addr: Multiaddr = format!("/ip4/239.0.0.1/tcp/43/p2p/{}", PeerId::random().to_base58())
-        .parse()
-        .unwrap();
+    let addr: Multiaddr = random_addr_v6();
     peer_store.add_addr(addr).unwrap();
 
     // this peer will be evict from peer store
@@ -322,13 +364,13 @@ fn test_eviction() {
 
     // In the absence of invalid nodes, too many nodes on the same network segment will be automatically evicted
     let new_peer_addr: Multiaddr =
-        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+        format!("/ip4/225.0.0.3/tcp/63/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
     peer_store.add_addr(new_peer_addr.clone()).unwrap();
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
     let new_peer_addr: Multiaddr =
-        format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+        format!("/ip4/225.0.0.3/tcp/59/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
     peer_store.add_addr(new_peer_addr.clone()).unwrap();

@@ -9,14 +9,14 @@ use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
-use ckb_error::Error;
+use ckb_error::{AnyError, Error};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{TokioRwLock, TxPoolController};
+use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
-    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView},
+    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
     U256,
@@ -111,7 +111,11 @@ impl Shared {
                 })
                 .expect("Start FreezerService failed");
 
-            let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(thread));
+            let stop = StopHandler::new(
+                SignalSender::Crossbeam(signal_sender),
+                Some(thread),
+                "freezer".to_string(),
+            );
             return Some(FreezerClose {
                 stopped: Arc::clone(&freezer.stopped),
                 stop,
@@ -353,5 +357,21 @@ impl Shared {
             self.ibd_finished.store(true, Ordering::Relaxed);
             false
         }
+    }
+
+    /// Generate and return block_template
+    pub fn get_block_template(
+        &self,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
+        max_version: Option<Version>,
+    ) -> Result<Result<BlockTemplate, AnyError>, AnyError> {
+        let snapshot = Arc::clone(&self.snapshot());
+        self.tx_pool_controller().get_block_template(
+            bytes_limit,
+            proposals_limit,
+            max_version.map(Into::into),
+            snapshot,
+        )
     }
 }

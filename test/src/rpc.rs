@@ -6,9 +6,9 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, Cycle, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
-    LocalNode, OutPoint, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
-    TransactionWithStatus, TxPoolInfo, Uint64, Version,
+    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
+    LocalNode, OutPoint, RawTxPool, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
+    TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -70,8 +70,19 @@ impl RpcClient {
     }
 
     pub fn get_transaction(&self, hash: Byte32) -> Option<TransactionWithStatus> {
+        // keep legacy mode
         self.inner
-            .get_transaction(hash.unpack())
+            .get_transaction(hash.unpack(), Some(0u32.into()))
+            .expect("rpc call get_transaction")
+    }
+
+    pub fn get_transaction_with_verbosity(
+        &self,
+        hash: Byte32,
+        verbosity: u32,
+    ) -> Option<TransactionWithStatus> {
+        self.inner
+            .get_transaction(hash.unpack(), Some(verbosity.into()))
             .expect("rpc call get_transaction")
     }
 
@@ -129,6 +140,12 @@ impl RpcClient {
             .expect("rpc call get_banned_addresses")
     }
 
+    pub fn clear_banned_addresses(&self) {
+        self.inner
+            .clear_banned_addresses()
+            .expect("rpc call clear_banned_addresses")
+    }
+
     pub fn set_ban(
         &self,
         address: String,
@@ -183,14 +200,16 @@ impl RpcClient {
             .send_transaction(tx, Some("passthrough".to_string()))
     }
 
+    pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool {
+        self.inner
+            .get_raw_tx_pool(verbose)
+            .expect("rpc call get_raw_tx_pool")
+    }
+
     pub fn dry_run_transaction(&self, tx: Transaction) -> DryRunResult {
         self.inner
             .dry_run_transaction(tx)
             .expect("rpc call dry_run_transaction")
-    }
-
-    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> Result<H256, AnyError> {
-        self.inner.broadcast_transaction(tx, cycles)
     }
 
     pub fn send_alert(&self, alert: Alert) {
@@ -277,7 +296,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_block_by_number(&self, _number: BlockNumber) -> Option<BlockView>;
     pub fn get_header(&self, _hash: H256) -> Option<HeaderView>;
     pub fn get_header_by_number(&self, _number: BlockNumber) -> Option<HeaderView>;
-    pub fn get_transaction(&self, _hash: H256) -> Option<TransactionWithStatus>;
+    pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>) -> Option<TransactionWithStatus>;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;
@@ -296,6 +315,7 @@ jsonrpc!(pub struct Inner {
         absolute: Option<bool>,
         reason: Option<String>
     ) -> ();
+    pub fn clear_banned_addresses(&self) -> ();
 
     pub fn get_block_template(
         &self,
@@ -309,6 +329,7 @@ jsonrpc!(pub struct Inner {
     pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
+    pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool;
 
     pub fn send_alert(&self, alert: Alert) -> ();
 
@@ -323,7 +344,6 @@ jsonrpc!(pub struct Inner {
     pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
-    pub fn broadcast_transaction(&self, tx: Transaction, cycles: Cycle) -> H256;
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
     pub fn tx_pool_ready(&self) -> bool;
 });

@@ -16,6 +16,12 @@ impl<'a> BlockProposalProcess<'a> {
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let sync_state = shared.state();
+        sync_state.clear_expired_inflight_proposals(
+            shared
+                .active_chain()
+                .tip_number()
+                .saturating_sub(shared.consensus().tx_proposal_window().farthest()),
+        );
         {
             let block_proposals = self.message;
             let limit = shared.consensus().max_block_proposals_limit()

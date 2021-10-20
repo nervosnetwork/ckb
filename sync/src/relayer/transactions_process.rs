@@ -37,7 +37,9 @@ impl<'a> TransactionsProcess<'a> {
     pub fn execute(self) -> Status {
         let shared_state = self.relayer.shared().state();
         let txs: Vec<(TransactionView, Cycle)> = {
+            // ignore the tx if it's already known or it has never been requested before
             let tx_filter = shared_state.tx_filter();
+            let unknown_tx_hashes = shared_state.unknown_tx_hashes();
 
             self.message
                 .transactions()
@@ -48,7 +50,13 @@ impl<'a> TransactionsProcess<'a> {
                         tx.cycles().unpack(),
                     )
                 })
-                .filter(|(tx, _)| !tx_filter.contains(&tx.hash()))
+                .filter(|(tx, _)| {
+                    !tx_filter.contains(&tx.hash())
+                        && unknown_tx_hashes
+                            .get_priority(&tx.hash())
+                            .map(|priority| priority.requesting_peer() == Some(self.peer))
+                            .unwrap_or_default()
+                })
                 .collect()
         };
 

@@ -1,7 +1,8 @@
 use crate::types::{BlockNumberAndHash, InflightBlocks};
 use ckb_constant::sync::BLOCK_DOWNLOAD_TIMEOUT;
+use ckb_network::PeerIndex;
+use ckb_types::h256;
 use ckb_types::prelude::*;
-use ckb_types::{h256, H256};
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
@@ -197,4 +198,88 @@ fn inflight_trace_number_state() {
 
     assert_eq!(inflight_blocks.peer_can_fetch_count(3.into()), 8);
     assert_eq!(inflight_blocks.peer_can_fetch_count(4.into()), 8);
+}
+
+#[cfg(not(disable_faketime))]
+#[test]
+fn inflight_with_compact() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    let mut inflight_blocks = InflightBlocks::default();
+    inflight_blocks.protect_num = 0;
+
+    assert!(inflight_blocks.compact_reconstruct(1.into(), h256!("0x1").pack()));
+    assert!(inflight_blocks.compact_reconstruct(2.into(), h256!("0x1").pack()));
+    assert!(!inflight_blocks.compact_reconstruct(3.into(), h256!("0x1").pack()));
+
+    // try sync, but can't, mark this block a deadline
+    assert!(!inflight_blocks.insert(3.into(), (1, h256!("0x1").pack()).into()));
+    assert_eq!(inflight_blocks.total_inflight_count(), 0);
+
+    assert_eq!(
+        inflight_blocks
+            .inflight_compact_by_block(&h256!("0x1").pack())
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect::<HashSet<PeerIndex>>(),
+        HashSet::from_iter(vec![1.into(), 2.into()])
+    );
+
+    faketime::write_millis(&faketime_file, 3000).expect("write millis");
+
+    let list = inflight_blocks.prune(1);
+
+    assert_eq!(list.len(), 0);
+
+    assert!(inflight_blocks
+        .inflight_compact_by_block(&h256!("0x1").pack())
+        .is_none());
+
+    // remove compact by `remove_compact_by_peer`
+
+    assert!(inflight_blocks.compact_reconstruct(1.into(), h256!("0x1").pack()));
+    assert!(inflight_blocks.compact_reconstruct(2.into(), h256!("0x1").pack()));
+
+    inflight_blocks.remove_compact_by_peer(1.into(), &h256!("0x1").pack());
+
+    assert_eq!(
+        inflight_blocks
+            .inflight_compact_by_block(&h256!("0x1").pack())
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect::<HashSet<PeerIndex>>(),
+        HashSet::from_iter(vec![2.into()])
+    );
+
+    inflight_blocks.remove_compact_by_peer(2.into(), &h256!("0x1").pack());
+
+    assert!(inflight_blocks
+        .inflight_compact_by_block(&h256!("0x1").pack())
+        .is_none());
+
+    // remove compact by `remove_by_peer`
+
+    assert!(inflight_blocks.compact_reconstruct(1.into(), h256!("0x1").pack()));
+    assert!(inflight_blocks.compact_reconstruct(2.into(), h256!("0x1").pack()));
+
+    inflight_blocks.remove_by_peer(1.into());
+
+    assert_eq!(
+        inflight_blocks
+            .inflight_compact_by_block(&h256!("0x1").pack())
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect::<HashSet<PeerIndex>>(),
+        HashSet::from_iter(vec![2.into()])
+    );
+
+    inflight_blocks.remove_by_peer(2.into());
+
+    assert!(inflight_blocks
+        .inflight_compact_by_block(&h256!("0x1").pack())
+        .is_none());
 }

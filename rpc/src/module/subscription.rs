@@ -274,8 +274,6 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 }
 
 impl SubscriptionRpcImpl {
-    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
-    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
         let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
         let new_transaction_receiver =

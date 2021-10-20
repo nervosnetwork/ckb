@@ -5,7 +5,7 @@
  *    - `cpop(num0) == num 1`
  *  Compile Environment:
  *  - Toolchains: nervos/ckb-riscv-gnu-toolchain@sha256:7b168b4b109a0f741078a71b7c4dddaf1d283a5244608f7851f5714fbad273ba
- *  - Dependencies: Same as ckb-system-scripts v0.5.3.
+ *  - Dependencies: Same as ckb-system-scripts v0.5.4.
  *  - Commands:
  *    ```shell
  *    riscv64-unknown-elf-gcc -O3 -Ideps/molecule -I deps/secp256k1/src -I deps/secp256k1 -I c -I build \

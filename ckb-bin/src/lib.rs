@@ -51,13 +51,13 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     let matches = matches.expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
-    let (handle, _stop) = new_global_runtime();
+    let (handle, mut rt_stop) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, &app_matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
 
-    match cmd {
+    let ret = match cmd {
         cli::CMD_RUN => subcommand::run(setup.run(&matches)?, version, handle),
         cli::CMD_MINER => subcommand::miner(setup.miner(&matches)?, handle),
         cli::CMD_REPLAY => subcommand::replay(setup.replay(&matches)?, handle),
@@ -68,7 +68,10 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(&matches)?),
         cli::CMD_DB_REPAIR => subcommand::db_repair(setup.db_repair(&matches)?),
         _ => unreachable!(),
-    }
+    };
+
+    rt_stop.try_send(());
+    ret
 }
 
 type Silent = bool;

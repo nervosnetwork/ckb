@@ -21,7 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{ActiveChain, SyncShared};
+use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
@@ -145,7 +145,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
@@ -161,7 +161,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
@@ -172,7 +172,7 @@ impl Relayer {
                 // before ckb2021, v2 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v2) {
                     RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ok()
+                        return Status::ignored()
                     }
                     RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
                 }
@@ -252,7 +252,7 @@ impl Relayer {
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        block_hash: Byte32,
+        block_hash_and_number: BlockNumberAndHash,
         mut proposals: Vec<packed::ProposalShortId>,
     ) {
         proposals.dedup();
@@ -272,14 +272,14 @@ impl Relayer {
         let to_ask_proposals: Vec<ProposalShortId> = self
             .shared()
             .state()
-            .insert_inflight_proposals(fresh_proposals.clone())
+            .insert_inflight_proposals(fresh_proposals.clone(), block_hash_and_number.number)
             .into_iter()
             .zip(fresh_proposals)
             .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block_hash)
+                .block_hash(block_hash_and_number.hash)
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -623,7 +623,6 @@ impl Relayer {
             .take_relay_tx_hashes(MAX_RELAY_TXS_NUM_PER_BATCH);
         let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
-            let mut known_txs = self.shared.state().known_txs();
             for (origin_peer, is_ckb2021, hash) in &tx_hashes {
                 // must all fork or all no-fork
                 if ckb2021 != *is_ckb2021 {
@@ -634,7 +633,7 @@ impl Relayer {
                     match origin_peer {
                         Some(origin) => {
                             // broadcast tx hash to all connected peers except origin peer
-                            if known_txs.insert(*target, hash.clone()) && (origin != target) {
+                            if origin != target {
                                 let hashes = selected
                                     .entry(*target)
                                     .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
@@ -851,6 +850,7 @@ impl CKBProtocolHandler for Relayer {
                 if !self.shared.state().orphan_pool().is_empty() {
                     tokio::task::block_in_place(|| {
                         self.shared.try_search_orphan_pool(&self.chain);
+                        self.shared.periodic_clean_orphan_pool();
                     })
                 }
             }

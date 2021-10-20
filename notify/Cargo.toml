@@ -1,6 +1,6 @@
 [package]
 name = "ckb-notify"
-version = "0.100.0"
+version = "0.101.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,10 +9,10 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.100.0" }
-ckb-app-config  = { path = "../util/app-config", version = "= 0.100.0" }
-ckb-types = { path = "../util/types", version = "= 0.100.0" }
-ckb-channel = { path = "../util/channel", version = "= 0.100.0" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.100.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.101.0" }
+ckb-app-config  = { path = "../util/app-config", version = "= 0.101.0" }
+ckb-types = { path = "../util/types", version = "= 0.101.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.101.0" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.101.0" }
 
 [dev-dependencies]

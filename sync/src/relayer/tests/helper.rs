@@ -1,7 +1,7 @@
 use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
 use ckb_chain::chain::ChainService;
-use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_launcher::SharedBuilder;
 use ckb_network::{
     bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, DefaultExitHandler, Error,
@@ -142,8 +142,15 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
             .transaction(always_success_tx)
             .build();
-        let consensus = ConsensusBuilder::default()
-            .genesis_block(genesis)
+        let epoch_ext = build_genesis_epoch_ext(
+            Capacity::shannons(191_780_821_917_808),
+            0x20800000,
+            // genesis epoch length change to 1
+            1,
+            4 * 60 * 60,
+            (1, 40),
+        );
+        let consensus = ConsensusBuilder::new(genesis, epoch_ext)
             .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
             .build();
         SharedBuilder::with_temp_db()

@@ -3,7 +3,7 @@ use ckb_logger::error;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use tokio::sync::oneshot as tokio_oneshot;
 use tokio::sync::watch as tokio_watch;
@@ -60,20 +60,63 @@ struct Handler<T> {
     thread: Option<JoinHandle<T>>,
 }
 
+/// Weak is a version of Arc that holds a non-owning reference to the managed allocation.
+/// Since a Weak reference does not count towards ownership,
+/// it will not prevent the value stored in the allocation from being dropped,
+/// and Weak itself makes no guarantees about the value still being present.
+#[derive(Debug)]
+enum Ref<T> {
+    Arc(Arc<T>),
+    Weak(Weak<T>),
+}
+
+impl<T> Clone for Ref<T> {
+    #[inline]
+    fn clone(&self) -> Ref<T> {
+        match self {
+            Self::Arc(arc) => Self::Arc(Arc::clone(&arc)),
+            Self::Weak(weak) => Self::Weak(Weak::clone(&weak)),
+        }
+    }
+}
+
+impl<T> Ref<T> {
+    fn downgrade(&self) -> Ref<T> {
+        match self {
+            Self::Arc(arc) => Self::Weak(Arc::downgrade(&arc)),
+            Self::Weak(weak) => Self::Weak(Weak::clone(&weak)),
+        }
+    }
+}
+
 /// TODO(doc): @keroro520
 //the outer Option take ownership for `Arc::try_unwrap`
 //the inner Option take ownership for `JoinHandle` or `oneshot::Sender`
 #[derive(Clone, Debug)]
 pub struct StopHandler<T> {
-    inner: Option<Arc<Mutex<Option<Handler<T>>>>>,
+    inner: Option<Ref<Mutex<Option<Handler<T>>>>>,
+    name: String,
 }
 
 impl<T: Debug> StopHandler<T> {
     /// TODO(doc): @keroro520
-    pub fn new(signal: SignalSender<T>, thread: Option<JoinHandle<T>>) -> StopHandler<T> {
+    pub fn new(
+        signal: SignalSender<T>,
+        thread: Option<JoinHandle<T>>,
+        name: String,
+    ) -> StopHandler<T> {
         let handler = Handler { signal, thread };
         StopHandler {
-            inner: Some(Arc::new(Mutex::new(Some(handler)))),
+            inner: Some(Ref::Arc(Arc::new(Mutex::new(Some(handler))))),
+            name,
+        }
+    }
+
+    /// Creates a new Weak pointer.
+    pub fn downgrade_clone(&self) -> StopHandler<T> {
+        StopHandler {
+            inner: self.inner.as_ref().map(|inner| inner.downgrade()),
+            name: self.name.clone(),
         }
     }
 
@@ -83,15 +126,19 @@ impl<T: Debug> StopHandler<T> {
             .inner
             .take()
             .expect("Stop signal can only be sent once");
-        if let Ok(lock) = Arc::try_unwrap(inner) {
-            let handler = lock.lock().take().expect("Handler can only be taken once");
-            let Handler { signal, thread } = handler;
-            signal.send(cmd);
-            if let Some(thread) = thread {
-                if let Err(e) = thread.join() {
-                    error!("handler thread join error {:?}", e);
-                };
-            }
-        };
+
+        if let Ref::Arc(inner) = inner {
+            if let Ok(lock) = Arc::try_unwrap(inner) {
+                ckb_logger::info!("StopHandler({}) send signal", self.name);
+                let handler = lock.lock().take().expect("Handler can only be taken once");
+                let Handler { signal, thread } = handler;
+                signal.send(cmd);
+                if let Some(thread) = thread {
+                    if let Err(e) = thread.join() {
+                        error!("handler thread join error {:?}", e);
+                    };
+                }
+            };
+        }
     }
 }

@@ -74,8 +74,8 @@ fn test_accept_block() {
         .uncles(vec![uncle.as_uncle().data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         block_transactions.as_reader(),
@@ -92,8 +92,7 @@ fn test_accept_block() {
     assert!(relayer
         .shared
         .state()
-        .inflight_proposals()
-        .contains(&tx3.proposal_short_id()));
+        .contains_inflight_proposal(&tx3.proposal_short_id()));
 }
 
 #[test]
@@ -136,8 +135,8 @@ fn test_unknown_request() {
         .transactions(vec![tx2.data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         block_transactions.as_reader(),
@@ -200,8 +199,8 @@ fn test_invalid_transaction_root() {
         .transactions(vec![tx2.data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         block_transactions.as_reader(),
@@ -295,8 +294,8 @@ fn test_collision_and_send_missing_indexes() {
         .transactions(vec![tx2.data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         block_transactions.as_reader(),
@@ -338,8 +337,8 @@ fn test_collision_and_send_missing_indexes() {
         .transactions(vec![tx2.data(), tx3.data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         new_block_transactions.as_reader(),
@@ -402,8 +401,8 @@ fn test_missing() {
         .transactions(vec![tx2.data()].pack())
         .build();
 
-    let mock_protocal_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocal_context);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
         block_transactions.as_reader(),

@@ -13,7 +13,7 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
-use ckb_logger::info;
+use ckb_logger::{error, info};
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
@@ -322,7 +322,6 @@ impl SharedBuilder {
             Arc::clone(&snapshot),
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
-            Arc::clone(&snapshot_mgr),
             &async_handle,
             sender.clone(),
         );
@@ -409,6 +408,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             cycles: entry.cycles,
             size: entry.size,
             fee: entry.fee,
+            timestamp: entry.timestamp,
         };
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
@@ -427,6 +427,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
+                timestamp: entry.timestamp,
             };
             notify_proposed.notify_proposed_transaction(notify_tx_entry);
         },
@@ -442,12 +443,23 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             // update statics
             tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
 
+            let tx_hash = entry.transaction().hash();
+            // record recent reject
+            if matches!(reject, Reject::Resolve(..)) {
+                if let Some(ref mut recent_reject) = tx_pool.recent_reject {
+                    if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
+                        error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+                    }
+                }
+            }
+
             // notify
             let notify_tx_entry = PoolTransactionEntry {
                 transaction: entry.rtx.transaction.clone(),
                 cycles: entry.cycles,
                 size: entry.size,
                 fee: entry.fee,
+                timestamp: entry.timestamp,
             };
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },

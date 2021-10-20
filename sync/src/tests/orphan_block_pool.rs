@@ -1,5 +1,5 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
-use ckb_types::core::{BlockBuilder, BlockView, HeaderView};
+use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
 use ckb_types::prelude::*;
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
@@ -115,5 +115,32 @@ fn test_leaders() {
     let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
     assert_eq!(orphan_set, blocks_set);
     assert_eq!(pool.len(), 0);
+    assert_eq!(pool.leaders_len(), 0);
+}
+
+#[test]
+fn test_remove_expired_blocks() {
+    let consensus = ConsensusBuilder::default().build();
+    let block_number = 20;
+    let mut parent = consensus.genesis_block().header();
+    let pool = OrphanBlockPool::with_capacity(block_number);
+
+    let deprecated = EpochNumberWithFraction::new(10, 0, 10);
+
+    for _ in 1..block_number {
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash())
+            .timestamp(unix_time_as_millis().pack())
+            .number((parent.number() + 1).pack())
+            .epoch(deprecated.clone().pack())
+            .nonce((parent.nonce() + 1).pack())
+            .build();
+        pool.insert(new_block.clone());
+        parent = new_block.header();
+    }
+    assert_eq!(pool.leaders_len(), 1);
+
+    let v = pool.clean_expired_blocks(20_u64);
+    assert_eq!(v.len(), 19);
     assert_eq!(pool.leaders_len(), 0);
 }

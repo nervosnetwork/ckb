@@ -1,9 +1,11 @@
 use crate::component::chunk::Entry;
 use crate::component::entry::TxEntry;
+use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_async_runtime::Handle;
 use ckb_channel::{select, Receiver};
 use ckb_error::Error;
+use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, HeaderProvider};
 use ckb_types::{core::Cycle, packed::Byte32};
@@ -99,26 +101,32 @@ impl TxChunkProcess {
     }
 
     fn process(&mut self, entry: Entry) -> Stop {
-        self.process_inner(entry.clone()).unwrap_or_else(|e| {
-            self.handle
-                .block_on(self.service.after_process(entry.tx, entry.remote, &Err(e)));
+        let (ret, snapshot) = self.process_inner(entry.clone());
+        ret.unwrap_or_else(|e| {
+            self.handle.block_on(self.service.after_process(
+                entry.tx,
+                entry.remote,
+                &snapshot,
+                &Err(e),
+            ));
             self.handle.block_on(self.remove_front());
             false
         })
     }
 
-    fn process_inner(&mut self, entry: Entry) -> Result<Stop, Reject> {
+    fn process_inner(&mut self, entry: Entry) -> (Result<Stop, Reject>, Arc<Snapshot>) {
         let Entry { tx, remote } = entry;
         let tx_hash = tx.hash();
 
-        let (tip_hash, snapshot, rtx, status, fee, tx_size) =
-            self.handle.block_on(self.service.pre_check(tx.clone()))?;
+        let (ret, snapshot) = self.handle.block_on(self.service.pre_check(&tx));
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+
         let cached = self
             .handle
             .block_on(self.service.fetch_tx_verify_cache(&tx_hash));
 
         let tip_header = snapshot.tip_header();
-        let consensus = snapshot.consensus();
+        let consensus = snapshot.cloned_consensus();
 
         let tx_env = TxVerifyEnv::new_submit(tip_header);
         let mut init_snap = None;
@@ -126,25 +134,31 @@ impl TxChunkProcess {
         if let Some(ref cached) = cached {
             match cached {
                 CacheEntry::Completed(completed) => {
-                    let completed = TimeRelativeTransactionVerifier::new(
+                    let ret = TimeRelativeTransactionVerifier::new(
                         &rtx,
-                        consensus,
+                        &consensus,
                         snapshot.as_ref(),
                         &tx_env,
                     )
                     .verify()
                     .map(|_| *completed)
-                    .map_err(Reject::Verification)?;
+                    .map_err(Reject::Verification);
+                    let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    self.handle.block_on(
+                    let (ret, submit_snapshot) = self.handle.block_on(
                         self.service
                             .submit_entry(completed, tip_hash, entry, status),
-                    )?;
-                    self.handle
-                        .block_on(self.service.after_process(tx, remote, &Ok(completed)));
+                    );
+                    try_or_return_with_snapshot!(ret, submit_snapshot);
+                    self.handle.block_on(self.service.after_process(
+                        tx,
+                        remote,
+                        &submit_snapshot,
+                        &Ok(completed),
+                    ));
                     self.handle.block_on(self.remove_front());
-                    return Ok(false);
+                    return (Ok(false), submit_snapshot);
                 }
                 CacheEntry::Suspended(suspended) => {
                     init_snap = Some(Arc::clone(&suspended.snap));
@@ -152,12 +166,18 @@ impl TxChunkProcess {
             }
         }
 
-        let data_loader = snapshot.as_data_provider();
-        let fee =
-            ContextualWithoutScriptTransactionVerifier::new(&rtx, consensus, &data_loader, &tx_env)
-                .verify()
-                .map_err(Reject::Verification)?;
-        let script_verifier = ScriptVerifier::new(&rtx, consensus, &data_loader, &tx_env);
+        let cloned_snapshot = Arc::clone(&snapshot);
+        let data_loader = cloned_snapshot.as_data_provider();
+        let ret = ContextualWithoutScriptTransactionVerifier::new(
+            &rtx,
+            &consensus,
+            &data_loader,
+            &tx_env,
+        )
+        .verify()
+        .map_err(Reject::Verification);
+        let fee = try_or_return_with_snapshot!(ret, snapshot);
+        let script_verifier = ScriptVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
         let mut tmp_state: Option<ScriptVerifyState> = None;
 
         let max_cycles = if let Some((declared_cycle, _peer)) = remote {
@@ -173,7 +193,8 @@ impl TxChunkProcess {
                     Command::Suspend => {
                         let state = tmp_state.take();
                         if let Some(state) = state {
-                            let snap = state.try_into().map_err(Reject::Verification)?;
+                            let ret = state.try_into().map_err(Reject::Verification);
+                            let snap = try_or_return_with_snapshot!(ret, snapshot);
                             let txs_verify_cache = Arc::clone(&self.service.txs_verify_cache);
                             self.handle.block_on(async move {
                                 let mut guard = txs_verify_cache.write().await;
@@ -181,10 +202,10 @@ impl TxChunkProcess {
                             })
                         }
                         self.p_state = ProcessState::Interrupt;
-                        return Ok(false);
+                        return (Ok(false), snapshot);
                     }
                     Command::Stop => {
-                        return Ok(true);
+                        return (Ok(true), snapshot);
                     }
                     Command::Continue => {
                         self.p_state = ProcessState::Normal;
@@ -197,7 +218,7 @@ impl TxChunkProcess {
                 if snap.current_cycles > max_cycles {
                     let error =
                         exceeded_maximum_cycles_error(&script_verifier, max_cycles, &snap.current);
-                    return Err(Reject::Verification(error));
+                    return (Err(Reject::Verification(error)), snapshot);
                 }
 
                 let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
@@ -211,7 +232,7 @@ impl TxChunkProcess {
                 if state.current_cycles > max_cycles {
                     let error =
                         exceeded_maximum_cycles_error(&script_verifier, max_cycles, &state.current);
-                    return Err(Reject::Verification(error));
+                    return (Err(Reject::Verification(error)), snapshot);
                 }
 
                 // next_limit_cycles
@@ -229,7 +250,9 @@ impl TxChunkProcess {
             } else {
                 script_verifier.resumable_verify(MIN_STEP_CYCLE)
             }
-            .map_err(Reject::Verification)?;
+            .map_err(Reject::Verification);
+
+            let ret = try_or_return_with_snapshot!(ret, snapshot);
 
             match ret {
                 ScriptVerifyResult::Completed(cycles) => {
@@ -242,20 +265,38 @@ impl TxChunkProcess {
                             max_cycles,
                             &state.current,
                         );
-                        return Err(Reject::Verification(error));
+                        return (Err(Reject::Verification(error)), snapshot);
                     }
                     tmp_state = Some(state);
                 }
             }
         };
 
+        if let Some((declared_cycle, _peer)) = remote {
+            if declared_cycle != completed.cycles {
+                return (
+                    Err(Reject::DeclaredWrongCycles(
+                        declared_cycle,
+                        completed.cycles,
+                    )),
+                    snapshot,
+                );
+            }
+        }
+
         let entry = TxEntry::new(rtx.clone(), completed.cycles, fee, tx_size);
-        self.handle.block_on(
+        let (ret, submit_snapshot) = self.handle.block_on(
             self.service
                 .submit_entry(completed, tip_hash, entry, status),
-        )?;
-        self.handle
-            .block_on(self.service.after_process(tx, remote, &Ok(completed)));
+        );
+        try_or_return_with_snapshot!(ret, snapshot);
+
+        self.handle.block_on(self.service.after_process(
+            tx,
+            remote,
+            &submit_snapshot,
+            &Ok(completed),
+        ));
 
         self.handle.block_on(self.remove_front());
 
@@ -265,7 +306,7 @@ impl TxChunkProcess {
             guard.put(tx_hash, CacheEntry::Completed(completed));
         });
 
-        Ok(false)
+        (Ok(false), submit_snapshot)
     }
 }
 

@@ -140,7 +140,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 if let RemoteAddress::Listen(ref addr) = state.remote_addr {
                                     self.addr_mgr.add_new_addr(session.id, addr.clone());
                                 }
-                            } else if version >= state::REUSE_PORT_VERSION {
+                            }
+                            if version >= state::REUSE_PORT_VERSION {
                                 // after enable reuse port, it can be broadcast
                                 state.remote_addr.change_to_listen();
                             }

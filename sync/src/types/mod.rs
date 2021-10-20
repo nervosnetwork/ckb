@@ -19,6 +19,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::HeaderProvider;
+use ckb_types::packed::ProposalShortId;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -27,11 +28,11 @@ use ckb_types::{
 };
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
-use dashmap::{DashMap, DashSet};
+use dashmap::{self, DashMap};
 use faketime::unix_time_as_millis;
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
-use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,6 +43,7 @@ use std::{cmp, fmt, iter};
 mod header_map;
 
 use crate::utils::send_message;
+use ckb_types::core::EpochNumber;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
@@ -352,23 +354,6 @@ impl<T: Eq + Hash> Filter<T> {
 }
 
 #[derive(Default)]
-pub struct KnownFilter {
-    inner: HashMap<PeerIndex, Filter<Byte32>>,
-}
-
-impl KnownFilter {
-    /// Adds a value to the filter.
-    /// If the filter did not have this value present, `true` is returned.
-    /// If the filter did have this value present, `false` is returned.
-    pub fn insert(&mut self, index: PeerIndex, hash: Byte32) -> bool {
-        self.inner
-            .entry(index)
-            .or_insert_with(Filter::default)
-            .insert(hash)
-    }
-}
-
-#[derive(Default)]
 pub struct Peers {
     pub state: DashMap<PeerIndex, PeerState>,
 }
@@ -640,11 +625,16 @@ impl InflightBlocks {
         entry.insert(peer)
     }
 
-    pub fn remove_compact(&mut self, peer: PeerIndex, hash: &Byte32) {
-        self.compact_reconstruct_inflight
-            .get_mut(&hash)
-            .map(|peers| peers.remove(&peer));
-        self.trace_number.retain(|k, _| &k.hash != hash)
+    pub fn remove_compact_by_peer(&mut self, peer: PeerIndex, hash: &Byte32) {
+        if let hash_map::Entry::Occupied(mut entry) =
+            self.compact_reconstruct_inflight.entry(hash.clone())
+        {
+            let peers = entry.get_mut();
+            peers.remove(&peer);
+            if peers.is_empty() {
+                entry.remove_entry();
+            }
+        }
     }
 
     pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&HashSet<PeerIndex>> {
@@ -717,6 +707,7 @@ impl InflightBlocks {
                 true
             }
         });
+        shrink_to_fit!(download_schedulers, SHRINK_THRESHOLD);
 
         if self.restart_number != 0 && tip + 1 > self.restart_number {
             self.restart_number = 0;
@@ -756,6 +747,8 @@ impl InflightBlocks {
             }
             true
         });
+        shrink_to_fit!(trace, SHRINK_THRESHOLD);
+        shrink_to_fit!(compact_inflight, SHRINK_THRESHOLD);
 
         disconnect_list
     }
@@ -795,15 +788,18 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let state = &mut self.inflight_states;
         let compact = &mut self.compact_reconstruct_inflight;
+
+        if !compact.is_empty() {
+            compact.retain(|_, peers| {
+                peers.remove(&peer);
+                !peers.is_empty()
+            });
+        }
+
         self.download_schedulers
             .remove(&peer)
             .map(|blocks| {
                 for block in blocks.hashes {
-                    if !compact.is_empty() {
-                        compact
-                            .get_mut(&block.hash)
-                            .map(|peers| peers.remove(&peer));
-                    }
                     state.remove(&block);
                     if !trace.is_empty() {
                         trace.remove(&block);
@@ -1221,11 +1217,10 @@ impl SyncShared {
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
-            known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: DashSet::new(),
+            inflight_proposals: DashMap::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
@@ -1339,6 +1334,16 @@ impl SyncShared {
         }
     }
 
+    /// cleanup orphan_pool, remove blocks with epoch less 2 than currently epoch.
+    pub(crate) fn periodic_clean_orphan_pool(&self) {
+        let hashes = self
+            .state
+            .clean_expired_blocks(self.active_chain().epoch_ext().number());
+        for hash in hashes {
+            self.state.remove_header_view(&hash);
+        }
+    }
+
     pub(crate) fn accept_block(
         &self,
         chain: &ChainController,
@@ -1361,8 +1366,8 @@ impl SyncShared {
             }
         };
         if let Err(ref error) = ret {
-            error!("accept block {:?} {}", block, error);
             if !is_internal_db_error(&error) {
+                error!("accept block {:?} {}", block, error);
                 self.state
                     .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
             }
@@ -1507,6 +1512,14 @@ impl UnknownTxHashPriority {
     pub fn push_peer(&mut self, peer_index: PeerIndex) {
         self.peers.push(peer_index);
     }
+
+    pub fn requesting_peer(&self) -> Option<PeerIndex> {
+        if self.requested {
+            self.peers.get(0).cloned()
+        } else {
+            None
+        }
+    }
 }
 
 impl Ord for UnknownTxHashPriority {
@@ -1538,7 +1551,6 @@ pub struct SyncState {
 
     /* Status relevant to peers */
     peers: Peers,
-    known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
@@ -1547,7 +1559,7 @@ pub struct SyncState {
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: DashSet<packed::ProposalShortId>,
+    inflight_proposals: DashMap<packed::ProposalShortId, BlockNumber>,
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
@@ -1583,10 +1595,6 @@ impl SyncState {
         &self.peers
     }
 
-    pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
-        self.known_txs.lock()
-    }
-
     pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
         self.pending_compact_blocks.lock()
     }
@@ -1597,10 +1605,6 @@ impl SyncState {
 
     pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
         self.inflight_blocks.write()
-    }
-
-    pub fn inflight_proposals(&self) -> &DashSet<packed::ProposalShortId> {
-        &self.inflight_proposals
     }
 
     pub fn take_relay_tx_hashes(&self, limit: usize) -> Vec<(Option<PeerIndex>, bool, Byte32)> {
@@ -1740,6 +1744,12 @@ impl SyncState {
         self.tx_filter.lock()
     }
 
+    pub fn unknown_tx_hashes(
+        &self,
+    ) -> MutexGuard<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>> {
+        self.unknown_tx_hashes.lock()
+    }
+
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &core::BlockView) -> bool {
         if self
@@ -1753,9 +1763,26 @@ impl SyncState {
         }
     }
 
-    pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
+    pub fn insert_inflight_proposals(
+        &self,
+        ids: Vec<packed::ProposalShortId>,
+        block_number: BlockNumber,
+    ) -> Vec<bool> {
         ids.into_iter()
-            .map(|id| self.inflight_proposals.insert(id))
+            .map(|id| match self.inflight_proposals.entry(id) {
+                dashmap::mapref::entry::Entry::Occupied(mut occupied) => {
+                    if *occupied.get() < block_number {
+                        occupied.insert(block_number);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                    vacant.insert(block_number);
+                    true
+                }
+            })
             .collect()
     }
 
@@ -1763,6 +1790,15 @@ impl SyncState {
         ids.iter()
             .map(|id| self.inflight_proposals.remove(id).is_some())
             .collect()
+    }
+
+    pub fn clear_expired_inflight_proposals(&self, keep_min_block_number: BlockNumber) {
+        self.inflight_proposals
+            .retain(|_, block_number| *block_number >= keep_min_block_number);
+    }
+
+    pub fn contains_inflight_proposal(&self, proposal_id: &ProposalShortId) -> bool {
+        self.inflight_proposals.contains_key(proposal_id)
     }
 
     pub fn insert_orphan_block(&self, block: core::BlockView) {
@@ -1810,13 +1846,16 @@ impl SyncState {
     }
 
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
-        self.known_txs().inner.remove(&pi);
         self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
 
     pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
         self.orphan_block_pool.get_block(block_hash)
+    }
+
+    pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
+        self.orphan_block_pool.clean_expired_blocks(epoch)
     }
 
     pub fn insert_peer_unknown_header_list(&self, pi: PeerIndex, header_list: Vec<Byte32>) {

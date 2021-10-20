@@ -12,11 +12,11 @@ use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::{AnyError, Error};
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_logger::error;
 use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
-use ckb_snapshot::{Snapshot, SnapshotMgr};
+use ckb_snapshot::Snapshot;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
@@ -67,12 +67,17 @@ type BlockTemplateArgs = (
     Option<u64>,
     Option<u64>,
     Option<Version>,
+    Arc<Snapshot>,
     Option<BlockAssemblerConfig>,
 );
 
 pub(crate) type SubmitTxResult = Result<Completed, Error>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
+
+type GetTxStatusResult = Result<TxStatus, AnyError>;
+
+type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
@@ -92,7 +97,9 @@ pub(crate) enum Message {
     FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
-    FetchTxRPC(Request<ProposalShortId, Option<(bool, TransactionView)>>),
+    FetchTxRPC(Request<Byte32, Option<(bool, TransactionView)>>),
+    GetTxStatus(Request<Byte32, GetTxStatusResult>),
+    GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
@@ -130,6 +137,12 @@ impl TxPoolController {
         self.started.load(Ordering::Relaxed)
     }
 
+    /// Set tx-pool service started, should only used for test
+    #[cfg(feature = "internal")]
+    pub fn set_service_started(&self, v: bool) {
+        self.started.store(v, Ordering::Relaxed);
+    }
+
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
@@ -141,11 +154,13 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        snapshot: Arc<Snapshot>,
     ) -> Result<BlockTemplateResult, AnyError> {
         self.get_block_template_with_block_assembler_config(
             bytes_limit,
             proposals_limit,
             max_version,
+            snapshot,
             None,
         )
     }
@@ -156,6 +171,7 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplateResult, AnyError> {
         let (responder, response) = oneshot::channel();
@@ -164,6 +180,7 @@ impl TxPoolController {
                 bytes_limit,
                 proposals_limit,
                 max_version,
+                snapshot,
                 block_assembler_config,
             ),
             responder,
@@ -309,11 +326,44 @@ impl TxPoolController {
     }
 
     /// Return tx for rpc
-    pub fn fetch_tx_for_rpc(&self, id: ProposalShortId) -> Result<FetchTxRPCResult, AnyError> {
+    pub fn fetch_tx_for_rpc(&self, hash: Byte32) -> Result<FetchTxRPCResult, AnyError> {
         let (responder, response) = oneshot::channel();
-        let request = Request::call(id, responder);
+        let request = Request::call(hash, responder);
         self.sender
             .try_send(Message::FetchTxRPC(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Return tx_status for rpc (get_transaction verbosity = 1)
+    pub fn get_tx_status(&self, hash: Byte32) -> Result<GetTxStatusResult, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(hash, responder);
+        self.sender
+            .try_send(Message::GetTxStatus(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Return transaction_with_status for rpc (get_transaction verbosity = 2)
+    pub fn get_transaction_with_status(
+        &self,
+        hash: Byte32,
+    ) -> Result<GetTransactionWithStatusResult, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(hash, responder);
+        self.sender
+            .try_send(Message::GetTransactionWithStatus(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -466,7 +516,6 @@ pub struct TxPoolServiceBuilder {
     pub(crate) snapshot: Arc<Snapshot>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-    pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
@@ -485,7 +534,6 @@ impl TxPoolServiceBuilder {
         snapshot: Arc<Snapshot>,
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-        snapshot_mgr: Arc<SnapshotMgr>,
         handle: &Handle,
         tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
@@ -496,8 +544,16 @@ impl TxPoolServiceBuilder {
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
-        let stop = StopHandler::new(SignalSender::Watch(signal_sender), None);
-        let chunk_stop = StopHandler::new(SignalSender::Crossbeam(chunk_tx.clone()), None);
+        let stop = StopHandler::new(
+            SignalSender::Watch(signal_sender),
+            None,
+            "tx-pool".to_string(),
+        );
+        let chunk_stop = StopHandler::new(
+            SignalSender::Crossbeam(chunk_tx.clone()),
+            None,
+            "chunk".to_string(),
+        );
         let controller = TxPoolController {
             sender,
             reorg_sender,
@@ -514,7 +570,6 @@ impl TxPoolServiceBuilder {
             snapshot,
             block_assembler: block_assembler_config.map(BlockAssembler::new),
             txs_verify_cache,
-            snapshot_mgr,
             callbacks: Callbacks::new(),
             receiver,
             reorg_receiver,
@@ -574,7 +629,6 @@ impl TxPoolServiceBuilder {
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
             txs_verify_cache: self.txs_verify_cache,
-            snapshot_mgr: self.snapshot_mgr,
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             chunk: self.chunk,
@@ -650,36 +704,30 @@ pub(crate) struct TxPoolService {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
-    pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
-}
-
-impl TxPoolService {
-    pub(crate) fn snapshot(&self) -> Arc<Snapshot> {
-        Arc::clone(&self.snapshot_mgr.load())
-    }
 }
 
 #[allow(clippy::cognitive_complexity)]
 async fn process(mut service: TxPoolService, message: Message) {
     match message {
         Message::GetTxPoolInfo(Request { responder, .. }) => {
-            let info = service.tx_pool.read().await.info();
+            let info = service.info().await;
             if let Err(e) = responder.send(info) {
                 error!("responder send get_tx_pool_info failed {:?}", e);
             };
         }
         Message::BlockTemplate(Request {
             responder,
-            arguments: (bytes_limit, proposals_limit, max_version, block_assembler_config),
+            arguments: (bytes_limit, proposals_limit, max_version, snapshot, block_assembler_config),
         }) => {
             let block_template_result = service
                 .get_block_template(
                     bytes_limit,
                     proposals_limit,
                     max_version,
+                    snapshot,
                     block_assembler_config,
                 )
                 .await;
@@ -702,7 +750,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             if declared_cycles > service.tx_pool_config.max_tx_verify_cycles {
                 let _result = service
-                    .enqueue_remote_chunk_tx(tx, (declared_cycles, peer))
+                    .resumeble_process_tx(tx, Some((declared_cycles, peer)))
                     .await;
                 if let Err(e) = responder.send(()) {
                     error!("responder send submit_tx result failed {:?}", e);
@@ -716,7 +764,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx).await;
+                let _ret = service.resumeble_process_tx(tx, None).await;
             }
         }
         Message::FreshProposalsFilter(Request {
@@ -731,17 +779,82 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::FetchTxRPC(Request {
             responder,
-            arguments: id,
+            arguments: hash,
         }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
             let tx = tx_pool
                 .proposed()
                 .get(&id)
                 .map(|entry| (true, entry.transaction()))
-                .or_else(|| tx_pool.get_tx_without_conflict(&id).map(|tx| (false, tx)))
+                .or_else(|| {
+                    tx_pool
+                        .get_tx_from_pending_or_else_gap(&id)
+                        .map(|tx| (false, tx))
+                })
                 .map(|(proposed, tx)| (proposed, tx.clone()));
             if let Err(e) = responder.send(tx) {
                 error!("responder send fetch_tx_for_rpc failed {:?}", e)
+            };
+        }
+        Message::GetTxStatus(Request {
+            responder,
+            arguments: hash,
+        }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
+            let tx_pool = service.tx_pool.read().await;
+
+            let ret = if tx_pool.proposed.contains_key(&id) {
+                Ok(TxStatus::proposed())
+            } else if tx_pool.pending.contains_key(&id) || tx_pool.gap.contains_key(&id) {
+                Ok(TxStatus::pending())
+            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+                let recent_reject_result = recent_reject_db.get(&hash);
+                if let Ok(recent_reject) = recent_reject_result {
+                    if let Some(record) = recent_reject {
+                        Ok(TxStatus::rejected(record))
+                    } else {
+                        Ok(TxStatus::unknown())
+                    }
+                } else {
+                    Err(recent_reject_result.unwrap_err())
+                }
+            } else {
+                Ok(TxStatus::unknown())
+            };
+
+            if let Err(e) = responder.send(ret) {
+                error!("responder send get_tx_status failed {:?}", e)
+            };
+        }
+        Message::GetTransactionWithStatus(Request {
+            responder,
+            arguments: hash,
+        }) => {
+            let id = ProposalShortId::from_tx_hash(&hash);
+            let tx_pool = service.tx_pool.read().await;
+
+            let ret = if let Some(tx) = tx_pool.proposed.get_tx(&id) {
+                Ok(TransactionWithStatus::with_proposed(Some(tx.clone())))
+            } else if let Some(tx) = tx_pool.get_tx_from_pending_or_else_gap(&id) {
+                Ok(TransactionWithStatus::with_pending(Some(tx.clone())))
+            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+                let recent_reject_result = recent_reject_db.get(&hash);
+                if let Ok(recent_reject) = recent_reject_result {
+                    if let Some(record) = recent_reject {
+                        Ok(TransactionWithStatus::with_rejected(record))
+                    } else {
+                        Ok(TransactionWithStatus::with_unknown())
+                    }
+                } else {
+                    Err(recent_reject_result.unwrap_err())
+                }
+            } else {
+                Ok(TransactionWithStatus::with_unknown())
+            };
+
+            if let Err(e) = responder.send(ret) {
+                error!("responder send get_tx_status failed {:?}", e)
             };
         }
         Message::FetchTxs(Request {
@@ -840,6 +953,25 @@ async fn process(mut service: TxPoolService, message: Message) {
             if let Err(e) = responder.send(()) {
                 error!("responder send save_pool failed {:?}", e)
             };
+        }
+    }
+}
+
+impl TxPoolService {
+    /// Tx-pool information
+    async fn info(&self) -> TxPoolInfo {
+        let tx_pool = self.tx_pool.read().await;
+        let orphan = self.orphan.read().await;
+        let tip_header = tx_pool.snapshot.tip_header();
+        TxPoolInfo {
+            tip_hash: tip_header.hash(),
+            tip_number: tip_header.number(),
+            pending_size: tx_pool.pending.size() + tx_pool.gap.size(),
+            proposed_size: tx_pool.proposed.size(),
+            orphan_size: orphan.len(),
+            total_tx_size: tx_pool.total_tx_size,
+            total_tx_cycles: tx_pool.total_tx_cycles,
+            last_txs_updated_at: tx_pool.get_last_txs_updated_at(),
         }
     }
 }

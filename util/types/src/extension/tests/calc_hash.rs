@@ -1,4 +1,4 @@
-use crate::{h256, packed, prelude::*, H256};
+use crate::{h256, packed, prelude::*};
 use ckb_hash::blake2b_256;
 
 #[test]
@@ -105,7 +105,7 @@ fn empty_script_hash() {
 
 #[test]
 fn always_success_script_hash() {
-    let always_success = include_bytes!("../../../../script/testdata/always_success");
+    let always_success = include_bytes!("../../../../../script/testdata/always_success");
     let always_success_hash = blake2b_256(&always_success[..]);
 
     let script = packed::Script::new_builder()

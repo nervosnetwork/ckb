@@ -23,7 +23,10 @@ mod tests;
 pub use crate::{
     behaviour::Behaviour,
     errors::Error,
-    network::{DefaultExitHandler, ExitHandler, NetworkController, NetworkService, NetworkState},
+    network::{
+        DefaultExitHandler, EventHandler, ExitHandler, NetworkController, NetworkService,
+        NetworkState,
+    },
     peer::{Peer, PeerIdentifyInfo},
     peer_registry::PeerRegistry,
     peer_store::Score,
@@ -33,12 +36,13 @@ pub use crate::{
     },
 };
 pub use p2p::{
+    builder::ServiceBuilder,
     bytes, multiaddr,
     secio::{PeerId, PublicKey},
-    service::{BlockingFlag, ServiceControl, SessionType, TargetSession},
+    service::{BlockingFlag, ServiceControl, SessionType, TargetProtocol, TargetSession},
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},
-    ProtocolId,
+    ProtocolId, SessionId,
 };
 pub use tokio;
 

@@ -3,6 +3,7 @@ use super::component::{commit_txs_scanner::CommitTxsScanner, TxEntry};
 use crate::callback::Callbacks;
 use crate::component::pending::PendingQueue;
 use crate::component::proposed::ProposedPool;
+use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
 use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
@@ -30,6 +31,8 @@ use std::sync::{
     Arc,
 };
 
+const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
@@ -49,6 +52,8 @@ pub struct TxPool {
     pub(crate) total_tx_cycles: Cycle,
     /// storage snapshot reference
     pub(crate) snapshot: Arc<Snapshot>,
+    /// record recent reject
+    pub recent_reject: Option<RecentReject>,
 }
 
 /// Transaction pool information.
@@ -90,7 +95,22 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+        let recent_reject_ttl = config.keep_rejected_tx_hashes_days as i32 * 24 * 60 * 60;
+        let recent_reject_new = RecentReject::new(
+            &config.recent_reject,
+            config.keep_rejected_tx_hashes_count,
+            recent_reject_ttl,
+        );
+        let recent_reject = if let Ok(recent_reject) = recent_reject_new {
+            Some(recent_reject)
+        } else {
+            error!(
+                "Failed to open recent reject database {:?} {}",
+                config.recent_reject,
+                recent_reject_new.unwrap_err()
+            );
+            None
+        };
 
         TxPool {
             pending: PendingQueue::new(),
@@ -102,6 +122,7 @@ impl TxPool {
             total_tx_cycles: 0,
             config,
             snapshot,
+            recent_reject,
         }
     }
 
@@ -113,21 +134,6 @@ impl TxPool {
     /// Makes a clone of the Arc<Snapshot>
     pub fn cloned_snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot)
-    }
-
-    /// Tx-pool information
-    pub fn info(&self) -> TxPoolInfo {
-        let tip_header = self.snapshot.tip_header();
-        TxPoolInfo {
-            tip_hash: tip_header.hash(),
-            tip_number: tip_header.number(),
-            pending_size: self.pending.size() + self.gap.size(),
-            proposed_size: self.proposed.size(),
-            orphan_size: 0,
-            total_tx_size: self.total_tx_size,
-            total_tx_cycles: self.total_tx_cycles,
-            last_txs_updated_at: self.get_last_txs_updated_at(),
-        }
     }
 
     /// Whether Tx-pool reach size limit
@@ -174,7 +180,7 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        let inserted = self.pending.add_entry(entry).is_none();
+        let inserted = self.pending.add_entry(entry);
         if inserted {
             self.touch_last_txs_updated_at();
         }
@@ -184,7 +190,7 @@ impl TxPool {
     /// Add tx which proposed but still uncommittable to gap pool
     pub fn add_gap(&mut self, entry: TxEntry) -> bool {
         trace!("add_gap {}", entry.transaction().hash());
-        self.gap.add_entry(entry).is_none()
+        self.gap.add_entry(entry)
     }
 
     /// Add tx to proposed pool
@@ -238,12 +244,12 @@ impl TxPool {
             .or_else(|| self.proposed.get_tx(id))
     }
 
-    /// Returns tx exclude conflict corresponding to the id. RPC
-    pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.pending
-            .get_tx(id)
-            .or_else(|| self.gap.get_tx(id))
-            .or_else(|| self.proposed.get_tx(id))
+    /// Returns tx from pending and gap corresponding to the id. RPC
+    pub fn get_tx_from_pending_or_else_gap(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<&TransactionView> {
+        self.pending.get_tx(id).or_else(|| self.gap.get_tx(id))
     }
 
     pub(crate) fn proposed(&self) -> &ProposedPool {
@@ -264,28 +270,77 @@ impl TxPool {
         &mut self,
         txs: impl Iterator<Item = (&'a TransactionView, Vec<OutPoint>)>,
         callbacks: &Callbacks,
+        detached_headers: &HashSet<Byte32>,
     ) {
         for (tx, related_out_points) in txs {
-            let hash = tx.hash();
-            trace!("committed {}", hash);
-            // try remove committed tx from proposed
-            if let Some(entry) = self.proposed.remove_committed_tx(tx, &related_out_points) {
-                callbacks.call_committed(self, &entry)
-            } else {
-                // if committed tx is not in proposed, it may conflict
-                let (input_conflict, deps_consumed) = self.proposed.resolve_conflict(tx);
-
-                for (entry, reject) in input_conflict {
-                    callbacks.call_reject(self, &entry, reject);
-                }
-
-                for (entry, reject) in deps_consumed {
-                    callbacks.call_reject(self, &entry, reject);
-                }
-            }
+            self.remove_committed_tx(tx, &related_out_points, callbacks);
 
             self.committed_txs_hash_cache
-                .put(tx.proposal_short_id(), hash.to_owned());
+                .put(tx.proposal_short_id(), tx.hash());
+        }
+
+        if !detached_headers.is_empty() {
+            self.resolve_conflict_header_dep(detached_headers, callbacks)
+        }
+    }
+
+    pub(crate) fn resolve_conflict_header_dep(
+        &mut self,
+        detached_headers: &HashSet<Byte32>,
+        callbacks: &Callbacks,
+    ) {
+        for (entry, reject) in self.proposed.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
+        }
+        for (entry, reject) in self.gap.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
+        }
+        for (entry, reject) in self.pending.resolve_conflict_header_dep(detached_headers) {
+            callbacks.call_reject(self, &entry, reject);
+        }
+    }
+
+    pub(crate) fn remove_committed_tx(
+        &mut self,
+        tx: &TransactionView,
+        related_out_points: &[OutPoint],
+        callbacks: &Callbacks,
+    ) {
+        let hash = tx.hash();
+        trace!("committed {}", hash);
+        // try remove committed tx from proposed
+        // proposed tx should not contain conflict, if exists just skip resolve conflict
+        if let Some(entry) = self.proposed.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        } else {
+            let conflicts = self.proposed.resolve_conflict(tx);
+
+            for (entry, reject) in conflicts {
+                callbacks.call_reject(self, &entry, reject);
+            }
+        }
+
+        // pending and gap should resolve conflict no matter exists or not
+        if let Some(entry) = self.gap.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        }
+        {
+            let conflicts = self.gap.resolve_conflict(tx);
+
+            for (entry, reject) in conflicts {
+                callbacks.call_reject(self, &entry, reject);
+            }
+        }
+
+        if let Some(entry) = self.pending.remove_committed_tx(tx, related_out_points) {
+            callbacks.call_committed(self, &entry)
+        }
+        {
+            let conflicts = self.pending.resolve_conflict(tx);
+
+            for (entry, reject) in conflicts {
+                callbacks.call_reject(self, &entry, reject);
+            }
         }
     }
 
@@ -510,5 +565,16 @@ impl TxPool {
         txs.append(&mut self.gap.drain());
         txs.append(&mut self.pending.drain());
         txs
+    }
+
+    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>, last_txs_updated_at: Arc<AtomicU64>) {
+        self.pending = PendingQueue::new();
+        self.gap = PendingQueue::new();
+        self.proposed = ProposedPool::new(self.config.max_ancestors_count);
+        self.snapshot = snapshot;
+        self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
+        self.last_txs_updated_at = last_txs_updated_at;
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
     }
 }

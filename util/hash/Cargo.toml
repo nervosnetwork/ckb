@@ -1,6 +1,6 @@
 [package]
 name = "ckb-hash"
-version = "0.100.0"
+version = "0.101.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-blake2b-rs = "0.1.5"
+blake2b-rs = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 blake2b-ref = "0.2.0"

@@ -103,6 +103,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
     * [Type `ChainInfo`](#type-chaininfo)
     * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
+    * [Type `DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
     * [Type `DepType`](#type-deptype)
     * [Type `DryRunResult`](#type-dryrunresult)
     * [Type `EpochNumber`](#type-epochnumber)
@@ -619,8 +620,9 @@ The response looks like below when `verbosity` is 0.
 ```
 
 #### Method `get_transaction`
-* `get_transaction(tx_hash)`
+* `get_transaction(tx_hash, verbosity)`
     * `tx_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
 * result: [`TransactionWithStatus`](#type-transactionwithstatus) `|` `null`
 
 Returns the information about a transaction requested by transaction hash.
@@ -634,6 +636,16 @@ If the transaction is in the chain, the block hash is also returned.
 ##### Params
 
 *   `tx_hash` - Hash of a transaction
+
+*   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+
+##### Returns
+
+When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release. It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+
+When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
+
+When verbosity is 2: if tx_status.status is pending, proposed, or committed, the RPC returns the transaction content as field transaction, otherwise the field is null.
 
 ##### Examples
 
@@ -699,7 +711,8 @@ Response
     },
     "tx_status": {
       "block_hash": null,
-      "status": "pending"
+      "status": "pending",
+      "reason": null
     }
   }
 }
@@ -1463,22 +1476,26 @@ Response
 ```
 
 #### Method `calculate_dao_maximum_withdraw`
-* `calculate_dao_maximum_withdraw(out_point, block_hash)`
+* `calculate_dao_maximum_withdraw(out_point, kind)`
     * `out_point`: [`OutPoint`](#type-outpoint)
-    * `block_hash`: [`H256`](#type-h256)
+    * `kind`: [`DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
 * result: [`Capacity`](#type-capacity)
 
 Calculates the maximum withdrawal one can get, given a referenced DAO cell, and a withdrawing block hash.
 
 ##### Params
 
-*   `out_point` - Reference to the DAO cell.
+*   `out_point` - Reference to the DAO cell, the depositing transaction's output.
 
-*   `block_hash` - The assumed reference block for withdrawing. This block must be in the [canonical chain](#canonical-chain).
+*   `kind` - Two kinds of dao withdrawal amount calculation option.
+
+option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the [canonical chain](#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction's output, assuming the output of phase 1 transaction is the same as the depositing transaction's output.
+
+option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction's output.
 
 ##### Returns
 
-The RPC returns the final capacity when the cell `out_point` is withdrawn using the block `block_hash` as the reference.
+The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
 
 In CKB, scripts cannot get the information about in which block the transaction is committed. A workaround is letting the transaction reference a block hash so the script knows that the transaction is committed at least after the reference block.
 
@@ -2483,7 +2500,8 @@ Response
                "fee": "0x16923f7dcf",
                "ancestors_size": "0x112",
                "ancestors_cycles": "0x219",
-               "ancestors_count": "0x1"
+               "ancestors_count": "0x1",
+               "timestamp": "0x17c983e6e44"
            }
        },
        "proposed": {}
@@ -3464,6 +3482,16 @@ Count of cycles consumed by CKB VM to run scripts.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
+### Type `DaoWithdrawingCalculationKind`
+
+An enum to represent the two kinds of dao withdrawal amount calculation option. `DaoWithdrawingCalculationKind` is equivalent to [`H256`](#type-h256) `|` [`OutPoint`](#type-outpoint).
+
+`DaoWithdrawingCalculationKind` is equivalent to `"withdrawing_header_hash" | "withdrawing_out_point"`.
+
+*   the assumed reference block hash for withdrawing phase 1 transaction
+*   the out point of the withdrawing phase 1 transaction
+
+
 ### Type `DepType`
 
 The dep cell type. Allowed values: "code" and "dep_group".
@@ -3912,6 +3940,8 @@ The transaction entry in the pool.
 
 *   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
 
+*   `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
+
 
 ### Type `PoolTransactionReject`
 
@@ -3919,7 +3949,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "Resolve" | "Verification"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -3929,6 +3959,7 @@ Different reject types:
 *   `Full`: Transaction pool exceeded maximum size or cycles limit,
 *   `Duplicated`: Transaction already exist in transaction_pool
 *   `Malformed`: Malformed transaction
+*   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 
@@ -4082,7 +4113,7 @@ A remote node connects to the local node via the P2P network. It is often called
 
     If the connection is established by the local node, `is_outbound` is true.
 
-*   `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in seconds since the remote node is connected.
+*   `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in milliseconds since the remote node is connected.
 
 *   `last_ping_duration`: [`Uint64`](#type-uint64) `|` `null` - Elapsed time in milliseconds since receiving the ping response from this remote node.
 
@@ -4164,11 +4195,13 @@ This is a 0x-prefix hex string. It is the block header serialized by molecule us
 
 Status for transaction
 
-`Status` is equivalent to `"pending" | "proposed" | "committed"`.
+`Status` is equivalent to `"pending" | "proposed" | "committed" | "unknown" | "rejected"`.
 
 *   Status "pending". The transaction is in the pool, and not proposed yet.
 *   Status "proposed". The transaction is in the pool and has been proposed.
 *   Status "committed". The transaction has been committed to the canonical chain.
+*   Status "unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
+*   Status "rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
 
 
 ### Type `SyncState`
@@ -4373,7 +4406,7 @@ The JSON view of a transaction as well as its status.
 
 `TransactionWithStatus` is a JSON object with the following fields.
 
-*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
+*   `transaction`: [`TransactionView`](#type-transactionview) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
@@ -4410,6 +4443,8 @@ Transaction entry info
 *   `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
 
 *   `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
+
+*   `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
 
 
 ### Type `TxPoolIds`
@@ -4451,9 +4486,9 @@ Transaction pool information.
 
     An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
 
-*   `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states.
+*   `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
 
-*   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool.
+*   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
 *   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
 
@@ -4470,9 +4505,11 @@ Transaction status and the block hash if it is committed.
 
 `TxStatus` is a JSON object with the following fields.
 
-*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" and "committed".
+*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
+
+*   `reason`: `string` `|` `null` - The reason why the transaction is rejected
 
 
 ### Type `U256`

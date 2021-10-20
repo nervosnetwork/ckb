@@ -16,7 +16,11 @@ GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_
 
 ##@ Testing
 .PHONY: test
-test: ## Run all tests.
+test: quick-test ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+	cargo test ${VERBOSE} --all -- --nocapture --ignored
+
+.PHONY: quick-test
+quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
 	cargo test ${VERBOSE} --all -- --nocapture
 
 .PHONY: cov-install-tools
@@ -56,6 +60,7 @@ wasm-build-test: ## Build core packages for wasm target
 .PHONY: setup-ckb-test
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
+	[ -x "${CARGO_TARGET_DIR}" ] || mkdir -p "${CARGO_TARGET_DIR}"
 	rm -rf test/target && ln -snf ${CARGO_TARGET_DIR} test/target
 
 .PHONY: submodule-init
@@ -122,15 +127,15 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --release --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="--cfg disable_faketime --cfg docker" cargo build --verbose --release --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime --cfg docker" cargo build --verbose --release --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
-	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 
 .PHONY: prod-with-debug
 prod-with-debug:

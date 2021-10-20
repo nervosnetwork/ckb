@@ -42,6 +42,9 @@ bitflags! {
                                     Self::DISABLE_TWO_PHASE_COMMIT.bits | Self::DISABLE_DAOHEADER.bits |
                                     Self::DISABLE_REWARD.bits |
                                     Self::DISABLE_NON_CONTEXTUAL.bits | Self::DISABLE_SCRIPT.bits;
+
+        /// Only script verification
+        const ONLY_SCRIPT               = Self::DISABLE_ALL.bits & (!Self::DISABLE_SCRIPT.bits);
     }
 }
 

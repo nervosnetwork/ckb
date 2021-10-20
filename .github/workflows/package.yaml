@@ -12,7 +12,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v0.100.0
+  CKB_CLI_VERSION: v0.101.0
 
 jobs:
   create-release:
@@ -152,9 +152,11 @@ jobs:
       run: |
         Set-ExecutionPolicy RemoteSigned -scope CurrentUser
         Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
-        scoop install yasm
+        scoop install llvm yasm
         echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
-        echo ("PATH=" + $env:PATH + ";" + $env:USERPROFILE + "\scoop\shims;C:\msys64\mingw64\bin") >> $env:GITHUB_ENV
+        echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\13.0.0\bin" >> $env:GITHUB_ENV
     - uses: actions/checkout@v2
     - name: Build
       run: |

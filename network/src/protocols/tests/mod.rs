@@ -1,4 +1,5 @@
 use super::{
+    disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
     identify::{IdentifyCallback, IdentifyProtocol},
@@ -7,6 +8,7 @@ use super::{
 
 use crate::{
     network::{DefaultExitHandler, EventHandler},
+    services::protocol_type_checker::ProtocolTypeCheckerService,
     NetworkState, PeerIdentifyInfo, SupportProtocols,
 };
 
@@ -97,7 +99,7 @@ impl Node {
     }
 }
 
-fn net_service_start(name: String) -> Node {
+fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
     let config = NetworkConfig {
         max_peers: 19,
         max_outbound_peers: 5,
@@ -111,6 +113,12 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: true,
         bootnode_mode: true,
         reuse_port_on_linux: true,
+        public_addresses: vec![format!(
+            "/ip4/225.0.0.1/tcp/42/p2p/{}",
+            crate::PeerId::random().to_base58()
+        )
+        .parse()
+        .unwrap()],
         ..Default::default()
     };
 
@@ -154,15 +162,32 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: config.discovery_local_address,
     };
     let disc_meta = SupportProtocols::Discovery.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(addr_mgr, None)))
+        ProtocolHandle::Callback(Box::new(DiscoveryProtocol::new(
+            addr_mgr,
+            if enable_discovery_push {
+                Some(Duration::from_secs(1))
+            } else {
+                None
+            },
+        )))
     });
 
     // Identify protocol
     let identify_callback =
         IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
     let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-        ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+        ProtocolHandle::Callback(Box::new(
+            IdentifyProtocol::new(identify_callback).global_ip_only(false),
+        ))
     });
+
+    let disconnect_message_state = Arc::clone(&network_state);
+    let disconnect_message_meta = SupportProtocols::DisconnectMessage
+        .build_meta_with_service_handle(move || {
+            ProtocolHandle::Callback(Box::new(DisconnectMessageProtocol::new(
+                disconnect_message_state,
+            )))
+        });
 
     // Feeler protocol
     let feeler_meta = SupportProtocols::Feeler.build_meta_with_service_handle({
@@ -174,6 +199,7 @@ fn net_service_start(name: String) -> Node {
         .insert_protocol(ping_meta)
         .insert_protocol(disc_meta)
         .insert_protocol(identify_meta)
+        .insert_protocol(disconnect_message_meta)
         .insert_protocol(feeler_meta);
 
     let mut p2p_service = service_builder
@@ -190,26 +216,29 @@ fn net_service_start(name: String) -> Node {
     let control = p2p_service.control().clone();
     let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
-    thread::spawn(move || {
+    static RT: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
+        once_cell::sync::OnceCell::new();
+
+    let rt = RT.get_or_init(|| {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
-        let rt = tokio::runtime::Builder::new_multi_thread()
+        tokio::runtime::Builder::new_multi_thread()
             .worker_threads(num_threads)
             .enable_all()
             .build()
+            .unwrap()
+    });
+    rt.spawn(async move {
+        let mut listen_addr = p2p_service
+            .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .await
             .unwrap();
-        rt.block_on(async move {
-            let mut listen_addr = p2p_service
-                .listen("/ip4/127.0.0.1/tcp/0".parse().unwrap())
-                .await
-                .unwrap();
-            listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
-            addr_sender.send(listen_addr).unwrap();
-            loop {
-                if p2p_service.next().await.is_none() {
-                    break;
-                }
+        listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
+        addr_sender.send(listen_addr).unwrap();
+        loop {
+            if p2p_service.next().await.is_none() {
+                break;
             }
-        })
+        }
     });
 
     let listen_addr = addr_receiver.recv().unwrap();
@@ -261,9 +290,9 @@ fn wait_discovery(node: &Node) {
 
 #[test]
 fn test_identify_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/2".to_string());
-    let node3 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), false);
+    let node2 = net_service_start("/test/2".to_string(), false);
+    let node3 = net_service_start("/test/1".to_string(), false);
 
     node1.dial(
         &node3,
@@ -282,6 +311,28 @@ fn test_identify_behavior() {
     wait_connect_state(&node2, 0);
     wait_connect_state(&node3, 1);
 
+    let check_nodes_ban_count = |node_a: &Node, node_b: &Node| {
+        let node_a_ban_count = node_a
+            .network_state
+            .peer_store
+            .lock()
+            .ban_list()
+            .get_banned_addrs()
+            .len();
+        let node_b_ban_count = node_b
+            .network_state
+            .peer_store
+            .lock()
+            .ban_list()
+            .get_banned_addrs()
+            .len();
+        node_a_ban_count != 0 || node_b_ban_count != 0
+    };
+
+    if !wait_until(10, || check_nodes_ban_count(&node2, &node3)) {
+        panic!("identify can't ban not same net")
+    }
+
     node1.dial(
         &node2,
         TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
@@ -290,10 +341,13 @@ fn test_identify_behavior() {
     wait_connect_state(&node1, 1);
     wait_connect_state(&node2, 0);
 
-    let sessions = node3.connected_sessions();
-    assert_eq!(sessions.len(), 1);
+    if !wait_until(10, || check_nodes_ban_count(&node1, &node2)) {
+        panic!("identify can't ban not same net")
+    }
 
-    if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 3) {
+    let sessions = node3.connected_sessions();
+
+    if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 4) {
         panic!("identify can't open other protocols")
     }
 
@@ -310,15 +364,16 @@ fn test_identify_behavior() {
         vec![
             SupportProtocols::Ping.protocol_id(),
             SupportProtocols::Discovery.protocol_id(),
-            SupportProtocols::Identify.protocol_id()
+            SupportProtocols::Identify.protocol_id(),
+            SupportProtocols::DisconnectMessage.protocol_id()
         ]
     );
 }
 
 #[test]
 fn test_feeler_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -339,9 +394,9 @@ fn test_feeler_behavior() {
 
 #[test]
 fn test_discovery_behavior() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
-    let node3 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
+    let node3 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -395,12 +450,38 @@ fn test_discovery_behavior() {
     wait_connect_state(&node1, 2);
     wait_connect_state(&node2, 2);
     wait_connect_state(&node3, 2);
+
+    thread::sleep(Duration::from_secs(10));
+
+    let checker = ProtocolTypeCheckerService::new(
+        node1.network_state,
+        node1.control,
+        vec![SupportProtocols::Identify.protocol_id()],
+    );
+
+    checker.check_protocol_type();
+
+    let checker = ProtocolTypeCheckerService::new(
+        node2.network_state,
+        node2.control,
+        vec![SupportProtocols::Sync.protocol_id()],
+    );
+
+    checker.check_protocol_type();
+
+    let checker = ProtocolTypeCheckerService::new(
+        node3.network_state,
+        node3.control,
+        vec![SupportProtocols::Identify.protocol_id()],
+    );
+
+    checker.check_protocol_type();
 }
 
 #[test]
 fn test_dial_all() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(&node2, TargetProtocol::All);
 
@@ -410,8 +491,8 @@ fn test_dial_all() {
 
 #[test]
 fn test_ban() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
 
     node1.dial(
         &node2,
@@ -449,12 +530,12 @@ fn test_ban() {
 
 #[test]
 fn test_bootnode_mode_inbound_eviction() {
-    let node1 = net_service_start("/test/1".to_string());
-    let node2 = net_service_start("/test/1".to_string());
-    let node3 = net_service_start("/test/1".to_string());
-    let node4 = net_service_start("/test/1".to_string());
-    let node5 = net_service_start("/test/1".to_string());
-    let node6 = net_service_start("/test/1".to_string());
+    let node1 = net_service_start("/test/1".to_string(), true);
+    let node2 = net_service_start("/test/1".to_string(), true);
+    let node3 = net_service_start("/test/1".to_string(), true);
+    let node4 = net_service_start("/test/1".to_string(), true);
+    let node5 = net_service_start("/test/1".to_string(), true);
+    let node6 = net_service_start("/test/1".to_string(), true);
 
     node2.dial(
         &node1,

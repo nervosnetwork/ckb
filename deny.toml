@@ -4,8 +4,10 @@ unmaintained = "warn"
 yanked = "deny"
 notice = "deny"
 ignore = [
-    "RUSTSEC-2020-0082", # TODO ordered_float:NotNan may contain NaN after panic in assignment operators
-                         #      Could be removed after heim 0.1.0 released.
+    # TODO Potential segfault in the time crate; waiting for the fix from upstream (chrono)
+    "RUSTSEC-2020-0071",
+    # TODO Potential segfault in the chrono crate; waiting for the new release of chrono
+    "RUSTSEC-2020-0159"
 ]
 
 [licenses]

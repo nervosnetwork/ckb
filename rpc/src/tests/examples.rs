@@ -1,23 +1,23 @@
-use crate::{RpcServer, ServiceBuilder};
+use crate::{
+    tests::{always_success_transaction, next_block},
+    RpcServer, ServiceBuilder,
+};
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
-use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_shared::{Shared, Snapshot};
-use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
-use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
+use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{
-        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity,
-        EpochNumberWithFraction, FeeRate, HeaderView, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, FeeRate,
+        TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
@@ -25,15 +25,16 @@ use ckb_types::{
     H256,
 };
 use pretty_assertions::assert_eq as pretty_assert_eq;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::fmt;
 use std::fs::{read_dir, File};
 use std::hash;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use super::{RpcTestRequest, RpcTestResponse, RpcTestSuite};
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 const GENESIS_TARGET: u32 = 0x2001_0000;
@@ -67,20 +68,6 @@ fn always_success_consensus() -> Consensus {
         .build()
 }
 
-// Construct `Transaction` with an always-success cell
-//
-// The 1st transaction in genesis block, which contains an always_success_cell as the 1st output
-fn always_success_transaction() -> TransactionView {
-    let (always_success_cell, always_success_cell_data, always_success_script) =
-        always_success_cell();
-    TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.to_owned().pack())
-        .witness(always_success_script.clone().into_witness())
-        .build()
-}
-
 fn construct_example_transaction() -> TransactionView {
     let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().pack(), 0);
     let input = CellInput::new(previous_output, 0);
@@ -97,36 +84,6 @@ fn construct_example_transaction() -> TransactionView {
         .output_data(Default::default())
         .cell_dep(cell_dep)
         .header_dep(always_success_consensus().genesis_hash())
-        .build()
-}
-
-// Construct the next block based the given `parent`
-fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
-    let snapshot: &Snapshot = &shared.snapshot();
-    let epoch = shared
-        .consensus()
-        .next_epoch_ext(parent, &snapshot.as_data_provider())
-        .unwrap()
-        .epoch();
-    let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
-    let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
-
-    let dao = {
-        let resolved_cellbase =
-            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        let data_loader = shared.store().as_data_provider();
-        DaoCalculator::new(shared.consensus(), &data_loader)
-            .dao_field(&[resolved_cellbase], parent)
-            .unwrap()
-    };
-    BlockBuilder::default()
-        .transaction(cellbase)
-        .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .timestamp((parent.timestamp() + 1).pack())
-        .compact_target(epoch.compact_target().pack())
-        .dao(dao)
         .build()
 }
 
@@ -490,43 +447,6 @@ fn collect_rpc_examples() -> io::Result<HashSet<RpcTestExample>> {
 
     Ok(examples)
 }
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-struct RpcTestRequest {
-    pub id: usize,
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Vec<Value>,
-}
-
-impl fmt::Display for RpcTestRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}(id={})", self.method, self.id)
-    }
-}
-
-impl RpcTestRequest {
-    fn json(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
-struct RpcTestResponse {
-    pub id: usize,
-    pub jsonrpc: String,
-    #[serde(default)]
-    pub result: Value,
-    #[serde(default)]
-    pub error: Value,
-}
-
-impl RpcTestResponse {
-    fn json(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-}
-
 struct RpcTestExample {
     request: RpcTestRequest,
     response: RpcTestResponse,
@@ -566,32 +486,7 @@ impl RpcTestExample {
     }
 }
 
-#[allow(dead_code)]
-struct RpcTestSuite {
-    rpc_client: reqwest::blocking::Client,
-    rpc_uri: String,
-    shared: Shared,
-    chain_controller: ChainController,
-    rpc_server: RpcServer,
-}
-
 impl RpcTestSuite {
-    fn rpc(&self, request: &RpcTestRequest) -> RpcTestResponse {
-        self.rpc_client
-            .post(&self.rpc_uri)
-            .json(&request)
-            .send()
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to call RPC request: {:?}\n\nrequest = {:?}",
-                    e,
-                    request.json(),
-                )
-            })
-            .json::<RpcTestResponse>()
-            .expect("Deserialize RpcTestRequest")
-    }
-
     fn send_example_transaction(&self) {
         let example_tx = construct_example_transaction();
         assert_eq!(
@@ -665,6 +560,8 @@ where
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
     use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, RemoteNode, Uint64};
 
+    let example_tx_hash = format!("{:#x}", EXAMPLE_TX_HASH);
+
     match example.request.method.as_str() {
         "local_node_info" => replace_rpc_response::<LocalNode>(example, response),
         "get_peers" => replace_rpc_response::<Vec<RemoteNode>>(example, response),
@@ -684,6 +581,10 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
             response.result["chain"] = example.response.result["chain"].clone()
         }
         "send_alert" => response.error["data"] = example.response.error["data"].clone(),
+        "get_raw_tx_pool" => {
+            response.result["pending"][example_tx_hash.as_str()]["timestamp"] =
+                example.response.result["pending"][example_tx_hash.as_str()]["timestamp"].clone()
+        }
         _ => {}
     }
 }

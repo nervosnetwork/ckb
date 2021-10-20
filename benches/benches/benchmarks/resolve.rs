@@ -6,7 +6,6 @@ use ckb_jsonrpc_types::JsonBytes;
 use ckb_launcher::SharedBuilder;
 use ckb_resource::Resource;
 use ckb_shared::{Shared, Snapshot};
-use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -100,7 +99,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     // FIXME: global cache !!!
     let _ret = setup_system_cell_cache(
         shared.consensus().genesis_block(),
-        &shared.store().cell_provider(),
+        shared.snapshot().as_ref(),
     );
 
     (shared, chain_controller)
@@ -130,12 +129,11 @@ fn bench(c: &mut Criterion) {
                 let snapshot: &Snapshot = &shared.snapshot();
                 let txs = gen_txs_from_genesis(&shared.consensus().genesis_block());
 
-                let provider = snapshot.cell_provider();
                 while i > 0 {
                     let mut seen_inputs = HashSet::new();
 
                     for tx in txs.clone() {
-                        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap();
+                        resolve_transaction(tx, &mut seen_inputs, snapshot, snapshot).unwrap();
                     }
 
                     i -= 1;
@@ -157,19 +155,18 @@ fn bench(c: &mut Criterion) {
                     let snapshot: &Snapshot = &shared.snapshot();
                     let txs = gen_txs_from_genesis(&shared.consensus().genesis_block());
 
-                    let provider = snapshot.cell_provider();
                     let mut seen_inputs = HashSet::new();
                     let rtxs: Vec<_> = txs
                         .into_iter()
                         .map(|tx| {
-                            resolve_transaction(tx, &mut seen_inputs, &provider, snapshot).unwrap()
+                            resolve_transaction(tx, &mut seen_inputs, snapshot, snapshot).unwrap()
                         })
                         .collect();
 
                     while i > 0 {
                         let mut seen_inputs = HashSet::new();
                         for rtx in &rtxs {
-                            rtx.check(&mut seen_inputs, &provider, snapshot, resolve_opts)
+                            rtx.check(&mut seen_inputs, snapshot, snapshot, resolve_opts)
                                 .unwrap();
                         }
                         i -= 1;

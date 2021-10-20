@@ -399,8 +399,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
-        let proposal_window = self.consensus.tx_proposal_window();
-        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
         let hardfork_switch = self.consensus.hardfork_switch();
         let is_vm_version_1_and_syscalls_2_enabled =
             hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number);

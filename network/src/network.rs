@@ -155,16 +155,7 @@ impl NetworkState {
                 .map(|peer| peer.connected_addr.clone())
         }) {
             trace!("report {:?} because {:?}", addr, behaviour);
-            let report_result = match self.peer_store.lock().report(&addr, behaviour) {
-                Ok(result) => result,
-                Err(err) => {
-                    error!(
-                        "Report failed addr: {:?} behaviour: {:?} error: {:?}",
-                        addr, behaviour, err
-                    );
-                    return;
-                }
-            };
+            let report_result = self.peer_store.lock().report(&addr, behaviour);
             if report_result.is_banned() {
                 if let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
                     debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
@@ -235,8 +226,8 @@ impl NetworkState {
         accept_peer_result.map_err(Into::into)
     }
 
-    // For restrict lock in inner scope
-    pub(crate) fn with_peer_registry<F, T>(&self, callback: F) -> T
+    /// For restrict lock in inner scope
+    pub fn with_peer_registry<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&PeerRegistry) -> T,
     {
@@ -265,8 +256,7 @@ impl NetworkState {
     }
 
     /// Use on test
-    #[allow(dead_code)]
-    pub(crate) fn local_private_key(&self) -> &secio::SecioKeyPair {
+    pub fn local_private_key(&self) -> &secio::SecioKeyPair {
         &self.local_private_key
     }
 
@@ -486,6 +476,16 @@ impl NetworkState {
 pub struct EventHandler<T> {
     pub(crate) network_state: Arc<NetworkState>,
     pub(crate) exit_handler: T,
+}
+
+impl<T> EventHandler<T> {
+    /// init an event handler
+    pub fn new(network_state: Arc<NetworkState>, exit_handler: T) -> Self {
+        Self {
+            network_state,
+            exit_handler,
+        }
+    }
 }
 
 /// Exit trait used to notify all other module to exit
@@ -1116,13 +1116,13 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Tokio(sender), None);
+        let stop = StopHandler::new(SignalSender::Tokio(sender), None, "network".to_string());
         Ok(NetworkController {
             version,
             network_state,
             p2p_control,
             ping_controller,
-            stop,
+            stop: Some(stop),
         })
     }
 }
@@ -1134,7 +1134,7 @@ pub struct NetworkController {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     ping_controller: Option<Sender<()>>,
-    stop: StopHandler<()>,
+    stop: Option<StopHandler<()>>,
 }
 
 impl NetworkController {
@@ -1323,11 +1323,25 @@ impl NetworkController {
             let _ignore = ping_controller.try_send(());
         }
     }
+
+    /// Since a non-owning reference does not count towards ownership,
+    /// it will not prevent the value stored in the allocation from being dropped
+    pub fn non_owning_clone(&self) -> Self {
+        NetworkController {
+            stop: None,
+            version: self.version.clone(),
+            network_state: Arc::clone(&self.network_state),
+            p2p_control: self.p2p_control.clone(),
+            ping_controller: self.ping_controller.clone(),
+        }
+    }
 }
 
 impl Drop for NetworkController {
     fn drop(&mut self) {
-        self.stop.try_send(());
+        if let Some(ref mut stop) = self.stop {
+            stop.try_send(());
+        }
     }
 }
 

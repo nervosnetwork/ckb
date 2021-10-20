@@ -68,9 +68,7 @@ impl NotifyService {
         }
     }
 
-    /// TODO(doc): @quake
-    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
-    #[allow(clippy::zero_ptr, clippy::drop_copy)]
+    /// start background single-threaded service with specified thread_name.
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> NotifyController {
         let (signal_sender, signal_receiver) = bounded(SIGNAL_CHANNEL_SIZE);
 
@@ -129,7 +127,11 @@ impl NotifyService {
             reject_transaction_notifier: reject_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
-            stop: StopHandler::new(SignalSender::Crossbeam(signal_sender), Some(join_handle)),
+            stop: StopHandler::new(
+                SignalSender::Crossbeam(signal_sender),
+                Some(join_handle),
+                "notify".to_string(),
+            ),
         }
     }
 

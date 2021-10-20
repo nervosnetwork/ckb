@@ -3,7 +3,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Cycle, JsonBytes, Script, Transaction,
+    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, JsonBytes, Script, Transaction,
 };
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
@@ -46,9 +46,6 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "notify_transaction")]
     fn notify_transaction(&self, transaction: Transaction) -> Result<H256>;
-
-    #[rpc(name = "broadcast_transaction")]
-    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
 
     #[rpc(name = "generate_block_with_template")]
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
@@ -127,6 +124,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         block_assembler_message: Option<JsonBytes>,
     ) -> Result<H256> {
         let tx_pool = self.shared.tx_pool_controller();
+        let snapshot = Arc::clone(&self.shared.snapshot());
         let block_assembler_config = block_assembler_script.map(|script| BlockAssemblerConfig {
             code_hash: script.code_hash,
             hash_type: script.hash_type,
@@ -140,38 +138,13 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 None,
                 None,
                 None,
+                snapshot,
                 block_assembler_config,
             )
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         self.process_and_announce_block(block_template.into())
-    }
-
-    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
-        let tx: packed::Transaction = transaction.into();
-        let hash = tx.calc_tx_hash();
-        let relay_tx = packed::RelayTransaction::new_builder()
-            .cycles(cycles.value().pack())
-            .transaction(tx)
-            .build();
-        let relay_txs = packed::RelayTransactions::new_builder()
-            .transactions(vec![relay_tx].pack())
-            .build();
-        let message = packed::RelayMessage::new_builder().set(relay_txs).build();
-
-        if let Err(err) = self
-            .network_controller
-            .broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
-        {
-            error!("Broadcast transaction failed: {:?}", err);
-            Err(RPCError::custom_with_error(
-                RPCError::P2PFailedToBroadcast,
-                err,
-            ))
-        } else {
-            Ok(hash.unpack())
-        }
     }
 
     fn notify_transaction(&self, tx: Transaction) -> Result<H256> {

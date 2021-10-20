@@ -11,15 +11,12 @@ use ckb_freezer::Freezer;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellChecker, CellMeta, CellProvider, CellStatus},
-        BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
-        TransactionView, UncleBlockVecView,
+        cell::CellMeta, BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView,
+        TransactionInfo, TransactionView, UncleBlockVecView,
     },
     packed::{self, OutPoint},
     prelude::*,
 };
-
-pub struct CellProviderWrapper<'a, S>(&'a S);
 
 /// TODO(doc): @quake
 pub trait ChainStore<'a>: Send + Sync + Sized {
@@ -33,10 +30,6 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
-    /// TODO(doc): @quake
-    fn cell_provider(&self) -> CellProviderWrapper<Self> {
-        CellProviderWrapper(self)
-    }
     /// Return the provider trait default implementation
     fn as_data_provider(&'a self) -> DataLoaderWrapper<'a, Self> {
         DataLoaderWrapper::new(self)
@@ -559,38 +552,5 @@ fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryRea
         data_bytes: reader.data_size().unpack(),
         mem_cell_data: None,
         mem_cell_data_hash: None,
-    }
-}
-
-impl<'a, S> CellProvider for CellProviderWrapper<'a, S>
-where
-    S: ChainStore<'a>,
-{
-    fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
-        match self.0.get_cell(out_point) {
-            Some(mut cell_meta) => {
-                if eager_load {
-                    if let Some((data, data_hash)) = self.0.get_cell_data(out_point) {
-                        cell_meta.mem_cell_data = Some(data);
-                        cell_meta.mem_cell_data_hash = Some(data_hash);
-                    }
-                }
-                CellStatus::live_cell(cell_meta)
-            }
-            None => CellStatus::Unknown,
-        }
-    }
-}
-
-impl<'a, S> CellChecker for CellProviderWrapper<'a, S>
-where
-    S: ChainStore<'a>,
-{
-    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        if self.0.have_cell(out_point) {
-            Some(true)
-        } else {
-            None
-        }
     }
 }

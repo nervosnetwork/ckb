@@ -20,7 +20,7 @@ use std::{
 };
 use tokio::time::{Interval, MissedTickBehavior};
 
-const TIMEOUT: Duration = Duration::from_secs(60);
+const TIMEOUT: Duration = Duration::from_secs(10);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
@@ -78,7 +78,7 @@ impl ProtocolTypeCheckerService {
         }
     }
 
-    fn check_protocol_type(&self) {
+    pub(crate) fn check_protocol_type(&self) {
         self.network_state.with_peer_registry(|reg| {
             let now = Instant::now();
             for (session_id, peer) in reg.peers() {

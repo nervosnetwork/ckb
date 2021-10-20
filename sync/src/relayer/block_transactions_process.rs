@@ -67,7 +67,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 .shared
                 .state()
                 .write_inflight_blocks()
-                .remove_compact(self.peer, &block_hash);
+                .remove_compact_by_peer(self.peer, &block_hash);
         }
 
         if let Entry::Occupied(mut pending) = shared
@@ -112,7 +112,11 @@ impl<'a> BlockTransactionsProcess<'a> {
                     self.relayer.request_proposal_txs(
                         self.nc.as_ref(),
                         self.peer,
-                        block_hash.clone(),
+                        (
+                            compact_block.header().into_view().number(),
+                            block_hash.clone(),
+                        )
+                            .into(),
                         proposals,
                     );
                 }

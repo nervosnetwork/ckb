@@ -5,7 +5,6 @@ use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
 use ckb_network::{DefaultExitHandler, ExitHandler};
-use ckb_store::ChainStore;
 use ckb_types::core::cell::setup_system_cell_cache;
 
 pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
@@ -26,7 +25,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     setup_system_cell_cache(
         shared.consensus().genesis_block(),
-        &shared.store().cell_provider(),
+        shared.snapshot().as_ref(),
     )
     .expect("SYSTEM_CELL cache init once");
 
@@ -46,14 +45,14 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let (network_controller, rpc_server) = launcher.start_network_and_rpc(
         &shared,
-        chain_controller,
+        chain_controller.non_owning_clone(),
         &exit_handler,
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller);
+    tx_pool_builder.start(network_controller.non_owning_clone());
 
     let exit_handler_clone = exit_handler.clone();
     ctrlc::set_handler(move || {
@@ -67,6 +66,9 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         eprintln!("TxPool Error: {}", err);
         ExitCode::Failure
     })?;
+
     drop(rpc_server);
+    drop(network_controller);
+    drop(chain_controller);
     Ok(())
 }

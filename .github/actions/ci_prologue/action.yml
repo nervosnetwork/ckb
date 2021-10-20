@@ -1,0 +1,52 @@
+name: 'ci-composite-action'
+description: 'ci-composite-action'
+inputs:
+  GITHUB_EVENT_NAME:  # id of input
+    description: 'Github event'
+    required: true
+  COMMIT_MESSAGE:  # id of input
+    description: 'push commit message'
+    required: true
+  PR_COMMONS_BODY:  # id of input
+    description: 'pr comments body'
+    required: true
+  GITHUB_TOKEN:  # id of input
+    description: 'Github token to get actor permission'
+    required: true
+  LABELS:  # id of input
+    description: 'pr labels'
+    required: true
+  GITHUB_REPOSITORY:  # id of input
+    description: 'GITHUB_REPOSITORY'
+    required: true
+  GITHUB_WORKFLOW:  # id of input
+    description: 'GITHUB_WORKFLOW name'
+    required: true
+outputs:
+  os_skip:
+    description: "The flag for skip run os or not"
+    value: ${{ steps.prologue.outputs.os_skip }}
+  job_skip:
+    description: "The flag for skip run jobs or not"
+    value: ${{ steps.prologue.outputs.job_skip }}
+  linux_runner_label:
+    description: "The linux_runner_label for ubuntu"
+    value: ${{ steps.prologue.outputs.linux_runner_label }}
+  windows_runner_label:
+    description: "The windows_runner_label for windows"
+    value: ${{ steps.prologue.outputs.windows_runner_label }}
+runs:
+  using: "composite"
+  steps:
+    - id: prologue
+      run: ${{ github.action_path }}/ci_prologue.sh
+      shell: bash
+      env:
+        GITHUB_EVENT_NAME: ${{ inputs.GITHUB_EVENT_NAME }}
+        COMMIT_MESSAGE:  ${{ inputs.COMMIT_MESSAGE }}
+        PR_COMMONS_BODY:  ${{ inputs.PR_COMMONS_BODY }}
+        GITHUB_TOKEN:  ${{ inputs.GITHUB_TOKEN }}
+        LABELS:  ${{ inputs.LABELS }}
+        GITHUB_REPOSITORY:  ${{ inputs.GITHUB_REPOSITORY }}
+        GITHUB_WORKFLOW:  ${{ inputs.GITHUB_WORKFLOW }}
+
