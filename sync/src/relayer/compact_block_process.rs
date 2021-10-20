@@ -206,10 +206,16 @@ impl<'a> CompactBlockProcess<'a> {
             match ret {
                 ReconstructionResult::Block(block) => {
                     pending_compact_blocks.remove(&block_hash);
-                    // remove all pending request below this block number
+                    // remove all pending request below this block epoch
+                    //
+                    // use epoch as the judgment condition because we accept
+                    // all block in current epoch as uncle block
                     pending_compact_blocks.retain(|_, (v, _)| {
-                        Unpack::<core::BlockNumber>::unpack(&v.header().as_reader().raw().number())
-                            >= block.number()
+                        Unpack::<core::EpochNumberWithFraction>::unpack(
+                            &v.header().as_reader().raw().epoch(),
+                        )
+                        .number()
+                            >= block.epoch().number()
                     });
                     shrink_to_fit!(pending_compact_blocks, 20);
                     self.relayer
