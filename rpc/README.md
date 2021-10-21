@@ -3601,7 +3601,7 @@ The information about one hardfork feature.
 
 *   `rfc`: `string` - The related RFC ID.
 
-*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled.
+*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
 
 
 ### Type `Header`
