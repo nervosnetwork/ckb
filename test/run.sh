@@ -10,7 +10,7 @@ set -u
 cd "$DIR"
 
 if [ -z "${CI:-}" ]; then
-  exec cargo run "$@"
+  exec cargo run --release --features "deadlock_detection,with_sentry" "$@"
 fi
 
 set +e

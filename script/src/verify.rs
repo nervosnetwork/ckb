@@ -49,8 +49,18 @@ use std::convert::TryFrom;
 mod tests;
 
 pub enum ChunkState<'a> {
-    Suspended(ResumableMachine<'a>),
+    Suspended(Option<ResumableMachine<'a>>),
     Completed(Cycle),
+}
+
+impl<'a> ChunkState<'a> {
+    pub fn suspended(machine: ResumableMachine<'a>) -> Self {
+        ChunkState::Suspended(Some(machine))
+    }
+
+    pub fn suspended_type_id() -> Self {
+        ChunkState::Suspended(None)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -483,7 +493,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     fn build_state(
         &self,
-        vm: ResumableMachine<'a>,
+        vm: Option<ResumableMachine<'a>>,
         current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
@@ -641,7 +651,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ) -> Result<VerifyResult<'a>, Error> {
         let TransactionState {
             current,
-            mut vm,
+            vm,
             current_cycles,
             ..
         } = state;
@@ -658,31 +668,48 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     .unknown_source()
             })?;
 
-        vm.set_max_cycles(limit_cycles);
-        match vm.machine.run() {
-            Ok(code) => {
-                self.tracing_data_as_code_pages.borrow_mut().clear();
-                if code == 0 {
-                    current_used = wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
-                    cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
-                } else {
-                    return Err(ScriptError::validation_failure(&current_group.script, code)
-                        .source(&current_group)
-                        .into());
+        if let Some(mut vm) = vm {
+            vm.set_max_cycles(limit_cycles);
+            match vm.machine.run() {
+                Ok(code) => {
+                    self.tracing_data_as_code_pages.borrow_mut().clear();
+                    if code == 0 {
+                        current_used =
+                            wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
+                        cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
+                    } else {
+                        return Err(ScriptError::validation_failure(&current_group.script, code)
+                            .source(&current_group)
+                            .into());
+                    }
                 }
+                Err(error) => match error {
+                    VMInternalError::InvalidCycles => {
+                        let state = self.build_state(Some(vm), current, cycles, limit_cycles);
+                        return Ok(VerifyResult::Suspended(state));
+                    }
+                    error => {
+                        self.tracing_data_as_code_pages.borrow_mut().clear();
+                        return Err(ScriptError::VMInternalError(format!("{:?}", error))
+                            .source(&current_group)
+                            .into());
+                    }
+                },
             }
-            Err(error) => match error {
-                VMInternalError::InvalidCycles => {
+        } else {
+            match self.verify_group_with_chunk(current_group, limit_cycles, &None) {
+                Ok(ChunkState::Completed(used_cycles)) => {
+                    current_used = wrapping_cycles_add(current_used, used_cycles, &current_group)?;
+                    cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
+                }
+                Ok(ChunkState::Suspended(vm)) => {
                     let state = self.build_state(vm, current, cycles, limit_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
-                error => {
-                    self.tracing_data_as_code_pages.borrow_mut().clear();
-                    return Err(ScriptError::VMInternalError(format!("{:?}", error))
-                        .source(&current_group)
-                        .into());
+                Err(e) => {
+                    return Err(e.source(current_group).into());
                 }
-            },
+            }
         }
 
         for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
@@ -851,7 +878,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 script_group: group,
                 max_cycles,
             };
-            verifier.verify().map(ChunkState::Completed)
+            match verifier.verify() {
+                Ok(cycles) => Ok(ChunkState::Completed(cycles)),
+                Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
+                Err(e) => Err(e),
+            }
         } else {
             self.chunk_run(group, max_cycles, snap)
         }
@@ -989,7 +1020,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 .map_err(map_vm_internal_error)?;
             let load_ret = machine.machine.add_cycles(transferred_byte_cycles(bytes));
             if matches!(load_ret, Err(ref error) if error == &VMInternalError::InvalidCycles) {
-                return Ok(ChunkState::Suspended(ResumableMachine::new(machine, false)));
+                return Ok(ChunkState::suspended(ResumableMachine::new(machine, false)));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
         }
@@ -1005,7 +1036,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::InvalidCycles => {
-                    Ok(ChunkState::Suspended(ResumableMachine::new(machine, true)))
+                    Ok(ChunkState::suspended(ResumableMachine::new(machine, true)))
                 }
                 _ => {
                     self.tracing_data_as_code_pages.borrow_mut().clear();

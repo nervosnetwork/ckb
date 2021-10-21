@@ -222,7 +222,7 @@ pub struct TransactionState<'a> {
     /// current suspended script index
     pub current: usize,
     /// vm state
-    pub vm: ResumableMachine<'a>,
+    pub vm: Option<ResumableMachine<'a>>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
@@ -267,42 +267,47 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
     fn try_from(state: TransactionState<'_>) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            mut vm,
+            vm,
             current_cycles,
             limit_cycles,
             enable_backup_page_flags,
             flags_tracing,
         } = state;
 
-        // we should not capture snapshot if load program failed by exceeded cycles
-        let (snap, current_cycles) = if vm.program_loaded {
-            let vm_cycles = vm.cycles();
-            // To be consistent with the mainnet, add this flag to enable this behavior after hardfork
-            if !enable_backup_page_flags {
-                for (addr, memory_size) in flags_tracing {
-                    let mut current_addr = addr;
-                    while current_addr < addr + memory_size {
-                        let page = current_addr / RISCV_PAGESIZE as u64;
-                        vm.machine
-                            .machine
-                            .memory_mut()
-                            .clear_flag(page, FLAG_EXECUTABLE | FLAG_FREEZED)
-                            .map_err(|e| {
-                                ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
-                            })?;
-                        current_addr += RISCV_PAGESIZE as u64;
+        let (snap, current_cycles) = if let Some(mut vm) = vm {
+            // we should not capture snapshot if load program failed by exceeded cycles
+            if vm.program_loaded {
+                let vm_cycles = vm.cycles();
+                // To be consistent with the mainnet, add this flag to enable this behavior after hardfork
+                if !enable_backup_page_flags {
+                    for (addr, memory_size) in flags_tracing {
+                        let mut current_addr = addr;
+                        while current_addr < addr + memory_size {
+                            let page = current_addr / RISCV_PAGESIZE as u64;
+                            vm.machine
+                                .machine
+                                .memory_mut()
+                                .clear_flag(page, FLAG_EXECUTABLE | FLAG_FREEZED)
+                                .map_err(|e| {
+                                    ScriptError::VMInternalError(format!("{:?}", e))
+                                        .unknown_source()
+                                })?;
+                            current_addr += RISCV_PAGESIZE as u64;
+                        }
                     }
                 }
+                (
+                    Some((
+                        make_snapshot(&mut vm.machine.machine).map_err(|e| {
+                            ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                        })?,
+                        vm_cycles,
+                    )),
+                    current_cycles,
+                )
+            } else {
+                (None, current_cycles)
             }
-            (
-                Some((
-                    make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                        ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
-                    })?,
-                    vm_cycles,
-                )),
-                current_cycles,
-            )
         } else {
             (None, current_cycles)
         };
@@ -317,6 +322,7 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
 }
 
 /// Enum represent resumable verify result
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum VerifyResult<'a> {
     /// Completed total cycles
