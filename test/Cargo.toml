@@ -51,3 +51,7 @@ opt-level = 3
 
 [profile.bench.build-override]
 opt-level = 3
+
+[features]
+default = []
+deadlock_detection = ["ckb-util/deadlock_detection"]
