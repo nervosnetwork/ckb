@@ -368,7 +368,7 @@ impl DAOVerifier {
         self.blocks.iter().for_each(|block| {
             assert_eq!(
                 self.C(block.number()),
-                extract_dao_data(block.dao()).unwrap().1.as_u64(),
+                extract_dao_data(block.dao()).1.as_u64(),
                 "assert C. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );
@@ -376,7 +376,7 @@ impl DAOVerifier {
         self.blocks.iter().for_each(|block| {
             assert_eq!(
                 self.U(block.number()),
-                extract_dao_data(block.dao()).unwrap().3.as_u64(),
+                extract_dao_data(block.dao()).3.as_u64(),
                 "assert U. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );
@@ -404,7 +404,7 @@ impl DAOVerifier {
         self.blocks.iter().for_each(|block| {
             assert_eq!(
                 self.ar(block.number()),
-                extract_dao_data(block.dao()).unwrap().0,
+                extract_dao_data(block.dao()).0,
                 "assert ar. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );
@@ -412,7 +412,7 @@ impl DAOVerifier {
         self.blocks.iter().for_each(|block| {
             assert_eq!(
                 self.S(block.number()),
-                extract_dao_data(block.dao()).unwrap().2.as_u64(),
+                extract_dao_data(block.dao()).2.as_u64(),
                 "assert S. expected_dao_field: {}",
                 self.expected_dao_field(block.number()),
             );

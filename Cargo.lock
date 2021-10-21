@@ -603,7 +603,6 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-db",
  "ckb-db-schema",
- "ckb-error",
  "ckb-store",
  "ckb-traits",
  "ckb-types",

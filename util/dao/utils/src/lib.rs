@@ -3,7 +3,6 @@
 mod error;
 
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_error::Error;
 use ckb_types::{
     core::{capacity_bytes, Capacity, Ratio, TransactionView},
     packed::{Byte32, OutPoint},
@@ -21,7 +20,7 @@ const DEFAULT_GENESIS_ACCUMULATE_RATE: u64 = 10_000_000_000_000_000;
 ///
 /// NOTE: Used for testing only!
 #[doc(hidden)]
-pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
+pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, DaoError> {
     genesis_dao_data_with_satoshi_gift(
         txs,
         &H160([0u8; 20]),
@@ -39,12 +38,12 @@ pub fn genesis_dao_data_with_satoshi_gift(
     satoshi_cell_occupied_ratio: Ratio,
     initial_primary_issuance: Capacity,
     initial_secondary_issuance: Capacity,
-) -> Result<Byte32, Error> {
+) -> Result<Byte32, DaoError> {
     let dead_cells = txs
         .iter()
         .flat_map(|tx| tx.inputs().into_iter().map(|input| input.previous_output()))
         .collect::<HashSet<_>>();
-    let statistics_outputs = |tx_index, tx: &TransactionView| -> Result<_, Error> {
+    let statistics_outputs = |tx_index, tx: &TransactionView| -> Result<_, DaoError> {
         let c = tx
             .data()
             .raw()
@@ -76,7 +75,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
     };
 
     let initial_issuance = initial_primary_issuance.safe_add(initial_secondary_issuance)?;
-    let result: Result<_, Error> = txs.into_iter().enumerate().try_fold(
+    let result: Result<_, DaoError> = txs.into_iter().enumerate().try_fold(
         (initial_issuance, Capacity::zero()),
         |(c, u), (tx_index, tx)| {
             let (tx_c, tx_u) = statistics_outputs(tx_index, tx)?;
@@ -89,7 +88,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
     // C cannot be zero, otherwise DAO stats calculation might result in
     // division by zero errors.
     if c == Capacity::zero() {
-        return Err(DaoError::ZeroC.into());
+        return Err(DaoError::ZeroC);
     }
     Ok(pack_dao_data(
         DEFAULT_GENESIS_ACCUMULATE_RATE,
@@ -102,13 +101,13 @@ pub fn genesis_dao_data_with_satoshi_gift(
 /// Extract `ar`, `c`, `s`, and `u` from [`Byte32`].
 ///
 /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
-pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity, Capacity), Error> {
+pub fn extract_dao_data(dao: Byte32) -> (u64, Capacity, Capacity, Capacity) {
     let data = dao.raw_data();
     let c = Capacity::shannons(LittleEndian::read_u64(&data[0..8]));
     let ar = LittleEndian::read_u64(&data[8..16]);
     let s = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));
     let u = Capacity::shannons(LittleEndian::read_u64(&data[24..32]));
-    Ok((ar, c, s, u))
+    (ar, c, s, u)
 }
 
 /// Pack `ar`, `c`, `s`, and `u` into [`Byte32`] in little endian.
@@ -161,7 +160,7 @@ mod tests {
         ];
         for (dao_h256, ar, c, s, u) in cases {
             let dao_byte32: Byte32 = dao_h256.pack();
-            assert_eq!((ar, c, s, u), extract_dao_data(dao_byte32.clone()).unwrap());
+            assert_eq!((ar, c, s, u), extract_dao_data(dao_byte32.clone()));
             assert_eq!(dao_byte32, pack_dao_data(ar, c, s, u,));
         }
     }

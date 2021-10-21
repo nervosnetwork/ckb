@@ -1,4 +1,5 @@
 use ckb_error::{prelude::*, Error, ErrorKind};
+use ckb_types::core::CapacityError;
 
 /// Errors due to the fact that the NervosDAO rules are not respected.
 ///
@@ -43,5 +44,13 @@ pub enum DaoError {
 impl From<DaoError> for Error {
     fn from(error: DaoError) -> Self {
         ErrorKind::Dao.because(error)
+    }
+}
+
+impl From<CapacityError> for DaoError {
+    fn from(error: CapacityError) -> Self {
+        match error {
+            CapacityError::Overflow => DaoError::Overflow,
+        }
     }
 }
