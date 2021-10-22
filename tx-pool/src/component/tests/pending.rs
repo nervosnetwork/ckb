@@ -4,7 +4,6 @@ use crate::component::tests::util::{
 use crate::component::{entry::TxEntry, pending::PendingQueue};
 use ckb_types::{h256, packed::Byte32, prelude::*};
 use std::collections::HashSet;
-use std::iter::FromIterator;
 
 #[test]
 fn test_basic() {

@@ -3,7 +3,6 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_TIMEOUT;
 use ckb_types::h256;
 use ckb_types::prelude::*;
 use std::collections::HashSet;
-use std::iter::FromIterator;
 
 #[test]
 fn inflight_blocks_count() {

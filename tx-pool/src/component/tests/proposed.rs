@@ -14,7 +14,6 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
-use std::iter::FromIterator;
 
 fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
     tx: TransactionView,

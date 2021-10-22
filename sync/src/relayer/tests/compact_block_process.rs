@@ -13,7 +13,6 @@ use ckb_types::{
 };
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::sync::Arc;
 
 #[test]

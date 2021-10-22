@@ -14,7 +14,6 @@ use ckb_types::{
     },
 };
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::sync::Arc;
 
 #[test]
