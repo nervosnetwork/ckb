@@ -6,7 +6,8 @@
 
 master | develop
 -------|----------
-[![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml?query=branch%3Amaster) | [![CI workflow](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci.yaml?query=branch%3Adevelop)
+[![Unit Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml?query=branch%3Amaster) | [![Unit Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml?query=branch%3Adevelop)
+[![Integration Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml?query=branch%3Amaster) | [![Integration Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml?query=branch%3Adevelop)
 
 ---
 
