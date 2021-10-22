@@ -265,15 +265,19 @@ fn refresh_txs_verify_cache_after_hardfork() {
     let tx_pool = shared.tx_pool_controller();
 
     let tx = build_tx(&input_tx, &cell_deps, &lock_script);
+    let tx_size = tx.data().serialized_size_in_block();
     tx_pool.submit_local_tx(tx.clone()).unwrap().unwrap();
 
     // at start of the test, the script should be ran with vm0
     {
-        let raw_tx_pool = tx_pool.get_all_entry_info().unwrap();
+        let tx_pool_entries = tx_pool.get_all_entry_info().unwrap();
         let mut counter = 0;
         loop {
-            if let Some(tx_entry) = raw_tx_pool.pending.get(&tx.hash()) {
+            if let Some(tx_entry) = tx_pool_entries.pending.get(&tx.hash()) {
                 assert_eq!(tx_entry.cycles, CYCLES_IN_VM0);
+                let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+                assert_eq!(tx_pool_info.total_tx_size, tx_size);
+                assert_eq!(tx_pool_info.total_tx_cycles, CYCLES_IN_VM0);
                 break;
             }
             // wait tx_pool if got `None`
@@ -301,8 +305,8 @@ fn refresh_txs_verify_cache_after_hardfork() {
         };
         let mut counter = 0;
         loop {
-            let raw_tx_pool = tx_pool.get_all_entry_info().unwrap();
-            if let Some(tx_entry) = raw_tx_pool.pending.get(&tx.hash()) {
+            let tx_pool_entries = tx_pool.get_all_entry_info().unwrap();
+            if let Some(tx_entry) = tx_pool_entries.pending.get(&tx.hash()) {
                 assert_eq!(
                     tx_entry.cycles,
                     cycles_expected,
@@ -312,6 +316,9 @@ fn refresh_txs_verify_cache_after_hardfork() {
                     cycles_expected,
                     tx_entry.cycles,
                 );
+                let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+                assert_eq!(tx_pool_info.total_tx_size, tx_size);
+                assert_eq!(tx_pool_info.total_tx_cycles, cycles_expected);
                 break;
             }
             // wait tx_pool if got `None`
@@ -331,8 +338,11 @@ fn refresh_txs_verify_cache_after_hardfork() {
 
     // at last of the test, the script should be ran with vm1
     {
-        let raw_tx_pool = tx_pool.get_all_entry_info().unwrap();
-        let tx_entry = raw_tx_pool.pending.get(&tx.hash()).unwrap();
+        let tx_pool_entries = tx_pool.get_all_entry_info().unwrap();
+        let tx_entry = tx_pool_entries.pending.get(&tx.hash()).unwrap();
         assert_eq!(tx_entry.cycles, CYCLES_IN_VM1);
+        let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+        assert_eq!(tx_pool_info.total_tx_size, tx_size);
+        assert_eq!(tx_pool_info.total_tx_cycles, CYCLES_IN_VM1);
     }
 }
