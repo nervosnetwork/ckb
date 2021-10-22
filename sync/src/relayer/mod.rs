@@ -32,6 +32,7 @@ use ckb_network::{
     bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
     TargetSession,
 };
+use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::core::BlockView;
 use ckb_types::{
     core::{self, Cycle, FeeRate},
@@ -617,37 +618,48 @@ impl Relayer {
         }
 
         let ckb2021 = nc.ckb2021();
-        let tx_hashes = self
+        let tx_verify_results = self
             .shared
             .state()
-            .take_relay_tx_hashes(MAX_RELAY_TXS_NUM_PER_BATCH);
+            .take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH);
         let mut selected: HashMap<PeerIndex, Vec<Byte32>> = HashMap::default();
         {
-            for (origin_peer, is_ckb2021, hash) in &tx_hashes {
-                // must all fork or all no-fork
-                if ckb2021 != *is_ckb2021 {
-                    continue;
-                }
+            for tx_verify_result in tx_verify_results {
+                match tx_verify_result {
+                    TxVerificationResult::Ok {
+                        original_peer,
+                        with_vm_2021,
+                        tx_hash,
+                    } => {
+                        // must all fork or all no-fork
+                        if ckb2021 != with_vm_2021 {
+                            continue;
+                        }
 
-                for target in &connected_peers {
-                    match origin_peer {
-                        Some(origin) => {
-                            // broadcast tx hash to all connected peers except origin peer
-                            if origin != target {
-                                let hashes = selected
-                                    .entry(*target)
-                                    .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                                hashes.push(hash.clone());
+                        for target in &connected_peers {
+                            match original_peer {
+                                Some(peer) => {
+                                    // broadcast tx hash to all connected peers except original peer
+                                    if peer != *target {
+                                        let hashes = selected
+                                            .entry(*target)
+                                            .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                                        hashes.push(tx_hash.clone());
+                                    }
+                                }
+                                None => {
+                                    // since this tx is submitted through local rpc, it is assumed to be a new tx for all connected peers
+                                    let hashes = selected
+                                        .entry(*target)
+                                        .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
+                                    hashes.push(tx_hash.clone());
+                                    self.shared.state().mark_as_known_tx(tx_hash.clone());
+                                }
                             }
                         }
-                        None => {
-                            // since this tx is submitted through local rpc, it is assumed to be a new tx for all connected peers
-                            let hashes = selected
-                                .entry(*target)
-                                .or_insert_with(|| Vec::with_capacity(BUFFER_SIZE));
-                            hashes.push(hash.clone());
-                            self.shared.state().mark_as_known_tx(hash.clone());
-                        }
+                    }
+                    TxVerificationResult::Reject { tx_hash } => {
+                        self.shared.state().remove_from_known_txs(&tx_hash);
                     }
                 }
             }

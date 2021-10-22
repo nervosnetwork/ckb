@@ -26,5 +26,4 @@ ckb-async-runtime = { path = "../util/runtime", version = "= 0.102.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.102.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.102.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.102.0-pre" }
-p2p = { version="0.4.0-alpha.1", package="tentacle" }
 faketime = "0.2.0"
