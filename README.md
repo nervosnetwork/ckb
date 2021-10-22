@@ -21,7 +21,7 @@ CKB supports scripting in any programming language with its own [CKB-VM](https:/
 
 Support for different platforms are organized into [three tiers](docs/platform-support.md), each with a different set of guarantees.
 
-**Notice**: The ckb process will send stack trace to sentry on Rust panics. This is enabled by default before the mainnet luanch, which can be opted out by setting
+**Notice**: The ckb process will send stack trace to sentry on Rust panics. This is enabled by default before the mainnet launch, which can be opted out by setting
 the option `dsn` to empty in the config file.
 
 
