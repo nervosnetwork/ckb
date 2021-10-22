@@ -15,4 +15,6 @@ ckb-error = { path = "../error", version = "= 0.102.0-pre" }
 libc = "0.2"
 rocksdb = { package = "ckb-rocksdb", version ="=0.16.1", features = ["snappy"] }
 ckb-db-schema = { path = "../db-schema", version = "= 0.102.0-pre" }
+
+[dev-dependencies]
 tempfile = "3.0"

@@ -149,8 +149,8 @@ pub(crate) fn calculate_reward(
 ) -> Capacity {
     let number = parent.number() + 1;
     let target_number = consensus.finalize_target(number).unwrap();
-    let target_hash = store.0.get_block_hash(target_number).unwrap();
-    let target = store.0.get_block_header(&target_hash).unwrap();
+    let target_hash = store.store().get_block_hash(target_number).unwrap();
+    let target = store.store().get_block_header(&target_hash).unwrap();
     let data_loader = store.store().as_data_provider();
     let calculator = DaoCalculator::new(consensus, &data_loader);
     calculator
@@ -338,7 +338,7 @@ impl<'a> MockChain<'a> {
 
         let epoch = self
             .consensus
-            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
             .unwrap()
             .epoch();
 
@@ -417,7 +417,7 @@ impl<'a> MockChain<'a> {
 
         let epoch = self
             .consensus
-            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
             .unwrap()
             .epoch();
 
@@ -441,7 +441,7 @@ impl<'a> MockChain<'a> {
 
         let epoch = self
             .consensus
-            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
             .unwrap()
             .epoch();
 
@@ -477,7 +477,7 @@ impl<'a> MockChain<'a> {
 
         let epoch = self
             .consensus
-            .next_epoch_ext(&parent, &store.0.as_data_provider())
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
             .unwrap()
             .epoch();
 
@@ -547,7 +547,7 @@ pub fn dao_data(
     } else {
         rtxs.unwrap()
     };
-    let data_loader = store.0.as_data_provider();
+    let data_loader = store.store().as_data_provider();
     let calculator = DaoCalculator::new(consensus, &data_loader);
     calculator.dao_field(&rtxs, &parent).unwrap()
 }

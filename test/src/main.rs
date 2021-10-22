@@ -618,7 +618,7 @@ fn print_results(mut test_results: Vec<TestResult>) {
     println!("{}", "-".repeat(20));
     println!("{:50} | {:10} | {:10}", "TEST", "STATUS", "DURATION");
 
-    test_results.sort_by(|a, b| a.status.cmp(&b.status));
+    test_results.sort_by(|a, b| (&a.status, a.duration).cmp(&(&b.status, b.duration)));
 
     for result in test_results.iter() {
         println!(

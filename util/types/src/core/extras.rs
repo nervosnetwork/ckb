@@ -1,10 +1,9 @@
 use crate::{
-    core::{BlockNumber, Capacity, EpochNumber},
+    core::{BlockNumber, Capacity, CapacityResult, EpochNumber},
     packed,
     prelude::*,
     U256,
 };
-use ckb_error::Error;
 use ckb_rational::RationalU256;
 use std::cmp::Ordering;
 use std::fmt;
@@ -217,13 +216,11 @@ impl EpochExt {
     }
 
     /// TODO(doc): @quake
-    pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, Error> {
+    pub fn block_reward(&self, number: BlockNumber) -> CapacityResult<Capacity> {
         if number >= self.start_number()
             && number < self.start_number() + self.remainder_reward.as_u64()
         {
-            self.base_block_reward
-                .safe_add(Capacity::one())
-                .map_err(Into::into)
+            self.base_block_reward.safe_add(Capacity::one())
         } else {
             Ok(self.base_block_reward)
         }
@@ -244,7 +241,7 @@ impl EpochExt {
         &self,
         block_number: BlockNumber,
         secondary_epoch_issuance: Capacity,
-    ) -> Result<Capacity, Error> {
+    ) -> CapacityResult<Capacity> {
         let mut g2 = Capacity::shannons(secondary_epoch_issuance.as_u64() / self.length());
         let remainder = secondary_epoch_issuance.as_u64() % self.length();
         if block_number >= self.start_number() && block_number < self.start_number() + remainder {

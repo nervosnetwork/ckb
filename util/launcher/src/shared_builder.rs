@@ -34,6 +34,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 /// Shared builder for construct new shared.
 pub struct SharedBuilder {
@@ -137,19 +138,39 @@ impl SharedBuilder {
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
-        use once_cell::unsync;
-        use std::borrow::Borrow;
+        use once_cell::{sync, unsync};
+        use std::{
+            borrow::Borrow,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
 
         // once #[thread_local] is stable
         // #[thread_local]
         // static RUNTIME_HANDLE: unsync::OnceCell<...
 
         thread_local! {
+            static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
             static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
         }
 
+        static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+        let db = {
+            let db_id = DB_COUNT.fetch_add(1, Ordering::SeqCst);
+            let db_base_dir = TMP_DIR.with(|tmp_dir| {
+                tmp_dir
+                    .borrow()
+                    .get_or_try_init(TempDir::new)
+                    .unwrap()
+                    .path()
+                    .to_path_buf()
+            });
+            let db_dir = db_base_dir.join(format!("db_{}", db_id));
+            RocksDB::open_in(db_dir, COLUMNS)
+        };
+
         RUNTIME_HANDLE.with(|runtime| SharedBuilder {
-            db: RocksDB::open_tmp(COLUMNS),
+            db,
             ancient_path: None,
             consensus: None,
             tx_pool_config: None,

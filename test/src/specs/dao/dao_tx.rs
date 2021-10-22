@@ -77,7 +77,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
             withdrawal.inputs().get(0).unwrap().since().unpack(),
         );
         goto_target_point(node, since);
-        assert_send_transaction_fail(node, &invalid_withdrawal, "CapacityOverflow");
+        assert_send_transaction_fail(node, &invalid_withdrawal, "Overflow");
         ensure_committed(node, &withdrawal);
     }
 }

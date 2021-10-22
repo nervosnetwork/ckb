@@ -99,11 +99,10 @@ impl RocksDB {
         Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
     }
 
-    /// Open a temporary database with the default configuration and columns count.
-    pub fn open_tmp(columns: u32) -> Self {
-        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    /// Open a database in the given directory with the default configuration and columns count.
+    pub fn open_in<P: AsRef<Path>>(path: P, columns: u32) -> Self {
         let config = DBConfig {
-            path: tmp_dir.path().to_path_buf(),
+            path: path.as_ref().to_path_buf(),
             ..Default::default()
         };
         Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))

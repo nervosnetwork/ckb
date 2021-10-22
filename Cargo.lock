@@ -603,10 +603,10 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-db",
  "ckb-db-schema",
- "ckb-error",
  "ckb-store",
  "ckb-traits",
  "ckb-types",
+ "tempfile",
 ]
 
 [[package]]
@@ -1056,6 +1056,7 @@ dependencies = [
  "ckb-occupied-capacity",
  "ckb-store",
  "ckb-types",
+ "tempfile",
 ]
 
 [[package]]
@@ -1146,6 +1147,7 @@ dependencies = [
  "goblin 0.2.3",
  "proptest",
  "serde",
+ "tempfile",
  "tiny-keccak",
 ]
 
@@ -1218,6 +1220,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "lru",
+ "tempfile",
 ]
 
 [[package]]
@@ -1288,6 +1291,7 @@ dependencies = [
  "ckb-types",
  "faketime",
  "lazy_static",
+ "tempfile",
 ]
 
 [[package]]

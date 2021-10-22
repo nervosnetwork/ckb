@@ -10,7 +10,7 @@ use ckb_util::Mutex;
 use fs2::FileExt;
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -74,9 +74,8 @@ impl Freezer {
     }
 
     /// Creates a freezer at temporary path
-    pub fn open_tmp() -> Result<Freezer, Error> {
-        let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-        Self::open(tmp_dir.path().to_path_buf())
+    pub fn open_in<P: AsRef<Path>>(path: P) -> Result<Freezer, Error> {
+        Self::open(path.as_ref().to_path_buf())
     }
 
     /// Freeze background process that periodically checks the chain data for any

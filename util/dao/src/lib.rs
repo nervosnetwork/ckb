@@ -3,7 +3,6 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
-use ckb_error::Error;
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
@@ -37,17 +36,19 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
     }
 
     /// Returns the primary block reward for `target` block.
-    pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
+    pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, DaoError> {
         let target_epoch = self
             .data_loader
             .get_epoch_ext(target)
             .ok_or(DaoError::InvalidHeader)?;
 
-        target_epoch.block_reward(target.number())
+        target_epoch
+            .block_reward(target.number())
+            .map_err(Into::into)
     }
 
     /// Returns the secondary block reward for `target` block.
-    pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, Error> {
+    pub fn secondary_block_reward(&self, target: &HeaderView) -> Result<Capacity, DaoError> {
         if target.number() == 0 {
             return Ok(Capacity::zero());
         }
@@ -64,7 +65,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
 
         let target_g2 = target_epoch
             .secondary_block_issuance(target.number(), self.consensus.secondary_epoch_reward())?;
-        let (_, target_parent_c, _, target_parent_u) = extract_dao_data(target_parent.dao())?;
+        let (_, target_parent_c, _, target_parent_u) = extract_dao_data(target_parent.dao());
         let reward128 = u128::from(target_g2.as_u64()) * u128::from(target_parent_u.as_u64())
             / u128::from(target_parent_c.as_u64());
         let reward = u64::try_from(reward128).map_err(|_| DaoError::Overflow)?;
@@ -79,17 +80,17 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         &self,
         rtxs: &[ResolvedTransaction],
         parent: &HeaderView,
-    ) -> Result<Byte32, Error> {
+    ) -> Result<Byte32, DaoError> {
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
             rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
                 self.input_occupied_capacities(rtx)
-                    .and_then(|c| capacities.safe_add(c).map_err(Into::into))
+                    .and_then(|c| capacities.safe_add(c))
             })?;
         let added_occupied_capacities = self.added_occupied_capacities(rtxs)?;
         let withdrawed_interests = self.withdrawed_interests(rtxs)?;
 
-        let (parent_ar, parent_c, parent_s, parent_u) = extract_dao_data(parent.dao())?;
+        let (parent_ar, parent_c, parent_s, parent_u) = extract_dao_data(parent.dao());
 
         // g contains both primary issuance and secondary issuance,
         // g2 is the secondary issuance for the block, which consists of
@@ -137,7 +138,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
     }
 
     /// Returns the total transactions fee of `rtx`.
-    pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
+    pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, DaoError> {
         let maximum_withdraw = self.transaction_maximum_withdraw(rtx)?;
         rtx.transaction
             .outputs_capacity()
@@ -145,7 +146,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .map_err(Into::into)
     }
 
-    fn added_occupied_capacities(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
+    fn added_occupied_capacities(&self, rtxs: &[ResolvedTransaction]) -> CapacityResult<Capacity> {
         // Newly added occupied capacities from outputs
         let added_occupied_capacities =
             rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
@@ -163,7 +164,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         Ok(added_occupied_capacities)
     }
 
-    fn input_occupied_capacities(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
+    fn input_occupied_capacities(&self, rtx: &ResolvedTransaction) -> CapacityResult<Capacity> {
         rtx.resolved_inputs
             .iter()
             .try_fold(Capacity::zero(), |capacities, cell_meta| {
@@ -173,7 +174,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .map_err(Into::into)
     }
 
-    fn withdrawed_interests(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, Error> {
+    fn withdrawed_interests(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, DaoError> {
         let maximum_withdraws = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
             self.transaction_maximum_withdraw(rtx)
                 .and_then(|c| capacities.safe_add(c).map_err(Into::into))
@@ -193,12 +194,15 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .map_err(Into::into)
     }
 
-    fn transaction_maximum_withdraw(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
+    fn transaction_maximum_withdraw(
+        &self,
+        rtx: &ResolvedTransaction,
+    ) -> Result<Capacity, DaoError> {
         let header_deps: HashSet<Byte32> = rtx.transaction.header_deps_iter().collect();
         rtx.resolved_inputs.iter().enumerate().try_fold(
             Capacity::zero(),
             |capacities, (i, cell_meta)| {
-                let capacity: Result<Capacity, Error> = {
+                let capacity: Result<Capacity, DaoError> = {
                     let output = &cell_meta.cell_output;
                     let is_dao_type_script = |type_script: Script| {
                         Into::<u8>::into(type_script.hash_type())
@@ -276,7 +280,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         output_data_capacity: Capacity,
         deposit_header_hash: &Byte32,
         withdrawing_header_hash: &Byte32,
-    ) -> Result<Capacity, Error> {
+    ) -> Result<Capacity, DaoError> {
         let deposit_header = self
             .data_loader
             .get_header(deposit_header_hash)
@@ -286,11 +290,11 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .get_header(withdrawing_header_hash)
             .ok_or(DaoError::InvalidHeader)?;
         if deposit_header.number() >= withdrawing_header.number() {
-            return Err(DaoError::InvalidOutPoint.into());
+            return Err(DaoError::InvalidOutPoint);
         }
 
-        let (deposit_ar, _, _, _) = extract_dao_data(deposit_header.dao())?;
-        let (withdrawing_ar, _, _, _) = extract_dao_data(withdrawing_header.dao())?;
+        let (deposit_ar, _, _, _) = extract_dao_data(deposit_header.dao());
+        let (withdrawing_ar, _, _, _) = extract_dao_data(withdrawing_header.dao());
 
         let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
         let output_capacity: Capacity = output.capacity().unpack();
