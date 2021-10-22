@@ -45,10 +45,7 @@ CKB uses the [Eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/
 
 ## Development Process
 
-This project is still in development, and it's NOT in production-ready status.
-The board also lists some [known issues](https://github.com/nervosnetwork/ckb/projects/2) that we are currently working on.
-
-The `master` branch is regularly built and tested, however, it is not guaranteed to be completely stable; The `develop` branch is the work branch to merge new features, and it's not stable. The CHANGELOG is available in [Releases](https://github.com/nervosnetwork/ckb/releases) and [CHANGELOG.md](https://github.com/nervosnetwork/ckb/blob/master/CHANGELOG.md) in the `master` branch.
+The `master` branch is regularly built and tested. It is considered already production ready; The `develop` branch is the work branch to merge new features, and it's not stable. The CHANGELOG is available in [Releases](https://github.com/nervosnetwork/ckb/releases) and [CHANGELOG.md](https://github.com/nervosnetwork/ckb/blob/master/CHANGELOG.md) in the `master` branch.
 
 
 ## How to Contribute
