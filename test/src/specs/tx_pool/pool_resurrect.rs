@@ -48,7 +48,7 @@ impl Spec for PoolResurrect {
         node0.assert_tx_pool_size(0, txs_hash.len() as u64);
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");
-        mine(&node0, 1);
+        mine(node0, 1);
         node0.assert_tx_pool_size(0, 0);
     }
 }

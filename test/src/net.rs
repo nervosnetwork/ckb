@@ -221,9 +221,7 @@ impl CKBProtocolHandler for DummyProtocolHandler {
             .unwrap_or_default();
         let (sender, receiver) = unbounded();
         let mut senders = self.senders.lock();
-        if !senders.contains_key(&peer_index) {
-            senders.insert(peer_index, sender);
-        }
+        senders.entry(peer_index).or_insert(sender);
         let _ = self.register_tx.send((node_id, peer_index, receiver));
     }
 

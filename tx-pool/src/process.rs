@@ -43,7 +43,6 @@ use ckb_verification::{
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
-use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
@@ -521,7 +520,7 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                check_tx_cycle_limit(&tx_pool, verified.cycles)?;
+                check_tx_cycle_limit(tx_pool, verified.cycles)?;
 
                 // if snapshot changed by context switch
                 // we need redo time_relative verify
@@ -535,11 +534,11 @@ impl TxPoolService {
                     );
 
                     // destructuring assignments are not currently supported
-                    status = check_rtx(&tx_pool, &snapshot, &entry.rtx)?;
+                    status = check_rtx(tx_pool, snapshot, &entry.rtx)?;
 
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    time_relative_verify(&snapshot, &entry.rtx, &tx_env)?;
+                    time_relative_verify(snapshot, &entry.rtx, &tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -593,13 +592,13 @@ impl TxPoolService {
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
-                check_tx_size_limit(&tx_pool, tx_size)?;
+                check_tx_size_limit(tx_pool, tx_size)?;
 
-                check_txid_collision(&tx_pool, &tx)?;
+                check_txid_collision(tx_pool, tx)?;
 
-                let (rtx, status) = resolve_tx(&tx_pool, &snapshot, tx.clone())?;
+                let (rtx, status) = resolve_tx(tx_pool, snapshot, tx.clone())?;
 
-                let fee = check_tx_fee(&tx_pool, &snapshot, &rtx, tx_size)?;
+                let fee = check_tx_fee(tx_pool, snapshot, &rtx, tx_size)?;
 
                 Ok((tip_hash, rtx, status, fee, tx_size))
             })
@@ -745,14 +744,14 @@ impl TxPoolService {
                 }
                 Err(reject) => {
                     debug!("after_process {} reject: {} ", tx_hash, reject);
-                    if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
                             self.ban_malformed(peer, format!("reject {}", reject));
                         }
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
-                            self.put_recent_reject(&tx_hash, &reject).await;
+                            self.put_recent_reject(&tx_hash, reject).await;
                         }
                         self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
                     }
@@ -778,7 +777,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
-                            self.put_recent_reject(&tx_hash, &reject).await;
+                            self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
                 }
@@ -1090,9 +1089,9 @@ impl TxPoolService {
         let mut attached = LinkedHashSet::default();
         let hardfork_switch = snapshot.consensus().hardfork_switch();
         let hardfork_during_detach =
-            check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
+            check_if_hardfork_during_blocks(hardfork_switch, &detached_blocks);
         let hardfork_during_attach =
-            check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
+            check_if_hardfork_during_blocks(hardfork_switch, &attached_blocks);
 
         let new_tip_after_delay = after_delay_window(&snapshot);
         let epoch_of_next_block = snapshot

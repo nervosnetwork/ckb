@@ -52,7 +52,7 @@ impl Spec for ProposalRespondSizelimit {
 
         net.connect(node0);
 
-        net.send(&node0, SupportProtocols::Relay, message.as_bytes());
+        net.send(node0, SupportProtocols::Relay, message.as_bytes());
 
         assert!(
             node0.rpc_client().get_banned_addresses().is_empty(),

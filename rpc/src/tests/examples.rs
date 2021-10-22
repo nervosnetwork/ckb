@@ -505,7 +505,7 @@ impl RpcTestSuite {
 
     fn run_example(&self, example: &RpcTestExample) {
         let mut actual = self.rpc(&example.request);
-        mock_rpc_response(&example, &mut actual);
+        mock_rpc_response(example, &mut actual);
         pretty_assert_eq!(
             example.response,
             actual,

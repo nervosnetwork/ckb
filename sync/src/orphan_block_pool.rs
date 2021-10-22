@@ -86,7 +86,7 @@ impl InnerPool {
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
         self.parents.get(hash).and_then(|parent_hash| {
             self.blocks
-                .get(&parent_hash)
+                .get(parent_hash)
                 .and_then(|blocks| blocks.get(hash).cloned())
         })
     }
@@ -98,7 +98,7 @@ impl InnerPool {
         for hash in self.leaders.clone().iter() {
             if self.need_clean(hash, tip_epoch) {
                 // remove items in orphan pool and return hash to callee(clean header map)
-                let descendants = self.remove_blocks_by_parent(&hash);
+                let descendants = self.remove_blocks_by_parent(hash);
                 result.extend(descendants.iter().map(|block| block.hash()));
             }
         }

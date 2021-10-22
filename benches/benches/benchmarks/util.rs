@@ -462,7 +462,7 @@ pub fn create_2out_transaction(
     for w in &non_sig_witnesses {
         let len: u64 = w.len() as u64;
         blake2b.update(&len.to_le_bytes());
-        blake2b.update(&w);
+        blake2b.update(w);
     }
     blake2b.finalize(&mut message);
     let message = H256::from(message);
@@ -501,7 +501,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let data_loader = snapshot.as_data_provider();
     let calculator = DaoCalculator::new(snapshot.consensus(), &data_loader);
     calculator
-        .dao_field(&rtxs, &parent)
+        .dao_field(&rtxs, parent)
         .expect("calculator dao_field")
 }
 

@@ -2,7 +2,7 @@
 name = "ckb-memory-tracker"
 version = "0.102.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Track the memory usage of CKB."
 homepage = "https://github.com/nervosnetwork/ckb"

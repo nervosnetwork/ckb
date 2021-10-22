@@ -270,7 +270,7 @@ impl SharedBuilder {
                         .into())
                 }
             }
-            None => store.init(&consensus).map(|_| {
+            None => store.init(consensus).map(|_| {
                 (
                     consensus.genesis_block().header(),
                     consensus.genesis_epoch_ext().to_owned(),
@@ -283,12 +283,12 @@ impl SharedBuilder {
         store: &ChainDB,
         consensus: Arc<Consensus>,
     ) -> Result<(Snapshot, ProposalTable), Error> {
-        let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
+        let (tip_header, epoch) = Self::init_store(store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
             .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
             .total_difficulty;
-        let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
+        let (proposal_table, proposal_view) = Self::init_proposal_table(store, &consensus);
 
         let snapshot = Snapshot::new(
             tip_header,
@@ -315,10 +315,10 @@ impl SharedBuilder {
             async_handle,
         } = self;
 
-        let tx_pool_config = tx_pool_config.unwrap_or_else(Default::default);
-        let notify_config = notify_config.unwrap_or_else(Default::default);
-        let store_config = store_config.unwrap_or_else(Default::default);
-        let consensus = Arc::new(consensus.unwrap_or_else(Consensus::default));
+        let tx_pool_config = tx_pool_config.unwrap_or_default();
+        let notify_config = notify_config.unwrap_or_default();
+        let store_config = store_config.unwrap_or_default();
+        let consensus = Arc::new(consensus.unwrap_or_default());
 
         let notify_controller = start_notify_service(notify_config);
 

@@ -136,7 +136,7 @@ impl TxLinksMap {
             .cloned()
             .unwrap_or_default();
 
-        calc_relation_ids(Cow::Owned(direct), &self, relation)
+        calc_relation_ids(Cow::Owned(direct), self, relation)
     }
 
     pub fn calc_ancestors(&self, short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
@@ -238,7 +238,7 @@ impl SortedTxMap {
             }
 
             let parent_hash = &input_pt.tx_hash();
-            let id = ProposalShortId::from_tx_hash(&parent_hash);
+            let id = ProposalShortId::from_tx_hash(parent_hash);
             if self.links.inner.contains_key(&id) {
                 parents.insert(id);
             }
@@ -262,7 +262,7 @@ impl SortedTxMap {
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.entries.get(ancestor_id).expect("pool consistent");
-            entry.add_entry_weight(&ancestor);
+            entry.add_entry_weight(ancestor);
         }
 
         if entry.ancestors_count > self.max_ancestors_count {
@@ -270,7 +270,7 @@ impl SortedTxMap {
         }
 
         for parent in &parents {
-            self.links.add_child(&parent, short_id.clone());
+            self.links.add_child(parent, short_id.clone());
         }
 
         // insert links
@@ -321,7 +321,7 @@ impl SortedTxMap {
     }
 
     fn remove_unchecked(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
-        self.entries.remove(&id).map(|entry| {
+        self.entries.remove(id).map(|entry| {
             self.sorted_index.remove(&entry.as_sorted_key());
             self.update_deps_for_remove(&entry);
             entry
@@ -358,7 +358,7 @@ impl SortedTxMap {
             // We're not recursively removing a tx and all its descendants
             // So we need update statistics state
             for desc_id in &descendants {
-                if let Some(desc_entry) = self.entries.get_mut(&desc_id) {
+                if let Some(desc_entry) = self.entries.get_mut(desc_id) {
                     let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
                     debug_assert!(deleted, "pool inconsistent");
                     desc_entry.sub_entry_weight(&entry);

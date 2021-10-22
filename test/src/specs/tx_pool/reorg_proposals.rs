@@ -37,10 +37,10 @@ impl Spec for ReorgHandleProposals {
         // 2. `node_a` proposes `tx_family.a`; `node_b` proposes `tx_family.b` into the
         // current proposal-window.
         // From now, fork-A and fork-B start to diverge(the common point `X` in the above graph)
-        node_a.submit_transaction(&family.a());
-        node_a.submit_transaction(&family.b());
-        node_b.submit_transaction(&family.a());
-        node_b.submit_transaction(&family.b());
+        node_a.submit_transaction(family.a());
+        node_a.submit_transaction(family.b());
+        node_b.submit_transaction(family.a());
+        node_b.submit_transaction(family.b());
         node_a.submit_block(&propose(node_a, &[family.a()]));
         node_b.submit_block(&propose(node_b, &[family.b()]));
         (0..window.closest()).for_each(|_| {
@@ -79,8 +79,8 @@ impl Spec for ReorgHandleProposals {
         // fork-A, whose valid proposals are `[tx_family.a]` which be able to be committed.
         assert_new_block_committed(node_a, &[]);
         assert_new_block_committed(node_b, &[family.a().clone()]);
-        mine(&node_a, 1);
-        mine(&node_b, 1);
+        mine(node_a, 1);
+        mine(node_b, 1);
     }
 }
 

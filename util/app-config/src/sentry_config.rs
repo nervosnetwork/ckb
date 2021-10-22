@@ -18,7 +18,7 @@ pub struct SentryConfig {
 
 impl SentryConfig {
     pub fn init(&self, version: &Version) -> ClientInitGuard {
-        let guard = init(self.build_sentry_client_options(&version));
+        let guard = init(self.build_sentry_client_options(version));
         if guard.is_enabled() {
             configure_scope(|scope| {
                 scope.set_tag("release.pre", version.is_pre());

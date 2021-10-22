@@ -3,12 +3,11 @@ name = "ckb"
 version = "0.102.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-resolver = "2"
 
 [build-dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.102.0-pre" }

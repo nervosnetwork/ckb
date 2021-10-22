@@ -43,7 +43,6 @@ use ckb_vm::TraceMachine;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryFrom;
 
 #[cfg(test)]
 mod tests;
@@ -191,7 +190,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             let data_hash = data_loader
                 .load_cell_data_hash(cell_meta)
                 .expect("cell data hash");
-            let lazy = LazyData::from_cell_meta(&cell_meta);
+            let lazy = LazyData::from_cell_meta(cell_meta);
             binaries_by_data_hash.insert(data_hash.to_owned(), lazy.to_owned());
 
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
@@ -215,7 +214,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
                     .entry(t.calc_script_hash())
-                    .or_insert_with(|| ScriptGroup::from_type_script(&t));
+                    .or_insert_with(|| ScriptGroup::from_type_script(t));
                 type_group_entry.input_indices.push(i);
             }
         }
@@ -223,7 +222,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
                     .entry(t.calc_script_hash())
-                    .or_insert_with(|| ScriptGroup::from_type_script(&t));
+                    .or_insert_with(|| ScriptGroup::from_type_script(t));
                 type_group_entry.output_indices.push(i);
             }
         }
@@ -310,7 +309,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     fn build_exec(&'a self, group_inputs: &'a [usize], group_outputs: &'a [usize]) -> Exec<'a, DL> {
         Exec::new(
-            &self.data_loader,
+            self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
             self.resolved_cell_deps(),
@@ -330,7 +329,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         group_outputs: &'a [usize],
     ) -> LoadCell<'a, DL> {
         LoadCell::new(
-            &self.data_loader,
+            self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
             self.resolved_cell_deps(),
@@ -345,7 +344,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         group_outputs: &'a [usize],
     ) -> LoadCellData<'a, DL> {
         LoadCellData::new(
-            &self.data_loader,
+            self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
             self.resolved_cell_deps(),
@@ -365,7 +364,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     fn build_load_header(&'a self, group_inputs: &'a [usize]) -> LoadHeader<'a, DL> {
         LoadHeader::new(
-            &self.data_loader,
+            self.data_loader,
             self.header_deps(),
             self.resolved_inputs(),
             self.resolved_cell_deps(),
@@ -486,7 +485,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     e.source(group)
                 })?;
 
-            cycles = wrapping_cycles_add(cycles, used_cycles, &group)?;
+            cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
         }
         Ok(cycles)
     }
@@ -533,7 +532,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 .source(group)
             })?;
 
-            match self.verify_group_with_chunk(&group, remain_cycles, &None) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
@@ -583,14 +582,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             })?;
 
         // continue snapshot current script
-        match self.verify_group_with_chunk(&current_group, limit_cycles, &snap.snap) {
+        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.snap) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(
                     current_used,
-                    wrapping_cycles_sub(used_cycles, current_group_used, &current_group)?,
-                    &current_group,
+                    wrapping_cycles_sub(used_cycles, current_group_used, current_group)?,
+                    current_group,
                 )?;
-                cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
+                cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
             Ok(ChunkState::Suspended(vm)) => {
                 let current = snap.current;
@@ -598,7 +597,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
-                return Err(e.source(&current_group).into());
+                return Err(e.source(current_group).into());
             }
         }
 
@@ -614,8 +613,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
             match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, used_cycles, &group)?;
-                    cycles = wrapping_cycles_add(cycles, used_cycles, &group)?;
+                    current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
                     let current = idx;
@@ -675,11 +674,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     self.tracing_data_as_code_pages.borrow_mut().clear();
                     if code == 0 {
                         current_used =
-                            wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
-                        cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
+                            wrapping_cycles_add(current_used, vm.cycles(), current_group)?;
+                        cycles = wrapping_cycles_add(cycles, vm.cycles(), current_group)?;
                     } else {
                         return Err(ScriptError::validation_failure(&current_group.script, code)
-                            .source(&current_group)
+                            .source(current_group)
                             .into());
                     }
                 }
@@ -691,7 +690,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     error => {
                         self.tracing_data_as_code_pages.borrow_mut().clear();
                         return Err(ScriptError::VMInternalError(format!("{:?}", error))
-                            .source(&current_group)
+                            .source(current_group)
                             .into());
                     }
                 },
@@ -699,8 +698,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         } else {
             match self.verify_group_with_chunk(current_group, limit_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, used_cycles, &current_group)?;
-                    cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
+                    current_used = wrapping_cycles_add(current_used, used_cycles, current_group)?;
+                    cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
                     let state = self.build_state(vm, current, cycles, limit_cycles);
@@ -723,8 +722,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
             match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, used_cycles, &group)?;
-                    cycles = wrapping_cycles_add(cycles, used_cycles, &group)?;
+                    current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
                     let current = idx;
@@ -772,17 +771,17 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         // continue snapshot current script
         // max_cycles - cycles checked
-        match self.verify_group_with_chunk(&current_group, max_cycles - cycles, &snap.snap) {
+        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.snap) {
             Ok(ChunkState::Completed(used_cycles)) => {
-                cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
+                cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
             Ok(ChunkState::Suspended(_)) => {
                 return Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                    .source(&current_group)
+                    .source(current_group)
                     .into());
             }
             Err(e) => {
-                return Err(e.source(&current_group).into());
+                return Err(e.source(current_group).into());
             }
         }
 
@@ -797,7 +796,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
             match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
-                    cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
+                    cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
                 Ok(ChunkState::Suspended(_)) => {
                     return Err(ScriptError::ExceededMaximumCycles(max_cycles)
@@ -842,7 +841,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             };
             verifier.verify()
         } else {
-            self.run(&group, max_cycles)
+            self.run(group, max_cycles)
         }
     }
     /// Returns all script groups.

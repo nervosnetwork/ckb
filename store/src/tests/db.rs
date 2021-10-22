@@ -17,7 +17,7 @@ fn save_and_get_block() {
 
     let hash = block.hash();
     let txn = store.begin_transaction();
-    txn.insert_block(&block).unwrap();
+    txn.insert_block(block).unwrap();
     txn.commit().unwrap();
     assert_eq!(block, &store.get_block(&hash).unwrap());
 }

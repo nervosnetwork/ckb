@@ -50,7 +50,7 @@ impl ValidSince {
                 &transaction,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(&node, 1);
+            mine(node, 1);
         }
 
         // Success to send transaction after cellbase immaturity and since immaturity
@@ -81,7 +81,7 @@ impl ValidSince {
                 &transaction,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(&node, 1);
+            mine(node, 1);
         }
 
         // Success to send transaction after cellbase immaturity and since immaturity
@@ -99,7 +99,7 @@ impl ValidSince {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
         mine_until_out_bootstrap_period(node);
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
-        mine(&node, 1);
+        mine(node, 1);
         let cellbase = node.get_tip_block().transactions()[0].clone();
         sleep(Duration::from_secs(2));
 
@@ -208,7 +208,7 @@ impl ValidSince {
                 &tx,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(&node, 1);
+            mine(node, 1);
         });
 
         info!(
@@ -223,10 +223,10 @@ impl ValidSince {
             "Tx will be added to proposed pool in N + {} block",
             relative_blocks
         );
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
 
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(0, 0);
 
         // test absolute block number since
@@ -243,7 +243,7 @@ impl ValidSince {
         (tip_number..absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is Immature in block {}", i);
             assert_send_transaction_fail(node, &tx, "Not mature cause of since condition");
-            mine(&node, 1);
+            mine(node, 1);
         });
 
         info!(
@@ -258,9 +258,9 @@ impl ValidSince {
             "Tx will be added to proposed pool in {} block",
             absolute_block
         );
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(0, 0);
     }
 
@@ -273,15 +273,15 @@ impl ValidSince {
         node.assert_tx_pool_size(1, 0);
         assert!(check::is_transaction_pending(node, transaction));
         // Gap
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(1, 0);
         assert!(check::is_transaction_pending(node, transaction));
         // Proposed
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(0, 1);
         assert!(check::is_transaction_proposed(node, transaction));
         // Committed
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(0, 0);
         assert!(check::is_transaction_committed(node, transaction));
 

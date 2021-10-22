@@ -195,7 +195,7 @@ impl ProposedPool {
             }
 
             for d in entry.related_dep_out_points() {
-                self.edges.delete_txid_by_dep(d, &id);
+                self.edges.delete_txid_by_dep(d, id);
             }
 
             for o in outputs {
@@ -233,7 +233,7 @@ impl ProposedPool {
             }
 
             for d in related_out_points {
-                self.edges.delete_txid_by_dep(&d, &id);
+                self.edges.delete_txid_by_dep(d, &id);
             }
 
             self.edges.header_deps.remove(&id);
@@ -350,12 +350,12 @@ impl ProposedPool {
 
     /// find all ancestors from pool
     pub fn calc_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.calc_ancestors(&tx_short_id)
+        self.inner.calc_ancestors(tx_short_id)
     }
 
     /// find all descendants from pool
     pub fn calc_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        self.inner.calc_descendants(&tx_short_id)
+        self.inner.calc_descendants(tx_short_id)
     }
 
     pub(crate) fn clear(&mut self) {

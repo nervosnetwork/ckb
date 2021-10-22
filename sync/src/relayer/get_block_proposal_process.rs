@@ -61,7 +61,7 @@ impl<'a> GetBlockProposalProcess<'a> {
         // Transactions that do not exist on this node
         let not_exist_proposals: Vec<packed::ProposalShortId> = proposals
             .into_iter()
-            .filter(|short_id| !fetched_transactions.contains_key(&short_id))
+            .filter(|short_id| !fetched_transactions.contains_key(short_id))
             .collect();
 
         // Cache request, try process on timer

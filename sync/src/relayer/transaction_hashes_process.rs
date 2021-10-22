@@ -41,7 +41,7 @@ impl<'a> TransactionHashesProcess<'a> {
                 .tx_hashes()
                 .iter()
                 .map(|x| x.to_entity())
-                .filter(|tx_hash| !tx_filter.contains(&tx_hash))
+                .filter(|tx_hash| !tx_filter.contains(tx_hash))
                 .collect()
         };
 

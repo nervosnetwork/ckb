@@ -34,7 +34,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         );
         net.connect(node);
 
-        mine(&node, 1);
+        mine(node, 1);
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
@@ -54,7 +54,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         assert!(!ret, "Node0 should reconstruct empty block failed");
 
         let ret = net.should_receive(node, |data: &Bytes| {
-            SyncMessage::from_slice(&data)
+            SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
                 .unwrap_or(false)
         });
@@ -164,7 +164,7 @@ impl Spec for CompactBlockMissingFreshTxs {
             .transaction(new_tx)
             .build();
         net.send(
-            &node,
+            node,
             SupportProtocols::Relay,
             build_compact_block(&new_block),
         );
@@ -172,10 +172,10 @@ impl Spec for CompactBlockMissingFreshTxs {
         assert!(!ret, "Node0 should be unable to reconstruct the block");
 
         let ret = net.should_receive(node, |data: &Bytes| {
-            let get_block_txns = RelayMessage::from_slice(&data)
+            let get_block_txns = RelayMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::GetBlockTransactions::NAME)
                 .unwrap_or(false);
-            let get_block = SyncMessage::from_slice(&data)
+            let get_block = SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
                 .unwrap_or(false);
             get_block_txns || get_block
@@ -385,7 +385,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         mine(node0, 6);
 
         // Make node0 and node1 reach the same height
-        mine(&node1, 1);
+        mine(node1, 1);
         node0.connect(node1);
         waiting_for_sync(&[node0, node1]);
 
@@ -400,10 +400,10 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.send(node0, SupportProtocols::Relay, build_compact_block(&block));
 
         let ret = net.should_receive(node0, |data: &Bytes| {
-            let get_block_txns = RelayMessage::from_slice(&data)
+            let get_block_txns = RelayMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::GetBlockTransactions::NAME)
                 .unwrap_or(false);
-            let get_block = SyncMessage::from_slice(&data)
+            let get_block = SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::GetBlocks::NAME)
                 .unwrap_or(false);
             get_block_txns || get_block

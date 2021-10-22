@@ -21,7 +21,7 @@ fn test_vm_version() {
 
     let result = VMVersion::new().ecall(&mut machine);
 
-    assert_eq!(result.unwrap(), true);
+    assert!(result.unwrap());
     assert_eq!(machine.registers()[A0], vm_version);
 }
 
@@ -42,6 +42,6 @@ fn test_current_cycles() {
 
     let result = CurrentCycles::new().ecall(&mut machine);
 
-    assert_eq!(result.unwrap(), true);
+    assert!(result.unwrap());
     assert_eq!(machine.registers()[A0], cycles);
 }

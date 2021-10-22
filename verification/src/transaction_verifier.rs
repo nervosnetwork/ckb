@@ -17,7 +17,6 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
-use std::convert::TryInto;
 
 /// The time-related TX verification
 ///
@@ -38,7 +37,7 @@ impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         TimeRelativeTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, tx_env.epoch(), consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(rtx, tx_env.epoch(), consensus.cellbase_maturity()),
             since: SinceVerifier::new(rtx, consensus, data_loader, tx_env),
         }
     }
@@ -121,7 +120,7 @@ where
         ContextualTransactionVerifier {
             compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
             time_relative: TimeRelativeTransactionVerifier::new(
-                &rtx,
+                rtx,
                 consensus,
                 data_loader,
                 tx_env,
@@ -241,7 +240,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a
         if self.transaction.is_cellbase() {
             Ok(Capacity::zero())
         } else {
-            DaoCalculator::new(&self.consensus, self.data_loader).transaction_fee(&self.transaction)
+            DaoCalculator::new(self.consensus, self.data_loader).transaction_fee(self.transaction)
         }
     }
 }
@@ -926,7 +925,7 @@ where
         ContextualWithoutScriptTransactionVerifier {
             compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
             time_relative: TimeRelativeTransactionVerifier::new(
-                &rtx,
+                rtx,
                 consensus,
                 data_loader,
                 tx_env,

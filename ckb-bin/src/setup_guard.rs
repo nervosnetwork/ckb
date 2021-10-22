@@ -46,7 +46,7 @@ impl SetupGuard {
                 sentry_config.dsn
             );
 
-            let guard = sentry_config.init(&version);
+            let guard = sentry_config.init(version);
 
             sentry::configure_scope(|scope| {
                 scope.set_tag("subcommand", &setup.subcommand_name);

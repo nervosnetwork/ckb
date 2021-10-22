@@ -250,7 +250,7 @@ impl PeerStore {
             .collect();
 
         for key in candidate_peers.iter() {
-            self.addr_manager.remove(&key);
+            self.addr_manager.remove(key);
         }
 
         if candidate_peers.is_empty() {
@@ -292,7 +292,7 @@ impl PeerStore {
             };
 
             for key in candidate_peers.iter() {
-                self.addr_manager.remove(&key);
+                self.addr_manager.remove(key);
             }
 
             if candidate_peers.is_empty() {

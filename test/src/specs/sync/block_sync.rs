@@ -29,7 +29,7 @@ impl Spec for BlockSyncFromOne {
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
         (0..3).for_each(|_| {
-            mine(&node0, 1);
+            mine(node0, 1);
         });
 
         node1.connect(node0);
@@ -450,7 +450,7 @@ impl Spec for SyncTooNewBlock {
         node2.disconnect(node0);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        mine(&node0, 1);
+        mine(node0, 1);
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
@@ -482,7 +482,7 @@ impl Spec for HeaderSyncCycle {
             .as_bytes();
 
         let ret = net.should_receive(node0, |data: &Bytes| {
-            SyncMessage::from_slice(&data)
+            SyncMessage::from_slice(data)
                 .map(|message| matches!(message.to_enum(), packed::SyncMessageUnion::GetHeaders(_)))
                 .unwrap_or(false)
         });
@@ -491,7 +491,7 @@ impl Spec for HeaderSyncCycle {
         net.send(node0, SupportProtocols::Sync, msg);
 
         let ret = net.should_receive(node0, |data: &Bytes| {
-            SyncMessage::from_slice(&data)
+            SyncMessage::from_slice(data)
                 .map(|message| matches!(message.to_enum(), packed::SyncMessageUnion::GetHeaders(_)))
                 .unwrap_or(false)
         });
@@ -528,7 +528,7 @@ fn sync_get_blocks(net: &Net, node: &Node, hashes: &[Byte32]) {
 
 fn should_receive_get_blocks_message(net: &Net, node: &Node, last_block_hash: Byte32) {
     let ret = net.should_receive(node, |data: &Bytes| {
-        SyncMessage::from_slice(&data)
+        SyncMessage::from_slice(data)
             .map(|message| match message.to_enum() {
                 packed::SyncMessageUnion::GetBlocks(get_blocks) => {
                     let block_hashes = get_blocks.block_hashes();

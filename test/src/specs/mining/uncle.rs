@@ -183,9 +183,9 @@ impl Spec for PackUnclesIntoEpochStarting {
 
 // Convenient way to construct an uncle block
 fn construct_uncle(node: &Node) -> BlockView {
-    mine(&node, 1); // Ensure exit IBD mode
+    mine(node, 1); // Ensure exit IBD mode
     let uncle = node.construct_uncle();
-    mine(&node, 1);
+    mine(node, 1);
 
     uncle
 }

@@ -17,9 +17,9 @@ impl Spec for RpcTruncate {
 
         let to_truncate = node.get_block_by_number(node.get_tip_block_number()).hash();
 
-        node.submit_transaction(&tx1);
+        node.submit_transaction(tx1);
         mine(node, 3);
-        node.submit_transaction(&tx2);
+        node.submit_transaction(tx2);
 
         // tx1 is already committed on chain, tx2 is still in tx-pool.
 
@@ -68,7 +68,7 @@ impl Spec for RpcTruncate {
 
         // The chain can generate new blocks
         mine(node, 3);
-        node.submit_transaction(&tx1);
+        node.submit_transaction(tx1);
         mine(node, 3);
         let cell1 = node
             .rpc_client()

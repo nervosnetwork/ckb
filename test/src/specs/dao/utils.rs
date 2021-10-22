@@ -9,7 +9,7 @@ pub(crate) fn ensure_committed(node: &Node, transaction: &TransactionView) -> Ou
     let commit_elapsed = node.consensus().tx_proposal_window().closest() + 2;
     node.rpc_client()
         .send_transaction(transaction.data().into());
-    mine(&node, commit_elapsed);
+    mine(node, commit_elapsed);
     assert!(is_transaction_committed(node, transaction));
     OutPoint::new(transaction.hash(), 0)
 }
@@ -25,6 +25,6 @@ pub(crate) fn goto_target_point(node: &Node, target_point: EpochNumberWithFracti
             break;
         }
 
-        mine(&node, 1);
+        mine(node, 1);
     }
 }

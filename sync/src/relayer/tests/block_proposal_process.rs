@@ -38,7 +38,7 @@ fn test_no_asked() {
     assert_eq!(process.execute(), Status::ignored());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
-    assert_eq!(known, false);
+    assert!(!known);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_ok() {
     assert_eq!(process.execute(), Status::ok());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
-    assert_eq!(known, true);
+    assert!(known);
 }
 
 #[test]

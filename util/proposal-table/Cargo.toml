@@ -2,7 +2,7 @@
 name = "ckb-proposal-table"
 version = "0.102.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 description = "The CKB proposal table"

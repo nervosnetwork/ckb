@@ -606,7 +606,7 @@ impl NetRpc for NetRpcImpl {
                     last_ping_duration: peer
                         .ping_rtt
                         .map(|duration| (duration.as_millis() as u64).into()),
-                    sync_state: self.sync_shared.state().peers().state.get(&peer_index).map(
+                    sync_state: self.sync_shared.state().peers().state.get(peer_index).map(
                         |state| PeerSyncState {
                             best_known_header_hash: state
                                 .best_known_header

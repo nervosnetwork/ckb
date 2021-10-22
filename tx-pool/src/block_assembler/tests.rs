@@ -17,7 +17,7 @@ fn test_candidate_uncles_basic() {
     assert!(!candidate_uncles.insert(block.clone()));
     assert_eq!(candidate_uncles.len(), 1);
 
-    assert!(candidate_uncles.remove_by_number(&block));
+    assert!(candidate_uncles.remove_by_number(block));
     assert_eq!(candidate_uncles.len(), 0);
     assert_eq!(candidate_uncles.map.len(), 0);
 }

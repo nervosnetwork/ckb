@@ -40,11 +40,10 @@ impl Spec for InvalidLocatorSize {
         assert!(ret, "Node0 should disconnect test node");
 
         let ret = wait_until(10, || {
-            net.controller()
+            !net.controller()
                 .connected_peers()
                 .iter()
-                .find(|(_, peer)| peer.connected_addr.to_string() == node0.p2p_address())
-                .is_none()
+                .any(|(_, peer)| peer.connected_addr.to_string() == node0.p2p_address())
         });
         assert!(
             ret,

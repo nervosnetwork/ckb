@@ -5,7 +5,6 @@ use ckb_types::{packed::CellOutput, prelude::*, H256};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

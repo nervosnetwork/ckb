@@ -172,7 +172,7 @@ fn test_default_params() {
             genesis_epoch_length = 100
         "#;
 
-    let params: Params = toml::from_str(&test_params).unwrap();
+    let params: Params = toml::from_str(test_params).unwrap();
     let expected = Params {
         genesis_epoch_length: Some(100),
         ..Default::default()
@@ -184,7 +184,7 @@ fn test_default_params() {
             max_block_bytes = 100
         "#;
 
-    let params: Params = toml::from_str(&test_params).unwrap();
+    let params: Params = toml::from_str(test_params).unwrap();
     let expected = Params {
         max_block_bytes: Some(100),
         ..Default::default()
@@ -196,7 +196,7 @@ fn test_default_params() {
             max_block_proposals_limit = 100
         "#;
 
-    let params: Params = toml::from_str(&test_params).unwrap();
+    let params: Params = toml::from_str(test_params).unwrap();
     let expected = Params {
         max_block_proposals_limit: Some(100),
         ..Default::default()
@@ -208,7 +208,7 @@ fn test_default_params() {
             orphan_rate_target = [1, 40]
         "#;
 
-    let params: Params = toml::from_str(&test_params).unwrap();
+    let params: Params = toml::from_str(test_params).unwrap();
     let expected = Params {
         orphan_rate_target: Some((1, 40)),
         ..Default::default()

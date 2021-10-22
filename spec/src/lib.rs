@@ -36,7 +36,6 @@ use ckb_types::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -930,7 +929,7 @@ pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
 
 pub(crate) fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
     let mut blake2b = new_blake2b();
-    blake2b.update(&input.as_slice());
+    blake2b.update(input.as_slice());
     blake2b.update(&output_index.to_le_bytes());
     let mut ret = [0; 32];
     blake2b.finalize(&mut ret);

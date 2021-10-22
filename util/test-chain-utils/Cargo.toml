@@ -2,7 +2,7 @@
 name = "ckb-test-chain-utils"
 version = "0.102.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Provide several functions used for testing."
 homepage = "https://github.com/nervosnetwork/ckb"

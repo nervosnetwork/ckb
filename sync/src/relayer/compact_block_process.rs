@@ -150,8 +150,7 @@ impl<'a> CompactBlockProcess<'a> {
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
                 };
-                let header_verifier =
-                    HeaderVerifier::new(&median_time_context, &shared.consensus());
+                let header_verifier = HeaderVerifier::new(&median_time_context, shared.consensus());
                 if let Err(err) = header_verifier.verify(&header) {
                     if err
                         .downcast_ref::<HeaderError>()

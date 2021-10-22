@@ -7,7 +7,6 @@ use ckb_types::{
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };
 use ckb_vm::Error as VmError;
-use std::convert::TryInto;
 
 use super::SCRIPT_VERSION;
 use crate::{
@@ -534,7 +533,7 @@ fn check_type_id_one_in_one_out_resume() {
 
             while let Some((_ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(&group, step_cycles, &None)
+                    .verify_group_with_chunk(group, step_cycles, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
@@ -650,10 +649,7 @@ fn check_type_id_one_in_one_out_chunk() {
                     ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
                     ScriptGroupType::Type => TYPE_ID_CYCLES,
                 };
-                match verifier
-                    .verify_group_with_chunk(&group, max, &None)
-                    .unwrap()
-                {
+                match verifier.verify_group_with_chunk(group, max, &None).unwrap() {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                     }
@@ -708,7 +704,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
             }
             while let Some((_, _, group)) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(&group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
+                    .verify_group_with_chunk(group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {

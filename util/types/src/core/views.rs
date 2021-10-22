@@ -430,8 +430,8 @@ impl ExtraHashView {
         let extension_hash_and_extra_hash = extension_hash_opt.map(|extension_hash| {
             let mut ret = [0u8; 32];
             let mut blake2b = new_blake2b();
-            blake2b.update(&uncles_hash.as_slice());
-            blake2b.update(&extension_hash.as_slice());
+            blake2b.update(uncles_hash.as_slice());
+            blake2b.update(extension_hash.as_slice());
             blake2b.finalize(&mut ret);
             (extension_hash, ret.pack())
         });

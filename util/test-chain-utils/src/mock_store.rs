@@ -76,8 +76,8 @@ impl MockStore {
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
         let db_txn = self.store().begin_transaction();
         let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
-        db_txn.insert_block(&block).unwrap();
-        db_txn.attach_block(&block).unwrap();
+        db_txn.insert_block(block).unwrap();
+        db_txn.attach_block(block).unwrap();
         db_txn
             .insert_block_epoch_index(&block.hash(), &last_block_hash_in_previous_epoch)
             .unwrap();
@@ -104,8 +104,8 @@ impl MockStore {
     #[doc(hidden)]
     pub fn remove_block(&self, block: &BlockView) {
         let db_txn = self.store().begin_transaction();
-        db_txn.delete_block(&block).unwrap();
-        db_txn.detach_block(&block).unwrap();
+        db_txn.delete_block(block).unwrap();
+        db_txn.detach_block(block).unwrap();
         db_txn.commit().unwrap();
     }
 }

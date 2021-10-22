@@ -140,7 +140,7 @@ impl StoreTransaction {
         self.inner
             .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, &snapshot.inner)
             .expect("db operation should be ok")
-            .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()).to_entity())
+            .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
     /// TODO(doc): @quake
@@ -161,7 +161,7 @@ impl StoreTransaction {
             self.insert_raw(
                 COLUMN_BLOCK_EXTENSION,
                 hash.as_slice(),
-                &extension.as_slice(),
+                extension.as_slice(),
             )?;
         }
         self.insert_raw(
@@ -251,8 +251,8 @@ impl StoreTransaction {
         for uncle in block.uncles().into_iter() {
             self.insert_raw(
                 COLUMN_UNCLES,
-                &uncle.hash().as_slice(),
-                &uncle.header().pack().as_slice(),
+                uncle.hash().as_slice(),
+                uncle.header().pack().as_slice(),
             )?;
         }
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())

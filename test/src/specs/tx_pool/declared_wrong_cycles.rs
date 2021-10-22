@@ -26,7 +26,7 @@ impl Spec for DeclaredWrongCycles {
 
         let tx = node0.new_transaction_spend_tip_cellbase();
 
-        relay_tx(&net, &node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
+        relay_tx(&net, node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
 
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
@@ -54,7 +54,7 @@ impl Spec for DeclaredWrongCyclesChunk {
 
         let tx = node0.new_transaction_spend_tip_cellbase();
 
-        relay_tx(&net, &node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
+        relay_tx(&net, node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
 
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
@@ -90,7 +90,7 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
         let tx = node0.new_transaction_spend_tip_cellbase();
         // relay tx to node0 with wrong cycles
         net.connect(node0);
-        relay_tx(&net, &node0, tx.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
+        relay_tx(&net, node0, tx.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
         let ret = wait_until(10, || node0.rpc_client().get_peers().is_empty());
         assert!(
             ret,
@@ -107,7 +107,7 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
 
         // relay tx to node1 with correct cycles
         net.connect(node1);
-        relay_tx(&net, &node1, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        relay_tx(&net, node1, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
 
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();

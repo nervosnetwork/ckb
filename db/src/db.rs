@@ -57,7 +57,7 @@ impl RocksDB {
             let opts = Options::default();
             let cf_descriptors: Vec<_> = cf_names
                 .iter()
-                .map(|ref c| ColumnFamilyDescriptor::new(*c, Options::default()))
+                .map(|c| ColumnFamilyDescriptor::new(c, Options::default()))
                 .collect();
             (opts, cf_descriptors)
         };
@@ -285,7 +285,7 @@ impl RocksDB {
     /// CompactRange waits while compaction is performed on the background threads and thus is a blocking call.
     pub fn compact_range(&self, col: Col, start: Option<&[u8]>, end: Option<&[u8]>) -> Result<()> {
         let cf = cf_handle(&self.inner, col)?;
-        self.inner.compact_range_cf(&cf, start, end);
+        self.inner.compact_range_cf(cf, start, end);
         Ok(())
     }
 

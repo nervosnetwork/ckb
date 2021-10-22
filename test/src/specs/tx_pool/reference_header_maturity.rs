@@ -33,7 +33,7 @@ impl Spec for ReferenceHeaderMaturity {
                         let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
                         mine(node, remained_blocks_in_epoch);
                     } else {
-                        mine(&node, 1);
+                        mine(node, 1);
                     }
                 } else {
                     break;
@@ -67,7 +67,7 @@ impl Spec for ReferenceHeaderMaturity {
                     let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
                     mine(node, remained_blocks_in_epoch);
                 } else {
-                    mine(&node, 1);
+                    mine(node, 1);
                 }
             }
         }
@@ -78,9 +78,9 @@ impl Spec for ReferenceHeaderMaturity {
         node.assert_tx_pool_size(1, 0);
 
         info!("Tx will be added to proposed pool");
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         node.assert_tx_pool_size(0, 1);
-        mine(&node, 1);
+        mine(node, 1);
         node.assert_tx_pool_size(0, 0);
 
         info!("Tx will be eventually accepted on chain");

@@ -97,7 +97,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
 
         let mgr = &mut self.addr_mgr;
         let mut check = |behavior: Misbehavior| -> bool {
-            if mgr.misbehave(&session, &behavior).is_disconnect() {
+            if mgr.misbehave(session, &behavior).is_disconnect() {
                 if context.disconnect(session.id).is_err() {
                     error!("disconnect {:?} send fail", session.id)
                 }
@@ -184,9 +184,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if !nodes.announce && state.received_nodes {
                                 warn!("already received Nodes(announce=false) message");
-                                if check(Misbehavior::DuplicateFirstNodes) {
-                                    return;
-                                }
+                                check(Misbehavior::DuplicateFirstNodes);
                             } else {
                                 let addrs = nodes
                                     .items
@@ -211,7 +209,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             None => {
                 if self
                     .addr_mgr
-                    .misbehave(&session, &Misbehavior::InvalidData)
+                    .misbehave(session, &Misbehavior::InvalidData)
                     .is_disconnect()
                     && context.disconnect(session.id).is_err()
                 {
@@ -324,7 +322,7 @@ impl AddressManager for DiscoveryAddressManager {
 
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
         if !self.discovery_local_address {
-            let local_or_invalid = multiaddr_to_socketaddr(&addr)
+            let local_or_invalid = multiaddr_to_socketaddr(addr)
                 .map(|socket_addr| !is_reachable(socket_addr.ip()))
                 .unwrap_or(true);
             !local_or_invalid

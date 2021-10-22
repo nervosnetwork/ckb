@@ -277,12 +277,12 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
 
         // Inside `mine`, RPC `get_block_template` will be involved, that's our testing interface.
         mine(node0, node0.consensus().tx_proposal_window().farthest());
+
+        assert!(is_transaction_committed(node0, &tx_b));
         if b_weightier_than_c {
             // B's tx-weight > C's tx-weight
-            assert!(is_transaction_committed(node0, &tx_b));
         } else {
             // B's tx-weight < C's tx-weight,
-            assert!(is_transaction_committed(node0, &tx_b));
             assert!(is_transaction_committed(node0, &tx_c));
         }
     }

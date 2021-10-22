@@ -77,13 +77,13 @@ impl<'a> BlockTransactionsProcess<'a> {
                 );
 
                 attempt!(BlockTransactionsVerifier::verify(
-                    &compact_block,
-                    &expected_transaction_indexes,
+                    compact_block,
+                    expected_transaction_indexes,
                     &received_transactions,
                 ));
                 attempt!(BlockUnclesVerifier::verify(
-                    &compact_block,
-                    &expected_uncle_indexes,
+                    compact_block,
+                    expected_uncle_indexes,
                     &received_uncles,
                 ));
 
@@ -91,7 +91,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     &active_chain,
                     compact_block,
                     received_transactions,
-                    &expected_uncle_indexes,
+                    expected_uncle_indexes,
                     &received_uncles,
                 );
 

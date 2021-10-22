@@ -2,7 +2,6 @@ use crate::types::{ScriptGroup, ScriptGroupType};
 use ckb_error::{prelude::*, Error, ErrorKind};
 use ckb_types::core::{Cycle, ScriptHashType};
 use ckb_types::packed::Script;
-use std::convert::TryFrom;
 use std::{error::Error as StdError, fmt};
 
 /// Script execution error.

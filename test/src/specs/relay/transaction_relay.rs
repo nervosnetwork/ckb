@@ -63,9 +63,9 @@ impl Spec for TransactionRelayMultiple {
         });
         assert!(relayed, "all transactions should be relayed");
 
-        mine(&node0, 1);
-        mine(&node0, 1);
-        mine(&node0, 1);
+        mine(node0, 1);
+        mine(node0, 1);
+        mine(node0, 1);
         waiting_for_sync(nodes);
         nodes.iter().for_each(|node| {
             node.assert_tx_pool_size(0, 0);
@@ -119,7 +119,7 @@ pub struct RelayInvalidTransaction;
 impl Spec for RelayInvalidTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes.pop().unwrap();
-        mine(&node, 4);
+        mine(node, 4);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -145,7 +145,7 @@ impl Spec for RelayInvalidTransaction {
         );
         info!("Sending RelayTransactions to node");
         net.send(
-            &node,
+            node,
             SupportProtocols::Relay,
             build_relay_txs(&[(dummy_tx, 333)]),
         );

@@ -87,7 +87,7 @@ fn test_dead_cell_in_different_block() {
     }
 
     let last_cellbase = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_multi_outputs_transaction(&last_cellbase, vec![0], 2, vec![1]);
+    let tx1 = create_multi_outputs_transaction(last_cellbase, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![3]);
@@ -271,7 +271,7 @@ fn test_full_dead_transaction() {
     chain2.push(block.clone());
     mock_store.insert_block(&block, shared.consensus().genesis_epoch_ext());
     let root_tx = &shared.consensus().genesis_block().transactions()[1];
-    let tx1 = create_multi_outputs_transaction(&root_tx, vec![0], 1, vec![1]);
+    let tx1 = create_multi_outputs_transaction(root_tx, vec![0], 1, vec![1]);
 
     parent = block.header();
     for i in 2..switch_fork_number {

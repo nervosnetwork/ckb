@@ -9,7 +9,6 @@ use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric, TxVerifyEnv};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 /// RPC Module Pool for transaction memory pool.
@@ -425,7 +424,7 @@ impl PoolRpc for PoolRpcImpl {
             let consensus = snapshot.consensus();
             let tx_env = {
                 let tip_header = snapshot.tip_header();
-                TxVerifyEnv::new_submit(&tip_header)
+                TxVerifyEnv::new_submit(tip_header)
             };
             if let Err(e) = IllTransactionChecker::new(&tx, consensus, &tx_env).check() {
                 return Err(RPCError::custom_with_data(

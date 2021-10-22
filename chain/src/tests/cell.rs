@@ -58,7 +58,7 @@ pub(crate) fn gen_block(
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent_header, &shared.store().as_data_provider())
+        .next_epoch_ext(parent_header, &shared.store().as_data_provider())
         .unwrap()
         .epoch();
 

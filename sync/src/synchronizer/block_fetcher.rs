@@ -36,7 +36,7 @@ impl<'a> BlockFetcher<'a> {
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.active_chain.total_difficulty())
+        header.is_better_than(self.active_chain.total_difficulty())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -60,7 +60,7 @@ impl<'a> BlockFetcher<'a> {
         // of its current tip anymore. Go back enough to fix that.
         last_common = self
             .active_chain
-            .last_common_ancestor(&last_common, &best_known.inner())?;
+            .last_common_ancestor(&last_common, best_known.inner())?;
 
         self.synchronizer
             .peers()

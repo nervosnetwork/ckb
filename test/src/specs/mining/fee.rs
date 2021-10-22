@@ -179,14 +179,14 @@ impl Spec for ProposeButNotCommit {
         let transaction = always_success_transaction(feed_node, &cells[0]);
         let txs = vec![transaction];
         feed_node.submit_transaction(&txs[0]);
-        mine(&feed_node, 1);
+        mine(feed_node, 1);
 
         let feed_blocks: Vec<_> = (1..feed_node.get_tip_block_number())
             .map(|number| feed_node.get_block_by_number(number))
             .collect();
 
         feed_blocks.iter().for_each(|block| {
-            target_node.submit_block(&block);
+            target_node.submit_block(block);
         });
         mine(target_node, 2 * FINALIZATION_DELAY_LENGTH);
 
@@ -212,7 +212,7 @@ impl Spec for ProposeDuplicated {
                 .proposal(tx.proposal_short_id())
                 .build()
                 .as_uncle();
-            mine(&node, 1);
+            mine(node, 1);
             uncle
         };
         let uncle2 = {
@@ -222,7 +222,7 @@ impl Spec for ProposeDuplicated {
                 .nonce(99999.pack())
                 .build()
                 .as_uncle();
-            mine(&node, 1);
+            mine(node, 1);
             uncle
         };
 
@@ -231,7 +231,7 @@ impl Spec for ProposeDuplicated {
             .uncle(uncle1)
             .uncle(uncle2)
             .build();
-        node.submit_transaction(&tx);
+        node.submit_transaction(tx);
         node.submit_block(&block);
 
         mine(node, 2 * FINALIZATION_DELAY_LENGTH);

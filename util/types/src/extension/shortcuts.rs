@@ -281,7 +281,7 @@ impl<'r> packed::BlockReader<'r> {
     /// Panics if the first extra field exists but not a valid [`BytesReader`](struct.BytesReader.html).
     pub fn extension(&self) -> Option<packed::BytesReader> {
         self.extra_field(0)
-            .map(|data| packed::BytesReader::from_slice(&data).unwrap())
+            .map(|data| packed::BytesReader::from_slice(data).unwrap())
     }
 }
 
@@ -382,7 +382,7 @@ impl packed::CompactBlock {
         let prefilled_indexes: HashSet<usize> = self.prefilled_indexes_iter().collect();
 
         (0..self.txs_len())
-            .filter(|index| !prefilled_indexes.contains(&index))
+            .filter(|index| !prefilled_indexes.contains(index))
             .collect()
     }
 

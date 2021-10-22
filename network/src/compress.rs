@@ -1,3 +1,5 @@
+//！ckb network compress module
+
 use ckb_logger::debug;
 use p2p::bytes::{BufMut, Bytes, BytesMut};
 use snap::raw::{decompress_len, Decoder as SnapDecoder, Encoder as SnapEncoder};
