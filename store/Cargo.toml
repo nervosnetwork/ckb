@@ -19,3 +19,6 @@ ckb-error = { path = "../error", version = "= 0.102.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.102.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.102.0-pre" }
 ckb-freezer = { path = "../freezer", version = "= 0.102.0-pre" }
+
+[dev-dependencies]
+tempfile = "3.0"
