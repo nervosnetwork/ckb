@@ -71,7 +71,7 @@ Mainnet Lina or Testnet Aggron, switch to the branch [master].
 - [Quick Start](docs/quick-start.md)
 - [Configure CKB](docs/configure.md)
 - [Platform Support](docs/platform-support.md)
-- [Get CKB Binary](https://docs.nervos.org/docs/basics/guides/get-ckb)
-- [Get CKB Binary on Windows](https://docs.nervos.org/docs/basics/guides/ckb-on-windows)
+- [How to Download or Build CKB Binary](https://docs.nervos.org/docs/basics/guides/get-ckb)
+- [How to Download or Build CKB Binary on Windows](https://docs.nervos.org/docs/basics/guides/ckb-on-windows)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).
