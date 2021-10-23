@@ -120,7 +120,7 @@ impl Default for HeaderMapConfig {
     }
 }
 
-#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
 pub enum SupportProtocol {
     Ping,
@@ -134,7 +134,8 @@ pub enum SupportProtocol {
     Alert,
 }
 
-fn default_support_all_protocols() -> Vec<SupportProtocol> {
+#[allow(missing_docs)]
+pub fn default_support_all_protocols() -> Vec<SupportProtocol> {
     vec![
         SupportProtocol::Ping,
         SupportProtocol::Discovery,
