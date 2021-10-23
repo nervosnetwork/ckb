@@ -182,9 +182,7 @@ impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
             .map(TransactionView::proposal_short_id)
             .collect();
 
-        let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
-
-        if !difference.is_empty() {
+        if committed_ids.difference(&proposal_txs_ids).next().is_some() {
             error_target!(
                 crate::LOG_TARGET,
                 "BlockView {} {}",
