@@ -20,7 +20,7 @@ We ensure that these platforms will satisfy the following requirements:
 
 | OS | Arch | CKB VM Mode |
 | --- | --- | --- |
-| Ubuntu 16.04 | x64 | ASM |
+| Ubuntu 18.04 | x64 | ASM |
 | macOS | x64 | ASM |
 
 The Tier 1 requires CPU to support at least SSE4.2, and AVX is recommended.
@@ -34,7 +34,6 @@ The official binary releases are also provided for the Tier 2 platforms.
 | OS | Arch | CKB VM Mode |
 | --- | --- | --- |
 | Windows \* | x64 | ASM |
-| Ubuntu 18.04 | x64 | ASM |
 | Ubuntu 20.04 | x64 | ASM |
 | Debian Stretch | x64 | ASM |
 | Debian Buster | x64 | ASM |
