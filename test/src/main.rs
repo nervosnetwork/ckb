@@ -515,6 +515,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(OutboundSync),
         Box::new(InboundMinedDuringSync),
         Box::new(OutboundMinedDuringSync),
+        Box::new(ProposalRespondSizelimit),
         // Test hard fork features
         Box::new(CheckCellDeps),
         Box::new(CheckAbsoluteEpochSince),

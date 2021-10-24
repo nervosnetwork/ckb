@@ -85,13 +85,12 @@ impl<'a> GetTransactionsProcess<'a> {
             let mut relay_txs = Vec::new();
             for tx in transactions {
                 if relay_bytes + tx.total_size() > MAX_RELAY_TXS_BYTES_PER_BATCH {
-                    self.send_relay_transactions(relay_txs.drain(..).collect());
+                    self.send_relay_transactions(std::mem::take(&mut relay_txs));
                     relay_bytes = tx.total_size();
-                    relay_txs.push(tx);
                 } else {
                     relay_bytes += tx.total_size();
-                    relay_txs.push(tx);
                 }
+                relay_txs.push(tx);
             }
             if !relay_txs.is_empty() {
                 attempt!(self.send_relay_transactions(relay_txs));

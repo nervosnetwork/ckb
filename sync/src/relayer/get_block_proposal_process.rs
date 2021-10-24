@@ -1,6 +1,6 @@
-use crate::relayer::Relayer;
+use crate::relayer::{Relayer, MAX_RELAY_TXS_BYTES_PER_BATCH};
 use crate::utils::send_message_to;
-use crate::{Status, StatusCode};
+use crate::{attempt, Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
@@ -58,23 +58,40 @@ impl<'a> GetBlockProposalProcess<'a> {
             }
             fetch_txs.unwrap()
         };
-        let fresh_proposals: Vec<packed::ProposalShortId> = proposals
+        // Transactions that do not exist on this node
+        let not_exist_proposals: Vec<packed::ProposalShortId> = proposals
             .into_iter()
-            .filter(|short_id| fetched_transactions.get(&short_id).is_none())
+            .filter(|short_id| !fetched_transactions.contains_key(&short_id))
             .collect();
 
+        // Cache request, try process on timer
         self.relayer
             .shared()
             .state()
-            .insert_get_block_proposals(self.peer, fresh_proposals);
+            .insert_get_block_proposals(self.peer, not_exist_proposals);
 
+        let mut relay_bytes = 0;
+        let mut relay_proposals = Vec::new();
+        for (_, tx) in fetched_transactions {
+            let data = tx.data();
+            let tx_size = data.total_size();
+            if relay_bytes + tx_size > MAX_RELAY_TXS_BYTES_PER_BATCH {
+                self.send_block_proposals(std::mem::take(&mut relay_proposals));
+                relay_bytes = tx_size;
+            } else {
+                relay_bytes += tx_size;
+            }
+            relay_proposals.push(data);
+        }
+        if !relay_proposals.is_empty() {
+            attempt!(self.send_block_proposals(relay_proposals));
+        }
+        Status::ok()
+    }
+
+    fn send_block_proposals(&self, txs: Vec<packed::Transaction>) -> Status {
         let content = packed::BlockProposal::new_builder()
-            .transactions(
-                fetched_transactions
-                    .into_iter()
-                    .map(|(_, tx)| tx.data())
-                    .pack(),
-            )
+            .transactions(txs.into_iter().pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
         send_message_to(self.nc.as_ref(), self.peer, &message)

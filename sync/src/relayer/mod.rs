@@ -33,9 +33,8 @@ use ckb_network::{
     TargetSession,
 };
 use ckb_tx_pool::service::TxVerificationResult;
-use ckb_types::core::BlockView;
 use ckb_types::{
-    core::{self, Cycle, FeeRate},
+    core::{self, BlockView, Cycle, FeeRate},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
@@ -573,14 +572,39 @@ impl Relayer {
             }
         }
 
+        let send_block_proposals =
+            |nc: &dyn CKBProtocolContext, peer_index: PeerIndex, txs: Vec<packed::Transaction>| {
+                let content = packed::BlockProposal::new_builder()
+                    .transactions(txs.into_iter().pack())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(content).build();
+                let status = send_message_to(nc, peer_index, &message);
+                if !status.is_ok() {
+                    ckb_logger::error!(
+                        "send RelayBlockProposal to {}, status: {:?}",
+                        peer_index,
+                        status
+                    );
+                }
+            };
+
+        let mut relay_bytes = 0;
+        let mut relay_proposals = Vec::new();
         for (peer_index, txs) in peer_txs {
-            let content = packed::BlockProposal::new_builder()
-                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-            let status = send_message_to(nc, peer_index, &message);
-            if !status.is_ok() {
-                ckb_logger::error!("break relaying transactions, status: {:?}", status);
+            for tx in txs {
+                let data = tx.data();
+                let tx_size = data.total_size();
+                if relay_bytes + tx_size > MAX_RELAY_TXS_BYTES_PER_BATCH {
+                    send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals));
+                    relay_bytes = tx_size;
+                } else {
+                    relay_bytes += tx_size;
+                }
+                relay_proposals.push(data);
+            }
+            if !relay_proposals.is_empty() {
+                send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals));
+                relay_bytes = 0;
             }
         }
     }
