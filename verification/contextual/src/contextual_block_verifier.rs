@@ -56,6 +56,9 @@ impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
 
 impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
+        if !self.store.is_main_chain(block_hash) {
+            return Err(OutPointError::InvalidHeader(block_hash.clone()));
+        }
         match self.store.get_block_header(block_hash) {
             Some(header) => {
                 let tip_header = self.store.get_tip_header().expect("tip should exist");
