@@ -34,7 +34,7 @@ Tests <!-- At least one of them must be included. -->
 - Unit test
 - Integration test
 - Manual test (add detailed scripts or steps below)
-- No code (skip ci)
+- No code ci-runs-only: [ quick_checks,linters ]
 
 Side effects
 

@@ -3,6 +3,7 @@ use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
+use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_metrics::{metrics, Timer};
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
@@ -235,7 +236,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a
         }
     }
 
-    fn transaction_fee(&self) -> Result<Capacity, Error> {
+    fn transaction_fee(&self) -> Result<Capacity, DaoError> {
         // skip tx fee calculation for cellbase
         if self.transaction.is_cellbase() {
             Ok(Capacity::zero())

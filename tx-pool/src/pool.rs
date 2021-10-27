@@ -564,6 +564,9 @@ impl TxPool {
         self.proposed.clear();
         txs.append(&mut self.gap.drain());
         txs.append(&mut self.pending.drain());
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
+        self.touch_last_txs_updated_at();
         txs
     }
 

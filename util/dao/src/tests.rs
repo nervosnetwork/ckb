@@ -17,15 +17,17 @@ use ckb_types::{
     utilities::DIFF_TWO,
     U256,
 };
+use tempfile::TempDir;
 
 use crate::DaoCalculator;
 
-fn new_store() -> ChainDB {
-    ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default())
-}
-
-fn prepare_store(parent: &HeaderView, epoch_start: Option<BlockNumber>) -> (ChainDB, HeaderView) {
-    let store = new_store();
+fn prepare_store(
+    parent: &HeaderView,
+    epoch_start: Option<BlockNumber>,
+) -> (TempDir, ChainDB, HeaderView) {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
 
     let parent_block = BlockBuilder::default().header(parent.clone()).build();
@@ -51,7 +53,7 @@ fn prepare_store(parent: &HeaderView, epoch_start: Option<BlockNumber>) -> (Chai
 
     txn.commit().unwrap();
 
-    (store, parent.clone())
+    (tmp_dir, store, parent.clone())
 }
 
 #[test]
@@ -69,11 +71,11 @@ fn check_dao_data_calculation() {
         ))
         .build();
 
-    let (store, parent_header) = prepare_store(&parent_header, None);
+    let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
         .dao_field(&[], &parent_header)
         .unwrap();
-    let dao_data = extract_dao_data(result).unwrap();
+    let dao_data = extract_dao_data(result);
     assert_eq!(
         dao_data,
         (
@@ -100,11 +102,11 @@ fn check_initial_dao_data_calculation() {
         ))
         .build();
 
-    let (store, parent_header) = prepare_store(&parent_header, Some(0));
+    let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(0));
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
         .dao_field(&[], &parent_header)
         .unwrap();
-    let dao_data = extract_dao_data(result).unwrap();
+    let dao_data = extract_dao_data(result);
     assert_eq!(
         dao_data,
         (
@@ -131,11 +133,11 @@ fn check_first_epoch_block_dao_data_calculation() {
         ))
         .build();
 
-    let (store, parent_header) = prepare_store(&parent_header, Some(12340));
+    let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(12340));
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
         .dao_field(&[], &parent_header)
         .unwrap();
-    let dao_data = extract_dao_data(result).unwrap();
+    let dao_data = extract_dao_data(result);
     assert_eq!(
         dao_data,
         (
@@ -162,13 +164,10 @@ fn check_dao_data_calculation_overflows() {
         ))
         .build();
 
-    let (store, parent_header) = prepare_store(&parent_header, None);
+    let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
     let result =
         DaoCalculator::new(&consensus, &store.as_data_provider()).dao_field(&[], &parent_header);
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Internal(CapacityOverflow(OccupiedCapacity: overflow))"));
+    assert!(result.unwrap_err().to_string().contains("Overflow"));
 }
 
 #[test]
@@ -186,7 +185,7 @@ fn check_dao_data_calculation_with_transactions() {
         ))
         .build();
 
-    let (store, parent_header) = prepare_store(&parent_header, None);
+    let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
     let input_cell_data = Bytes::from("abcde");
     let input_cell = CellOutput::new_builder()
         .capacity(capacity_bytes!(10000).pack())
@@ -212,7 +211,7 @@ fn check_dao_data_calculation_with_transactions() {
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
         .dao_field(&[rtx], &parent_header)
         .unwrap();
-    let dao_data = extract_dao_data(result).unwrap();
+    let dao_data = extract_dao_data(result);
     assert_eq!(
         dao_data,
         (
@@ -259,7 +258,9 @@ fn check_withdraw_calculation() {
         .build();
     let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
-    let store = new_store();
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();
     txn.attach_block(&deposit_block).unwrap();
@@ -310,7 +311,9 @@ fn check_withdraw_calculation_overflows() {
         .build();
     let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
-    let store = new_store();
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();
     txn.attach_block(&deposit_block).unwrap();

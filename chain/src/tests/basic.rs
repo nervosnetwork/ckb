@@ -187,9 +187,9 @@ fn test_transaction_spend_in_same_block() {
     );
 
     let epoch = mock_store
-        .0
+        .store()
         .get_block_epoch_index(&parent_hash4)
-        .and_then(|index| mock_store.0.get_epoch_ext(&index))
+        .and_then(|index| mock_store.store().get_epoch_ext(&index))
         .unwrap();
 
     assert_eq!(

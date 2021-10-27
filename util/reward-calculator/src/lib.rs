@@ -6,7 +6,7 @@ use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockReward, Capacity, HeaderView},
+    core::{BlockReward, Capacity, CapacityResult, HeaderView},
     packed::{Byte32, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
@@ -126,7 +126,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     // Miner get (tx_fee - 40% of tx fee) for tx commitment.
     // Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, Error> {
+    fn txs_fees(&self, target: &HeaderView) -> CapacityResult<Capacity> {
         let consensus = self.consensus;
         let target_ext = self
             .store
@@ -159,7 +159,11 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     ///         \____________/
     ///
 
-    fn proposal_reward(&self, parent: &HeaderView, target: &HeaderView) -> Result<Capacity, Error> {
+    fn proposal_reward(
+        &self,
+        parent: &HeaderView,
+        target: &HeaderView,
+    ) -> CapacityResult<Capacity> {
         let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();

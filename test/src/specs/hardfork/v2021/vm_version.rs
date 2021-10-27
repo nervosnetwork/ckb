@@ -80,7 +80,9 @@ impl Spec for CheckVmVersion {
             info!("Test Sync:");
             let (rpc_client0, rpc_client1) = (node.rpc_client(), node1.rpc_client());
 
-            let ret = wait_until(20, || {
+            // The GetHeaders will be sent every 15s.
+            // When reach tip, the GetHeaders will be paused 28s.
+            let ret = wait_until(60, || {
                 let header0 = rpc_client0.get_tip_header();
                 let header1 = rpc_client1.get_tip_header();
                 header0 == header1

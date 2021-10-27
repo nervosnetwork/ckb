@@ -22,17 +22,19 @@ use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
-use ckb_tx_pool::{error::Reject, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
+use ckb_tx_pool::{
+    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
+    TxPoolServiceBuilder,
+};
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
-use ckb_types::packed::Byte32;
 use ckb_verification::cache::init_cache;
-use p2p::SessionId as PeerIndex;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 /// Shared builder for construct new shared.
 pub struct SharedBuilder {
@@ -136,19 +138,39 @@ impl SharedBuilder {
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
-        use once_cell::unsync;
-        use std::borrow::Borrow;
+        use once_cell::{sync, unsync};
+        use std::{
+            borrow::Borrow,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
 
         // once #[thread_local] is stable
         // #[thread_local]
         // static RUNTIME_HANDLE: unsync::OnceCell<...
 
         thread_local! {
+            static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
             static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
         }
 
+        static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+        let db = {
+            let db_id = DB_COUNT.fetch_add(1, Ordering::SeqCst);
+            let db_base_dir = TMP_DIR.with(|tmp_dir| {
+                tmp_dir
+                    .borrow()
+                    .get_or_try_init(TempDir::new)
+                    .unwrap()
+                    .path()
+                    .to_path_buf()
+            });
+            let db_dir = db_base_dir.join(format!("db_{}", db_id));
+            RocksDB::open_in(db_dir, COLUMNS)
+        };
+
         RUNTIME_HANDLE.with(|runtime| SharedBuilder {
-            db: RocksDB::open_tmp(COLUMNS),
+            db,
             ancient_path: None,
             consensus: None,
             tx_pool_config: None,
@@ -356,7 +378,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     table: Option<ProposalTable>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<(Option<PeerIndex>, bool, Byte32)>>,
+    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
 }
 
 impl SharedPackage {
@@ -371,7 +393,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<(Option<PeerIndex>, bool, Byte32)> {
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")

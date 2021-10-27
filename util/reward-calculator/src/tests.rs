@@ -10,12 +10,14 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 use std::iter::FromIterator;
+use tempfile::TempDir;
 
 use crate::RewardCalculator;
 
 #[test]
 fn get_proposal_ids_by_hash() {
-    let db = RocksDB::open_tmp(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
 
     let proposal1 = ProposalShortId::new([1; 10]);
@@ -59,7 +61,8 @@ fn get_proposal_ids_by_hash() {
 
 #[test]
 fn test_txs_fees() {
-    let db = RocksDB::open_tmp(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
 
     // Default PROPOSER_REWARD_RATIO is Ratio(4, 10)
@@ -117,7 +120,8 @@ fn test_txs_fees() {
 // target's earliest proposals: p4, p5, p6
 #[test]
 fn test_proposal_reward() {
-    let db = RocksDB::open_tmp(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
 
     let consensus = ConsensusBuilder::default()

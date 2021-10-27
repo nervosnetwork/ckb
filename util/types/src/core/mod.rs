@@ -37,7 +37,9 @@ pub use views::{
     BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
 };
 
-pub use ckb_occupied_capacity::{capacity_bytes, Capacity, Ratio, Result as CapacityResult};
+pub use ckb_occupied_capacity::{
+    capacity_bytes, Capacity, Error as CapacityError, Ratio, Result as CapacityResult,
+};
 pub use ckb_rational::RationalU256;
 
 /// Public key. It's a 512 bits fixed binary data.

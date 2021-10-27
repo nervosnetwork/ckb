@@ -85,7 +85,7 @@ impl Spec for SpendSatoshiCell {
             .unwrap();
         // check genesis blocks dao
         let genesis = node0.get_block_by_number(0);
-        let (_ar, _c, _s, u) = extract_dao_data(genesis.header().dao()).expect("extract dao");
+        let (_ar, _c, _s, u) = extract_dao_data(genesis.header().dao());
         // u - used capacity should includes virtual occupied
         assert!(u > satoshi_cell_occupied);
 
@@ -130,7 +130,7 @@ impl Spec for SpendSatoshiCell {
 
         let tip = node0.get_tip_block();
         // check tip dao, expect u correct
-        let (_ar, _c, _s, new_u) = extract_dao_data(tip.header().dao()).expect("extract dao");
+        let (_ar, _c, _s, new_u) = extract_dao_data(tip.header().dao());
         assert_eq!(
             Ok(new_u),
             u.safe_sub(satoshi_cell_occupied)

@@ -211,7 +211,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
                     &withdrawing_header_hash.pack(),
                 ) {
                     Ok(capacity) => Ok(capacity.into()),
-                    Err(err) => Err(RPCError::from_ckb_error(err)),
+                    Err(err) => Err(RPCError::custom_with_error(RPCError::DaoError, err)),
                 }
             }
             DaoWithdrawingCalculationKind::WithdrawingOutPoint(withdrawing_out_point) => {
@@ -240,7 +240,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
                     &withdrawing_header_hash,
                 ) {
                     Ok(capacity) => Ok(capacity.into()),
-                    Err(err) => Err(RPCError::from_ckb_error(err)),
+                    Err(err) => Err(RPCError::custom_with_error(RPCError::DaoError, err)),
                 }
             }
         }

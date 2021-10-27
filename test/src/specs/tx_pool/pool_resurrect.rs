@@ -91,6 +91,8 @@ impl Spec for InvalidHeaderDep {
         node0.connect(node1);
         waiting_for_sync(nodes);
 
+        node0.wait_for_tx_pool();
+
         info!("invalid header dep tx should be removed");
         node0.assert_tx_pool_size(1, 0);
     }

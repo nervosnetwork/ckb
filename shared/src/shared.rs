@@ -1,5 +1,4 @@
 //! TODO(doc): @quake
-use crate::PeerIndex;
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
@@ -14,7 +13,7 @@ use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
+use ckb_tx_pool::{service::TxVerificationResult, BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
@@ -58,7 +57,7 @@ pub struct Shared {
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
-    pub(crate) relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
+    pub(crate) relay_tx_sender: Sender<TxVerificationResult>,
 }
 
 impl Shared {
@@ -73,7 +72,7 @@ impl Shared {
         snapshot_mgr: Arc<SnapshotMgr>,
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
-        relay_tx_sender: Sender<(Option<PeerIndex>, bool, Byte32)>,
+        relay_tx_sender: Sender<TxVerificationResult>,
     ) -> Shared {
         Shared {
             store,

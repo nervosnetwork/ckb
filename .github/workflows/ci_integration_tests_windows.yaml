@@ -16,6 +16,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
+  LOGBAK_USER: ${{secrets.LOGBAK_USER}}  #LOCBAK_* for upload logs to server when test failed
+  LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
+  LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
   prologue:
     name: prologue

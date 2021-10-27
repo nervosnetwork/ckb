@@ -12,16 +12,28 @@ use ckb_types::{
 };
 use faketime::unix_time_as_millis;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 /// A temporary RocksDB for mocking chain storage.
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct MockStore(pub Arc<ChainDB>);
+pub struct MockStore {
+    // The fields of a struct are dropped in declaration order.
+    // So, put `ChainDB` (`RocksDB`) before `TempDir`.
+    //
+    // Ref: https://doc.rust-lang.org/reference/destructors.html
+    inner: Arc<ChainDB>,
+    tmp_dir: Arc<TempDir>,
+}
 
 impl Default for MockStore {
     fn default() -> Self {
-        let db = RocksDB::open_tmp(COLUMNS);
-        MockStore(Arc::new(ChainDB::new(db, Default::default())))
+        let tmp_dir = TempDir::new().unwrap();
+        let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+        MockStore {
+            inner: Arc::new(ChainDB::new(db, Default::default())),
+            tmp_dir: Arc::new(tmp_dir),
+        }
     }
 }
 
@@ -43,7 +55,7 @@ impl MockStore {
         };
         let store = Self::default();
         {
-            let db_txn = store.0.begin_transaction();
+            let db_txn = store.store().begin_transaction();
             db_txn
                 .insert_block_ext(&block.parent_hash(), &parent_block_ext)
                 .unwrap();
@@ -56,13 +68,13 @@ impl MockStore {
     /// Return the mock chainDB.
     #[doc(hidden)]
     pub fn store(&self) -> &ChainDB {
-        &self.0
+        &self.inner
     }
 
     /// Insert a block into mock chainDB.
     #[doc(hidden)]
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
-        let db_txn = self.0.begin_transaction();
+        let db_txn = self.store().begin_transaction();
         let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
         db_txn.insert_block(&block).unwrap();
         db_txn.attach_block(&block).unwrap();
@@ -73,7 +85,7 @@ impl MockStore {
             .insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch_ext)
             .unwrap();
         {
-            let parent_block_ext = self.0.get_block_ext(&block.parent_hash()).unwrap();
+            let parent_block_ext = self.store().get_block_ext(&block.parent_hash()).unwrap();
             let block_ext = BlockExt {
                 received_at: unix_time_as_millis(),
                 total_difficulty: parent_block_ext.total_difficulty.to_owned()
@@ -91,7 +103,7 @@ impl MockStore {
     /// Remove a block from mock chainDB.
     #[doc(hidden)]
     pub fn remove_block(&self, block: &BlockView) {
-        let db_txn = self.0.begin_transaction();
+        let db_txn = self.store().begin_transaction();
         db_txn.delete_block(&block).unwrap();
         db_txn.detach_block(&block).unwrap();
         db_txn.commit().unwrap();
@@ -100,7 +112,7 @@ impl MockStore {
 
 impl CellProvider for MockStore {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        match self.0.get_transaction(&out_point.tx_hash()) {
+        match self.store().get_transaction(&out_point.tx_hash()) {
             Some((tx, _)) => tx
                 .outputs()
                 .get(out_point.index().unpack())
@@ -124,7 +136,7 @@ impl CellProvider for MockStore {
 
 impl HeaderChecker for MockStore {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
-        if self.0.get_block_number(block_hash).is_some() {
+        if self.store().get_block_number(block_hash).is_some() {
             Ok(())
         } else {
             Err(OutPointError::InvalidHeader(block_hash.clone()))

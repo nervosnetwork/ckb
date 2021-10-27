@@ -391,6 +391,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TemplateSizeLimit),
         Box::new(DeclaredWrongCycles),
         Box::new(DeclaredWrongCyclesChunk),
+        Box::new(DeclaredWrongCyclesAndRelayAgain),
         Box::new(OrphanTxAccepted),
         Box::new(OrphanTxRejected),
         Box::new(GetRawTxPool),
@@ -514,6 +515,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(OutboundSync),
         Box::new(InboundMinedDuringSync),
         Box::new(OutboundMinedDuringSync),
+        Box::new(ProposalRespondSizelimit),
         // Test hard fork features
         Box::new(CheckCellDeps),
         Box::new(CheckAbsoluteEpochSince),
@@ -617,7 +619,7 @@ fn print_results(mut test_results: Vec<TestResult>) {
     println!("{}", "-".repeat(20));
     println!("{:50} | {:10} | {:10}", "TEST", "STATUS", "DURATION");
 
-    test_results.sort_by(|a, b| a.status.cmp(&b.status));
+    test_results.sort_by(|a, b| (&a.status, a.duration).cmp(&(&b.status, b.duration)));
 
     for result in test_results.iter() {
         println!(
