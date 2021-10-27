@@ -44,7 +44,7 @@ pub struct TransactionView {
 pub struct ExtraHashView {
     /// The uncles hash which is used to combine to the extra hash.
     pub(crate) uncles_hash: packed::Byte32,
-    /// The first item is the new filed hash, which is used to combine to the extra hash.
+    /// The first item is the new field hash, which is used to combine to the extra hash.
     /// The second item is the extra hash.
     pub(crate) extension_hash_and_extra_hash: Option<(packed::Byte32, packed::Byte32)>,
 }

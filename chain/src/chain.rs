@@ -849,7 +849,7 @@ impl ChainService {
         for number in (bottom..=tip_number).rev() {
             let hash = snapshot
                 .get_block_hash(number)
-                .unwrap_or_else(|| panic!("invaild block number({}), tip={}", number, tip_number));
+                .unwrap_or_else(|| panic!("invalid block number({}), tip={}", number, tip_number));
             debug!("   {} => {}", number, hash);
         }
 

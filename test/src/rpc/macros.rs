@@ -4,7 +4,7 @@ macro_rules! jsonrpc {
         $(#[$struct_attr:meta])*
         pub struct $struct_name:ident {$(
             $(#[$attr:meta])*
-            pub fn $method:ident(&$selff:ident $(, $arg_name:ident: $arg_ty:ty)*)
+            pub fn $method:ident(&$self:ident $(, $arg_name:ident: $arg_ty:ty)*)
                 -> $return_ty:ty;
         )*}
     ) => (
@@ -24,10 +24,10 @@ macro_rules! jsonrpc {
 
             $(
                 $(#[$attr])*
-                pub fn $method(&$selff $(, $arg_name: $arg_ty)*) -> Result<$return_ty, ckb_error::AnyError> {
+                pub fn $method(&$self $(, $arg_name: $arg_ty)*) -> Result<$return_ty, ckb_error::AnyError> {
                     let method = String::from(stringify!($method));
                     let params = serialize_parameters!($($arg_name,)*);
-                    let id = $selff.id_generator.next();
+                    let id = $self.id_generator.next();
 
                     let mut req_json = serde_json::Map::new();
                     req_json.insert("id".to_owned(), serde_json::json!(id));
@@ -35,7 +35,7 @@ macro_rules! jsonrpc {
                     req_json.insert("method".to_owned(), serde_json::json!(method));
                     req_json.insert("params".to_owned(), params);
 
-                    let resp = $selff.client.post($selff.url.clone()).json(&req_json).send()?;
+                    let resp = $self.client.post($self.url.clone()).json(&req_json).send()?;
                     let output = resp.json::<jsonrpc_core::response::Output>()?;
                     match output {
                         jsonrpc_core::response::Output::Success(success) => {
