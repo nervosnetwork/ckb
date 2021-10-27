@@ -6,7 +6,7 @@ use ckb_types::prelude::*;
 pub struct RpcGetBlockTemplate;
 
 impl Spec for RpcGetBlockTemplate {
-    // This case about block template just involves the fileds come from consensus,
+    // This case about block template just involves the fields come from consensus,
     // the other fields with more logic calculation will included in other cases.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];

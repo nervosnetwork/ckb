@@ -377,7 +377,7 @@ impl PoolRpc for PoolRpcImpl {
             return Err(RPCError::custom_with_data(
                 RPCError::PoolRejectedTransactionByOutputsValidator,
                 format!(
-                    "The transction is rejected by OutputsValidator set in params[1]: {}. \
+                    "The transaction is rejected by OutputsValidator set in params[1]: {}. \
                     Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
                     outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
                 ),
