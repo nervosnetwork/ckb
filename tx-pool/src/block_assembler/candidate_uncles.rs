@@ -64,7 +64,7 @@ impl CandidateUncles {
         self.map.values().flat_map(HashSet::iter)
     }
 
-    pub fn remove(&mut self, uncle: &UncleBlockView) -> bool {
+    pub fn remove_by_number(&mut self, uncle: &UncleBlockView) -> bool {
         let number: BlockNumber = uncle.header().number();
 
         if let Entry::Occupied(mut entry) = self.map.entry(number) {

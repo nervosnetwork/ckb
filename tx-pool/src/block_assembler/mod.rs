@@ -235,23 +235,24 @@ impl BlockAssembler {
                 break;
             }
             let parent_hash = uncle.header().parent_hash();
+            // we should keep candidate util next epoch
             if uncle.compact_target() != current_epoch_ext.compact_target()
                 || uncle.epoch().number() != epoch_number
-                || snapshot.get_block_number(&uncle.hash()).is_some()
-                || snapshot.is_uncle(&uncle.hash())
-                || !(uncles.iter().any(|u| u.hash() == parent_hash)
-                    || snapshot.get_block_number(&parent_hash).is_some()
-                    || snapshot.is_uncle(&parent_hash))
-                || uncle.number() >= candidate_number
             {
                 removed.push(uncle.clone());
-            } else {
+            } else if !snapshot.is_main_chain(&uncle.hash())
+                && !snapshot.is_uncle(&uncle.hash())
+                && uncle.number() < candidate_number
+                && (uncles.iter().any(|u| u.hash() == parent_hash)
+                    || snapshot.is_main_chain(&parent_hash)
+                    || snapshot.is_uncle(&parent_hash))
+            {
                 uncles.push(uncle.clone());
             }
         }
 
         for r in removed {
-            candidate_uncles.remove(&r);
+            candidate_uncles.remove_by_number(&r);
         }
         uncles
     }
