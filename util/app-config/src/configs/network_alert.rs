@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// The minimual number of required signatures to send a network alert.
+    /// The minimum number of required signatures to send a network alert.
     pub signatures_threshold: usize,
     /// The public keys of all the network alert signers.
     pub public_keys: Vec<JsonBytes>,

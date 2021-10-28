@@ -23,7 +23,7 @@ impl Spec for ValidSince {
         self.test_since_relative_median_time(&nodes[0]);
         self.test_since_absolute_median_time(&nodes[0]);
 
-        // TODO: Uncomment this case after proposed/pending pool tip verfiry logic changing
+        // TODO: Uncomment this case after proposed/pending pool tip verify logic changing
         // self.test_since_and_proposal(&nodes[1]);
     }
 

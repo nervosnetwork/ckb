@@ -221,7 +221,7 @@ impl ProposedPool {
             for o in outputs {
                 // notice: cause tx removed by committed,
                 // remove output, but if this output consumed by other in-pool tx,
-                // we need record it to intputs' map
+                // we need record it to inputs' map
                 if let Some(cid) = self.edges.remove_output(&o) {
                     self.edges.insert_input(o.clone(), cid);
                 }
@@ -253,7 +253,7 @@ impl ProposedPool {
             return Ok(false);
         }
 
-        // if input reference a in-pool output, connnect it
+        // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in inputs {
             if let Some(id) = self.edges.get_output_mut_ref(&i) {

@@ -109,7 +109,7 @@ fn test_txs_fees() {
 //        \   \__________/___/
 //         \____________/
 //
-// pn denotes poposal
+// pn denotes proposal
 // block-10: p1
 // block-11: p2, uncles-proposals: p3
 // block-13 [target]: p1, p3, p4, p5, uncles-proposals: p6

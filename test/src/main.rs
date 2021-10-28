@@ -411,7 +411,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(Disconnect),
         Box::new(MalformedMessage),
         Box::new(DepentTxInSameBlock),
-        // TODO enable these after proposed/pending pool tip verfiry logic changing
+        // TODO enable these after proposed/pending pool tip verify logic changing
         // Box::new(CellbaseMaturity),
         Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),

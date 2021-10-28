@@ -1088,7 +1088,7 @@ impl TxPoolService {
 
                 // Updates network fork switch if required.
                 //
-                // This operation should be ahead of any transaction which is processsed with new
+                // This operation should be ahead of any transaction which is processed with new
                 // hardfork features.
                 if !self.network.load_ckb2021()
                     && self
