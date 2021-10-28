@@ -8,6 +8,7 @@ build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.56"
 
 [build-dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.102.0-pre" }
