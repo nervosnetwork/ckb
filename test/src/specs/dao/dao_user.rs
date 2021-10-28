@@ -12,7 +12,7 @@ use ckb_types::{
 use std::collections::HashSet;
 
 // https://github.com/nervosnetwork/ckb-system-scripts/blob/1fd4cd3e2ab7e5ffbafce1f60119b95937b3c6eb/c/dao.c#L81
-pub const LOCK_PERIOD_EPOCHES: u64 = 180;
+pub const LOCK_PERIOD_EPOCHS: u64 = 180;
 
 pub struct DAOUser<'a> {
     node: &'a Node,
@@ -238,7 +238,7 @@ impl<'a> DAOUser<'a> {
             EpochNumberWithFraction::from_full_value(deposit_header.inner.epoch.value())
         };
         EpochNumberWithFraction::new(
-            deposit_point.number() + LOCK_PERIOD_EPOCHES,
+            deposit_point.number() + LOCK_PERIOD_EPOCHS,
             deposit_point.index(),
             deposit_point.length(),
         )

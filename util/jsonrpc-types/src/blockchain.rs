@@ -627,7 +627,7 @@ impl TxStatus {
         }
     }
 
-    /// Transaction which has already been commited.
+    /// Transaction which has already been committed.
     ///
     /// ## Params
     ///

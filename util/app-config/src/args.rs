@@ -72,7 +72,7 @@ pub struct MinerArgs {
     pub pow_engine: Arc<dyn PowEngine>,
     /// Options to configure the memory tracker.
     pub memory_tracker: MemoryTrackerConfig,
-    /// The miner process will exit when there are `limit` nounces (puzzle solutions) found. Set it
+    /// The miner process will exit when there are `limit` nonces (puzzle solutions) found. Set it
     /// to 0 to loop forever.
     pub limit: u128,
 }

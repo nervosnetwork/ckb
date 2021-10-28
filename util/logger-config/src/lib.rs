@@ -30,7 +30,7 @@ pub struct Config {
     /// Colorize the output which was written into the stdout.
     #[serde(default = "default_values::color")]
     pub color: bool,
-    /// The log file of the main loggger.
+    /// The log file of the main logger.
     #[serde(skip)]
     pub file: PathBuf,
     /// The directory where to store all log files.

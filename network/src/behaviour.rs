@@ -2,7 +2,7 @@ use crate::Score;
 
 /// Peers behaviours
 /// we maintain a score to each peer
-/// report peer bahaviour will affects peer's score
+/// report peer behaviour will affects peer's score
 ///
 /// Currently this feature is disabled, maybe someday we will add it back or totally remove it.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

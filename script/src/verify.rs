@@ -52,20 +52,20 @@ pub enum ChunkState<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum DataGurad {
+enum DataGuard {
     NotLoaded(OutPoint),
     Loaded(Bytes),
 }
 
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct LazyData(RefCell<DataGurad>);
+struct LazyData(RefCell<DataGuard>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(RefCell::new(DataGurad::Loaded(data.to_owned()))),
-            None => LazyData(RefCell::new(DataGurad::NotLoaded(
+            Some(data) => LazyData(RefCell::new(DataGuard::Loaded(data.to_owned()))),
+            None => LazyData(RefCell::new(DataGuard::NotLoaded(
                 cell_meta.out_point.clone(),
             ))),
         }
@@ -74,12 +74,12 @@ impl LazyData {
     fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
         let guard = self.0.borrow().to_owned();
         match guard {
-            DataGurad::NotLoaded(out_point) => {
+            DataGuard::NotLoaded(out_point) => {
                 let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                self.0.replace(DataGurad::Loaded(data.to_owned()));
+                self.0.replace(DataGuard::Loaded(data.to_owned()));
                 data
             }
-            DataGurad::Loaded(bytes) => bytes,
+            DataGuard::Loaded(bytes) => bytes,
         }
     }
 }
@@ -432,7 +432,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// ## Params
     ///
-    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
@@ -483,13 +483,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// ## Params
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a state will retruned.
+    /// If verify is suspended, a state will returned.
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
         let mut cycles = 0;
 
@@ -535,13 +535,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `snap` - Captured transaction verification snapshot.
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a borrowed state will retruned.
+    /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_snap(
         &self,
         snap: &TransactionSnapshot,
@@ -620,13 +620,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `state` - vm state.
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a borrowed state will retruned.
+    /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_state(
         &'a self,
         state: TransactionState<'a>,
@@ -720,7 +720,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `snap` - Captured transaction verification snapshot.
     ///
-    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns

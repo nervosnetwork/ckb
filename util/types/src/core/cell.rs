@@ -231,7 +231,7 @@ impl ResolvedTransaction {
     /// Construct `ResolvedTransaction` from `TransactionView` without actually performing resolve
     pub fn dummy_resolve(tx: TransactionView) -> Self {
         // skip resolve input of cellbase
-        // keep consistent with resolve_trasaction
+        // keep consistent with resolve_transaction
         let resolved_inputs = if !tx.is_cellbase() {
             tx.inputs()
                 .into_iter()

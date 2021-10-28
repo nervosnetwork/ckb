@@ -34,7 +34,7 @@ pub const POW_INTERVAL: u64 = 10;
 /// Protect at least this many outbound peers from disconnection due to slow
 /// behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
-/// Chain sync timout
+/// Chain sync timeout
 pub const CHAIN_SYNC_TIMEOUT: u64 = 12 * 60 * 1000; // 12 minutes
 /// Suspend sync time
 pub const SUSPEND_SYNC_TIME: u64 = 5 * 60 * 1000; // 5 minutes

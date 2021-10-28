@@ -52,7 +52,7 @@ impl Spec for RpcGetBlockchainInfo {
         assert_eq!(
             epoch_length,
             blockchain_info.epoch.epoch_length(),
-            "Current epoch lenght should be {}, but got {}",
+            "Current epoch length should be {}, but got {}",
             epoch_length,
             blockchain_info.epoch.epoch_length()
         );

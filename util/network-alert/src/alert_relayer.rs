@@ -1,10 +1,10 @@
 //! AlertRelayer
-//! We implment a Bitcoin like alert system, n of m alert key holders can decide to send alert
+//! We implement a Bitcoin like alert system, n of m alert key holders can decide to send alert
 //messages to all client
 //! to leave a space to reach consensus offline under critical bugs
 //!
 //! A cli to generate alert message,
-//! A config option to set alert messages to broard cast.
+//! A config option to set alert messages to broadcast.
 //
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
