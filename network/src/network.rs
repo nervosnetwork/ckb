@@ -620,16 +620,6 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             }
             ServiceError::ProtocolHandleError { proto_id, error } => {
                 debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
-                #[cfg(feature = "with_sentry")]
-                with_scope(
-                    |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
-                    || {
-                        capture_message(
-                            &format!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id),
-                            Level::Warning,
-                        )
-                    },
-                );
 
                 if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
                     if let Some(id) = opt_session_id {
@@ -640,6 +630,16 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                             format!("protocol {} panic when process peer message", proto_id),
                         );
                     }
+                    #[cfg(feature = "with_sentry")]
+                    with_scope(
+                        |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
+                        || {
+                            capture_message(
+                                &format!("ProtocolHandleError: AbnormallyClosed, proto_id: {:?}, session id: {:?}", opt_session_id, opt_session_id),
+                                Level::Warning,
+                            )
+                        },
+                    );
                     self.exit_handler.notify_exit();
                 }
             }
