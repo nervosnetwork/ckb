@@ -869,7 +869,6 @@ dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-channel",
- "ckb-error",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",

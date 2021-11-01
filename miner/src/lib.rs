@@ -1,11 +1,9 @@
 //! TODO(doc): @quake
 mod client;
-mod error;
 mod miner;
 mod worker;
 
 pub use crate::client::Client;
-pub use crate::error::Error;
 pub use crate::miner::Miner;
 
 use ckb_jsonrpc_types::BlockTemplate;
