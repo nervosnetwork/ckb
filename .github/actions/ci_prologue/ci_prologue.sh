@@ -8,7 +8,7 @@ fun_run_os(){
   echo "$runs_on" | sed "s/\[//g" | sed "s/\]//g" | sed "s/,/\n/g" > runs_on.txt
   while read -r LINE;
   do
-    LINE=$(echo "$LINE" | sed -e 's/\r//g')
+    LINE="$(echo "$LINE" | tr -d '[:space:]')"
     echo "OS LINE is "$LINE
       if [[ $github_workflow_os == $LINE  ]];then
         os_skip="run"
@@ -24,7 +24,7 @@ fun_jobs(){
   echo "$job_list" | sed "s/\[//g" | sed "s/\]//g" | sed "s/,/\n/g" > job_run.txt
   while read -r LINE;
   do
-    LINE="ci_"$(echo "$LINE" | sed -e 's/\r//g')
+    LINE="ci_$(echo "$LINE" | tr -d '[:space:]')"
     if [[ $GITHUB_WORKFLOW == "$LINE"* ]];then
       echo "job_name is"$LINE
       echo $GITHUB_WORKFLOW
@@ -109,5 +109,3 @@ if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
     fi
   fi
 fi
-
-
