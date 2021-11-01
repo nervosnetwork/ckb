@@ -51,7 +51,7 @@ ci_integration_tests*)
     ;;
   ci_cargo_deny*)
     echo "ci_security_audit_licenses"
-    cargo deny --version || cargo install cargo-deny --locked
+    cargo deny --version || cargo +stable install cargo-deny --locked
     make security-audit
     make check-crates
     make check-licenses
