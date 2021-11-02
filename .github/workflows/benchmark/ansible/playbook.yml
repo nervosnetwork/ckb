@@ -75,6 +75,7 @@
       environment:
         INSTANCE_TYPE: "{{ hostvars['instance-0'].instance_type }}"
         INSTANCE_BASTION_TYPE: "{{ hostvars['bastion-0'].instance_type }}"
+        BENCHMARK_POSTGRES_SECRET: "{{ secrets['BENCH_DB_CONN'] }}"
       shell: ./files/process-metrics.py ckb-bench.json > report.yml
       tags:
         - process_result
