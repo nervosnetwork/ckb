@@ -27,18 +27,6 @@ jobs:
       CARGO_TARGET_DIR: "${{ github.workspace }}/../target"
     steps:
       - uses: actions/checkout@v2
-      - name: Modify Consensus Parameters And Build CKB
-        run: |
-          sed -i 's/const TWO_IN_TWO_OUT_COUNT: u64 = .*;$/const TWO_IN_TWO_OUT_COUNT: u64 = 8_000;/g'            spec/src/consensus.rs
-          sed -i 's/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = .*;$/const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 12_000;/g' spec/src/consensus.rs
-          make build
-          cd ${{ env.CARGO_TARGET_DIR }}/release
-          tar cfJ ckb.tar.xz ckb
-          mv ckb.tar.xz ${{ github.workspace }}
-      - uses: actions/upload-artifact@v2
-        with:
-          name: ckb.tar.xz
-          path: ckb.tar.xz
 
   benchmark:
     name: Benchmark
@@ -52,10 +40,6 @@ jobs:
       PUBLIC_KEY_PATH:   ${{ github.workspace }}/id_rsa.pub
     steps:
       - uses: actions/checkout@v2
-      - name: Prepare - Download CKB Tarball
-        uses: actions/download-artifact@v2
-        with:
-          name: ckb.tar.xz
 
       # Prepare
       - name: Prepare - Generate Random SSH Key
