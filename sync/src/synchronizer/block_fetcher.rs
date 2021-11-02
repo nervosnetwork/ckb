@@ -7,6 +7,7 @@ use ckb_constant::sync::{
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{core, packed};
+use faketime::unix_time_as_millis;
 use std::cmp::min;
 
 pub struct BlockFetcher<'a> {
@@ -109,7 +110,8 @@ impl<'a> BlockFetcher<'a> {
             return None;
         }
 
-        let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
+        let state = self.synchronizer.shared().state();
+        let mut inflight = state.write_inflight_blocks();
         let mut start = last_common.number() + 1;
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
@@ -117,6 +119,7 @@ impl<'a> BlockFetcher<'a> {
             inflight.peer_can_fetch_count(self.peer),
         );
         let mut fetch = Vec::with_capacity(n_fetch);
+        let now = unix_time_as_millis();
 
         while fetch.len() < n_fetch && start <= end {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
@@ -142,7 +145,10 @@ impl<'a> BlockFetcher<'a> {
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
-                } else if inflight.insert(self.peer, (header.number(), hash).into()) {
+                } else if (matches!(self.ibd, IBDState::In)
+                    || state.compare_with_pending_compact(&hash, now))
+                    && inflight.insert(self.peer, (header.number(), hash).into())
+                {
                     fetch.push(header)
                 }
 

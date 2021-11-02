@@ -10,6 +10,7 @@ use ckb_types::{core, packed, prelude::*};
 use ckb_util::shrink_to_fit;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
+use faketime::unix_time_as_millis;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -117,21 +118,6 @@ impl<'a> CompactBlockProcess<'a> {
             ));
         }
 
-        if let Some(peers) = shared
-            .state()
-            .read_inflight_blocks()
-            .inflight_compact_by_block(&block_hash)
-        {
-            if peers.contains(&self.peer) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "discard already in-flight compact block {}",
-                    block_hash,
-                );
-                return StatusCode::CompactBlockIsAlreadyInFlight.with_context(block_hash);
-            }
-        }
-
         // The new arrived has greater difficulty than local best known chain
         let missing_transactions: Vec<u32>;
         let missing_uncles: Vec<u32>;
@@ -141,7 +127,7 @@ impl<'a> CompactBlockProcess<'a> {
             let mut pending_compact_blocks = shared.state().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
-                .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
+                .map(|(_, peers_map, _)| peers_map.contains_key(&self.peer))
                 .unwrap_or(false)
             {
                 return StatusCode::CompactBlockIsAlreadyPending.with_context(block_hash);
@@ -150,7 +136,7 @@ impl<'a> CompactBlockProcess<'a> {
                     |block_hash| {
                         pending_compact_blocks
                             .get(&block_hash)
-                            .map(|(compact_block, _)| compact_block.header().into_view())
+                            .map(|(compact_block, _, _)| compact_block.header().into_view())
                             .or_else(|| {
                                 shared
                                     .get_header_view(&block_hash, None)
@@ -210,7 +196,7 @@ impl<'a> CompactBlockProcess<'a> {
                     //
                     // use epoch as the judgment condition because we accept
                     // all block in current epoch as uncle block
-                    pending_compact_blocks.retain(|_, (v, _)| {
+                    pending_compact_blocks.retain(|_, (v, _, _)| {
                         Unpack::<core::EpochNumberWithFraction>::unpack(
                             &v.header().as_reader().raw().epoch(),
                         )
@@ -242,25 +228,12 @@ impl<'a> CompactBlockProcess<'a> {
 
             pending_compact_blocks
                 .entry(block_hash.clone())
-                .or_insert_with(|| (compact_block, HashMap::default()))
+                .or_insert_with(|| (compact_block, HashMap::default(), unix_time_as_millis()))
                 .1
                 .insert(
                     self.peer,
                     (missing_transactions.clone(), missing_uncles.clone()),
                 );
-        }
-        if !shared
-            .state()
-            .write_inflight_blocks()
-            .compact_reconstruct(self.peer, block_hash.clone())
-        {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "BlockInFlight reach limit or had requested, peer: {}, block: {}",
-                self.peer,
-                block_hash,
-            );
-            return StatusCode::BlocksInFlightReachLimit.with_context(block_hash);
         }
 
         let status = if collision {
