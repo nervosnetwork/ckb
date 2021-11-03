@@ -2,6 +2,7 @@ use crate::SyncShared;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
 use ckb_launcher::SharedBuilder;
+use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
@@ -54,13 +55,10 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .next_epoch_ext(&parent.header(), &snapshot.as_data_provider())
         .unwrap()
         .epoch();
-    let cellbase = {
-        let (_, reward) = snapshot.finalize_block_reward(&parent.header()).unwrap();
-        always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
-    };
+    let cellbase = inherit_cellbase(&snapshot, parent_number);
     let dao = {
         let resolved_cellbase = resolve_transaction(
-            cellbase,
+            cellbase.clone(),
             &mut HashSet::new(),
             snapshot.as_ref(),
             snapshot.as_ref(),
@@ -79,7 +77,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .epoch(epoch.number_with_fraction(parent_number + 1).pack())
         .compact_target(epoch.compact_target().pack())
         .dao(dao)
-        .transaction(inherit_cellbase(&snapshot, parent_number))
+        .transaction(cellbase)
 }
 
 pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {
@@ -91,6 +89,8 @@ pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> Tran
             .get_block_header(&parent_hash)
             .expect("parent exist")
     };
-    let (_, reward) = snapshot.finalize_block_reward(&parent_header).unwrap();
+    let (_, reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
+        .block_reward_to_finalize(&parent_header)
+        .unwrap();
     always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
 }

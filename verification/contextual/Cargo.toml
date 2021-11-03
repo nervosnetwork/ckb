@@ -16,6 +16,7 @@ rayon = "1.0"
 ckb-traits = { path = "../../traits", version = "= 0.102.0-pre" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.102.0-pre" }
 ckb-dao = { path = "../../util/dao", version = "= 0.102.0-pre" }
+ckb-dao-utils = { path = "../../util/dao/utils", version = "= 0.102.0-pre" }
 ckb-logger = {path = "../../util/logger", version = "= 0.102.0-pre"}
 ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.102.0-pre" }
 ckb-error = { path = "../../error", version = "= 0.102.0-pre" }

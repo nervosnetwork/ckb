@@ -12,9 +12,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-types = { path = "../types", version = "= 0.102.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.102.0-pre" }
 ckb-dao = { path = "../dao", version = "= 0.102.0-pre" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.102.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.102.0-pre" }
 ckb-chain-spec = {path = "../../spec", version = "= 0.102.0-pre"}
-ckb-error = { path = "../../error", version = "= 0.102.0-pre" }
 
 [dev-dependencies]
 ckb-db = { path = "../../db", version = "= 0.102.0-pre" }

@@ -8,6 +8,7 @@ use ckb_network::{
     bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
     TargetSession,
 };
+use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -64,9 +65,8 @@ fn create_cellbase(
     parent_header: &CoreHeaderView,
     number: BlockNumber,
 ) -> TransactionView {
-    let (_, reward) = shared
-        .snapshot()
-        .finalize_block_reward(parent_header)
+    let (_, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
+        .block_reward_to_finalize(parent_header)
         .unwrap();
 
     let builder = TransactionBuilder::default()
