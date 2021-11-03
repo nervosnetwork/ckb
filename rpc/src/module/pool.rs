@@ -412,10 +412,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_hash = tx.hash();
         match submit_tx.unwrap() {
             Ok(_) => Ok(tx_hash.unpack()),
-            Err(e) => match RPCError::downcast_submit_transaction_reject(&e) {
-                Some(reject) => Err(RPCError::from_submit_transaction_reject(reject)),
-                None => Err(RPCError::from_ckb_error(e)),
-            },
+            Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
     }
 
