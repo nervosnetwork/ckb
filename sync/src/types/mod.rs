@@ -278,6 +278,8 @@ pub struct PeerState {
     // use on ibd concurrent block download
     // save `get_headers` locator hashes here
     pub unknown_header_list: Vec<Byte32>,
+    // Track unknown tx hashes count from this peer
+    pub unknown_tx_hashes_count: usize,
 }
 
 impl PeerState {
@@ -289,6 +291,7 @@ impl PeerState {
             best_known_header: None,
             last_common_header: None,
             unknown_header_list: Vec::new(),
+            unknown_tx_hashes_count: 0,
         }
     }
 
@@ -504,7 +507,7 @@ impl DownloadScheduler {
 
     fn increase(&mut self, num: usize) {
         if self.task_count < MAX_BLOCKS_IN_TRANSIT_PER_PEER {
-            self.task_count = ::std::cmp::min(
+            self.task_count = cmp::min(
                 self.task_count.saturating_add(num),
                 MAX_BLOCKS_IN_TRANSIT_PER_PEER,
             )
@@ -967,6 +970,25 @@ impl Peers {
         self.state
             .get(&peer)
             .map(|state| state.peer_flags.is_2021edition)
+    }
+
+    fn get_unknown_tx_hashes_count(&self, peer: PeerIndex) -> usize {
+        self.state
+            .get(&peer)
+            .map(|state| state.unknown_tx_hashes_count)
+            .unwrap_or_default()
+    }
+
+    fn increase_unknown_tx_hashes_count(&self, peer: PeerIndex, count: usize) {
+        self.state.entry(peer).and_modify(|state| {
+            state.unknown_tx_hashes_count = state.unknown_tx_hashes_count.saturating_add(count)
+        });
+    }
+
+    fn decrease_unknown_tx_hashes_count(&self, peer: PeerIndex, count: usize) {
+        self.state.entry(peer).and_modify(|state| {
+            state.unknown_tx_hashes_count = state.unknown_tx_hashes_count.saturating_sub(count)
+        });
     }
 }
 
@@ -1678,13 +1700,25 @@ impl SyncState {
     // where T: Iterator<Item=Byte32>,
     // for<'a> &'a T: Iterator<Item=&'a Byte32>,
     pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
-        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
-        let mut tx_filter = self.tx_filter.lock();
+        let mut counter = HashMap::<PeerIndex, usize>::new();
+        // use code block to reduce the `unknown_tx_hashes` and `tx_filter` lock scope
+        {
+            let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+            let mut tx_filter = self.tx_filter.lock();
 
-        for hash in hashes {
-            unknown_tx_hashes.remove(&hash);
-            tx_filter.insert(hash);
+            for hash in hashes {
+                if let Some(priority) = unknown_tx_hashes.remove(&hash) {
+                    for peer in priority.peers {
+                        counter.entry(peer).and_modify(|e| *e += 1).or_insert(1);
+                    }
+                }
+                tx_filter.insert(hash);
+            }
         }
+
+        counter.into_iter().for_each(|(peer, count)| {
+            self.peers().decrease_unknown_tx_hashes_count(peer, count);
+        });
     }
 
     pub fn pop_ask_for_txs(&self) -> HashMap<PeerIndex, Vec<Byte32>> {
@@ -1718,29 +1752,35 @@ impl SyncState {
     }
 
     pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) {
-        let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
-        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE {
+        if tx_hashes.is_empty() {
             return;
         }
-
-        for tx_hash in tx_hashes
-            .into_iter()
-            .take(MAX_UNKNOWN_TX_HASHES_SIZE - unknown_tx_hashes.len())
-        {
-            match unknown_tx_hashes.entry(tx_hash) {
-                keyed_priority_queue::Entry::Occupied(entry) => {
-                    let mut priority = entry.get_priority().clone();
-                    priority.push_peer(peer_index);
-                    entry.set_priority(priority);
-                }
-                keyed_priority_queue::Entry::Vacant(entry) => {
-                    entry.set_priority(UnknownTxHashPriority {
-                        request_time: Instant::now(),
-                        peers: vec![peer_index],
-                        requested: false,
-                    })
+        let peer_unknown_count = self.peers().get_unknown_tx_hashes_count(peer_index);
+        let limit = MAX_UNKNOWN_TX_HASHES_SIZE.saturating_sub(peer_unknown_count);
+        if limit > 0 {
+            let count = cmp::min(limit, tx_hashes.len());
+            // use code block to reduce the `unknown_tx_hashes` lock scope
+            {
+                let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+                for tx_hash in tx_hashes.into_iter().take(limit) {
+                    match unknown_tx_hashes.entry(tx_hash) {
+                        keyed_priority_queue::Entry::Occupied(entry) => {
+                            let mut priority = entry.get_priority().clone();
+                            priority.push_peer(peer_index);
+                            entry.set_priority(priority);
+                        }
+                        keyed_priority_queue::Entry::Vacant(entry) => {
+                            entry.set_priority(UnknownTxHashPriority {
+                                request_time: Instant::now(),
+                                peers: vec![peer_index],
+                                requested: false,
+                            })
+                        }
+                    }
                 }
             }
+            self.peers()
+                .increase_unknown_tx_hashes_count(peer_index, count);
         }
     }
 
