@@ -54,7 +54,6 @@ impl OrphanPool {
         self.entries.is_empty()
     }
 
-    #[allow(dead_code)]
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.entries.contains_key(id)
     }

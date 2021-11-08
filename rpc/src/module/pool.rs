@@ -104,6 +104,43 @@ pub trait PoolRpc {
         outputs_validator: Option<OutputsValidator>,
     ) -> Result<H256>;
 
+    /// Removes a transaction and all transactions which depends on it from tx pool if it exists.
+    ///
+    /// ## Params
+    ///
+    /// * `tx_hash` - Hash of a transaction.
+    ///
+    /// ## Returns
+    ///
+    /// If the transaction exists, return true; otherwise, return false.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "remove_transaction",
+    ///   "params": [
+    ///     "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
+    #[rpc(name = "remove_transaction")]
+    fn remove_transaction(&self, tx_hash: H256) -> Result<bool>;
+
     /// Returns the transaction pool information.
     ///
     /// ## Examples
@@ -414,6 +451,15 @@ impl PoolRpc for PoolRpcImpl {
             Ok(_) => Ok(tx_hash.unpack()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
+    }
+
+    fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
+        let tx_pool = self.shared.tx_pool_controller();
+
+        tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
+            error!("send remove_tx request error {}", e);
+            RPCError::ckb_internal_error(e)
+        })
     }
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {

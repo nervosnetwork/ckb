@@ -93,6 +93,7 @@ pub(crate) type ChainReorgArgs = (
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
+    RemoveLocalTx(Request<Byte32, bool>),
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
@@ -239,6 +240,21 @@ impl TxPoolController {
         let request = Request::call(tx, responder);
         self.sender
             .try_send(Message::SubmitLocalTx(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
+
+    /// Remove tx from tx-pool
+    pub fn remove_local_tx(&self, tx_hash: Byte32) -> Result<bool, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(tx_hash, responder);
+        self.sender
+            .try_send(Message::RemoveLocalTx(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -768,6 +784,15 @@ async fn process(mut service: TxPoolService, message: Message) {
             let result = service.resumeble_process_tx(tx, None).await;
             if let Err(e) = responder.send(result) {
                 error!("responder send submit_tx result failed {:?}", e);
+            };
+        }
+        Message::RemoveLocalTx(Request {
+            responder,
+            arguments: tx_hash,
+        }) => {
+            let result = service.remove_tx(tx_hash).await;
+            if let Err(e) = responder.send(result) {
+                error!("responder send remove_tx result failed {:?}", e);
             };
         }
         Message::SubmitRemoteTx(Request {
