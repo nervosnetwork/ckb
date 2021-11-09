@@ -334,6 +334,10 @@ impl Node {
             .send_transaction(transaction.data().into())
     }
 
+    pub fn remove_transaction(&self, tx_hash: Byte32) -> bool {
+        self.rpc_client().remove_transaction(tx_hash)
+    }
+
     pub fn get_tip_block(&self) -> BlockView {
         let rpc_client = self.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
