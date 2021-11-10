@@ -101,7 +101,9 @@ impl TxChunkProcess {
     }
 
     fn process(&mut self, entry: Entry) -> Stop {
-        let (ret, snapshot) = self.process_inner(entry.clone());
+        let (ret, snapshot) = self
+            .process_inner(entry.clone())
+            .expect("process_inner can not return None");
         ret.unwrap_or_else(|e| {
             self.handle.block_on(self.service.after_process(
                 entry.tx,
@@ -114,7 +116,7 @@ impl TxChunkProcess {
         })
     }
 
-    fn process_inner(&mut self, entry: Entry) -> (Result<Stop, Reject>, Arc<Snapshot>) {
+    fn process_inner(&mut self, entry: Entry) -> Option<(Result<Stop, Reject>, Arc<Snapshot>)> {
         let Entry { tx, remote } = entry;
         let tx_hash = tx.hash();
 
@@ -158,7 +160,7 @@ impl TxChunkProcess {
                         &Ok(completed),
                     ));
                     self.handle.block_on(self.remove_front());
-                    return (Ok(false), submit_snapshot);
+                    return Some((Ok(false), submit_snapshot));
                 }
                 CacheEntry::Suspended(suspended) => {
                     init_snap = Some(Arc::clone(&suspended.snap));
@@ -202,10 +204,10 @@ impl TxChunkProcess {
                             })
                         }
                         self.p_state = ProcessState::Interrupt;
-                        return (Ok(false), snapshot);
+                        return Some((Ok(false), snapshot));
                     }
                     Command::Stop => {
-                        return (Ok(true), snapshot);
+                        return Some((Ok(true), snapshot));
                     }
                     Command::Continue => {
                         self.p_state = ProcessState::Normal;
@@ -218,7 +220,7 @@ impl TxChunkProcess {
                 if snap.current_cycles > max_cycles {
                     let error =
                         exceeded_maximum_cycles_error(&script_verifier, max_cycles, &snap.current);
-                    return (Err(Reject::Verification(error)), snapshot);
+                    return Some((Err(Reject::Verification(error)), snapshot));
                 }
 
                 let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
@@ -232,7 +234,7 @@ impl TxChunkProcess {
                 if state.current_cycles > max_cycles {
                     let error =
                         exceeded_maximum_cycles_error(&script_verifier, max_cycles, &state.current);
-                    return (Err(Reject::Verification(error)), snapshot);
+                    return Some((Err(Reject::Verification(error)), snapshot));
                 }
 
                 // next_limit_cycles
@@ -265,7 +267,7 @@ impl TxChunkProcess {
                             max_cycles,
                             &state.current,
                         );
-                        return (Err(Reject::Verification(error)), snapshot);
+                        return Some((Err(Reject::Verification(error)), snapshot));
                     }
                     tmp_state = Some(state);
                 }
@@ -274,13 +276,13 @@ impl TxChunkProcess {
 
         if let Some((declared_cycle, _peer)) = remote {
             if declared_cycle != completed.cycles {
-                return (
+                return Some((
                     Err(Reject::DeclaredWrongCycles(
                         declared_cycle,
                         completed.cycles,
                     )),
                     snapshot,
-                );
+                ));
             }
         }
 
@@ -306,7 +308,7 @@ impl TxChunkProcess {
             guard.put(tx_hash, CacheEntry::Completed(completed));
         });
 
-        (Ok(false), submit_snapshot)
+        Some((Ok(false), submit_snapshot))
     }
 }
 
