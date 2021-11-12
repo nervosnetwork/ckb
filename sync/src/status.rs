@@ -101,6 +101,8 @@ pub enum StatusCode {
     GetHeadersMissCommonAncestors = 414,
     /// Headers verified failed
     HeadersIsInvalid = 415,
+    /// Too many unknown transactions
+    TooManyUnknownTransactions = 416,
 
     ///////////////////////////////////
     //      Warning 5xx              //

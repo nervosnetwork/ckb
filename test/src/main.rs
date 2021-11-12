@@ -402,6 +402,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
+        Box::new(TooManyUnknownTransactions),
         // TODO failed on poor CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
