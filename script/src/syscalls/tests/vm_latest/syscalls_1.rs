@@ -885,6 +885,7 @@ fn _test_load_cell_data_as_code(data: &[u8]) -> Result<(), TestCaseError> {
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -892,6 +893,7 @@ fn _test_load_cell_data_as_code(data: &[u8]) -> Result<(), TestCaseError> {
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     prop_assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
@@ -941,6 +943,7 @@ fn _test_load_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
     let resolved_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -948,6 +951,7 @@ fn _test_load_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
         &resolved_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     prop_assert!(load_code.ecall(&mut machine).is_ok());
@@ -1010,6 +1014,7 @@ fn test_load_overflowed_cell_data_as_code() {
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -1017,6 +1022,7 @@ fn test_load_overflowed_cell_data_as_code() {
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
@@ -1057,6 +1063,7 @@ fn _test_load_cell_data_on_freezed_memory(as_code: bool, data: &[u8]) -> Result<
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -1064,6 +1071,7 @@ fn _test_load_cell_data_on_freezed_memory(as_code: bool, data: &[u8]) -> Result<
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     prop_assert!(load_code.ecall(&mut machine).is_err());
@@ -1112,6 +1120,7 @@ fn test_load_code_unaligned_error() {
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -1119,6 +1128,7 @@ fn test_load_code_unaligned_error() {
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
@@ -1154,6 +1164,7 @@ fn test_load_code_slice_out_of_bound_error() {
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -1161,6 +1172,7 @@ fn test_load_code_slice_out_of_bound_error() {
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
@@ -1199,6 +1211,7 @@ fn test_load_code_not_enough_space_error() {
     let resolved_cell_deps = vec![dep_cell];
     let group_inputs = vec![];
     let group_outputs = vec![];
+    let tracing_flags = Default::default();
     let mut load_code = LoadCellData::new(
         &data_loader,
         &outputs,
@@ -1206,6 +1219,7 @@ fn test_load_code_not_enough_space_error() {
         &resolved_cell_deps,
         &group_inputs,
         &group_outputs,
+        &tracing_flags,
     );
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());

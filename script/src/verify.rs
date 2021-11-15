@@ -129,6 +129,8 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
+    // Vec<(addr, size)>, can be remove after hardfork
+    pub(crate) tracing_data_as_code_pages: RefCell<Vec<(u64, u64)>>,
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
@@ -228,6 +230,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     debug!("script group: {} DEBUG OUTPUT: {}", hash, message);
                 },
             ),
+            tracing_data_as_code_pages: RefCell::new(Vec::new()),
         }
     }
 
@@ -326,6 +329,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             self.resolved_cell_deps(),
             group_inputs,
             group_outputs,
+            &self.tracing_data_as_code_pages,
         )
     }
 
@@ -479,6 +483,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             vm,
             current_cycles,
             limit_cycles,
+            enable_backup_page_flags: self.is_vm_version_1_and_syscalls_2_enabled(),
+            flags_tracing: self.tracing_data_as_code_pages.borrow().clone(),
         }
     }
 
@@ -656,6 +662,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         vm.set_max_cycles(limit_cycles);
         match vm.machine.run() {
             Ok(code) => {
+                self.tracing_data_as_code_pages.borrow_mut().clear();
                 if code == 0 {
                     current_used = wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
                     cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
@@ -671,9 +678,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 error => {
+                    self.tracing_data_as_code_pages.borrow_mut().clear();
                     return Err(ScriptError::VMInternalError(format!("{:?}", error))
                         .source(&current_group)
-                        .into())
+                        .into());
                 }
             },
         }
@@ -955,6 +963,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
+        self.tracing_data_as_code_pages.borrow_mut().clear();
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
@@ -975,17 +984,16 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             _ => ScriptError::VMInternalError(format!("{:?}", error)),
         };
 
-        let program = self.extract_script(&script_group.script)?;
-        let bytes = machine
-            .load_program(&program, &[])
-            .map_err(map_vm_internal_error)?;
-
         // we should not capture snapshot if load program failed by exceeded cycles
         if let Some(sp) = snap {
             resume(&mut machine.machine, sp).map_err(map_vm_internal_error)?;
         } else {
+            let program = self.extract_script(&script_group.script)?;
+            let bytes = machine
+                .load_program(&program, &[])
+                .map_err(map_vm_internal_error)?;
             let load_ret = machine.machine.add_cycles(transferred_byte_cycles(bytes));
-            if matches!(load_ret, Err(error) if error == VMInternalError::InvalidCycles) {
+            if matches!(load_ret, Err(ref error) if error == &VMInternalError::InvalidCycles) {
                 return Ok(ChunkState::Suspended(ResumableMachine::new(machine, false)));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -993,6 +1001,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         match machine.run() {
             Ok(code) => {
+                self.tracing_data_as_code_pages.borrow_mut().clear();
                 if code == 0 {
                     Ok(ChunkState::Completed(machine.machine.cycles()))
                 } else {
@@ -1003,7 +1012,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 VMInternalError::InvalidCycles => {
                     Ok(ChunkState::Suspended(ResumableMachine::new(machine, true)))
                 }
-                _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
+                _ => {
+                    self.tracing_data_as_code_pages.borrow_mut().clear();
+                    Err(ScriptError::VMInternalError(format!("{:?}", error)))
+                }
             },
         }
     }

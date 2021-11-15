@@ -68,7 +68,10 @@ fn test_b_extension() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
-        let vm_error = VmError::InvalidInstruction(0x60291913);
+        let vm_error = VmError::InvalidInstruction {
+            pc: 0x10152,
+            instruction: 0x60291913,
+        };
         let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
@@ -763,8 +766,7 @@ fn check_resume_from_snapshot() {
     let cycles_step_1 = 100_000;
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
-    // TODO fix resume from snapshot
-    let should_be_invalid_permission = script_version <= ScriptVersion::V1;
+    let should_be_invalid_permission = script_version < ScriptVersion::V1;
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut init_snap: Option<TransactionSnapshot> = None;
 
@@ -784,6 +786,10 @@ fn check_resume_from_snapshot() {
                     panic!("should be completed, {:?}", state);
                 }
                 VerifyResult::Completed(cycle) => {
+                    assert!(
+                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
+                        "Any group execution is complete, this must be empty"
+                    );
                     cycles = cycle;
                 }
             }
