@@ -9,7 +9,7 @@ use crate::{
 use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::CellMeta;
 use ckb_vm::{
-    memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
+    memory::{Memory, FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED},
     registers::{A0, A1, A2, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
@@ -107,7 +107,7 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
         machine.memory_mut().init_pages(
             addr,
             memory_size,
-            FLAG_EXECUTABLE | FLAG_FREEZED,
+            FLAG_DIRTY | FLAG_EXECUTABLE | FLAG_FREEZED,
             Some(data),
             0,
         )?;
