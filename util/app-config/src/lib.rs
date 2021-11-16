@@ -30,7 +30,7 @@ use clap::{value_t, ArgMatches, ErrorKind};
 use std::{path::PathBuf, str::FromStr};
 
 // 500_000 total difficulty
-const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+//const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
 
 /// A struct including all the informations to start the ckb process.
 pub struct Setup {
@@ -84,7 +84,8 @@ impl Setup {
         .expect("build mainnet genesis fail");
         config.network.sync.min_chain_work =
             if consensus.genesis_block.hash() == mainnet_genesis.hash() {
-                MIN_CHAIN_WORK_500K
+                eprintln!("This version only supports testnet, please use other release version");
+                return Err(ExitCode::Failure);
             } else {
                 u256!("0x0")
             };
