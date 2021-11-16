@@ -1,5 +1,6 @@
 use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
 use ckb_error::assert_error_eq;
+use ckb_hash::blake2b_256;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
@@ -683,5 +684,118 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
     let cycles_once = result.unwrap();
     assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
     assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
+fn check_resume_from_snapshot() {
+    let script_version = SCRIPT_VERSION;
+
+    let (dyn_lib_cell, dyn_lib_data_hash) = {
+        let dyn_lib_cell_data = Bytes::from(
+            std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("testdata/dyn_load_code/dyn_load_code_lib"),
+            )
+            .unwrap(),
+        );
+        let dyn_lib_cell_output = CellOutput::new_builder()
+            .capacity(Capacity::bytes(dyn_lib_cell_data.len()).unwrap().pack())
+            .build();
+        let dyn_lib_data_hash = blake2b_256(&dyn_lib_cell_data);
+        let dyn_lib_cell =
+            CellMetaBuilder::from_cell_output(dyn_lib_cell_output, dyn_lib_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+        (dyn_lib_cell, dyn_lib_data_hash)
+    };
+
+    let rtx = {
+        let args: packed::Bytes = {
+            let number = 0x01u64; // a random odd value
+
+            let mut vec = Vec::with_capacity(8 + dyn_lib_data_hash.len());
+            vec.extend_from_slice(&number.to_le_bytes());
+            vec.extend_from_slice(&dyn_lib_data_hash);
+            vec.pack()
+        };
+
+        let dyn_lock_cell_data = Bytes::from(
+            std::fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("testdata/dyn_load_code/dyn_load_code_lock"),
+            )
+            .unwrap(),
+        );
+        let dyn_lock_cell_output = CellOutput::new_builder()
+            .capacity(Capacity::bytes(dyn_lock_cell_data.len()).unwrap().pack())
+            .build();
+        let dyn_lock_script = Script::new_builder()
+            .hash_type(script_version.data_hash_type().into())
+            .code_hash(CellOutput::calc_data_hash(&dyn_lock_cell_data))
+            .args(args)
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(dyn_lock_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+
+        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+            .transaction_info(default_transaction_info())
+            .build();
+        let dyn_lock_cell =
+            CellMetaBuilder::from_cell_output(dyn_lock_cell_output, dyn_lock_cell_data)
+                .transaction_info(default_transaction_info())
+                .build();
+
+        ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![dyn_lock_cell, dyn_lib_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        }
+    };
+
+    let mut cycles = 0;
+    let cycles_step_1 = 100_000;
+    let max_cycles = Cycle::MAX;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    // TODO fix resume from snapshot
+    let should_be_invalid_permission = script_version <= ScriptVersion::V1;
+    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(cycles_step_1).unwrap() {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        let snap = init_snap.take().unwrap();
+        let result = verifier.resume_from_snap(&snap, max_cycles);
+        if should_be_invalid_permission {
+            let vm_error = VmError::InvalidPermission;
+            let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+            assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+        } else {
+            match result.unwrap() {
+                VerifyResult::Suspended(state) => {
+                    panic!("should be completed, {:?}", state);
+                }
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                }
+            }
+        }
+
+        verifier.verify(max_cycles)
+    });
+
+    if should_be_invalid_permission {
+        return;
+    }
+
+    let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
 }
