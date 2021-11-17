@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::syscalls::Pause;
 use crate::{
     cost_model::{instruction_cycles, transferred_byte_cycles},
     error::{ScriptError, TransactionScriptError},
@@ -131,6 +133,9 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     type_groups: HashMap<Byte32, ScriptGroup>,
     // Vec<(addr, size)>, can be remove after hardfork
     pub(crate) tracing_data_as_code_pages: RefCell<Vec<(u64, u64)>>,
+
+    #[cfg(test)]
+    skip_pause: RefCell<bool>,
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
@@ -231,6 +236,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 },
             ),
             tracing_data_as_code_pages: RefCell::new(Vec::new()),
+            #[cfg(test)]
+            skip_pause: RefCell::new(false),
         }
     }
 
@@ -245,6 +252,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + 'static>(&mut self, func: F) {
         self.debug_printer = Box::new(func);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_skip_pause(&mut self, skip_pause: bool) {
+        *self.skip_pause.borrow_mut() = skip_pause;
     }
 
     #[inline]
@@ -911,6 +923,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             ),
             Box::new(Debugger::new(current_script_hash, &self.debug_printer)),
         ];
+        #[cfg(test)]
+        syscalls.push(Box::new(Pause::new(&self.skip_pause)));
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),

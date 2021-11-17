@@ -763,14 +763,13 @@ fn check_resume_from_snapshot() {
     };
 
     let mut cycles = 0;
-    let cycles_step_1 = 100_000;
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let should_be_invalid_permission = script_version < ScriptVersion::V1;
-    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
         let mut init_snap: Option<TransactionSnapshot> = None;
 
-        if let VerifyResult::Suspended(state) = verifier.resumable_verify(cycles_step_1).unwrap() {
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
             init_snap = Some(state.try_into().unwrap());
         }
 
@@ -795,6 +794,7 @@ fn check_resume_from_snapshot() {
             }
         }
 
+        verifier.set_skip_pause(true);
         verifier.verify(max_cycles)
     });
 
