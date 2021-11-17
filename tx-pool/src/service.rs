@@ -521,7 +521,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
     pub(crate) signal_receiver: watch::Receiver<u8>,
     pub(crate) handle: Handle,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk_rx: ckb_channel::Receiver<Command>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) started: Arc<AtomicBool>,
@@ -535,7 +535,7 @@ impl TxPoolServiceBuilder {
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
-        tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
+        tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
@@ -705,8 +705,26 @@ pub(crate) struct TxPoolService {
     pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) network: NetworkController,
-    pub(crate) tx_relay_sender: ckb_channel::Sender<(Option<PeerIndex>, bool, Byte32)>,
+    pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
+}
+
+/// tx verification result
+pub enum TxVerificationResult {
+    /// tx is verified
+    Ok {
+        /// original peer
+        original_peer: Option<PeerIndex>,
+        /// verified by ckb vm version
+        with_vm_2021: bool,
+        /// transaction hash
+        tx_hash: Byte32,
+    },
+    /// tx is rejected
+    Reject {
+        /// transaction hash
+        tx_hash: Byte32,
+    },
 }
 
 #[allow(clippy::cognitive_complexity)]

@@ -18,7 +18,7 @@ use crate::services::{
     protocol_type_checker::ProtocolTypeCheckerService,
 };
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
-use ckb_app_config::{NetworkConfig, SupportProtocol};
+use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -757,6 +757,18 @@ impl<T: ExitHandler> NetworkService<T> {
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
+
+        if config.support_protocols.iter().collect::<HashSet<_>>()
+            != default_support_all_protocols()
+                .iter()
+                .collect::<HashSet<_>>()
+        {
+            warn!(
+                "Customized supported protocols: {:?}",
+                config.support_protocols
+            );
+        }
+
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()

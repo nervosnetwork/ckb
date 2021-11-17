@@ -1,4 +1,4 @@
-use crate::util::cell::{as_input, as_output};
+use crate::util::cell::{as_input, as_inputs, as_output, as_outputs};
 use crate::{Net, Node};
 use ckb_network::SupportProtocols;
 use ckb_types::{
@@ -20,6 +20,28 @@ pub fn always_success_transaction(node: &Node, cell: &CellMeta) -> TransactionVi
         .input(as_input(cell))
         .output(as_output(cell))
         .output_data(Default::default())
+        .cell_dep(node.always_success_cell_dep())
+        .build()
+}
+
+pub fn always_success_transactions_with_rand_data(
+    node: &Node,
+    cells: &[CellMeta],
+) -> TransactionView {
+    let len = cells.len();
+    TransactionBuilder::default()
+        .inputs(as_inputs(cells))
+        .outputs(as_outputs(cells))
+        .set_outputs_data(
+            (0..len)
+                .map(|_| {
+                    (0..1600)
+                        .map(|_| rand::random::<u8>())
+                        .collect::<Vec<_>>()
+                        .pack()
+                })
+                .collect::<Vec<packed::Bytes>>(),
+        )
         .cell_dep(node.always_success_cell_dep())
         .build()
 }

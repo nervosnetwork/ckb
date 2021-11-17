@@ -21,11 +21,11 @@ impl Migrate {
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         let mut migrations = Migrations::default();
         migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct));
-        migrations.add_migration(Box::new(migrations::CellMigration));
-        migrations.add_migration(Box::new(migrations::AddNumberHashMapping));
-        migrations.add_migration(Box::new(migrations::AddExtraDataHash));
-        migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily));
+        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct)); // since v0.35.0
+        migrations.add_migration(Box::new(migrations::CellMigration)); // since v0.37.0
+        migrations.add_migration(Box::new(migrations::AddNumberHashMapping)); // since v0.40.0
+        migrations.add_migration(Box::new(migrations::AddExtraDataHash)); // since v0.43.0
+        migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily)); // since v0.100.0
 
         Migrate {
             migrations,

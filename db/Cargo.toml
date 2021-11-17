@@ -1,6 +1,6 @@
 [package]
 name = "ckb-db"
-version = "0.101.0"
+version = "0.101.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,10 +9,12 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-app-config = { path = "../util/app-config", version = "= 0.101.0" }
-ckb-logger = { path = "../util/logger", version = "= 0.101.0" }
-ckb-error = { path = "../error", version = "= 0.101.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.101.1" }
+ckb-logger = { path = "../util/logger", version = "= 0.101.1" }
+ckb-error = { path = "../error", version = "= 0.101.1" }
 libc = "0.2"
 rocksdb = { package = "ckb-rocksdb", version ="=0.16.1", features = ["snappy"] }
-ckb-db-schema = { path = "../db-schema", version = "= 0.101.0" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.101.1" }
+
+[dev-dependencies]
 tempfile = "3.0"

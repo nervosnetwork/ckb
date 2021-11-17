@@ -19,7 +19,7 @@ use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
-    CKBProtocol, DefaultExitHandler, NetworkController, NetworkService, NetworkState, PeerIndex,
+    CKBProtocol, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
     SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
@@ -29,7 +29,8 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
-use ckb_types::{packed::Byte32, prelude::*};
+use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
@@ -239,7 +240,7 @@ impl Launcher {
         chain_controller: ChainController,
         exit_handler: &DefaultExitHandler,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<(Option<PeerIndex>, bool, Byte32)>,
+        relay_tx_receiver: Receiver<TxVerificationResult>,
     ) -> (NetworkController, RpcServer) {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),

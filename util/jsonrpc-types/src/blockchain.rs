@@ -1318,7 +1318,7 @@ pub struct Consensus {
 pub struct HardForkFeature {
     /// The related RFC ID.
     pub rfc: String,
-    /// The first epoch when the feature is enabled.
+    /// The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
     pub epoch_number: Option<EpochNumber>,
 }
 

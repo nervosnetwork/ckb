@@ -6,7 +6,7 @@ use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::TxPoolService;
+use crate::service::{TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
     check_tx_cycle_limit, check_tx_fee, check_tx_size_limit, check_txid_collision,
@@ -693,27 +693,42 @@ impl TxPoolService {
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
-                    self.broadcast_tx(Some(peer), tx_hash, with_vm_2021);
+                    self.send_result_to_relayer(TxVerificationResult::Ok {
+                        original_peer: Some(peer),
+                        with_vm_2021,
+                        tx_hash,
+                    });
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
                     debug!("after_process {} reject: {} ", tx_hash, reject);
-                    if reject.is_malformed_tx() {
-                        self.ban_malformed(peer, format!("reject {}", reject));
-                    } else if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
+                    } else {
+                        if reject.is_malformed_tx() {
+                            self.ban_malformed(peer, format!("reject {}", reject));
+                        }
+                        self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
                     }
                 }
             },
             None => {
                 match ret {
                     Ok(_) => {
-                        self.broadcast_tx(None, tx_hash, with_vm_2021);
+                        self.send_result_to_relayer(TxVerificationResult::Ok {
+                            original_peer: None,
+                            with_vm_2021,
+                            tx_hash,
+                        });
                         self.process_orphan_tx(&tx).await;
                     }
                     Err(Reject::Duplicated(_)) => {
                         // re-broadcast tx when it's duplicated and submitted through local rpc
-                        self.broadcast_tx(None, tx_hash, with_vm_2021);
+                        self.send_result_to_relayer(TxVerificationResult::Ok {
+                            original_peer: None,
+                            with_vm_2021,
+                            tx_hash,
+                        });
                     }
                     Err(_err) => {
                         // ignore
@@ -778,12 +793,19 @@ impl TxPoolService {
                     };
                     match ret {
                         Ok(_) => {
+                            self.send_result_to_relayer(TxVerificationResult::Ok {
+                                original_peer: Some(orphan.peer),
+                                with_vm_2021,
+                                tx_hash: orphan.tx.hash(),
+                            });
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                            self.broadcast_tx(Some(orphan.peer), orphan.tx.hash(), with_vm_2021);
                             orphan_queue.push_back(orphan.tx);
                         }
                         Err(reject) => {
                             if !is_missing_input(&reject) {
+                                self.send_result_to_relayer(TxVerificationResult::Reject {
+                                    tx_hash: orphan.tx.hash(),
+                                });
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             }
                             if reject.is_malformed_tx() {
@@ -797,14 +819,9 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) fn broadcast_tx(
-        &self,
-        origin: Option<PeerIndex>,
-        tx_hash: Byte32,
-        with_vm_2021: bool,
-    ) {
-        if let Err(e) = self.tx_relay_sender.send((origin, with_vm_2021, tx_hash)) {
-            error!("tx-pool broadcast_tx internal error {}", e);
+    pub(crate) fn send_result_to_relayer(&self, result: TxVerificationResult) {
+        if let Err(e) = self.tx_relay_sender.send(result) {
+            error!("tx-pool tx_relay_sender internal error {}", e);
         }
     }
 

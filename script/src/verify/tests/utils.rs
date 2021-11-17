@@ -24,6 +24,7 @@ use ckb_types::{
 };
 use faster_hex::hex_encode;
 use std::{fs::File, path::Path};
+use tempfile::TempDir;
 
 use crate::verify::*;
 
@@ -85,14 +86,21 @@ pub(crate) fn default_transaction_info() -> TransactionInfo {
 }
 
 pub(crate) struct TransactionScriptsVerifierWithEnv {
+    // The fields of a struct are dropped in declaration order.
+    // So, put `ChainDB` (`RocksDB`) before `TempDir`.
+    //
+    // Ref: https://doc.rust-lang.org/reference/destructors.html
     store: ChainDB,
     version_1_enabled_at: EpochNumber,
     consensus: Consensus,
+    _tmp_dir: TempDir,
 }
 
 impl TransactionScriptsVerifierWithEnv {
     pub(crate) fn new() -> Self {
-        let store = ChainDB::new(RocksDB::open_tmp(COLUMNS), Default::default());
+        let tmp_dir = TempDir::new().unwrap();
+        let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+        let store = ChainDB::new(db, Default::default());
         let version_1_enabled_at = 10;
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()
             .as_builder()
@@ -106,6 +114,7 @@ impl TransactionScriptsVerifierWithEnv {
             store,
             version_1_enabled_at,
             consensus,
+            _tmp_dir: tmp_dir,
         }
     }
 

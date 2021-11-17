@@ -3,16 +3,14 @@ use ckb_db::RocksDB;
 use ckb_db_schema::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
+use tempfile::TempDir;
 
 use crate::{db::ChainDB, store::ChainStore};
 
-fn setup_db(columns: u32) -> RocksDB {
-    RocksDB::open_tmp(columns)
-}
-
 #[test]
 fn save_and_get_block() {
-    let db = setup_db(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -26,7 +24,8 @@ fn save_and_get_block() {
 
 #[test]
 fn save_and_get_block_with_transactions() {
-    let db = setup_db(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
     let block = packed::Block::new_builder()
         .transactions(
@@ -47,7 +46,8 @@ fn save_and_get_block_with_transactions() {
 
 #[test]
 fn save_and_get_block_ext() {
-    let db = setup_db(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -69,7 +69,8 @@ fn save_and_get_block_ext() {
 
 #[test]
 fn index_store() {
-    let db = RocksDB::open_tmp(COLUMNS);
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -89,8 +90,10 @@ fn index_store() {
 
 #[test]
 fn freeze_blockv0() {
-    let db = RocksDB::open_tmp(COLUMNS);
-    let freezer = Freezer::open_tmp().expect("tmp freezer");
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let tmp_dir2 = TempDir::new().unwrap();
+    let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
 
     let raw = packed::RawHeader::new_builder().number(1u64.pack()).build();
@@ -120,8 +123,10 @@ fn freeze_blockv0() {
 
 #[test]
 fn freeze_blockv1_with_extension() {
-    let db = RocksDB::open_tmp(COLUMNS);
-    let freezer = Freezer::open_tmp().expect("tmp freezer");
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let tmp_dir2 = TempDir::new().unwrap();
+    let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
 
     let extension: packed::Bytes = vec![1u8; 96].pack();

@@ -7,7 +7,7 @@ use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
 use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
-use ckb_logger::{error, trace};
+use ckb_logger::{error, trace, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
@@ -95,23 +95,7 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
-        let recent_reject_ttl = config.keep_rejected_tx_hashes_days as i32 * 24 * 60 * 60;
-        let recent_reject_new = RecentReject::new(
-            &config.recent_reject,
-            config.keep_rejected_tx_hashes_count,
-            recent_reject_ttl,
-        );
-        let recent_reject = if let Ok(recent_reject) = recent_reject_new {
-            Some(recent_reject)
-        } else {
-            error!(
-                "Failed to open recent reject database {:?} {}",
-                config.recent_reject,
-                recent_reject_new.unwrap_err()
-            );
-            None
-        };
-
+        let recent_reject = build_recent_reject(&config);
         TxPool {
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
@@ -564,6 +548,9 @@ impl TxPool {
         self.proposed.clear();
         txs.append(&mut self.gap.drain());
         txs.append(&mut self.pending.drain());
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
+        self.touch_last_txs_updated_at();
         txs
     }
 
@@ -576,5 +563,28 @@ impl TxPool {
         self.last_txs_updated_at = last_txs_updated_at;
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
+    }
+}
+
+fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
+    if !config.recent_reject.as_os_str().is_empty() {
+        let recent_reject_ttl = config.keep_rejected_tx_hashes_days as i32 * 24 * 60 * 60;
+        match RecentReject::new(
+            &config.recent_reject,
+            config.keep_rejected_tx_hashes_count,
+            recent_reject_ttl,
+        ) {
+            Ok(recent_reject) => Some(recent_reject),
+            Err(err) => {
+                error!(
+                    "Failed to open recent reject database {:?} {}",
+                    config.recent_reject, err
+                );
+                None
+            }
+        }
+    } else {
+        warn!("Recent reject database is disableed!");
+        None
     }
 }

@@ -204,6 +204,9 @@ impl CellChecker for Snapshot {
 
 impl HeaderChecker for Snapshot {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
+        if !self.is_main_chain(block_hash) {
+            return Err(OutPointError::InvalidHeader(block_hash.clone()));
+        }
         match self.get_block_header(block_hash) {
             Some(header) => {
                 let threshold =
