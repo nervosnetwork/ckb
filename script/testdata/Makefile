@@ -33,6 +33,7 @@ LIB_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:2341ea4e98836b40c382
 ALL_BINS := jalr_zero \
             cpop_lock \
             mop_adc_lock \
+            current_cycles \
             vm_version \
             exec_callee \
             exec_caller_from_cell_data \
@@ -76,6 +77,7 @@ clean: clean-bins clean-libs
 jalr_zero: jalr_zero.S
 cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
+current_cycles: current_cycles.c
 vm_version: vm_version.c
 exec_callee: exec_callee.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c

@@ -105,6 +105,38 @@ fn test_cycles_difference() {
 }
 
 #[test]
+fn check_current_cycles() {
+    let script_version = SCRIPT_VERSION;
+
+    let (current_cycles_cell, current_cycles_data_hash) =
+        load_cell_from_path("testdata/current_cycles");
+
+    let current_cycles_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(current_cycles_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(current_cycles_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![current_cycles_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+}
+
+#[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 
