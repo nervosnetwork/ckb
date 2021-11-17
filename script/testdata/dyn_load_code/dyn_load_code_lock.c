@@ -11,6 +11,10 @@
 
 #define SCRIPT_SIZE 32768
 
+void try_pause() {
+    syscall(2178, 0, 0, 0, 0, 0, 0);
+}
+
 uint64_t read_u64_le (const uint8_t *src) {
     return *(const uint64_t *)src;
 }
@@ -70,16 +74,7 @@ int main (int argc, char *argv[]) {
         if (func == NULL) {
             return -6;
         }
-        {
-            // Creates a lot of cycles to make sure snapshot could stop here.
-            volatile int count = 0;
-            for (int i=0; i<65536; i++) {
-                count += 1;
-            }
-            if (count == 0) {
-                return -7;
-            }
-        }
+        try_pause();
         is_even = func(number);
     }
 
