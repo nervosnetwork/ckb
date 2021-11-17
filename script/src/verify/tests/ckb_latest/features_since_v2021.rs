@@ -600,7 +600,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
 }
 
 #[test]
-fn check_resume_from_snapshot() {
+fn check_resume_from_snapshot_with_load_code_once() {
     let script_version = SCRIPT_VERSION;
 
     let (dyn_lib_cell, dyn_lib_data_hash) = load_cell_from_path("testdata/is_even.lib");
@@ -679,6 +679,118 @@ fn check_resume_from_snapshot() {
     if should_be_invalid_permission {
         return;
     }
+
+    let cycles_once = result.unwrap();
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
+fn check_resume_from_snapshot_with_load_code_more_times() {
+    let script_version = SCRIPT_VERSION;
+
+    let (add1_cell, add1_data_hash) = load_cell_from_path("testdata/add1.lib");
+    let (sub1_cell, sub1_data_hash) = load_cell_from_path("testdata/sub1.lib");
+    let (mul2_cell, mul2_data_hash) = load_cell_from_path("testdata/mul2.lib");
+    let (div2_cell, div2_data_hash) = load_cell_from_path("testdata/div2.lib");
+    let (lock_cell, lock_data_hash) = load_cell_from_path("testdata/load_arithmetic");
+
+    let rtx = {
+        let args: packed::Bytes = {
+            let add1 = add1_data_hash.raw_data();
+            let sub1 = sub1_data_hash.raw_data();
+            let mul2 = mul2_data_hash.raw_data();
+            let div2 = div2_data_hash.raw_data();
+
+            let mut vec = Vec::new();
+
+            let num0 = 0u64;
+            let num1 = 1u64;
+
+            vec.extend_from_slice(&num0.to_le_bytes());
+            vec.extend_from_slice(&num1.to_le_bytes());
+            vec.extend_from_slice(&add1); // num0 = 1
+            vec.extend_from_slice(&mul2); // num0 = 2
+            vec.extend_from_slice(&add1); // num0 = 3
+            vec.extend_from_slice(&mul2); // num0 = 6
+            vec.extend_from_slice(&mul2); // num0 = 12
+            vec.extend_from_slice(&add1); // num0 = 13
+            vec.extend_from_slice(&add1); // num0 = 14
+            vec.extend_from_slice(&div2); // num0 = 7
+            vec.extend_from_slice(&sub1); // num0 = 6
+            vec.extend_from_slice(&div2); // num0 = 3
+            vec.extend_from_slice(&sub1); // num0 = 2
+            vec.extend_from_slice(&div2); // num0 = 1
+            vec.pack()
+        };
+
+        let lock_script = Script::new_builder()
+            .hash_type(script_version.data_hash_type().into())
+            .code_hash(lock_data_hash)
+            .args(args)
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(lock_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+        let dummy_cell = create_dummy_cell(output);
+
+        ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![add1_cell, sub1_cell, mul2_cell, div2_cell, lock_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        }
+    };
+
+    let mut cycles = 0;
+    let max_cycles = Cycle::MAX;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let should_be_invalid_permission = script_version < ScriptVersion::V1;
+
+    verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        loop {
+            let snap = init_snap.take().unwrap();
+            let result = verifier.resume_from_snap(&snap, max_cycles);
+            if should_be_invalid_permission {
+                let vm_error = VmError::InvalidPermission;
+                let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+                assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+                break;
+            } else {
+                match result.unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        init_snap = Some(state.try_into().unwrap());
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        assert!(
+                            verifier.tracing_data_as_code_pages.borrow().is_empty(),
+                            "Any group execution is complete, this must be empty"
+                        );
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    if should_be_invalid_permission {
+        return;
+    }
+
+    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
+        verifier.set_skip_pause(true);
+        verifier.verify(max_cycles)
+    });
 
     let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
