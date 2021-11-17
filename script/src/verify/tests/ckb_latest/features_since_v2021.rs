@@ -57,7 +57,7 @@ fn test_b_extension() {
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
         let vm_error = VmError::InvalidInstruction {
-            pc: 0x10152,
+            pc: 0x10182,
             instruction: 0x60291913,
         };
         let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
@@ -571,8 +571,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
 fn check_resume_from_snapshot() {
     let script_version = SCRIPT_VERSION;
 
-    let (dyn_lib_cell, dyn_lib_data_hash) =
-        load_cell_from_path("testdata/dyn_load_code/dyn_load_code_lib");
+    let (dyn_lib_cell, dyn_lib_data_hash) = load_cell_from_path("testdata/is_even.lib");
 
     let rtx = {
         let args: packed::Bytes = {
@@ -585,8 +584,7 @@ fn check_resume_from_snapshot() {
             vec.pack()
         };
 
-        let (dyn_lock_cell, dyn_lock_data_hash) =
-            load_cell_from_path("testdata/dyn_load_code/dyn_load_code_lock");
+        let (dyn_lock_cell, dyn_lock_data_hash) = load_cell_from_path("testdata/load_is_even");
 
         let dyn_lock_script = Script::new_builder()
             .hash_type(script_version.data_hash_type().into())
