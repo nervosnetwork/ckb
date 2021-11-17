@@ -30,10 +30,8 @@ fn check_always_success_hash() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
 
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.clone(),
         always_success_cell_data.to_owned(),
@@ -98,9 +96,7 @@ fn check_signature() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -179,9 +175,7 @@ fn check_signature_referenced_via_type_hash() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -271,9 +265,7 @@ fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -335,9 +327,7 @@ fn check_invalid_signature() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -387,9 +377,7 @@ fn check_invalid_dep_reference() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -427,9 +415,7 @@ fn check_output_contract() {
         .capacity(capacity_bytes!(100).pack())
         .lock(always_success_script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.clone(),
         always_success_cell_data.to_owned(),
@@ -510,9 +496,7 @@ fn check_invalid_output_contract() {
         .capacity(capacity_bytes!(100).pack())
         .lock(always_success_script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.to_owned(),
         always_success_cell_data.to_owned(),
@@ -609,9 +593,7 @@ fn check_same_lock_and_type_script_are_executed_twice() {
         .lock(script.clone())
         .type_(Some(script).pack())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,

@@ -1,6 +1,5 @@
 use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
 use ckb_error::assert_error_eq;
-use ckb_hash::blake2b_256;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
@@ -9,7 +8,6 @@ use ckb_types::{
 };
 use ckb_vm::Error as VmError;
 use std::convert::TryInto;
-use std::path::Path;
 
 use super::SCRIPT_VERSION;
 use crate::{
@@ -31,15 +29,11 @@ fn test_b_extension() {
         vec.pack()
     };
 
-    let cpop_lock_cell_data = Bytes::from(
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/cpop_lock")).unwrap(),
-    );
-    let cpop_lock_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(cpop_lock_cell_data.len()).unwrap().pack())
-        .build();
+    let (cpop_lock_cell, cpop_lock_data_hash) = load_cell_from_path("testdata/cpop_lock");
+
     let cpop_lock_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&cpop_lock_cell_data))
+        .code_hash(cpop_lock_data_hash)
         .args(args)
         .build();
     let output = CellOutputBuilder::default()
@@ -49,13 +43,7 @@ fn test_b_extension() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let cpop_lock_cell = CellMetaBuilder::from_cell_output(cpop_lock_cell, cpop_lock_cell_data)
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -81,21 +69,13 @@ fn test_b_extension() {
 fn test_cycles_difference() {
     let script_version = SCRIPT_VERSION;
 
-    let always_success_cell_data = Bytes::from(
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/mop_adc_lock")).unwrap(),
-    );
-    let always_success_cell = CellOutput::new_builder()
-        .capacity(
-            Capacity::bytes(always_success_cell_data.len())
-                .unwrap()
-                .pack(),
-        )
-        .build();
+    let (always_success_cell, always_success_data_hash) =
+        load_cell_from_path("testdata/mop_adc_lock");
+
     let always_success_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&always_success_cell_data))
+        .code_hash(always_success_data_hash)
         .build();
-
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
         .lock(always_success_script)
@@ -103,14 +83,7 @@ fn test_cycles_difference() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let always_success_cell =
-        CellMetaBuilder::from_cell_output(always_success_cell, always_success_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -135,15 +108,11 @@ fn test_cycles_difference() {
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 
-    let vm_version_cell_data = Bytes::from(
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/vm_version")).unwrap(),
-    );
-    let vm_version_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(vm_version_cell_data.len()).unwrap().pack())
-        .build();
+    let (vm_version_cell, vm_version_data_hash) = load_cell_from_path("testdata/vm_version");
+
     let vm_version_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&vm_version_cell_data))
+        .code_hash(vm_version_data_hash)
         .build();
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
@@ -152,13 +121,7 @@ fn check_vm_version() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let vm_version_cell = CellMetaBuilder::from_cell_output(vm_version_cell, vm_version_cell_data)
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -176,26 +139,13 @@ fn check_vm_version() {
 fn check_exec_from_cell_data() {
     let script_version = SCRIPT_VERSION;
 
-    let exec_caller_cell_data = Bytes::from(
-        std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_cell_data"),
-        )
-        .unwrap(),
-    );
-    let exec_caller_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
-        .build();
-
-    let exec_callee_cell_data = Bytes::from(
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_callee")).unwrap(),
-    );
-    let exec_callee_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
-        .build();
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_from_cell_data");
+    let (exec_callee_cell, _exec_callee_data_hash) = load_cell_from_path("testdata/exec_callee");
 
     let exec_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
@@ -204,19 +154,7 @@ fn check_exec_from_cell_data() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let exec_caller_cell =
-        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
-
-    let exec_callee_cell =
-        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -234,24 +172,13 @@ fn check_exec_from_cell_data() {
 fn check_exec_from_witness() {
     let script_version = SCRIPT_VERSION;
 
-    let exec_caller_cell_data = Bytes::from(
-        std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_witness"),
-        )
-        .unwrap(),
-    );
-    let exec_caller_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
-        .build();
-
-    let exec_callee = Bytes::from(
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_callee")).unwrap(),
-    )
-    .pack();
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_from_witness");
+    let (exec_callee_cell, _exec_caller_data_hash) = load_cell_from_path("testdata/exec_callee");
 
     let exec_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
@@ -259,18 +186,12 @@ fn check_exec_from_witness() {
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
 
+    let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
     let transaction = TransactionBuilder::default()
         .input(input)
-        .set_witnesses(vec![exec_callee])
+        .set_witnesses(vec![exec_callee_cell_data.pack()])
         .build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let exec_caller_cell =
-        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -288,24 +209,14 @@ fn check_exec_from_witness() {
 fn check_exec_wrong_callee_format() {
     let script_version = SCRIPT_VERSION;
 
-    let exec_caller_cell_data = Bytes::from(
-        std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_from_cell_data"),
-        )
-        .unwrap(),
-    );
-    let exec_caller_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
-        .build();
-
-    let exec_callee_cell_data = Bytes::copy_from_slice(&[0x00, 0x01, 0x02, 0x03]);
-    let exec_callee_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
-        .build();
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_from_cell_data");
+    let (exec_callee_cell, _exec_caller_data_hash) =
+        load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
 
     let exec_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
@@ -314,19 +225,7 @@ fn check_exec_wrong_callee_format() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let exec_caller_cell =
-        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
-
-    let exec_callee_cell =
-        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -344,24 +243,14 @@ fn check_exec_wrong_callee_format() {
 fn check_exec_big_offset_length() {
     let script_version = SCRIPT_VERSION;
 
-    let exec_caller_cell_data = Bytes::from(
-        std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/exec_caller_big_offset_length"),
-        )
-        .unwrap(),
-    );
-    let exec_caller_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
-        .build();
-
-    let exec_callee_cell_data = Bytes::copy_from_slice(&[0x00, 0x01, 0x02, 0x03]);
-    let exec_callee_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
-        .build();
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_big_offset_length");
+    let (exec_callee_cell, _exec_caller_data_hash) =
+        load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
 
     let exec_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
-        .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
+        .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(100).pack())
@@ -370,19 +259,7 @@ fn check_exec_big_offset_length() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
-
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
-    let exec_caller_cell =
-        CellMetaBuilder::from_cell_output(exec_caller_cell, exec_caller_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
-
-    let exec_callee_cell =
-        CellMetaBuilder::from_cell_output(exec_callee_cell, exec_callee_cell_data)
-            .transaction_info(default_transaction_info())
-            .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -694,48 +571,26 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
 fn check_resume_from_snapshot() {
     let script_version = SCRIPT_VERSION;
 
-    let (dyn_lib_cell, dyn_lib_data_hash) = {
-        let dyn_lib_cell_data = Bytes::from(
-            std::fs::read(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("testdata/dyn_load_code/dyn_load_code_lib"),
-            )
-            .unwrap(),
-        );
-        let dyn_lib_cell_output = CellOutput::new_builder()
-            .capacity(Capacity::bytes(dyn_lib_cell_data.len()).unwrap().pack())
-            .build();
-        let dyn_lib_data_hash = blake2b_256(&dyn_lib_cell_data);
-        let dyn_lib_cell =
-            CellMetaBuilder::from_cell_output(dyn_lib_cell_output, dyn_lib_cell_data)
-                .transaction_info(default_transaction_info())
-                .build();
-        (dyn_lib_cell, dyn_lib_data_hash)
-    };
+    let (dyn_lib_cell, dyn_lib_data_hash) =
+        load_cell_from_path("testdata/dyn_load_code/dyn_load_code_lib");
 
     let rtx = {
         let args: packed::Bytes = {
             let number = 0x01u64; // a random odd value
 
-            let mut vec = Vec::with_capacity(8 + dyn_lib_data_hash.len());
+            let data_hash = dyn_lib_data_hash.raw_data();
+            let mut vec = Vec::with_capacity(8 + data_hash.len());
             vec.extend_from_slice(&number.to_le_bytes());
-            vec.extend_from_slice(&dyn_lib_data_hash);
+            vec.extend_from_slice(&data_hash);
             vec.pack()
         };
 
-        let dyn_lock_cell_data = Bytes::from(
-            std::fs::read(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("testdata/dyn_load_code/dyn_load_code_lock"),
-            )
-            .unwrap(),
-        );
-        let dyn_lock_cell_output = CellOutput::new_builder()
-            .capacity(Capacity::bytes(dyn_lock_cell_data.len()).unwrap().pack())
-            .build();
+        let (dyn_lock_cell, dyn_lock_data_hash) =
+            load_cell_from_path("testdata/dyn_load_code/dyn_load_code_lock");
+
         let dyn_lock_script = Script::new_builder()
             .hash_type(script_version.data_hash_type().into())
-            .code_hash(CellOutput::calc_data_hash(&dyn_lock_cell_data))
+            .code_hash(dyn_lock_data_hash)
             .args(args)
             .build();
         let output = CellOutputBuilder::default()
@@ -745,14 +600,7 @@ fn check_resume_from_snapshot() {
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default().input(input).build();
-
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-            .transaction_info(default_transaction_info())
-            .build();
-        let dyn_lock_cell =
-            CellMetaBuilder::from_cell_output(dyn_lock_cell_output, dyn_lock_cell_data)
-                .transaction_info(default_transaction_info())
-                .build();
+        let dummy_cell = create_dummy_cell(output);
 
         ResolvedTransaction {
             transaction,
