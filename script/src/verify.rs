@@ -52,20 +52,20 @@ pub enum ChunkState<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum DataGurad {
+enum DataGuard {
     NotLoaded(OutPoint),
     Loaded(Bytes),
 }
 
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct LazyData(RefCell<DataGurad>);
+struct LazyData(RefCell<DataGuard>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(RefCell::new(DataGurad::Loaded(data.to_owned()))),
-            None => LazyData(RefCell::new(DataGurad::NotLoaded(
+            Some(data) => LazyData(RefCell::new(DataGuard::Loaded(data.to_owned()))),
+            None => LazyData(RefCell::new(DataGuard::NotLoaded(
                 cell_meta.out_point.clone(),
             ))),
         }
@@ -74,12 +74,12 @@ impl LazyData {
     fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
         let guard = self.0.borrow().to_owned();
         match guard {
-            DataGurad::NotLoaded(out_point) => {
+            DataGuard::NotLoaded(out_point) => {
                 let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                self.0.replace(DataGurad::Loaded(data.to_owned()));
+                self.0.replace(DataGuard::Loaded(data.to_owned()));
                 data
             }
-            DataGurad::Loaded(bytes) => bytes,
+            DataGuard::Loaded(bytes) => bytes,
         }
     }
 }
@@ -129,6 +129,8 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 
     lock_groups: HashMap<Byte32, ScriptGroup>,
     type_groups: HashMap<Byte32, ScriptGroup>,
+    // Vec<(addr, size)>, can be remove after hardfork
+    pub(crate) tracing_data_as_code_pages: RefCell<Vec<(u64, u64)>>,
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, DL> {
@@ -228,6 +230,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     debug!("script group: {} DEBUG OUTPUT: {}", hash, message);
                 },
             ),
+            tracing_data_as_code_pages: RefCell::new(Vec::new()),
         }
     }
 
@@ -326,6 +329,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             self.resolved_cell_deps(),
             group_inputs,
             group_outputs,
+            &self.tracing_data_as_code_pages,
         )
     }
 
@@ -397,16 +401,19 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// Returns the version of the machine based on the script and the consensus rules.
-    pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
+    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
         // If the proposal window is allowed to prejudge on the vm version,
         // it will cause proposal tx to start a new vm in the blocks before hardfork,
         // destroying the assumption that the transaction execution only uses the old vm
         // before hardfork, leading to unexpected network splits.
         let epoch_number = self.tx_env.epoch_number_without_proposal_window();
         let hardfork_switch = self.consensus.hardfork_switch();
-        let is_vm_version_1_and_syscalls_2_enabled =
-            hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number);
+        hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number)
+    }
+
+    /// Returns the version of the machine based on the script and the consensus rules.
+    pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
+        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
@@ -432,7 +439,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// ## Params
     ///
-    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
@@ -476,6 +483,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             vm,
             current_cycles,
             limit_cycles,
+            enable_backup_page_flags: self.is_vm_version_1_and_syscalls_2_enabled(),
+            flags_tracing: self.tracing_data_as_code_pages.borrow().clone(),
         }
     }
 
@@ -483,13 +492,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// ## Params
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a state will retruned.
+    /// If verify is suspended, a state will returned.
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
         let mut cycles = 0;
 
@@ -535,13 +544,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `snap` - Captured transaction verification snapshot.
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a borrowed state will retruned.
+    /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_snap(
         &self,
         snap: &TransactionSnapshot,
@@ -620,13 +629,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `state` - vm state.
     ///
-    /// * `limit_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
     /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a borrowed state will retruned.
+    /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_state(
         &'a self,
         state: TransactionState<'a>,
@@ -653,6 +662,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         vm.set_max_cycles(limit_cycles);
         match vm.machine.run() {
             Ok(code) => {
+                self.tracing_data_as_code_pages.borrow_mut().clear();
                 if code == 0 {
                     current_used = wrapping_cycles_add(current_used, vm.cycles(), &current_group)?;
                     cycles = wrapping_cycles_add(cycles, vm.cycles(), &current_group)?;
@@ -668,9 +678,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 error => {
+                    self.tracing_data_as_code_pages.borrow_mut().clear();
                     return Err(ScriptError::VMInternalError(format!("{:?}", error))
                         .source(&current_group)
-                        .into())
+                        .into());
                 }
             },
         }
@@ -720,7 +731,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ///
     /// * `snap` - Captured transaction verification snapshot.
     ///
-    /// * `max_cycles` - Maximium allowed cycles to run the scripts. The verification quits early
+    /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     /// when the consumed cycles exceed the limit.
     ///
     /// ## Returns
@@ -952,6 +963,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
+        self.tracing_data_as_code_pages.borrow_mut().clear();
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
@@ -972,17 +984,16 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             _ => ScriptError::VMInternalError(format!("{:?}", error)),
         };
 
-        let program = self.extract_script(&script_group.script)?;
-        let bytes = machine
-            .load_program(&program, &[])
-            .map_err(map_vm_internal_error)?;
-
         // we should not capture snapshot if load program failed by exceeded cycles
         if let Some(sp) = snap {
             resume(&mut machine.machine, sp).map_err(map_vm_internal_error)?;
         } else {
+            let program = self.extract_script(&script_group.script)?;
+            let bytes = machine
+                .load_program(&program, &[])
+                .map_err(map_vm_internal_error)?;
             let load_ret = machine.machine.add_cycles(transferred_byte_cycles(bytes));
-            if matches!(load_ret, Err(error) if error == VMInternalError::InvalidCycles) {
+            if matches!(load_ret, Err(ref error) if error == &VMInternalError::InvalidCycles) {
                 return Ok(ChunkState::Suspended(ResumableMachine::new(machine, false)));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -990,6 +1001,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         match machine.run() {
             Ok(code) => {
+                self.tracing_data_as_code_pages.borrow_mut().clear();
                 if code == 0 {
                     Ok(ChunkState::Completed(machine.machine.cycles()))
                 } else {
@@ -1000,7 +1012,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 VMInternalError::InvalidCycles => {
                     Ok(ChunkState::Suspended(ResumableMachine::new(machine, true)))
                 }
-                _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
+                _ => {
+                    self.tracing_data_as_code_pages.borrow_mut().clear();
+                    Err(ScriptError::VMInternalError(format!("{:?}", error)))
+                }
             },
         }
     }

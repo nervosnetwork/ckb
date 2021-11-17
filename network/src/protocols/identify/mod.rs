@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ckb_logger::{debug, error, trace, warn};
+use ckb_logger::{debug, trace, warn};
 use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
@@ -90,7 +90,6 @@ pub trait Callback: Clone + Send {
 pub struct IdentifyProtocol<T> {
     callback: T,
     remote_infos: HashMap<SessionId, RemoteInfo>,
-    secio_enabled: bool,
     global_ip_only: bool,
 }
 
@@ -99,7 +98,6 @@ impl<T: Callback> IdentifyProtocol<T> {
         IdentifyProtocol {
             callback,
             remote_infos: HashMap::default(),
-            secio_enabled: true,
             global_ip_only: true,
         }
     }
@@ -229,17 +227,11 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
-        if session.remote_pubkey.is_none() {
-            error!("IdentifyProtocol require secio enabled!");
-            let _ = context.disconnect(session.id);
-            self.secio_enabled = false;
-            return;
-        }
 
         self.callback.register(&context, version);
 
         let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
-        trace!("IdentifyProtocol sconnected from {:?}", remote_info.peer_id);
+        trace!("IdentifyProtocol connected from {:?}", remote_info.peer_id);
         self.remote_infos.insert(session.id, remote_info);
 
         let listen_addrs: Vec<Multiaddr> = self
@@ -261,21 +253,15 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
-        if self.secio_enabled {
-            let info = self
-                .remote_infos
-                .remove(&context.session.id)
-                .expect("RemoteInfo must exists");
-            trace!("IdentifyProtocol disconnected from {:?}", info.peer_id);
-            self.callback.unregister(&context)
-        }
+        let info = self
+            .remote_infos
+            .remove(&context.session.id)
+            .expect("RemoteInfo must exists");
+        trace!("IdentifyProtocol disconnected from {:?}", info.peer_id);
+        self.callback.unregister(&context)
     }
 
     fn received(&mut self, mut context: ProtocolContextMutRef, data: Bytes) {
-        if !self.secio_enabled {
-            return;
-        }
-
         let session = context.session;
 
         match IdentifyMessage::decode(&data) {
@@ -317,10 +303,6 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     }
 
     fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
-        if !self.secio_enabled {
-            return;
-        }
-
         for (session_id, info) in &self.remote_infos {
             if !info.has_received && (info.connected_at + info.timeout) <= Instant::now() {
                 debug!("{:?} receive identify message timeout", info.peer_id);

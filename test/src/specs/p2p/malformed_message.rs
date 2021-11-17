@@ -76,7 +76,7 @@ impl Spec for MalformedMessageWithWhitelist {
         });
         node0.start();
         // FIXME
-        // currrently, we have no idea how to fix autobind_reuse
+        // currently, we have no idea how to fix autobind_reuse
         sleep(5);
         net.connect(&node0);
 

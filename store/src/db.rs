@@ -91,7 +91,7 @@ impl ChainDB {
     }
 
     /// Return the chain spec hash
-    pub fn get_migration_verson(&self) -> Option<DBPinnableSlice> {
+    pub fn get_migration_version(&self) -> Option<DBPinnableSlice> {
         self.db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("db operation should be ok")

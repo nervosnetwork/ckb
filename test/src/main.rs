@@ -402,6 +402,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
+        Box::new(TooManyUnknownTransactions),
         // TODO failed on poor CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
@@ -411,7 +412,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(Disconnect),
         Box::new(MalformedMessage),
         Box::new(DepentTxInSameBlock),
-        // TODO enable these after proposed/pending pool tip verfiry logic changing
+        // TODO enable these after proposed/pending pool tip verify logic changing
         // Box::new(CellbaseMaturity),
         Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),

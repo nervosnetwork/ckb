@@ -372,7 +372,7 @@ fn list_hashes() -> App<'static, 'static> {
 
 fn init() -> App<'static, 'static> {
     SubCommand::with_name(CMD_INIT)
-        .about("Creates a CKB direcotry or reinitializes an existing one")
+        .about("Creates a CKB directory or re-initializes an existing one")
         .arg(
             Arg::with_name(ARG_INTERACTIVE)
                 .short("i")
@@ -390,14 +390,14 @@ fn init() -> App<'static, 'static> {
                 .short("c")
                 .long(ARG_CHAIN)
                 .default_value(DEFAULT_SPEC)
-                .help("Initializes CKB direcotry for <chain>"),
+                .help("Initializes CKB directory for <chain>"),
         )
         .arg(
             Arg::with_name(ARG_IMPORT_SPEC)
                 .long(ARG_IMPORT_SPEC)
                 .takes_value(true)
                 .help(
-                    "Uses the specifiec file as chain spec. Specially, \
+                    "Uses the specifies file as chain spec. Specially, \
                      The dash \"-\" denotes importing the spec from stdin encoded in base64",
                 ),
         )

@@ -169,7 +169,7 @@ impl Spec for ProposeButNotCommit {
     //     1. feed_node propose a tx in the latest block but not commit;
     //     2. target_node fork from feed_node which tip block doesn't proposal tx;
     //     3. target_node keep growing, but it will never commit 'tx'
-    //        since its trasactions_pool does not have 'tx'
+    //        since its transactions_pool does not have 'tx'
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let target_node = &nodes[0];

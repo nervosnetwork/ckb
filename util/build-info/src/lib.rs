@@ -115,6 +115,7 @@ pub fn get_commit_describe() -> Option<String> {
         ])
         .output()
         .ok()
+        .filter(|output| output.status.success())
         .and_then(|r| {
             String::from_utf8(r.stdout)
                 .ok()
@@ -131,6 +132,7 @@ pub fn get_commit_date() -> Option<String> {
         .args(&["log", "-1", "--date=iso", "--pretty=format:%cd"])
         .output()
         .ok()
+        .filter(|output| output.status.success())
         .and_then(|r| {
             String::from_utf8(r.stdout)
                 .ok()

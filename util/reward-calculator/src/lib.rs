@@ -103,7 +103,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
         debug!(
             "[RewardCalculator] target {} {}\n
-             txs_fees {:?}, proposal_reward {:?}, primary {:?}, secondary: {:?}, totol_reward {:?}",
+             txs_fees {:?}, proposal_reward {:?}, primary {:?}, secondary: {:?}, total_reward {:?}",
             target.number(),
             target.hash(),
             txs_fees,

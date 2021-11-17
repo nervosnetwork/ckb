@@ -86,7 +86,7 @@ macro_rules! debug {
 /// let conn_info = Connection { port: 40, speed: 3.20 };
 ///
 /// info!("Connected to port {} at {} Mb/s", conn_info.port, conn_info.speed);
-/// info!(target: "connection_events", "Successfull connection, port: {}, speed: {}",
+/// info!(target: "connection_events", "Successful connection, port: {}, speed: {}",
 ///       conn_info.port, conn_info.speed);
 /// ```
 #[macro_export(local_inner_macros)]
@@ -243,7 +243,7 @@ macro_rules! debug_target {
 /// # struct Connection { port: u32, speed: f32 }
 /// let conn_info = Connection { port: 40, speed: 3.20 };
 ///
-/// info_target!("connection_events", "Successfull connection, port: {}, speed: {}",
+/// info_target!("connection_events", "Successful connection, port: {}, speed: {}",
 ///       conn_info.port, conn_info.speed);
 /// ```
 #[macro_export(local_inner_macros)]

@@ -102,12 +102,13 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
         // removing invalid tx hash from node0's known tx filer is async, wait 5 seconds to make sure it's removed
         sleep(5);
 
+        // connect node0 with node1, tx will be relayed from node1 to node0
+        node0.connect(node1);
+
         // relay tx to node1 with correct cycles
         net.connect(node1);
         relay_tx(&net, &node1, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
 
-        // connect node0 with node1, tx will be relayed from node1 to node0
-        node0.connect(node1);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 1

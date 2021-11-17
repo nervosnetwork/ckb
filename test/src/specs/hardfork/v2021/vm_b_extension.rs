@@ -204,9 +204,12 @@ impl ExpectedResult {
             ),
             Self::InvalidInstruction => Some(
                 "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
-                 Verification failed Script(TransactionScriptError { \
-                 source: Outputs[0].Type, \
-                 cause: VM Internal Error: InvalidInstruction(",
+                Verification failed Script(TransactionScriptError { \
+                source: Outputs[0].Type, \
+                cause: VM Internal Error: InvalidInstruction { pc: 65874, instruction: 1613306131 } })\",\
+                \"data\":\"Verification(Error { kind: Script, inner: TransactionScriptError { \
+                source: Outputs[0].Type, \
+                cause: VM Internal Error: InvalidInstruction { pc: 65874, instruction: 1613306131 } } })\"}",
             ),
         }
     }

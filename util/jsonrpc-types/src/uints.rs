@@ -78,7 +78,7 @@ impl<T: Uint> JsonUintVisitor<T> {
             .map_err(|e| Error::custom(format!("Invalid {} {}: {}", T::NAME, value, e)))?;
         if number.to_string() != value {
             return Err(Error::custom(format!(
-                "Invalid {} {}: only digits and lowercases are allowed",
+                "Invalid {} {}: only digits and lowercase are allowed",
                 T::NAME,
                 value,
             )));
@@ -208,7 +208,7 @@ mod tests {
                 }
 
                 #[test]
-                fn deserialize_heximal() {
+                fn deserialize_hexadecimal() {
                     let s = r#""0xa""#;
                     let deserialized: $name = serde_json::from_str(s).unwrap();
                     assert_eq!(deserialized, $name::from(10));
@@ -236,7 +236,7 @@ mod tests {
                     }
                 }
 
-                fn deserialize_with_uppercases() {
+                fn deserialize_with_uppercase() {
                     let cases = vec![r#""0xFF""#, r#""0xfF""#];
                     for s in cases {
                         let ret: Result<$name, _> = serde_json::from_str(s);
@@ -245,7 +245,7 @@ mod tests {
                         let err = ret.unwrap_err();
                         assert!(
                             err.to_string()
-                                .contains("only digits and lowercases are allowed"),
+                                .contains("only digits and lowercase are allowed"),
                             err,
                         );
                     }

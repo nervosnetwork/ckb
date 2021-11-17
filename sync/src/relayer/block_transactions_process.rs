@@ -79,7 +79,7 @@ impl<'a> BlockTransactionsProcess<'a> {
             if let Entry::Occupied(mut value) = peers_map.entry(self.peer) {
                 let (expected_transaction_indexes, expected_uncle_indexes) = value.get_mut();
                 ckb_logger::info!(
-                    "realyer receive BLOCKTXN of {}, peer: {}",
+                    "relayer receive BLOCKTXN of {}, peer: {}",
                     block_hash,
                     self.peer
                 );

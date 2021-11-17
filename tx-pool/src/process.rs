@@ -1088,7 +1088,7 @@ impl TxPoolService {
 
                 // Updates network fork switch if required.
                 //
-                // This operation should be ahead of any transaction which is processsed with new
+                // This operation should be ahead of any transaction which is processed with new
                 // hardfork features.
                 if !self.network.load_ckb2021()
                     && self
@@ -1099,7 +1099,7 @@ impl TxPoolService {
                     self.network.init_ckb2021()
                 }
 
-                self.readd_dettached_tx(&mut tx_pool, retain, fetched_cache);
+                self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
 
                 txs_opt
             };
@@ -1120,7 +1120,7 @@ impl TxPoolService {
         }
     }
 
-    fn readd_dettached_tx(
+    fn readd_detached_tx(
         &self,
         tx_pool: &mut TxPool,
         txs: Vec<TransactionView>,
@@ -1141,7 +1141,7 @@ impl TxPoolService {
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
-                            debug!("readd_dettached_tx submit_entry error {}", e);
+                            debug!("readd_detached_tx submit_entry error {}", e);
                         }
                     }
                 }

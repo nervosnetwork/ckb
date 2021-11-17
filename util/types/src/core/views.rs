@@ -44,7 +44,7 @@ pub struct TransactionView {
 pub struct ExtraHashView {
     /// The uncles hash which is used to combine to the extra hash.
     pub(crate) uncles_hash: packed::Byte32,
-    /// The first item is the new filed hash, which is used to combine to the extra hash.
+    /// The first item is the new field hash, which is used to combine to the extra hash.
     /// The second item is the extra hash.
     pub(crate) extension_hash_and_extra_hash: Option<(packed::Byte32, packed::Byte32)>,
 }
@@ -396,7 +396,7 @@ impl TransactionView {
         self.data().raw().header_deps().into_iter()
     }
 
-    /// Sets a fake transacton hash.
+    /// Sets a fake transaction hash.
     pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
         self.hash = hash;
         self
@@ -756,12 +756,12 @@ impl BlockView {
         ])
     }
 
-    /// Calculates the merkel root for transactions without witnesses.
+    /// Calculates the merkle root for transactions without witnesses.
     pub fn calc_raw_transactions_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_hashes[..])
     }
 
-    /// Calculates the merkel root for transaction witnesses.
+    /// Calculates the merkle root for transaction witnesses.
     pub fn calc_witnesses_root(&self) -> packed::Byte32 {
         merkle_root(&self.tx_witness_hashes[..])
     }

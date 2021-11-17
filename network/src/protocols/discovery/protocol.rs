@@ -56,7 +56,7 @@ pub enum DiscoveryMessage {
 
 impl DiscoveryMessage {
     pub fn encode(self) -> Bytes {
-        let playload = match self {
+        let payload = match self {
             DiscoveryMessage::GetNodes {
                 version,
                 count,
@@ -121,7 +121,7 @@ impl DiscoveryMessage {
         };
 
         packed::DiscoveryMessage::new_builder()
-            .payload(playload)
+            .payload(payload)
             .build()
             .as_bytes()
     }

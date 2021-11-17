@@ -11,7 +11,7 @@ use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
-use ckb_error::{AnyError, Error};
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_logger::error;
 use ckb_logger::info;
@@ -20,7 +20,7 @@ use ckb_snapshot::Snapshot;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
-        tx_pool::{TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds},
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
@@ -71,7 +71,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxResult = Result<Completed, Error>;
+pub(crate) type SubmitTxResult = Result<Completed, Reject>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -758,7 +758,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: tx,
         }) => {
             let result = service.process_tx(tx, None).await;
-            if let Err(e) = responder.send(result.map_err(Into::into)) {
+            if let Err(e) = responder.send(result) {
                 error!("responder send submit_tx result failed {:?}", e);
             };
         }
