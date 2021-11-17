@@ -11,12 +11,14 @@ const MAX_PER_HEIGHT: usize = 10;
 #[cfg(test)]
 pub(crate) const MAX_PER_HEIGHT: usize = 2;
 
+/// Candidate uncles container
 pub struct CandidateUncles {
     pub(crate) map: BTreeMap<BlockNumber, HashSet<UncleBlockView>>,
     count: usize,
 }
 
 impl CandidateUncles {
+    /// Construct new candidate uncles container
     pub fn new() -> CandidateUncles {
         CandidateUncles {
             map: BTreeMap::new(),
@@ -24,6 +26,9 @@ impl CandidateUncles {
         }
     }
 
+    /// insert new candidate uncles
+    /// If the map did not have this value present, true is returned.
+    /// If the map did have this value present, false is returned.
     pub fn insert(&mut self, uncle: UncleBlockView) -> bool {
         let number: BlockNumber = uncle.header().number();
         if self.count >= MAX_CANDIDATE_UNCLES {
@@ -49,21 +54,38 @@ impl CandidateUncles {
         }
     }
 
-    #[cfg(test)]
+    /// Returns the number of elements in the container.
     pub fn len(&self) -> usize {
         self.count
     }
 
+    /// Returns true if the container contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     #[cfg(test)]
+    /// Removing all values.
     pub fn clear(&mut self) {
         self.map.clear();
         self.count = 0;
     }
 
+    /// Returns true if the container contains a value.
+    pub fn contains(&self, uncle: &UncleBlockView) -> bool {
+        let number: BlockNumber = uncle.header().number();
+        self.map
+            .get(&number)
+            .map(|set| set.contains(uncle))
+            .unwrap_or(false)
+    }
+
+    /// Gets an iterator over the values of the map, in order by block_number.
     pub fn values(&self) -> impl Iterator<Item = &UncleBlockView> {
         self.map.values().flat_map(HashSet::iter)
     }
 
+    /// Removes uncles from the container by specified uncle's number
     pub fn remove_by_number(&mut self, uncle: &UncleBlockView) -> bool {
         let number: BlockNumber = uncle.header().number();
 
@@ -78,5 +100,11 @@ impl CandidateUncles {
             }
         }
         false
+    }
+}
+
+impl Default for CandidateUncles {
+    fn default() -> Self {
+        Self::new()
     }
 }
