@@ -50,6 +50,8 @@ use std::time::Duration;
 use std::{cmp, iter};
 use tokio::task::block_in_place;
 
+const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
+
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
     /// Pending pool
@@ -894,7 +896,9 @@ impl TxPoolService {
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
-            delay.insert(tx.proposal_short_id(), tx);
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
             return None;
         }
 
@@ -1019,7 +1023,9 @@ impl TxPoolService {
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
-            delay.insert(tx.proposal_short_id(), tx);
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
             return None;
         }
 
