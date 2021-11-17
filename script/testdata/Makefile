@@ -35,6 +35,7 @@ ALL_BINS := jalr_zero \
             mop_adc_lock \
             current_cycles \
             vm_version \
+            vm_version_with_snapshot \
             exec_callee \
             exec_caller_from_cell_data \
             exec_caller_from_witness \
@@ -81,6 +82,7 @@ cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
 current_cycles: current_cycles.c
 vm_version: vm_version.c
+vm_version_with_snapshot: vm_version_with_snapshot.c
 exec_callee: exec_callee.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c
 exec_caller_from_witness: exec_caller_from_witness.c
