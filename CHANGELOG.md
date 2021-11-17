@@ -1,3 +1,15 @@
+# [v0.101.1](https://github.com/nervosnetwork/ckb/compare/v0.101.0...v0.101.1) (2021-10-27)
+
+### Bug Fixes
+
+* #3129 **hardfork:** Tx-pool clear statistical data before re-run all transactions (@yangby-cryptape)
+* #3115: Remove tx hash from Relayer#tx_filter when it was rejected (@quake)
+* #3143: Limit proposal respond size (@driftluo)
+
+### Improvements
+
+* #3139: Remove needless collect (@zhangsoledad)
+
 # [v0.101.0](https://github.com/nervosnetwork/ckb/compare/v0.100.0...v0.101.0) (2021-10-20)
 
 ### Features
