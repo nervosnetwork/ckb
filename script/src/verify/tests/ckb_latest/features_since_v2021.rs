@@ -137,6 +137,78 @@ fn check_current_cycles() {
 }
 
 #[test]
+fn check_current_cycles_with_snapshot() {
+    let script_version = SCRIPT_VERSION;
+
+    let (current_cycles_cell, current_cycles_data_hash) =
+        load_cell_from_path("testdata/current_cycles_with_snapshot");
+
+    let current_cycles_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(current_cycles_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(current_cycles_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![current_cycles_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+
+    let max_cycles = Cycle::MAX;
+
+    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
+        verifier.set_skip_pause(true);
+        verifier.verify(max_cycles)
+    });
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+
+    if script_version < ScriptVersion::V1 {
+        return;
+    }
+
+    let cycles_once = result.unwrap();
+    let mut cycles = 0;
+
+    verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        loop {
+            let snap = init_snap.take().unwrap();
+            match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => {
+                    init_snap = Some(state.try_into().unwrap());
+                }
+                VerifyResult::Completed(cycle) => {
+                    assert!(
+                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
+                        "Any group execution is complete, this must be empty"
+                    );
+                    cycles = cycle;
+                    break;
+                }
+            }
+        }
+    });
+
+    assert_eq!(cycles, cycles_once);
+}
+
+#[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 

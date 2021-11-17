@@ -34,6 +34,7 @@ ALL_BINS := jalr_zero \
             cpop_lock \
             mop_adc_lock \
             current_cycles \
+            current_cycles_with_snapshot \
             vm_version \
             vm_version_with_snapshot \
             exec_callee \
@@ -81,6 +82,7 @@ jalr_zero: jalr_zero.S
 cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
 current_cycles: current_cycles.c
+current_cycles_with_snapshot: current_cycles_with_snapshot.c
 vm_version: vm_version.c
 vm_version_with_snapshot: vm_version_with_snapshot.c
 exec_callee: exec_callee.c
