@@ -211,7 +211,7 @@ pub struct TransactionSnapshot {
     /// remain script groups to verify
     pub remain: Vec<(ScriptGroupType, Byte32)>,
     /// vm snapshot
-    pub snap: Option<Snapshot>,
+    pub snap: Option<(Snapshot, Cycle)>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -300,12 +300,13 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
                 }
             }
             (
-                Some(make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                    ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
-                })?),
-                current_cycles.checked_add(vm_cycles).ok_or_else(|| {
-                    ScriptError::CyclesOverflow(current_cycles, vm_cycles).unknown_source()
-                })?,
+                Some((
+                    make_snapshot(&mut vm.machine.machine).map_err(|e| {
+                        ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                    })?,
+                    vm_cycles,
+                )),
+                current_cycles,
             )
         } else {
             (None, current_cycles)
