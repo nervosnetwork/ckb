@@ -556,6 +556,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         snap: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
+        let current_group_used = snap.snap.as_ref().map(|s| s.1).unwrap_or_default();
         let mut cycles = snap.current_cycles;
         let mut current_used = 0;
 
@@ -569,7 +570,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         // continue snapshot current script
         match self.verify_group_with_chunk(&current_group, limit_cycles, &snap.snap) {
             Ok(ChunkState::Completed(used_cycles)) => {
-                current_used = wrapping_cycles_add(current_used, used_cycles, &current_group)?;
+                current_used = wrapping_cycles_add(
+                    current_used,
+                    wrapping_cycles_sub(used_cycles, current_group_used, &current_group)?,
+                    &current_group,
+                )?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
             }
             Ok(ChunkState::Suspended(vm)) => {
@@ -849,7 +854,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         group: &'a ScriptGroup,
         max_cycles: Cycle,
-        snap: &Option<Snapshot>,
+        snap: &Option<(Snapshot, Cycle)>,
     ) -> Result<ChunkState<'a>, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -975,7 +980,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         script_group: &'a ScriptGroup,
         max_cycles: Cycle,
-        snap: &Option<Snapshot>,
+        snap: &Option<(Snapshot, Cycle)>,
     ) -> Result<ChunkState<'a>, ScriptError> {
         let mut machine = self.build_machine(script_group, max_cycles)?;
 
@@ -985,8 +990,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         };
 
         // we should not capture snapshot if load program failed by exceeded cycles
-        if let Some(sp) = snap {
+        if let Some((sp, current_cycle)) = snap {
             resume(&mut machine.machine, sp).map_err(map_vm_internal_error)?;
+            machine.machine.set_cycles(*current_cycle)
         } else {
             let program = self.extract_script(&script_group.script)?;
             let bytes = machine
@@ -1027,5 +1033,14 @@ fn wrapping_cycles_add(
     group: &ScriptGroup,
 ) -> Result<Cycle, TransactionScriptError> {
     lhs.checked_add(rhs)
+        .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
+}
+
+fn wrapping_cycles_sub(
+    lhs: Cycle,
+    rhs: Cycle,
+    group: &ScriptGroup,
+) -> Result<Cycle, TransactionScriptError> {
+    lhs.checked_sub(rhs)
         .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
 }
