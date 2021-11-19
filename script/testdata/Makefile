@@ -41,7 +41,8 @@ ALL_BINS := jalr_zero \
             exec_caller_from_cell_data \
             exec_caller_from_witness \
             exec_caller_big_offset_length \
-            load_is_even \
+            load_is_even_into_global \
+            load_is_even_with_snapshot \
             load_arithmetic
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
@@ -89,7 +90,8 @@ exec_callee: exec_callee.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c
 exec_caller_from_witness: exec_caller_from_witness.c
 exec_caller_big_offset_length: exec_caller_big_offset_length.c
-load_is_even: load_is_even.c
+load_is_even_into_global: load_is_even_into_global.c
+load_is_even_with_snapshot: load_is_even_with_snapshot.c
 is_even.lib: is_even.c
 add1.lib: add1.c
 sub1.lib: sub1.c

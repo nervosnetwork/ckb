@@ -744,7 +744,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
 }
 
 #[test]
-fn check_resume_from_snapshot_with_load_code_once() {
+fn load_code_into_global() {
     let script_version = SCRIPT_VERSION;
 
     let (dyn_lib_cell, dyn_lib_data_hash) = load_cell_from_path("testdata/is_even.lib");
@@ -760,7 +760,60 @@ fn check_resume_from_snapshot_with_load_code_once() {
             vec.pack()
         };
 
-        let (dyn_lock_cell, dyn_lock_data_hash) = load_cell_from_path("testdata/load_is_even");
+        let (dyn_lock_cell, dyn_lock_data_hash) =
+            load_cell_from_path("testdata/load_is_even_into_global");
+
+        let dyn_lock_script = Script::new_builder()
+            .hash_type(script_version.data_hash_type().into())
+            .code_hash(dyn_lock_data_hash)
+            .args(args)
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(dyn_lock_script)
+            .build();
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default().input(input).build();
+        let dummy_cell = create_dummy_cell(output);
+
+        ResolvedTransaction {
+            transaction,
+            resolved_cell_deps: vec![dyn_lock_cell, dyn_lib_cell],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        }
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
+    if script_version < ScriptVersion::V1 {
+        let vm_error = VmError::InvalidPermission;
+        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    }
+}
+
+#[test]
+fn load_code_with_snapshot() {
+    let script_version = SCRIPT_VERSION;
+
+    let (dyn_lib_cell, dyn_lib_data_hash) = load_cell_from_path("testdata/is_even.lib");
+
+    let rtx = {
+        let args: packed::Bytes = {
+            let number = 0x01u64; // a random odd value
+
+            let data_hash = dyn_lib_data_hash.raw_data();
+            let mut vec = Vec::with_capacity(8 + data_hash.len());
+            vec.extend_from_slice(&number.to_le_bytes());
+            vec.extend_from_slice(&data_hash);
+            vec.pack()
+        };
+
+        let (dyn_lock_cell, dyn_lock_data_hash) =
+            load_cell_from_path("testdata/load_is_even_with_snapshot");
 
         let dyn_lock_script = Script::new_builder()
             .hash_type(script_version.data_hash_type().into())
@@ -829,7 +882,7 @@ fn check_resume_from_snapshot_with_load_code_once() {
 }
 
 #[test]
-fn check_resume_from_snapshot_with_load_code_more_times() {
+fn load_code_with_snapshot_more_times() {
     let script_version = SCRIPT_VERSION;
 
     let (add1_cell, add1_data_hash) = load_cell_from_path("testdata/add1.lib");
