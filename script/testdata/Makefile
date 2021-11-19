@@ -31,6 +31,7 @@ LIB_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:2341ea4e98836b40c382
 # TODO How to build other binaries?
 # Such as `always_success`, `always_failure`, `verify` and `defected_binary`.
 ALL_BINS := jalr_zero \
+            cadd_hint_lock \
             cpop_lock \
             mop_adc_lock \
             current_cycles \
@@ -80,6 +81,11 @@ clean: clean-bins clean-libs
 	$(BIN_OBJCOPY) $(OBJCOPY_FLAGS) $@
 
 jalr_zero: jalr_zero.S
+cadd_hint_lock: cadd_hint_lock.S
+	$(BIN_AS) -march=rv64imc -o $@.o $<
+	$(BIN_LD) -o $@ $@.o
+	@rm $@.o
+	$(BIN_OBJCOPY) $(OBJCOPY_FLAGS) $@
 cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
 current_cycles: current_cycles.c

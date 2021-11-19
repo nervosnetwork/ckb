@@ -16,6 +16,46 @@ use crate::{
 };
 
 #[test]
+fn test_hint_instructions() {
+    let script_version = SCRIPT_VERSION;
+
+    let (always_success_cell, always_success_data_hash) =
+        load_cell_from_path("testdata/cadd_hint_lock");
+
+    let always_success_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(always_success_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(always_success_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![always_success_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
+    if script_version < ScriptVersion::V1 {
+        let vm_error = VmError::InvalidInstruction {
+            pc: 65_656,
+            instruction: 36_906,
+        };
+        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    }
+}
+
+#[test]
 fn test_b_extension() {
     let script_version = SCRIPT_VERSION;
 
