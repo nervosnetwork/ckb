@@ -28,8 +28,8 @@ use ckb_types::{
             TransactionsChecker,
         },
         hardfork::HardForkSwitch,
-        BlockView, Capacity, Cycle, EpochExt, EpochNumber, HeaderView, ScriptHashType,
-        TransactionView, UncleBlockView, Version,
+        BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
+        UncleBlockView, Version,
     },
     packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
     prelude::*,
@@ -683,21 +683,7 @@ impl TxPoolService {
 
     pub(crate) fn is_in_delay_window(&self, snapshot: &Snapshot) -> bool {
         let epoch = snapshot.tip_header().epoch();
-        let proposal_window = self.consensus.tx_proposal_window();
-        let epoch_length = epoch.length();
-        let index = epoch.index();
-
-        let epoch_number = epoch.number();
-
-        let rfc_0032 = self.consensus.hardfork_switch.rfc_0032();
-
-        // dev default is 0
-        if rfc_0032 != 0 && rfc_0032 != EpochNumber::MAX {
-            return (epoch_number + 1 == rfc_0032
-                && (proposal_window.farthest() + index) >= epoch_length)
-                || (epoch_number == rfc_0032 && index <= proposal_window.farthest());
-        }
-        false
+        self.consensus.is_in_delay_window(&epoch)
     }
 
     pub(crate) async fn after_process(
@@ -808,42 +794,40 @@ impl TxPoolService {
                         .write()
                         .await
                         .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
-                } else {
-                    if let Some((ret, snapshot)) = self
-                        ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
-                        .await
-                    {
-                        let with_vm_2021 = {
-                            let epoch = snapshot
-                                .tip_header()
-                                .epoch()
-                                .minimum_epoch_number_after_n_blocks(1);
-                            self.consensus
-                                .hardfork_switch
-                                .is_vm_version_1_and_syscalls_2_enabled(epoch)
-                        };
-                        match ret {
-                            Ok(_) => {
-                                self.send_result_to_relayer(TxVerificationResult::Ok {
-                                    original_peer: Some(orphan.peer),
-                                    with_vm_2021,
+                } else if let Some((ret, snapshot)) = self
+                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
+                    .await
+                {
+                    let with_vm_2021 = {
+                        let epoch = snapshot
+                            .tip_header()
+                            .epoch()
+                            .minimum_epoch_number_after_n_blocks(1);
+                        self.consensus
+                            .hardfork_switch
+                            .is_vm_version_1_and_syscalls_2_enabled(epoch)
+                    };
+                    match ret {
+                        Ok(_) => {
+                            self.send_result_to_relayer(TxVerificationResult::Ok {
+                                original_peer: Some(orphan.peer),
+                                with_vm_2021,
+                                tx_hash: orphan.tx.hash(),
+                            });
+                            self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
+                            orphan_queue.push_back(orphan.tx);
+                        }
+                        Err(reject) => {
+                            if !is_missing_input(&reject) {
+                                self.send_result_to_relayer(TxVerificationResult::Reject {
                                     tx_hash: orphan.tx.hash(),
                                 });
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                                orphan_queue.push_back(orphan.tx);
                             }
-                            Err(reject) => {
-                                if !is_missing_input(&reject) {
-                                    self.send_result_to_relayer(TxVerificationResult::Reject {
-                                        tx_hash: orphan.tx.hash(),
-                                    });
-                                    self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                                }
-                                if reject.is_malformed_tx() {
-                                    self.ban_malformed(orphan.peer, format!("reject {}", reject));
-                                }
-                                break;
+                            if reject.is_malformed_tx() {
+                                self.ban_malformed(orphan.peer, format!("reject {}", reject));
                             }
+                            break;
                         }
                     }
                 }
@@ -1226,11 +1210,9 @@ impl TxPoolService {
         let mut count = 0usize;
         for tx in txs {
             let tx_hash = tx.hash();
-            if let Some((ret, _)) = self._process_tx(tx, None).await {
-                if let Err(err) = ret {
-                    error!("failed to process {:#x}, error: {:?}", tx_hash, err);
-                    count += 1;
-                }
+            if let Some((Err(err), _)) = self._process_tx(tx, None).await {
+                error!("failed to process {:#x}, error: {:?}", tx_hash, err);
+                count += 1;
             }
         }
         if count != 0 {
