@@ -9,8 +9,9 @@ use crate::pool::TxPool;
 use crate::service::{TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
-    check_tx_cycle_limit, check_tx_fee, check_tx_size_limit, check_txid_collision,
-    is_missing_input, non_contextual_verify, time_relative_verify, verify_rtx,
+    after_delay_window, check_tx_cycle_limit, check_tx_fee, check_tx_size_limit,
+    check_txid_collision, is_missing_input, non_contextual_verify, time_relative_verify,
+    verify_rtx,
 };
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
@@ -48,6 +49,8 @@ use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
 use std::{cmp, iter};
 use tokio::task::block_in_place;
+
+const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -633,21 +636,23 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        let (ret, snapshot) = self._resumeble_process_tx(tx.clone(), remote).await;
-
-        match ret {
-            Ok(processed) => {
-                if let ProcessResult::Completed(completed) = processed {
-                    self.after_process(tx, remote, &snapshot, &Ok(completed))
-                        .await;
+        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
+            match ret {
+                Ok(processed) => {
+                    if let ProcessResult::Completed(completed) = processed {
+                        self.after_process(tx, remote, &snapshot, &Ok(completed))
+                            .await;
+                    }
+                    Ok(())
                 }
-                Ok(())
+                Err(e) => {
+                    self.after_process(tx, remote, &snapshot, &Err(e.clone()))
+                        .await;
+                    Err(e)
+                }
             }
-            Err(e) => {
-                self.after_process(tx, remote, &snapshot, &Err(e.clone()))
-                    .await;
-                Err(e)
-            }
+        } else {
+            Ok(())
         }
     }
 
@@ -663,11 +668,22 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        let (ret, snapshot) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await;
+        if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
+            self.after_process(tx, remote, &snapshot, &ret).await;
 
-        self.after_process(tx, remote, &snapshot, &ret).await;
+            ret
+        } else {
+            // currently, the returned cycles is not been used, mock 0 if delay
+            Ok(Completed {
+                cycles: 0,
+                fee: Capacity::zero(),
+            })
+        }
+    }
 
-        ret
+    pub(crate) fn is_in_delay_window(&self, snapshot: &Snapshot) -> bool {
+        let epoch = snapshot.tip_header().epoch();
+        self.consensus.is_in_delay_window(&epoch)
     }
 
     pub(crate) async fn after_process(
@@ -778,10 +794,10 @@ impl TxPoolService {
                         .write()
                         .await
                         .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
-                } else {
-                    let (ret, snapshot) = self
-                        ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
-                        .await;
+                } else if let Some((ret, snapshot)) = self
+                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
+                    .await
+                {
                     let with_vm_2021 = {
                         let epoch = snapshot
                             .tip_header()
@@ -854,13 +870,21 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> (Result<ProcessResult, Reject>, Arc<Snapshot>) {
+    ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
         let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
 
         let cached = self.fetch_tx_verify_cache(&tx_hash).await;
         let tip_header = snapshot.tip_header();
@@ -881,7 +905,7 @@ impl TxPoolService {
                     *completed
                 }
                 CacheEntry::Suspended(_) => {
-                    return (Ok(ProcessResult::Suspended), snapshot);
+                    return Some((Ok(ProcessResult::Suspended), snapshot));
                 }
             }
         } else {
@@ -927,7 +951,7 @@ impl TxPoolService {
                         .enqueue_suspended_tx(rtx.transaction.clone(), cached, remote)
                         .await;
                     try_or_return_with_snapshot!(ret, snapshot);
-                    return (Ok(ProcessResult::Suspended), snapshot);
+                    return Some((Ok(ProcessResult::Suspended), snapshot));
                 }
                 CacheEntry::Completed(completed) => completed,
             }
@@ -947,7 +971,7 @@ impl TxPoolService {
             });
         }
 
-        (Ok(ProcessResult::Completed(completed)), submit_snapshot)
+        Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
     }
 
     pub(crate) async fn is_chunk_full(&self) -> bool {
@@ -974,12 +998,20 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         declared_cycles: Option<Cycle>,
-    ) -> (Result<Completed, Reject>, Arc<Snapshot>) {
+    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
 
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
@@ -991,10 +1023,10 @@ impl TxPoolService {
 
         if let Some(declared) = declared_cycles {
             if declared != verified.cycles {
-                return (
+                return Some((
                     Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
                     snapshot,
-                );
+                ));
             }
         }
 
@@ -1012,7 +1044,7 @@ impl TxPoolService {
             });
         }
 
-        (Ok(verified), submit_snapshot)
+        Some((Ok(verified), submit_snapshot))
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -1029,6 +1061,8 @@ impl TxPoolService {
             check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
         let hardfork_during_attach =
             check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
+
+        let new_tip_after_delay = after_delay_window(&snapshot);
         let epoch_of_next_block = snapshot
             .tip_header()
             .epoch()
@@ -1110,6 +1144,22 @@ impl TxPoolService {
         }
 
         {
+            let delay_txs = if !self.after_delay() && new_tip_after_delay {
+                let mut delay = self.delay.write().await;
+                let txs = delay.values().cloned().collect::<Vec<_>>();
+                delay.clear();
+                self.set_after_delay_true();
+                Some(txs)
+            } else {
+                None
+            };
+
+            if let Some(txs) = delay_txs {
+                self.try_process_txs(txs).await;
+            }
+        }
+
+        {
             let mut orphan = self.orphan.write().await;
             orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
@@ -1160,8 +1210,7 @@ impl TxPoolService {
         let mut count = 0usize;
         for tx in txs {
             let tx_hash = tx.hash();
-            let (ret, _) = self._process_tx(tx, None).await;
-            if let Err(err) = ret {
+            if let Some((Err(err), _)) = self._process_tx(tx, None).await {
                 error!("failed to process {:#x}, error: {:?}", tx_hash, err);
                 count += 1;
             }

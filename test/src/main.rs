@@ -525,6 +525,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmVersion),
         Box::new(CheckVmBExtension),
         Box::new(ImmatureHeaderDeps),
+        Box::new(DelayTxs),
     ];
     specs.shuffle(&mut thread_rng());
     specs
