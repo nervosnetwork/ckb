@@ -1,10 +1,19 @@
+/*  Script Description:
+ *  - Args:
+ *    - A little endian unsigned integer: `number`.
+ *    - The `code_hash`(`data_hash`) of a shared library which contains the method `is_even`.
+ *  - Returns `CKB_SUCCESS` if and only if any follow conditions satisfied:
+ *    - `number` is zero.
+ *    - `number` is not even.
+ */
+
 #include "ckb_dlfcn.h"
 #include "ckb_syscalls.h"
-#include "protocol.h"
+#include "blockchain.h"
 
-#ifndef DEBUG
+#ifdef DEBUG
 #include <stdio.h>
-
+#else
 #define ckb_debug(...)
 #define sprintf(...)
 #endif

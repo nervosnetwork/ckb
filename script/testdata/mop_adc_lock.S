@@ -2,14 +2,6 @@
  *  - No Argsj
  *  - Returns CKB_SUCCESS always.
  *  - Copy from https://github.com/nervosnetwork/ckb-vm/blob/edb5b83084c3b3b978e26298151ac72a10769fd6/tests/programs/mop_adc.S.
- *  Compile Environment:
- *  - Toolchains: nervos/ckb-riscv-gnu-toolchain@sha256:7b168b4b109a0f741078a71b7c4dddaf1d283a5244608f7851f5714fbad273ba
- *  - Commands:
- *    ```shell
- *    riscv64-unknown-elf-as -o mop_adc_lock.o mop_adc_lock.S
- *    riscv64-unknown-elf-ld -o mop_adc_lock mop_adc_lock.o
- *    riscv64-unknown-elf-objcopy --strip-debug --strip-all mop_adc_lock
- *    ```
  */
 
 .global _start

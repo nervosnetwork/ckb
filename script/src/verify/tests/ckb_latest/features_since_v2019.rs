@@ -7,8 +7,9 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
     h256,
-    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
+    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };
+use ckb_vm::Error as VmError;
 use std::io::Read;
 
 use super::SCRIPT_VERSION;
@@ -30,10 +31,8 @@ fn check_always_success_hash() {
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
 
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.clone(),
         always_success_cell_data.to_owned(),
@@ -98,9 +97,7 @@ fn check_signature() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -179,9 +176,7 @@ fn check_signature_referenced_via_type_hash() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -271,9 +266,7 @@ fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -335,9 +328,7 @@ fn check_invalid_signature() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -387,9 +378,7 @@ fn check_invalid_dep_reference() {
         .capacity(capacity_bytes!(100).pack())
         .lock(script)
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -427,9 +416,7 @@ fn check_output_contract() {
         .capacity(capacity_bytes!(100).pack())
         .lock(always_success_script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.clone(),
         always_success_cell_data.to_owned(),
@@ -510,9 +497,7 @@ fn check_invalid_output_contract() {
         .capacity(capacity_bytes!(100).pack())
         .lock(always_success_script.clone())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
     let always_success_cell = CellMetaBuilder::from_cell_output(
         always_success_cell.to_owned(),
         always_success_cell_data.to_owned(),
@@ -609,9 +594,7 @@ fn check_same_lock_and_type_script_are_executed_twice() {
         .lock(script.clone())
         .type_(Some(script).pack())
         .build();
-    let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
-        .transaction_info(default_transaction_info())
-        .build();
+    let dummy_cell = create_dummy_cell(output);
 
     let rtx = ResolvedTransaction {
         transaction,
@@ -1117,4 +1100,84 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx() {
     let cycle = result.unwrap();
     assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
     assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+}
+
+fn create_rtx_to_load_code_to_stack_then_reuse(
+    script_version: ScriptVersion,
+    flag: u8,
+    size: u64,
+) -> ResolvedTransaction {
+    let (dyn_lib_cell, dyn_lib_data_hash) = load_cell_from_path("testdata/is_even.lib");
+
+    let args: packed::Bytes = {
+        let data_hash = dyn_lib_data_hash.raw_data();
+        let mut vec = Vec::with_capacity(1 + 8 + data_hash.len());
+        vec.extend_from_slice(&flag.to_le_bytes());
+        vec.extend_from_slice(&size.to_le_bytes());
+        vec.extend_from_slice(&data_hash);
+        vec.pack()
+    };
+
+    let (dyn_lock_cell, dyn_lock_data_hash) =
+        load_cell_from_path("testdata/load_code_to_stack_then_reuse");
+
+    let dyn_lock_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(dyn_lock_data_hash)
+        .args(args)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(dyn_lock_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![dyn_lock_cell, dyn_lib_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    }
+}
+
+#[test]
+fn load_code_to_stack_then_reuse_case1_load_and_write() {
+    let script_version = SCRIPT_VERSION;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let rtx = create_rtx_to_load_code_to_stack_then_reuse(script_version, 0b111, 40960);
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_err());
+    let vm_error = VmError::InvalidPermission;
+    let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+    assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+}
+
+#[test]
+fn load_code_to_stack_then_reuse_case2_but_not_overlap() {
+    let script_version = SCRIPT_VERSION;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let rtx = create_rtx_to_load_code_to_stack_then_reuse(script_version, 0b111, 4);
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn load_code_to_stack_then_reuse_case3_init_but_not_load() {
+    let script_version = SCRIPT_VERSION;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let rtx = create_rtx_to_load_code_to_stack_then_reuse(script_version, 0b101, 40960);
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn load_code_to_stack_then_reuse_case4_load_but_not_write() {
+    let script_version = SCRIPT_VERSION;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let rtx = create_rtx_to_load_code_to_stack_then_reuse(script_version, 0x011, 40960);
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_ok());
 }

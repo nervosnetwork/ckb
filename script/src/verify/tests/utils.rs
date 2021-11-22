@@ -48,6 +48,29 @@ pub(crate) fn open_cell_always_failure() -> File {
     File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/always_failure")).unwrap()
 }
 
+pub(crate) fn load_cell_from_path(path_str: &str) -> (CellMeta, Byte32) {
+    let cell_data = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(path_str)).unwrap();
+    load_cell_from_slice(&cell_data)
+}
+
+pub(crate) fn load_cell_from_slice(slice: &[u8]) -> (CellMeta, Byte32) {
+    let cell_data = Bytes::copy_from_slice(slice);
+    let cell_output = CellOutput::new_builder()
+        .capacity(Capacity::bytes(cell_data.len()).unwrap().pack())
+        .build();
+    let cell_meta = CellMetaBuilder::from_cell_output(cell_output, cell_data)
+        .transaction_info(default_transaction_info())
+        .build();
+    let data_hash = cell_meta.mem_cell_data_hash.as_ref().unwrap().to_owned();
+    (cell_meta, data_hash)
+}
+
+pub(crate) fn create_dummy_cell(output: CellOutput) -> CellMeta {
+    CellMetaBuilder::from_cell_output(output, Bytes::new())
+        .transaction_info(default_transaction_info())
+        .build()
+}
+
 pub(crate) fn random_keypair() -> (Privkey, Pubkey) {
     Generator::random_keypair()
 }
