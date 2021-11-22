@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-CKB_BENCH_PATH="$GITHUB_WORKSPACE/ckb-integration-test/ckb-bench"
+SCRIPT_PATH="$GITHUB_WORKSPACE/ckb-integration-test/ckb-bench/devtools/ci"
 JOB_ID="benchmark-$(date +'%Y-%m-%d')-in-10h"
 JOB_DIRECTORY="$CKB_BENCH_PATH/job/$JOB_ID"
 ANSIBLE_DIR="$GITHUB_WORKSPACE/ansible"
