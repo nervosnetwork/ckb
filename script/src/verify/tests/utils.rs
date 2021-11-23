@@ -23,7 +23,7 @@ use ckb_types::{
     H256,
 };
 use faster_hex::hex_encode;
-use std::{fs::File, path::Path};
+use std::{convert::TryInto as _, fs::File, path::Path};
 use tempfile::TempDir;
 
 use crate::verify::*;
@@ -158,6 +158,66 @@ impl TransactionScriptsVerifierWithEnv {
         max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
         self.verify_map(version, rtx, |verifier| verifier.verify(max_cycles))
+    }
+
+    pub(crate) fn verify_without_pause(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, Error> {
+        self.verify_map(version, rtx, |mut verifier| {
+            verifier.set_skip_pause(true);
+            verifier.verify(max_cycles)
+        })
+    }
+
+    pub(crate) fn verify_until_completed(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+    ) -> Result<(Cycle, usize), Error> {
+        let max_cycles = Cycle::MAX;
+        self.verify_map(version, rtx, |verifier| {
+            let cycles;
+            let mut times = 0usize;
+            let mut init_snap: Option<TransactionSnapshot>;
+
+            times += 1;
+            match verifier.resumable_verify(max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => {
+                    init_snap = Some(state.try_into().unwrap());
+                }
+                VerifyResult::Completed(cycle) => {
+                    assert!(
+                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
+                        "Any group execution is complete, this must be empty"
+                    );
+                    cycles = cycle;
+                    return Ok((cycles, times));
+                }
+            }
+
+            loop {
+                times += 1;
+                let snap = init_snap.take().unwrap();
+                match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        init_snap = Some(state.try_into().unwrap());
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        assert!(
+                            verifier.tracing_data_as_code_pages.borrow().is_empty(),
+                            "Any group execution is complete, this must be empty"
+                        );
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+
+            Ok((cycles, times))
+        })
     }
 
     pub(crate) fn verify_map<R, F>(

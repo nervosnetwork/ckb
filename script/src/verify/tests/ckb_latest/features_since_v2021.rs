@@ -207,10 +207,7 @@ fn check_current_cycles_with_snapshot() {
 
     let max_cycles = Cycle::MAX;
 
-    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
-        verifier.set_skip_pause(true);
-        verifier.verify(max_cycles)
-    });
+    let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
 
     if script_version < ScriptVersion::V1 {
@@ -218,34 +215,11 @@ fn check_current_cycles_with_snapshot() {
     }
 
     let cycles_once = result.unwrap();
-    let mut cycles = 0;
-
-    verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
-
-        if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
-        }
-
-        loop {
-            let snap = init_snap.take().unwrap();
-            match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
-                }
-                VerifyResult::Completed(cycle) => {
-                    assert!(
-                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                        "Any group execution is complete, this must be empty"
-                    );
-                    cycles = cycle;
-                    break;
-                }
-            }
-        }
-    });
-
+    let (cycles, chunks_count) = verifier
+        .verify_until_completed(script_version, &rtx)
+        .unwrap();
     assert_eq!(cycles, cycles_once);
+    assert!(chunks_count > 0);
 }
 
 #[test]
@@ -310,10 +284,7 @@ fn check_vm_version_with_snapshot() {
 
     let max_cycles = Cycle::MAX;
 
-    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
-        verifier.set_skip_pause(true);
-        verifier.verify(max_cycles)
-    });
+    let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
 
     if script_version < ScriptVersion::V1 {
@@ -321,34 +292,11 @@ fn check_vm_version_with_snapshot() {
     }
 
     let cycles_once = result.unwrap();
-    let mut cycles = 0;
-
-    verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
-
-        if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
-        }
-
-        loop {
-            let snap = init_snap.take().unwrap();
-            match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
-                }
-                VerifyResult::Completed(cycle) => {
-                    assert!(
-                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                        "Any group execution is complete, this must be empty"
-                    );
-                    cycles = cycle;
-                    break;
-                }
-            }
-        }
-    });
-
+    let (cycles, chunks_count) = verifier
+        .verify_until_completed(script_version, &rtx)
+        .unwrap();
     assert_eq!(cycles, cycles_once);
+    assert!(chunks_count > 0);
 }
 
 #[test]
@@ -1024,11 +972,7 @@ fn load_code_with_snapshot_more_times() {
         return;
     }
 
-    let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
-        verifier.set_skip_pause(true);
-        verifier.verify(max_cycles)
-    });
-
+    let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
     let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
 }
