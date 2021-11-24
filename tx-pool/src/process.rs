@@ -686,6 +686,15 @@ impl TxPoolService {
         self.consensus.is_in_delay_window(&epoch)
     }
 
+    pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
+        let mut tx_pool = self.tx_pool.write().await;
+        if let Some(ref mut recent_reject) = tx_pool.recent_reject {
+            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
+                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+            }
+        }
+    }
+
     pub(crate) async fn after_process(
         &self,
         tx: TransactionView,
@@ -724,6 +733,9 @@ impl TxPoolService {
                         if reject.is_malformed_tx() {
                             self.ban_malformed(peer, format!("reject {}", reject));
                         }
+                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                            self.put_recent_reject(&tx_hash, &reject).await;
+                        }
                         self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
                     }
                 }
@@ -746,8 +758,10 @@ impl TxPoolService {
                             tx_hash,
                         });
                     }
-                    Err(_err) => {
-                        // ignore
+                    Err(reject) => {
+                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                            self.put_recent_reject(&tx_hash, &reject).await;
+                        }
                     }
                 }
             }

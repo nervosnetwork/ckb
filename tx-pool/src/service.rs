@@ -27,7 +27,7 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashMap;
-use ckb_verification::cache::{Completed, TxVerificationCache};
+use ckb_verification::cache::TxVerificationCache;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -73,7 +73,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxResult = Result<Completed, Reject>;
+pub(crate) type SubmitTxResult = Result<(), Reject>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -765,7 +765,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: tx,
         }) => {
-            let result = service.process_tx(tx, None).await;
+            let result = service.resumeble_process_tx(tx, None).await;
             if let Err(e) = responder.send(result) {
                 error!("responder send submit_tx result failed {:?}", e);
             };
