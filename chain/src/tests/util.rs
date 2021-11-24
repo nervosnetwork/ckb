@@ -1,4 +1,5 @@
 use crate::chain::{ChainController, ChainService};
+use ckb_app_config::TxPoolConfig;
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
@@ -78,6 +79,13 @@ pub(crate) fn create_always_success_out_point() -> OutPoint {
 }
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
+    start_chain_with_tx_pool_config(consensus, TxPoolConfig::default())
+}
+
+pub(crate) fn start_chain_with_tx_pool_config(
+    consensus: Option<Consensus>,
+    tx_pool_config: TxPoolConfig,
+) -> (ChainController, Shared, HeaderView) {
     let builder = SharedBuilder::with_temp_db();
     let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
@@ -123,6 +131,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
 
     let (shared, mut pack) = builder
         .consensus(consensus)
+        .tx_pool_config(tx_pool_config)
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
