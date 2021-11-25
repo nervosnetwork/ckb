@@ -9,7 +9,10 @@ use ckb_launcher::SharedBuilder;
 use ckb_shared::Shared;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_tx_pool::{
+    block_assembler::{BlockAssembler, CandidateUncles},
+    PlugTarget, TxEntry,
+};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -272,6 +275,104 @@ fn test_prepare_uncles() {
     }
     // block number 5, epoch 1, block_template should not include last epoch uncles
     assert!(block_template.uncles.is_empty());
+}
+
+#[test]
+fn test_candidate_uncles_retain() {
+    let mut consensus = Consensus::default();
+    consensus.genesis_epoch_ext.set_length(5);
+    let epoch = consensus.genesis_epoch_ext().clone();
+    let mut candidate_uncles = CandidateUncles::new();
+
+    let (chain_controller, shared) = start_chain(Some(consensus));
+
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+
+    let block0_0 = gen_block(&genesis, 11, &epoch);
+    let block0_1 = gen_block(&genesis, 10, &epoch);
+    let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
+
+    chain_controller
+        .internal_process_block(Arc::new(block0_1), Switch::DISABLE_ALL)
+        .unwrap();
+    chain_controller
+        .internal_process_block(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
+        .unwrap();
+    chain_controller
+        .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
+        .unwrap();
+
+    candidate_uncles.insert(block0_0.as_uncle());
+
+    {
+        let snapshot = shared.snapshot();
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&block1_1.header(), &shared.store().as_data_provider())
+            .unwrap()
+            .epoch();
+        let uncles = BlockAssembler::prepare_uncles(
+            &snapshot,
+            block1_1.header().number() + 1,
+            &epoch,
+            &mut candidate_uncles,
+        );
+
+        assert_eq!(uncles[0].hash(), block0_0.hash());
+    }
+
+    let block1_0 = gen_block(&block0_0.header(), 12, &epoch);
+    let block2_0 = gen_block(&block1_0.header(), 13, &epoch);
+    for block in vec![block1_0, block2_0.clone()] {
+        chain_controller
+            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .unwrap();
+    }
+
+    {
+        let snapshot = shared.snapshot();
+        let uncles = BlockAssembler::prepare_uncles(
+            &snapshot,
+            block2_0.header().number() + 1,
+            &epoch,
+            &mut candidate_uncles,
+        );
+        assert!(uncles.is_empty());
+        // candidate uncles should retain
+        assert!(candidate_uncles.contains(&block0_0.as_uncle()));
+    }
+
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&block2_0.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
+
+    let block3_0 = gen_block(&block2_0.header(), 10, &epoch);
+    chain_controller
+        .internal_process_block(Arc::new(block3_0.clone()), Switch::DISABLE_ALL)
+        .unwrap();
+
+    {
+        let snapshot = shared.snapshot();
+        let epoch = shared
+            .consensus()
+            .next_epoch_ext(&block3_0.header(), &shared.store().as_data_provider())
+            .unwrap()
+            .epoch();
+        let uncles = BlockAssembler::prepare_uncles(
+            &snapshot,
+            block3_0.header().number() + 1,
+            &epoch,
+            &mut candidate_uncles,
+        );
+        assert!(uncles.is_empty());
+        // candidate uncles should remove by next epoch
+        assert!(candidate_uncles.is_empty());
+    }
 }
 
 fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> TransactionView {
@@ -582,7 +683,7 @@ fn test_package_multi_best_scores() {
 }
 
 #[test]
-fn test_package_low_fee_decendants() {
+fn test_package_low_fee_descendants() {
     let mut consensus = Consensus::default();
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
@@ -720,7 +821,7 @@ fn test_blank_template() {
         .unwrap()
         .unwrap();
 
-    // blank template retured if tx-pool is not updated
+    // blank template returned if tx-pool is not updated
     assert!(block_template.transactions.is_empty());
     assert!(block_template.proposals.is_empty());
     assert!(block_template.parent_hash == tip_hash.unpack());
