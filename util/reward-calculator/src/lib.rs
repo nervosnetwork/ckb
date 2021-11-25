@@ -2,7 +2,7 @@
 
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
-use ckb_error::Error;
+use ckb_dao_utils::DaoError;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -45,7 +45,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     pub fn block_reward_to_finalize(
         &self,
         parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error> {
+    ) -> Result<(Script, BlockReward), DaoError> {
         let block_number = parent.number() + 1;
         let target_number = self
             .consensus
@@ -63,7 +63,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     pub fn block_reward_for_target(
         &self,
         target: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error> {
+    ) -> Result<(Script, BlockReward), DaoError> {
         let finalization_parent_number =
             target.number() + self.consensus.finalization_delay_length() - 1;
         let parent = self
@@ -78,7 +78,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         &self,
         target: &HeaderView,
         parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error> {
+    ) -> Result<(Script, BlockReward), DaoError> {
         let target_lock = CellbaseWitness::from_slice(
             &self
                 .store
@@ -145,7 +145,6 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
                             .and_then(|miner| acc.safe_add(miner))
                     })
             })
-            .map_err(Into::into)
     }
 
     /// Earliest proposer get 40% of tx fee as reward when tx committed
@@ -254,7 +253,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), Error> {
+    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), DaoError> {
         let data_loader = self.store.as_data_provider();
         let calculator = DaoCalculator::new(&self.consensus, &data_loader);
         let primary_block_reward = calculator.primary_block_reward(target)?;

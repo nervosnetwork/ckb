@@ -2,6 +2,7 @@ use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
 use ckb_dao::DaoCalculator;
+use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_logger::error_target;
 use ckb_metrics::{metrics, Timer};
@@ -43,7 +44,10 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
         VerifyContext { store, consensus }
     }
 
-    fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
+    fn finalize_block_reward(
+        &self,
+        parent: &HeaderView,
+    ) -> Result<(Script, BlockReward), DaoError> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
     }
 }

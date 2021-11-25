@@ -5,6 +5,7 @@ use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
+use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{
@@ -99,7 +100,9 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .next_epoch_ext(parent, &snapshot.as_data_provider())
         .unwrap()
         .epoch();
-    let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
+    let (_, reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
+        .block_reward_to_finalize(parent)
+        .unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total, shared.consensus());
 
     let dao = {

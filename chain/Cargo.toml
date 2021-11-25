@@ -31,6 +31,7 @@ faux = { version = "^0.1", optional = true }
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.102.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.102.0-pre" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.102.0-pre" }
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.102.0-pre", features = ["internal"] }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.102.0-pre" }
 ckb-network = { path = "../network", version = "= 0.102.0-pre" }
