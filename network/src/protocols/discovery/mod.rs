@@ -146,7 +146,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 state.remote_addr.change_to_listen();
                             }
 
-                            let max = ::std::cmp::max(MAX_ADDR_TO_SEND, count as usize);
+                            let max = ::std::cmp::min(MAX_ADDR_TO_SEND, count as usize);
                             if items.len() > max {
                                 items = items
                                     .choose_multiple(&mut rand::thread_rng(), max)
