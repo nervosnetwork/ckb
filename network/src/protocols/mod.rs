@@ -243,8 +243,6 @@ impl ServiceProtocol for CKBHandler {
             network_state: Arc::clone(&self.network_state),
             p2p_control: context.control().to_owned(),
         };
-        nc.set_notify(Duration::from_secs(6), std::u64::MAX)
-            .expect("set_notify at init should be ok");
         self.handler.init(Arc::new(nc));
     }
 
@@ -324,17 +322,12 @@ impl ServiceProtocol for CKBHandler {
         if !self.network_state.is_active() {
             return;
         }
-
-        if token == std::u64::MAX {
-            trace!("protocol handler heart beat {}", self.proto_id);
-        } else {
-            let nc = DefaultCKBProtocolContext {
-                proto_id: self.proto_id,
-                network_state: Arc::clone(&self.network_state),
-                p2p_control: context.control().to_owned(),
-            };
-            self.handler.notify(Arc::new(nc), token);
-        }
+        let nc = DefaultCKBProtocolContext {
+            proto_id: self.proto_id,
+            network_state: Arc::clone(&self.network_state),
+            p2p_control: context.control().to_owned(),
+        };
+        self.handler.notify(Arc::new(nc), token);
     }
 
     fn poll(
