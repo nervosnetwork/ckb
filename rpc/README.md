@@ -3885,10 +3885,10 @@ Reference to a cell via transaction hash and output index.
 
 Transaction output validators that prevent common mistakes.
 
-`OutputsValidator` is equivalent to `"well_known_scripts_only" | "passthrough"`.
+`OutputsValidator` is equivalent to `"passthrough" | "well_known_scripts_only"`.
 
-*   "well_known_scripts_only": The default validator which restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
-*   "passthrough": bypass the validator, thus allow any kind of transaction outputs.
+*   "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
+*   "well_known_scripts_only": restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
 
 
 ### Type `PeerSyncState`

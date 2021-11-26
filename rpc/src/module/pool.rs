@@ -364,15 +364,13 @@ impl PoolRpc for PoolRpcImpl {
         let tx: core::TransactionView = tx.into_view();
 
         if let Err(e) = match outputs_validator {
-            Some(OutputsValidator::WellKnownScriptsOnly) | None => {
-                WellKnownScriptsOnlyValidator::new(
-                    self.shared.consensus(),
-                    &self.well_known_lock_scripts,
-                    &self.well_known_type_scripts,
-                )
-                .validate(&tx)
-            }
-            Some(OutputsValidator::Passthrough) => Ok(()),
+            None | Some(OutputsValidator::Passthrough) => Ok(()),
+            Some(OutputsValidator::WellKnownScriptsOnly) => WellKnownScriptsOnlyValidator::new(
+                self.shared.consensus(),
+                &self.well_known_lock_scripts,
+                &self.well_known_type_scripts,
+            )
+            .validate(&tx),
         } {
             return Err(RPCError::custom_with_data(
                 RPCError::PoolRejectedTransactionByOutputsValidator,
