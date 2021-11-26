@@ -22,27 +22,27 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
+fn load_cell_from_path(path: &str) -> (CellOutput, Bytes, Script) {
+    let mut file = File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+    let data: Bytes = buffer.into();
+
+    let cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(data.len()).unwrap().pack())
+        .build();
+
+    let script = Script::new_builder()
+        .hash_type(ScriptHashType::Data.into())
+        .code_hash(CellOutput::calc_data_hash(&data))
+        .build();
+
+    (cell, data, script)
+}
+
 lazy_static! {
-    static ref SUCCESS_CELL: (CellOutput, Bytes, Script) = {
-        let mut file = File::open(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../script/testdata/always_success"),
-        )
-        .unwrap();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-        let data: Bytes = buffer.into();
-
-        let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-
-        let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data.into())
-            .code_hash(CellOutput::calc_data_hash(&data))
-            .build();
-
-        (cell, data, script)
-    };
+    static ref SUCCESS_CELL: (CellOutput, Bytes, Script) =
+        load_cell_from_path("../../script/testdata/always_success");
 }
 
 // #include "ckb_syscalls.h"
@@ -62,25 +62,8 @@ lazy_static! {
 //   return 0;
 // }
 lazy_static! {
-    static ref LOAD_INPUT_DATA_HASH: (CellOutput, Bytes, Script) = {
-        let mut file =
-            File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/load_input_data_hash"))
-                .unwrap();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-        let data: Bytes = buffer.into();
-
-        let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-
-        let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data.into())
-            .code_hash(CellOutput::calc_data_hash(&data))
-            .build();
-
-        (cell, data, script)
-    };
+    static ref LOAD_INPUT_DATA_HASH: (CellOutput, Bytes, Script) =
+        load_cell_from_path("vendor/load_input_data_hash");
 }
 
 /// Script for loading input data hash from input data.
@@ -105,25 +88,8 @@ pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
 //   return 0;
 // }
 lazy_static! {
-    static ref LOAD_INPUT_ONE_BYTE: (CellOutput, Bytes, Script) = {
-        let mut file =
-            File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/load_input_one_byte"))
-                .unwrap();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-        let data: Bytes = buffer.into();
-
-        let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-
-        let script = Script::new_builder()
-            .hash_type(ScriptHashType::Data.into())
-            .code_hash(CellOutput::calc_data_hash(&data))
-            .build();
-
-        (cell, data, script)
-    };
+    static ref LOAD_INPUT_ONE_BYTE: (CellOutput, Bytes, Script) =
+        load_cell_from_path("vendor/load_input_one_byte");
 }
 
 /// Script for loading one byte from input data.
@@ -136,6 +102,27 @@ pub fn load_input_one_byte_cell() -> &'static (CellOutput, Bytes, Script) {
 #[doc(hidden)]
 pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL
+}
+
+lazy_static! {
+    static ref IS_EVEN_LIB: (CellOutput, Bytes, Script) =
+        load_cell_from_path("../../script/testdata/is_even.lib");
+}
+
+#[doc(hidden)]
+pub fn is_even_lib() -> &'static (CellOutput, Bytes, Script) {
+    &IS_EVEN_LIB
+}
+
+// from script/testdata without ty_pause
+lazy_static! {
+    static ref LOAD_IS_EVEN: (CellOutput, Bytes, Script) =
+        load_cell_from_path("vendor/load_is_even_with_snapshot");
+}
+
+#[doc(hidden)]
+pub fn load_is_even() -> &'static (CellOutput, Bytes, Script) {
+    &LOAD_IS_EVEN
 }
 
 /// Build and return an always success consensus instance.
