@@ -46,31 +46,39 @@ impl KeyValueBackend for RocksDBBackend {
             } else {
                 builder.tempdir()
             };
-            if let Ok(cache_dir) = cache_dir_res {
-                // We minimize memory usage at all costs here.
-                // If we want to use more memory, we should increase the limit of KeyValueMemory.
-                let opts = {
-                    let mut block_opts = BlockBasedOptions::default();
-                    block_opts.disable_cache();
-                    let mut opts = Options::default();
-                    opts.create_if_missing(true);
-                    opts.set_block_based_table_factory(&block_opts);
-                    opts.set_write_buffer_size(4 * 1024 * 1024);
-                    opts.set_max_write_buffer_number(2);
-                    opts.set_min_write_buffer_number_to_merge(1);
-                    opts
-                };
-                if let Ok(db) = DB::open(&opts, cache_dir.path()) {
-                    debug!(
-                        "open a key-value database({}) to save header map into disk",
-                        cache_dir.path().to_str().unwrap_or("")
-                    );
-                    self.resource.replace((cache_dir, db));
-                } else {
-                    panic!("failed to open a key-value database to save header map into disk");
+            match cache_dir_res {
+                Ok(cache_dir) => {
+                    // We minimize memory usage at all costs here.
+                    // If we want to use more memory, we should increase the limit of KeyValueMemory.
+                    let opts = {
+                        let mut block_opts = BlockBasedOptions::default();
+                        block_opts.disable_cache();
+                        let mut opts = Options::default();
+                        opts.create_if_missing(true);
+                        opts.set_block_based_table_factory(&block_opts);
+                        opts.set_write_buffer_size(4 * 1024 * 1024);
+                        opts.set_max_write_buffer_number(2);
+                        opts.set_min_write_buffer_number_to_merge(1);
+                        opts
+                    };
+                    match DB::open(&opts, cache_dir.path()) {
+                        Ok(db) => {
+                            debug!(
+                                "open a key-value database({}) to save header map into disk",
+                                cache_dir.path().to_str().unwrap_or("")
+                            );
+                            self.resource.replace((cache_dir, db));
+                        }
+                        Err(e) => panic!(
+                            "failed to open a key-value database to save header map into disk: {}",
+                            e
+                        ),
+                    }
                 }
-            } else {
-                panic!("failed to create a tempdir to save header map into disk");
+                Err(e) => panic!(
+                    "failed to create a tempdir to save header map into disk: {}",
+                    e
+                ),
             }
         }
     }
