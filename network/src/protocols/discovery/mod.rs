@@ -4,10 +4,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ckb_logger::{debug, trace, warn};
+use ckb_logger::{debug, error, trace, warn};
 use p2p::{
     bytes,
-    context::{ProtocolContext, ProtocolContextMutRef},
+    context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
     utils::{is_reachable, multiaddr_to_socketaddr},
@@ -71,8 +71,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
         debug!(
-            "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
-            session.id, session.address, session.ty
+            "DiscoveryProtocol connected, session: {:?}, version: {}",
+            session, version
         );
 
         self.addr_mgr
@@ -88,7 +88,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         let session = context.session;
         self.sessions.remove(&session.id);
         self.addr_mgr.unregister(session.id, context.proto_id);
-        debug!("protocol [discovery] close on session [{}]", session.id);
+        debug!("DiscoveryProtocol disconnected, session {:?}", session);
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
@@ -96,10 +96,10 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         trace!("[received message]: length={}", data.len());
 
         let mgr = &mut self.addr_mgr;
-        let mut check = |behavior| -> bool {
-            if mgr.misbehave(session.id, behavior).is_disconnect() {
+        let mut check = |behavior: Misbehavior| -> bool {
+            if mgr.misbehave(&session, &behavior).is_disconnect() {
                 if context.disconnect(session.id).is_err() {
-                    debug!("disconnect {:?} send fail", session.id)
+                    error!("disconnect {:?} send fail", session.id)
                 }
                 true
             } else {
@@ -211,7 +211,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
             None => {
                 if self
                     .addr_mgr
-                    .misbehave(session.id, Misbehavior::InvalidData)
+                    .misbehave(&session, &Misbehavior::InvalidData)
                     .is_disconnect()
                     && context.disconnect(session.id).is_err()
                 {
@@ -355,7 +355,12 @@ impl AddressManager for DiscoveryAddressManager {
         }
     }
 
-    fn misbehave(&mut self, _session_id: SessionId, _kind: Misbehavior) -> MisbehaveResult {
+    fn misbehave(&mut self, session: &SessionContext, behavior: &Misbehavior) -> MisbehaveResult {
+        error!(
+            "DiscoveryProtocol detects abnormal behavior, session: {:?}, behavior: {:?}",
+            session, behavior
+        );
+
         // FIXME:
         MisbehaveResult::Disconnect
     }
