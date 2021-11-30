@@ -4400,9 +4400,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21dae0498310f69c7cc0cfe16bc32c118bfd89e6aa49997386bd7f3135c36506"
+checksum = "f84d50536696bbb75958c07cbc687429898325081eeed6cf915de3bed50f6a75"
 dependencies = [
  "bytes 1.1.0",
  "futures",
