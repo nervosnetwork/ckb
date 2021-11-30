@@ -1450,11 +1450,11 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "2.33.2"
+version = "2.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10040cdf04294b565d9e0319955430099ec3813a64c952b86a41200ad714ae48"
+checksum = "a0610544180c38b88101fecf2dd634b174a62eef6946f84dfc6a7127512b381c"
 dependencies = [
- "ansi_term 0.11.0",
+ "ansi_term 0.12.1",
  "atty",
  "bitflags",
  "strsim 0.8.0",
