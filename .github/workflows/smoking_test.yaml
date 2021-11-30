@@ -27,6 +27,7 @@ jobs:
         fi
         tar -zxf /tmp/ckb_v0.35.0_linux.tar.gz -C /tmp
         cp /tmp/ckb_*/ckb ${{ github.workspace }}/ckb
+        rm -rf /tmp/ckb_*
     - name: Update ExecStart&StandardOutput
       run: |
           sed -i  "s#ExecStart=.*#ExecStart=${{github.workspace}}/ckb run -C ${{github.workspace}}#g" ${{ github.workspace }}/devtools/smoking_test/ckb.service
@@ -58,6 +59,7 @@ jobs:
         curl -L ${{ github.event.inputs.CKB_linux_release_package }} -o /tmp/ckb.tar.gz
         tar -zxf /tmp/ckb.tar.gz -C /tmp
         fi
+        cp /tmp/ckb_*/ckb ${{ github.workspace }}/ckb
     - name: Build CKB binary
       if: |
        (github.event_name == 'workflow_dispatch' && github.event.inputs.CKB_linux_release_package == '')
