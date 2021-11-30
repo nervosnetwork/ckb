@@ -31,9 +31,15 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v2
+      - name: Get branch name when event is pr review comments
+        if: github.event_name == 'pull_request_review' && contains(github.event.review.body, '#benchmark')
+        uses: xt0rted/pull-request-comment-branch@v1
+        id: comment-branch
       - name: Benchmark
         run: |
           git clone https://github.com/nervosnetwork/ckb-integration-test.git
+          export GITHUB_BRANCH=${{ steps.comment-branch.outputs.head_ref }}
+          export GITHUB_REPO=${{ github.repository }}
           devtools/ci/benchmark.sh
       - uses: actions/upload-artifact@v2
         with:
