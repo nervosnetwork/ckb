@@ -1,3 +1,23 @@
+# [v0.101.2](https://github.com/nervosnetwork/ckb/compare/v0.101.1...v0.101.2) (2021-12-02)
+
+### Features
+
+* #3185: Add a syscall to pause the script execution (only enabled in tests) (@yangby-cryptape)
+* #3174: Delay txs during hardfork (@zhangsoledad)
+* #3175: Retain candidate uncle until next epoch (@zhangsoledad)
+* #3194: Resumable rpc tx submit (@zhangsoledad)
+
+### Bug Fixes
+
+* #3149: Return None when get git commit info failed (@TheWaWaR)
+* #3177: Upgrade ckb-vm to fix snapshot behavior (@driftluo)
+* #3188: Fix current cycles syscall on chunk run with snapshot (@driftluo)
+* #3176: Add dirty flag when load cell data as code (@mohanson)
+
+    Solve the problem that 'load_data_cell_as_code' cannot work with 'ckb-vm chunk run'
+
+    ref: https://github.com/nervosnetwork/ckb-vm/pull/218
+
 # [v0.101.1](https://github.com/nervosnetwork/ckb/compare/v0.101.0...v0.101.1) (2021-10-27)
 
 ### Bug Fixes
