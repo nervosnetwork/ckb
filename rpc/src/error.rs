@@ -171,15 +171,6 @@ impl RPCError {
         RPCError::custom_with_error(code, reject)
     }
 
-    /// Downcasts a CKB error if it is created from `Reject`.
-    pub fn downcast_submit_transaction_reject(err: &CKBError) -> Option<&Reject> {
-        use ckb_error::ErrorKind::SubmitTransaction;
-        match err.kind() {
-            SubmitTransaction => err.downcast_ref::<Reject>(),
-            _ => None,
-        }
-    }
-
     /// Creates an CKB error from `CKBError`.
     pub fn from_ckb_error(err: CKBError) -> Error {
         match err.kind() {

@@ -141,7 +141,7 @@ impl Migrations {
         Ok(db)
     }
 
-    fn get_migration_verson(&self, db: &RocksDB) -> Result<Option<String>, Error> {
+    fn get_migration_version(&self, db: &RocksDB) -> Result<Option<String>, Error> {
         let raw = db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .map_err(|err| {
@@ -153,9 +153,9 @@ impl Migrations {
         }))
     }
 
-    /// Initial db verison
+    /// Initial db version
     pub fn init_db_version(&self, db: &RocksDB) -> Result<(), Error> {
-        let db_version = self.get_migration_verson(&db)?;
+        let db_version = self.get_migration_version(&db)?;
         if db_version.is_none() {
             if let Some(m) = self.migrations.values().last() {
                 info!("Init database version {}", m.version());
@@ -170,7 +170,7 @@ impl Migrations {
 
     /// TODO(doc): @quake
     pub fn migrate(&self, db: RocksDB) -> Result<RocksDB, Error> {
-        let db_version = self.get_migration_verson(&db)?;
+        let db_version = self.get_migration_version(&db)?;
         match db_version {
             Some(ref v) => {
                 info!("Current database version {}", v);

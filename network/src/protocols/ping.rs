@@ -160,33 +160,24 @@ impl ServiceProtocol for PingHandler {
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
-        match session.remote_pubkey {
-            Some(_) => {
-                self.connected_session_ids
-                    .entry(session.id)
-                    .or_insert_with(|| PingStatus {
-                        last_ping_sent_at: Instant::now(),
-                        processing: false,
-                        nonce: 0,
-                    });
-                debug!(
-                    "proto id [{}] open on session [{}], address: [{}], type: [{:?}], version: {}",
-                    context.proto_id, session.id, session.address, session.ty, version
-                );
-                debug!("connected sessions are: {:?}", self.connected_session_ids);
-                // Register open ping protocol
-                self.network_state.with_peer_registry_mut(|reg| {
-                    reg.get_peer_mut(session.id).map(|peer| {
-                        peer.protocols.insert(context.proto_id, version.to_owned());
-                    })
-                });
-            }
-            None => {
-                if context.disconnect(session.id).is_err() {
-                    debug!("disconnect fail");
-                }
-            }
-        }
+        self.connected_session_ids
+            .entry(session.id)
+            .or_insert_with(|| PingStatus {
+                last_ping_sent_at: Instant::now(),
+                processing: false,
+                nonce: 0,
+            });
+        debug!(
+            "proto id [{}] open on session [{}], address: [{}], type: [{:?}], version: {}",
+            context.proto_id, session.id, session.address, session.ty, version
+        );
+        debug!("connected sessions are: {:?}", self.connected_session_ids);
+        // Register open ping protocol
+        self.network_state.with_peer_registry_mut(|reg| {
+            reg.get_peer_mut(session.id).map(|peer| {
+                peer.protocols.insert(context.proto_id, version.to_owned());
+            })
+        });
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {

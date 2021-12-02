@@ -2,7 +2,6 @@ use crate::Work;
 use ckb_app_config::MinerClientConfig;
 use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
-use ckb_error::AnyError;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
 use ckb_logger::{debug, error};
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -210,7 +209,8 @@ impl Client {
             Ok(block_template) => {
                 if self.current_work_id != Some(block_template.work_id.into()) {
                     self.current_work_id = Some(block_template.work_id.into());
-                    if let Err(e) = self.notify_new_work(block_template) {
+                    let work: Work = block_template.into();
+                    if let Err(e) = self.new_work_tx.send(Works::New(work)) {
                         error!("notify_new_block error: {:?}", e);
                     }
                 }
@@ -244,12 +244,6 @@ impl Client {
             .request(method, params)
             .and_then(parse_response)
             .await
-    }
-
-    fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), AnyError> {
-        let work: Work = block_template.into();
-        self.new_work_tx.send(Works::New(work))?;
-        Ok(())
     }
 }
 

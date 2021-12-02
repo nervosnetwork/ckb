@@ -3,25 +3,14 @@
  *  - Returns CKB_SUCCESS if and only if any follow conditions satisfied.
  *    - `num0 == 0 && num1 == 0`
  *    - `cpop(num0) == num 1`
- *  Compile Environment:
- *  - Toolchains: nervos/ckb-riscv-gnu-toolchain@sha256:7b168b4b109a0f741078a71b7c4dddaf1d283a5244608f7851f5714fbad273ba
- *  - Dependencies: Same as ckb-system-scripts v0.5.4.
- *  - Commands:
- *    ```shell
- *    riscv64-unknown-elf-gcc -O3 -Ideps/molecule -I deps/secp256k1/src -I deps/secp256k1 -I c -I build \
- *        -Wall -Werror -Wno-nonnull-compare -Wno-unused-function -g -Wl,-static -fdata-sections -ffunction-sections -Wl,--gc-sections \
- *        -o specs/cells/cpop_lock c/cpop_lock.c
- *    riscv64-unknown-elf-objcopy --only-keep-debug specs/cells/cpop_lock build/cpop_lock.debug
- *    riscv64-unknown-elf-objcopy --strip-debug --strip-all specs/cells/cpop_lock
- *    ```
  */
 
 #include "ckb_syscalls.h"
-#include "protocol.h"
+#include "blockchain.h"
 
-#ifndef DEBUG
+#ifdef DEBUG
 #include <stdio.h>
-
+#else
 #define ckb_debug(...)
 #define sprintf(...)
 #endif

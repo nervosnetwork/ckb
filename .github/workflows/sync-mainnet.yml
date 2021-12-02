@@ -1,0 +1,32 @@
+name: Sync Mainnet
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  sync-mainnet:
+    runs-on: [ self-hosted, linux ]
+    if: ${{ github.repository_owner == 'nervosnetwork' }}
+    timeout-minutes: 1200
+    env:
+      AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+      AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+      GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: nervosnetwork/ckb-integration-test
+      - name: Get Current Date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+      - name: Start
+        timeout-minutes: 1200
+        env:
+          JOB_ID: "sync-mainnet-${{ steps.date.outputs.date }}-in-10h"
+        run: ./ckb-sync-mainnet/script/sync-mainnet.sh run
+      - name: Clean Up
+        if: ${{ always() }}
+        env:
+          JOB_ID: "sync-mainnet-${{ steps.date.outputs.date }}-in-10h"
+        run: ./ckb-sync-mainnet/script/sync-mainnet.sh clean

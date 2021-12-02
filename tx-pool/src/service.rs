@@ -7,11 +7,12 @@ use crate::component::{chunk::ChunkQueue, entry::TxEntry, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::PlugTarget;
+use crate::util::after_delay_window;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
-use ckb_error::{AnyError, Error};
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_logger::error;
 use ckb_logger::info;
@@ -20,12 +21,13 @@ use ckb_snapshot::Snapshot;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::{
     core::{
-        tx_pool::{TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds},
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_verification::cache::{Completed, TxVerificationCache};
+use ckb_util::LinkedHashMap;
+use ckb_verification::cache::TxVerificationCache;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -71,7 +73,7 @@ type BlockTemplateArgs = (
     Option<BlockAssemblerConfig>,
 );
 
-pub(crate) type SubmitTxResult = Result<Completed, Error>;
+pub(crate) type SubmitTxResult = Result<(), Reject>;
 
 type FetchTxRPCResult = Option<(bool, TransactionView)>;
 
@@ -608,6 +610,8 @@ impl TxPoolServiceBuilder {
     pub fn start(self, network: NetworkController) {
         let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = self.snapshot.cloned_consensus();
+
+        let after_delay_window = after_delay_window(&self.snapshot);
         let tx_pool = TxPool::new(
             self.tx_pool_config,
             self.snapshot,
@@ -627,6 +631,8 @@ impl TxPoolServiceBuilder {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
+            delay: Arc::new(RwLock::new(LinkedHashMap::new())),
+            after_delay: Arc::new(AtomicBool::new(after_delay_window)),
             block_assembler: self.block_assembler,
             txs_verify_cache: self.txs_verify_cache,
             callbacks: Arc::new(self.callbacks),
@@ -707,6 +713,8 @@ pub(crate) struct TxPoolService {
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
+    pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
+    pub(crate) after_delay: Arc<AtomicBool>,
 }
 
 /// tx verification result
@@ -757,8 +765,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: tx,
         }) => {
-            let result = service.process_tx(tx, None).await;
-            if let Err(e) = responder.send(result.map_err(Into::into)) {
+            let result = service.resumeble_process_tx(tx, None).await;
+            if let Err(e) = responder.send(result) {
                 error!("responder send submit_tx result failed {:?}", e);
             };
         }
@@ -991,5 +999,13 @@ impl TxPoolService {
             total_tx_cycles: tx_pool.total_tx_cycles,
             last_txs_updated_at: tx_pool.get_last_txs_updated_at(),
         }
+    }
+
+    pub fn after_delay(&self) -> bool {
+        self.after_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_after_delay_true(&self) {
+        self.after_delay.store(true, Ordering::Relaxed);
     }
 }

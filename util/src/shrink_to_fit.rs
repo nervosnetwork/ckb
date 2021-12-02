@@ -1,4 +1,4 @@
-/// Shrinks the map `$map` when it reserves more than `$threhold` slots for future entries.
+/// Shrinks the map `$map` when it reserves more than `$threshold` slots for future entries.
 ///
 /// ## Examples
 ///
@@ -12,8 +12,8 @@
 /// ```
 #[macro_export]
 macro_rules! shrink_to_fit {
-    ($map:expr, $threhold:expr) => {{
-        if $map.capacity() > ($map.len() + $threhold) {
+    ($map:expr, $threshold:expr) => {{
+        if $map.capacity() > ($map.len() + $threshold) {
             $map.shrink_to_fit();
         }
     }};

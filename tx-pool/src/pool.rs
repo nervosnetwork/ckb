@@ -584,7 +584,7 @@ fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
             }
         }
     } else {
-        warn!("Recent reject database is disableed!");
+        warn!("Recent reject database is disabled!");
         None
     }
 }

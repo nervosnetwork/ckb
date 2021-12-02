@@ -13,6 +13,9 @@ mod utils;
 mod vm_version;
 
 #[cfg(test)]
+mod pause;
+
+#[cfg(test)]
 mod tests;
 
 pub use self::current_cycles::CurrentCycles;
@@ -27,6 +30,9 @@ pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
 pub use self::vm_version::VMVersion;
+
+#[cfg(test)]
+pub use self::pause::Pause;
 
 use ckb_vm::Error;
 
@@ -57,6 +63,8 @@ pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
+#[cfg(test)]
+pub const DEBUG_PAUSE: u64 = 2178;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
