@@ -4,9 +4,6 @@ on:
   # Submit your review with a comment body containing "#benchmark"
   pull_request_review:
     types: [ submitted ]
-  push:
-    branches:
-      - benchmark_dashboard
   schedule:
     - cron: '0 0 * * *'
   # Manurally trigger
@@ -17,30 +14,26 @@ jobs:
   benchmark:
     name: Benchmark
     runs-on: ubuntu-latest
-    # if: |
-    #       (
-    #         github.event_name == 'pull_request_review' &&
-    #         contains(github.event.review.body, '#benchmark')
-    #       ) || (
-    #         github.event_name == 'schedule' &&
-    #         github.repository_owner == 'nervosnetwork'
-    #       ) || (
-    #         github.event_name == 'workflow_dispatch'
-    #       )
+    if: |
+          (
+            github.event_name == 'pull_request_review' &&
+            contains(github.event.review.body, '#benchmark')
+          ) || (
+            github.event_name == 'schedule' &&
+            github.repository_owner == 'nervosnetwork'
+          ) || (
+            github.event_name == 'workflow_dispatch'
+          )
     env:
       AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
       AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
       AWS_EC2_TYPE:  "c5.xlarge"
       GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
-      PSQL_HOST: ${{ secrets.PSQL_HOST }}
-      PSQL_PORT: ${{ secrets.PSQL_PORT }}
-      PSQL_USER: ${{ secrets.PSQL_USER }}
-      PGPASSWORD: ${{ secrets.PSQL_PASSWORD }}
     steps:
       - uses: actions/checkout@v2
       - name: Benchmark
         run: |
-          git clone https://github.com/nervosnetwork/ckb-integration-test.git --branch test_monitoring
+          git clone https://github.com/nervosnetwork/ckb-integration-test.git
           devtools/ci/benchmark.sh
       - uses: actions/upload-artifact@v2
         with:
