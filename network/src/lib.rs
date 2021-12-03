@@ -7,7 +7,7 @@
 //!
 
 mod behaviour;
-mod compress;
+pub mod compress;
 pub mod errors;
 pub mod network;
 mod network_group;
