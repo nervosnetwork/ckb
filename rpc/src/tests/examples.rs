@@ -206,7 +206,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     // Start rpc services
     let rpc_config = RpcConfig {
-        listen_address: "127.0.0.01:0".to_owned(),
+        listen_address: "127.0.0.1:0".to_owned(),
         tcp_listen_address: None,
         ws_listen_address: None,
         max_request_body_size: 20_000_000,
