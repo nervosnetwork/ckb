@@ -7,6 +7,7 @@
 //!
 
 mod behaviour;
+/// compress module
 pub mod compress;
 pub mod errors;
 pub mod network;
