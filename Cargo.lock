@@ -933,6 +933,7 @@ dependencies = [
  "tentacle",
  "tokio",
  "tokio-util",
+ "tokio-yamux",
  "trust-dns-resolver",
 ]
 
