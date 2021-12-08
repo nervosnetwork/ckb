@@ -64,7 +64,7 @@ function insert_report_to_postgres() {
     end_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)
     dbname="ckbtest"
     BENCHMARK_REPORT="https://github.com/${GITHUB_REPOSITORY}actions/runs/$GITHUB_RUN_ID"
-    sql="insert into syne_mainnet values("
+    sql="insert into sync_mainnet values("
     if [ -n $sync_mainnet_id ]; then
         sql=$sql"'$sync_mainnet_id'"" ,"
     fi
