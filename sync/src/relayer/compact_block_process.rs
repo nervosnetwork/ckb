@@ -97,6 +97,9 @@ impl<'a> CompactBlockProcess<'a> {
             state.may_set_best_known_header(self.peer, header_view);
 
             return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
+        } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
+            // block already in orphan pool
+            return Status::ignored();
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
             return StatusCode::BlockIsInvalid.with_context(block_hash);
         }
