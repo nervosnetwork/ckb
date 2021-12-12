@@ -3,12 +3,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ckb_logger::{debug, trace, warn};
+use ckb_logger::{debug, error, trace, warn};
 use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
-    secio::PeerId,
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
@@ -32,6 +31,7 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 /// The misbehavior to report to underlying peer storage
+#[derive(Clone, Debug)]
 pub enum Misbehavior {
     /// Repeat received message
     DuplicateReceived,
@@ -74,16 +74,11 @@ pub trait Callback: Clone + Send {
     /// Get local listen addresses
     fn local_listen_addrs(&mut self) -> Vec<Multiaddr>;
     /// Add remote peer's listen addresses
-    fn add_remote_listen_addrs(&mut self, id: SessionId, addrs: Vec<Multiaddr>);
+    fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>);
     /// Add our address observed by remote peer
-    fn add_observed_addr(
-        &mut self,
-        peer: &PeerId,
-        addr: Multiaddr,
-        ty: SessionType,
-    ) -> MisbehaveResult;
+    fn add_observed_addr(&mut self, addr: Multiaddr, ty: SessionType) -> MisbehaveResult;
     /// Report misbehavior
-    fn misbehave(&mut self, peer: &PeerId, kind: Misbehavior) -> MisbehaveResult;
+    fn misbehave(&mut self, session: &SessionContext, kind: Misbehavior) -> MisbehaveResult;
 }
 
 /// Identify protocol
@@ -116,9 +111,8 @@ impl<T: Callback> IdentifyProtocol<T> {
             .expect("RemoteInfo must exists");
 
         if info.has_received {
-            debug!("remote({:?}) repeat send identify", info.peer_id);
             self.callback
-                .misbehave(&info.peer_id, Misbehavior::DuplicateReceived)
+                .misbehave(&info.session, Misbehavior::DuplicateReceived)
         } else {
             info.has_received = true;
             MisbehaveResult::Continue
@@ -138,9 +132,8 @@ impl<T: Callback> IdentifyProtocol<T> {
 
         if listens.len() > MAX_ADDRS {
             self.callback
-                .misbehave(&info.peer_id, Misbehavior::TooManyAddresses(listens.len()))
+                .misbehave(&info.session, Misbehavior::TooManyAddresses(listens.len()))
         } else {
-            trace!("received listen addresses: {:?}", listens);
             let global_ip_only = self.global_ip_only;
             let reachable_addrs = listens
                 .into_iter()
@@ -151,7 +144,7 @@ impl<T: Callback> IdentifyProtocol<T> {
                 })
                 .collect::<Vec<_>>();
             self.callback
-                .add_remote_listen_addrs(session.id, reachable_addrs);
+                .add_remote_listen_addrs(&session, reachable_addrs);
             MisbehaveResult::Continue
         }
     }
@@ -161,32 +154,30 @@ impl<T: Callback> IdentifyProtocol<T> {
         context: &mut ProtocolContextMutRef,
         observed: Multiaddr,
     ) -> MisbehaveResult {
+        debug!(
+            "IdentifyProtocol process observed address, session: {:?}, observed: {}",
+            context.session, observed,
+        );
+
         let session = context.session;
         let info = self
             .remote_infos
             .get_mut(&session.id)
             .expect("RemoteInfo must exists");
-
-        trace!("received observed address: {}", observed);
-
         let global_ip_only = self.global_ip_only;
         if multiaddr_to_socketaddr(&observed)
             .map(|socket_addr| socket_addr.ip())
             .filter(|ip_addr| !global_ip_only || is_reachable(*ip_addr))
-            .is_some()
-            && self
-                .callback
-                .add_observed_addr(&info.peer_id, observed, info.session.ty)
-                .is_disconnect()
+            .is_none()
         {
-            return MisbehaveResult::Disconnect;
+            return MisbehaveResult::Continue;
         }
-        MisbehaveResult::Continue
+
+        self.callback.add_observed_addr(observed, info.session.ty)
     }
 }
 
 pub(crate) struct RemoteInfo {
-    peer_id: PeerId,
     session: SessionContext,
     connected_at: Instant,
     timeout: Duration,
@@ -195,13 +186,7 @@ pub(crate) struct RemoteInfo {
 
 impl RemoteInfo {
     fn new(session: SessionContext, timeout: Duration) -> RemoteInfo {
-        let peer_id = session
-            .remote_pubkey
-            .as_ref()
-            .map(|key| PeerId::from_public_key(&key))
-            .expect("secio must enabled!");
         RemoteInfo {
-            peer_id,
             session,
             connected_at: Instant::now(),
             timeout,
@@ -213,25 +198,22 @@ impl RemoteInfo {
 impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     fn init(&mut self, context: &mut ProtocolContext) {
         let proto_id = context.proto_id;
-        if context
-            .set_service_notify(
-                proto_id,
-                Duration::from_secs(CHECK_TIMEOUT_INTERVAL),
-                CHECK_TIMEOUT_TOKEN,
-            )
-            .is_err()
-        {
-            warn!("identify start fail")
+        if let Err(err) = context.set_service_notify(
+            proto_id,
+            Duration::from_secs(CHECK_TIMEOUT_INTERVAL),
+            CHECK_TIMEOUT_TOKEN,
+        ) {
+            error!("IdentifyProtocol init error: {:?}", err)
         }
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
         let session = context.session;
+        debug!("IdentifyProtocol connected, session: {:?}", session);
 
         self.callback.register(&context, version);
 
         let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
-        trace!("IdentifyProtocol connected from {:?}", remote_info.peer_id);
         self.remote_infos.insert(session.id, remote_info);
 
         let listen_addrs: Vec<Multiaddr> = self
@@ -249,36 +231,65 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
 
         let identify = self.callback.identify();
         let data = IdentifyMessage::new(listen_addrs, session.address.clone(), identify).encode();
-        let _ = context.quick_send_message(data);
+        let _ = context
+            .quick_send_message(data)
+            .map_err(|err| error!("IdentifyProtocol quick_send_message, error: {:?}", err));
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
-        let info = self
-            .remote_infos
+        self.remote_infos
             .remove(&context.session.id)
             .expect("RemoteInfo must exists");
-        trace!("IdentifyProtocol disconnected from {:?}", info.peer_id);
-        self.callback.unregister(&context)
+        debug!(
+            "IdentifyProtocol disconnected, session: {:?}",
+            context.session
+        );
+        self.callback.unregister(&context);
     }
 
     fn received(&mut self, mut context: ProtocolContextMutRef, data: Bytes) {
         let session = context.session;
-
         match IdentifyMessage::decode(&data) {
             Some(message) => {
-                // Need to interrupt processing, avoid pollution
-                if self.check_duplicate(&mut context).is_disconnect()
-                    || self
-                        .callback
-                        .received_identify(&mut context, message.identify)
-                        .is_disconnect()
-                    || self
-                        .process_listens(&mut context, message.listen_addrs)
-                        .is_disconnect()
-                    || self
-                        .process_observed(&mut context, message.observed_addr)
-                        .is_disconnect()
+                trace!(
+                    "IdentifyProtocol received, session: {:?}, listen_addrs: {:?}, observed_addr: {}",
+                    context.session, message.listen_addrs, message.observed_addr
+                );
+
+                // Interrupt processing if error, avoid pollution
+                if let MisbehaveResult::Disconnect = self.check_duplicate(&mut context) {
+                    error!(
+                        "IdentifyProtocol disconnect session {:?}, reason: duplicate",
+                        session
+                    );
+                    let _ = context.disconnect(session.id);
+                }
+                if let MisbehaveResult::Disconnect = self
+                    .callback
+                    .received_identify(&mut context, message.identify)
                 {
+                    error!(
+                        "IdentifyProtocol disconnect session {:?}, reason: invalid identify message",
+                        session,
+                    );
+                    let _ = context.disconnect(session.id);
+                }
+                if let MisbehaveResult::Disconnect =
+                    self.process_listens(&mut context, message.listen_addrs.clone())
+                {
+                    error!(
+                        "IdentifyProtocol disconnect session {:?}, reason: invalid listen addrs: {:?}",
+                        session, message.listen_addrs,
+                    );
+                    let _ = context.disconnect(session.id);
+                }
+                if let MisbehaveResult::Disconnect =
+                    self.process_observed(&mut context, message.observed_addr.clone())
+                {
+                    error!(
+                        "IdentifyProtocol disconnect session {:?}, reason: invalid observed addr: {}",
+                        session, message.observed_addr,
+                    );
                     let _ = context.disconnect(session.id);
                 }
             }
@@ -287,13 +298,9 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                     .remote_infos
                     .get(&session.id)
                     .expect("RemoteInfo must exists");
-                debug!(
-                    "IdentifyProtocol received invalid data from {:?}",
-                    info.peer_id
-                );
                 if self
                     .callback
-                    .misbehave(&info.peer_id, Misbehavior::InvalidData)
+                    .misbehave(&info.session, Misbehavior::InvalidData)
                     .is_disconnect()
                 {
                     let _ = context.disconnect(session.id);
@@ -305,12 +312,8 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         for (session_id, info) in &self.remote_infos {
             if !info.has_received && (info.connected_at + info.timeout) <= Instant::now() {
-                debug!("{:?} receive identify message timeout", info.peer_id);
-                if self
-                    .callback
-                    .misbehave(&info.peer_id, Misbehavior::Timeout)
-                    .is_disconnect()
-                {
+                let misbehave_result = self.callback.misbehave(&info.session, Misbehavior::Timeout);
+                if misbehave_result.is_disconnect() {
                     let _ = context.disconnect(*session_id);
                 }
             }
@@ -319,7 +322,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
 }
 
 #[derive(Clone)]
-pub(crate) struct IdentifyCallback {
+pub struct IdentifyCallback {
     network_state: Arc<NetworkState>,
     identify: Identify,
 }
@@ -456,6 +459,7 @@ impl Callback for IdentifyCallback {
                         );
                     } else {
                         // The remote end cannot support all local protocols.
+                        warn!("IdentifyProtocol close session, reason: the peer's flag does not meet the requirement");
                         return MisbehaveResult::Disconnect;
                     }
                 } else {
@@ -471,37 +475,27 @@ impl Callback for IdentifyCallback {
         self.listen_addrs()
     }
 
-    fn add_remote_listen_addrs(&mut self, id: SessionId, addrs: Vec<Multiaddr>) {
+    fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>) {
         trace!(
-            "got remote listen addrs from session={:?}, addrs={:?}",
-            id,
+            "IdentifyProtocol add remote listening addresses, session: {:?}, addresses : {:?}",
+            session,
             addrs,
         );
         self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(peer) = reg.get_peer_mut(id) {
+            if let Some(peer) = reg.get_peer_mut(session.id) {
                 peer.listened_addrs = addrs.clone();
             }
         });
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
                 if let Err(err) = peer_store.add_addr(addr.clone()) {
-                    debug!("Failed to add addrs to peer_store {:?} {:?}", err, addr);
+                    error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
                 }
             }
         })
     }
 
-    fn add_observed_addr(
-        &mut self,
-        peer_id: &PeerId,
-        mut addr: Multiaddr,
-        ty: SessionType,
-    ) -> MisbehaveResult {
-        debug!(
-            "peer({:?}, {:?}) reported observed addr {}",
-            peer_id, ty, addr,
-        );
-
+    fn add_observed_addr(&mut self, mut addr: Multiaddr, ty: SessionType) -> MisbehaveResult {
         if ty.is_inbound() {
             // The address already been discovered by other peer
             return MisbehaveResult::Continue;
@@ -541,7 +535,11 @@ impl Callback for IdentifyCallback {
         MisbehaveResult::Continue
     }
 
-    fn misbehave(&mut self, _peer_id: &PeerId, _kind: Misbehavior) -> MisbehaveResult {
+    fn misbehave(&mut self, session: &SessionContext, reason: Misbehavior) -> MisbehaveResult {
+        error!(
+            "IdentifyProtocol detects abnormal behavior, session: {:?}, reason: {:?}",
+            session, reason
+        );
         MisbehaveResult::Disconnect
     }
 }
@@ -582,7 +580,10 @@ impl Identify {
 
         let name = reader.name().as_utf8().ok()?.to_owned();
         if self.name != name {
-            debug!("Not the same chain, self: {}, remote: {}", self.name, name);
+            warn!(
+                "IdentifyProtocol detects peer has different network identifiers, local network id: {}, remote network id: {}",
+                self.name, name,
+            );
             return None;
         }
 
