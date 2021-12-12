@@ -42,7 +42,7 @@ use ckb_vm::machine::asm::AsmMachine;
 use ckb_vm::TraceMachine;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
 #[cfg(test)]
@@ -129,8 +129,8 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     binaries_by_data_hash: HashMap<Byte32, LazyData>,
     binaries_by_type_hash: HashMap<Byte32, Binaries>,
 
-    lock_groups: HashMap<Byte32, ScriptGroup>,
-    type_groups: HashMap<Byte32, ScriptGroup>,
+    lock_groups: BTreeMap<Byte32, ScriptGroup>,
+    type_groups: BTreeMap<Byte32, ScriptGroup>,
     // Vec<(addr, size)>, can be remove after hardfork
     pub(crate) tracing_data_as_code_pages: RefCell<Vec<(u64, u64)>>,
 
@@ -192,8 +192,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
         }
 
-        let mut lock_groups = HashMap::default();
-        let mut type_groups = HashMap::default();
+        let mut lock_groups = BTreeMap::default();
+        let mut type_groups = BTreeMap::default();
         for (i, cell_meta) in resolved_inputs.iter().enumerate() {
             // here we are only pre-processing the data, verify method validates
             // each input has correct script setup.
