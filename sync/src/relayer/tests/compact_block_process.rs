@@ -80,6 +80,23 @@ fn test_in_block_status_map() {
         compact_block_process.execute(),
         StatusCode::CompactBlockAlreadyStored.into(),
     );
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    // BLOCK_RECEIVED in block_status_map
+    {
+        relayer
+            .shared
+            .state()
+            .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
+    }
+
+    assert_eq!(compact_block_process.execute(), Status::ignored());
 }
 
 // send_getheaders_to_peer when UnknownParent
