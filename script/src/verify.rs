@@ -461,7 +461,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles: Cycle = 0;
 
         // Now run each script group
-        for (_ty, _hash, group) in self.groups() {
+        for (_hash, group) in self.groups() {
             // max_cycles must reduce by each group exec
             let used_cycles = self
                 .verify_script_group(group, max_cycles - cycles)
@@ -484,14 +484,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     fn build_state(
         &self,
         vm: ResumableMachine<'a>,
-        current: (ScriptGroupType, Byte32),
-        remain: Vec<(ScriptGroupType, Byte32)>,
+        current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
     ) -> TransactionState<'a> {
         TransactionState {
             current,
-            remain,
             vm,
             current_cycles,
             limit_cycles,
@@ -515,7 +513,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
-        for (idx, (ty, hash, group)) in groups.iter().enumerate() {
+        for (idx, (_hash, group)) in groups.iter().enumerate() {
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
@@ -530,15 +528,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
-                    let current = (*ty, (*hash).to_owned());
-
-                    let remain = groups
-                        .iter()
-                        .skip(idx + 1)
-                        .map(|(ty, hash, _g)| (*ty, (*hash).to_owned()))
-                        .collect();
-
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    let current = idx;
+                    let state = self.build_state(vm, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -573,7 +564,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut current_used = 0;
 
         let current_group = self
-            .find_script_group(snap.current.0, &snap.current.1)
+            .groups()
+            .nth(snap.current)
+            .map(|(_hash, group)| group)
             .ok_or_else(|| {
                 ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
                     .unknown_source()
@@ -590,9 +583,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 cycles = wrapping_cycles_add(cycles, used_cycles, &current_group)?;
             }
             Ok(ChunkState::Suspended(vm)) => {
-                let current = snap.current.to_owned();
-                let remain = snap.remain.to_owned();
-                let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                let current = snap.current;
+                let state = self.build_state(vm, current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -600,12 +592,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
         }
 
-        for (idx, (ty, hash)) in snap.remain.iter().enumerate() {
-            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
-                    .unknown_source()
-            })?;
-
+        let skip = snap.current + 1;
+        for (idx, (_hash, group)) in self.groups().enumerate().skip(skip) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
                     "expect invalid cycles {} {}",
@@ -620,15 +608,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     cycles = wrapping_cycles_add(cycles, used_cycles, &group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
-                    let current = (*ty, hash.to_owned());
-                    let remain = snap
-                        .remain
-                        .iter()
-                        .skip(idx + 1)
-                        .map(|(ty, hash)| (*ty, hash.to_owned()))
-                        .collect();
-
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    let current = idx;
+                    let state = self.build_state(vm, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -660,7 +641,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ) -> Result<VerifyResult<'a>, Error> {
         let TransactionState {
             current,
-            remain,
             mut vm,
             current_cycles,
             ..
@@ -670,7 +650,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles = current_cycles;
 
         let current_group = self
-            .find_script_group(current.0, &current.1)
+            .groups()
+            .nth(current)
+            .map(|(_hash, group)| group)
             .ok_or_else(|| {
                 ScriptError::VMInternalError(format!("snapshot group missing {:?}", current))
                     .unknown_source()
@@ -691,7 +673,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::InvalidCycles => {
-                    let state = self.build_state(vm, current, remain, cycles, limit_cycles);
+                    let state = self.build_state(vm, current, cycles, limit_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 error => {
@@ -703,12 +685,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             },
         }
 
-        for (idx, (ty, hash)) in remain.iter().enumerate() {
-            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
-                    .unknown_source()
-            })?;
-
+        for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
                     "expect invalid cycles {} {}",
@@ -723,14 +700,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     cycles = wrapping_cycles_add(cycles, used_cycles, &group)?;
                 }
                 Ok(ChunkState::Suspended(vm)) => {
-                    let current = (*ty, hash.to_owned());
-                    let remain = remain
-                        .iter()
-                        .skip(idx + 1)
-                        .map(|(ty, hash)| (*ty, hash.to_owned()))
-                        .collect();
-
-                    let state = self.build_state(vm, current, remain, cycles, remain_cycles);
+                    let current = idx;
+                    let state = self.build_state(vm, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -758,7 +729,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles = snap.current_cycles;
 
         let current_group = self
-            .find_script_group(snap.current.0, &snap.current.1)
+            .groups()
+            .nth(snap.current)
+            .map(|(_hash, group)| group)
             .ok_or_else(|| {
                 ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
                     .unknown_source()
@@ -786,12 +759,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
         }
 
-        for (ty, hash) in &snap.remain {
-            let group = self.find_script_group(*ty, hash).ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {} {}", ty, hash))
-                    .unknown_source()
-            })?;
-
+        for (_hash, group) in self.groups().skip(snap.current + 1) {
             let remain_cycles = max_cycles.checked_sub(cycles).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
                     "expect invalid cycles {} {}",
@@ -851,7 +819,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
     /// Returns all script groups.
-    pub fn groups(&self) -> impl Iterator<Item = (ScriptGroupType, &'_ Byte32, &'_ ScriptGroup)> {
+    pub fn groups(&self) -> impl Iterator<Item = (&'_ Byte32, &'_ ScriptGroup)> {
+        self.lock_groups.iter().chain(self.type_groups.iter())
+    }
+
+    /// Returns all script groups with type.
+    pub fn groups_with_type(
+        &self,
+    ) -> impl Iterator<Item = (ScriptGroupType, &'_ Byte32, &'_ ScriptGroup)> {
         self.lock_groups
             .iter()
             .map(|(hash, group)| (ScriptGroupType::Lock, hash, group))
