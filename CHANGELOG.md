@@ -1,3 +1,10 @@
+# [v0.101.3](https://github.com/nervosnetwork/ckb/compare/v0.101.2...v0.101.3) (2021-12-13)
+
+### Features
+
+* #3229: Script group consistent execution order (@zhangsoledad)
+* #3170 **rpc:** Add a method to remove a transaction from tx-pool (@yangby-cryptape)
+
 # [v0.101.2](https://github.com/nervosnetwork/ckb/compare/v0.101.1...v0.101.2) (2021-12-02)
 
 ### Features
