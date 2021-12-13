@@ -695,6 +695,24 @@ impl TxPoolService {
         }
     }
 
+    pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
+        let id = ProposalShortId::from_tx_hash(&tx_hash);
+        {
+            let mut chunk = self.chunk.write().await;
+            if chunk.remove_chunk_tx(&id).is_some() {
+                return true;
+            }
+        }
+        {
+            let mut orphan = self.orphan.write().await;
+            if orphan.remove_orphan_tx(&id).is_some() {
+                return true;
+            }
+        }
+        let mut tx_pool = self.tx_pool.write().await;
+        tx_pool.remove_tx(&id)
+    }
+
     pub(crate) async fn after_process(
         &self,
         tx: TransactionView,

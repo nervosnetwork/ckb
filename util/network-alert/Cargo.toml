@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network-alert"
-version = "0.101.2"
+version = "0.102.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,18 +9,18 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-multisig = { path = "../multisig", version = "= 0.101.2" }
-ckb-types = { path = "../types", version = "= 0.101.2" }
-ckb-util = { path = "..", version = "= 0.101.2" }
-ckb-network = { path = "../../network", version = "= 0.101.2" }
-ckb-notify = { path = "../../notify", version = "= 0.101.2"}
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.101.2" }
-ckb-logger = { path = "../logger", version = "= 0.101.2"}
-ckb-app-config = { path = "../app-config", version = "= 0.101.2" }
-ckb-error = { path = "../../error", version = "= 0.101.2" }
+ckb-multisig = { path = "../multisig", version = "= 0.102.0-pre" }
+ckb-types = { path = "../types", version = "= 0.102.0-pre" }
+ckb-util = { path = "..", version = "= 0.102.0-pre" }
+ckb-network = { path = "../../network", version = "= 0.102.0-pre" }
+ckb-notify = { path = "../../notify", version = "= 0.102.0-pre"}
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.102.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.102.0-pre"}
+ckb-app-config = { path = "../app-config", version = "= 0.102.0-pre" }
+ckb-error = { path = "../../error", version = "= 0.102.0-pre" }
 faketime = "0.2.0"
 lru = "0.6"
 semver = "1.0"
 
 [dev-dependencies]
-ckb-crypto = { path = "../crypto", version = "= 0.101.2" }
+ckb-crypto = { path = "../crypto", version = "= 0.102.0-pre" }

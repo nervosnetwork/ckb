@@ -42,6 +42,8 @@ ALL_BINS := jalr_zero \
             exec_caller_from_cell_data \
             exec_caller_from_witness \
             exec_caller_big_offset_length \
+            exec_configurable_callee \
+            exec_configurable_caller \
             load_code_to_stack_then_reuse \
             load_is_even_into_global \
             load_is_even_with_snapshot \
@@ -97,6 +99,8 @@ exec_callee: exec_callee.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c
 exec_caller_from_witness: exec_caller_from_witness.c
 exec_caller_big_offset_length: exec_caller_big_offset_length.c
+exec_configurable_callee: exec_configurable_callee.c
+exec_configurable_caller: exec_configurable_caller.c
 load_code_to_stack_then_reuse: load_code_to_stack_then_reuse.c
 load_is_even_into_global: load_is_even_into_global.c
 load_is_even_with_snapshot: load_is_even_with_snapshot.c

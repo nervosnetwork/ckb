@@ -342,6 +342,28 @@ impl TxPool {
         }
     }
 
+    pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
+        let entries = self.proposed.remove_entry_and_descendants(id);
+        if !entries.is_empty() {
+            for entry in entries {
+                self.update_statics_for_remove_tx(entry.size, entry.cycles);
+            }
+            return true;
+        }
+
+        if let Some(entry) = self.gap.remove_entry(id) {
+            self.update_statics_for_remove_tx(entry.size, entry.cycles);
+            return true;
+        }
+
+        if let Some(entry) = self.pending.remove_entry(id) {
+            self.update_statics_for_remove_tx(entry.size, entry.cycles);
+            return true;
+        }
+
+        false
+    }
+
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,

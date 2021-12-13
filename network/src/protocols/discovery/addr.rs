@@ -1,10 +1,11 @@
 use std::collections::hash_map::RandomState;
 
 use bloom_filters::{BloomFilter, DefaultBuildHashKernels, StableBloomFilter};
-use p2p::{multiaddr::Multiaddr, ProtocolId, SessionId};
+use p2p::{context::SessionContext, multiaddr::Multiaddr, ProtocolId, SessionId};
 
 pub(crate) const DEFAULT_BUCKETS_NUM: usize = 5000;
 
+#[derive(Debug, Clone)]
 pub enum Misbehavior {
     // Already received GetNodes message
     DuplicateGetNodes,
@@ -40,7 +41,7 @@ pub trait AddressManager {
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool;
     fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr);
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>);
-    fn misbehave(&mut self, session_id: SessionId, kind: Misbehavior) -> MisbehaveResult;
+    fn misbehave(&mut self, session: &SessionContext, kind: &Misbehavior) -> MisbehaveResult;
     fn get_random(&mut self, n: usize) -> Vec<Multiaddr>;
 }
 

@@ -62,20 +62,12 @@ impl<'a> BlockTransactionsProcess<'a> {
         let missing_uncles: Vec<u32>;
         let mut collision = false;
 
-        {
-            self.relayer
-                .shared
-                .state()
-                .write_inflight_blocks()
-                .remove_compact_by_peer(self.peer, &block_hash);
-        }
-
         if let Entry::Occupied(mut pending) = shared
             .state()
             .pending_compact_blocks()
             .entry(block_hash.clone())
         {
-            let (compact_block, peers_map) = pending.get_mut();
+            let (compact_block, peers_map, _) = pending.get_mut();
             if let Entry::Occupied(mut value) = peers_map.entry(self.peer) {
                 let (expected_transaction_indexes, expected_uncle_indexes) = value.get_mut();
                 ckb_logger::info!(
@@ -148,20 +140,14 @@ impl<'a> BlockTransactionsProcess<'a> {
 
                 assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
 
-                if shared
-                    .state()
-                    .write_inflight_blocks()
-                    .compact_reconstruct(self.peer, block_hash.clone())
-                {
-                    let content = packed::GetBlockTransactions::new_builder()
-                        .block_hash(block_hash.clone())
-                        .indexes(missing_transactions.pack())
-                        .uncle_indexes(missing_uncles.pack())
-                        .build();
-                    let message = packed::RelayMessage::new_builder().set(content).build();
+                let content = packed::GetBlockTransactions::new_builder()
+                    .block_hash(block_hash.clone())
+                    .indexes(missing_transactions.pack())
+                    .uncle_indexes(missing_uncles.pack())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(content).build();
 
-                    attempt!(send_message_to(self.nc.as_ref(), self.peer, &message));
-                }
+                attempt!(send_message_to(self.nc.as_ref(), self.peer, &message));
 
                 let _ignore_prev_value =
                     mem::replace(expected_transaction_indexes, missing_transactions);

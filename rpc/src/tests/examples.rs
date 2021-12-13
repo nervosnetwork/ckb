@@ -620,6 +620,7 @@ fn after_rpc_example(suite: &RpcTestSuite, example: &RpcTestExample) {
             });
             suite.send_example_transaction()
         }
+        "remove_transaction" => suite.send_example_transaction(),
         _ => {}
     }
 }

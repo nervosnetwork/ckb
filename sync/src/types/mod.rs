@@ -33,7 +33,7 @@ use dashmap::{self, DashMap};
 use faketime::unix_time_as_millis;
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
-use std::collections::{btree_map::Entry, hash_map, BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -529,7 +529,6 @@ pub struct InflightBlocks {
     pub(crate) download_schedulers: HashMap<PeerIndex, DownloadScheduler>,
     inflight_states: BTreeMap<BlockNumberAndHash, InflightState>,
     pub(crate) trace_number: HashMap<BlockNumberAndHash, u64>,
-    compact_reconstruct_inflight: HashMap<Byte32, HashSet<PeerIndex>>,
     pub(crate) restart_number: BlockNumber,
     time_analyzer: TimeAnalyzer,
     pub(crate) adjustment: bool,
@@ -542,7 +541,6 @@ impl Default for InflightBlocks {
             download_schedulers: HashMap::default(),
             inflight_states: BTreeMap::default(),
             trace_number: HashMap::default(),
-            compact_reconstruct_inflight: HashMap::default(),
             restart_number: 0,
             time_analyzer: TimeAnalyzer::default(),
             adjustment: true,
@@ -620,31 +618,6 @@ impl InflightBlocks {
         self.inflight_states.get(block)
     }
 
-    pub fn compact_reconstruct(&mut self, peer: PeerIndex, hash: Byte32) -> bool {
-        let entry = self.compact_reconstruct_inflight.entry(hash).or_default();
-        if entry.len() >= 2 {
-            return false;
-        }
-
-        entry.insert(peer)
-    }
-
-    pub fn remove_compact_by_peer(&mut self, peer: PeerIndex, hash: &Byte32) {
-        if let hash_map::Entry::Occupied(mut entry) =
-            self.compact_reconstruct_inflight.entry(hash.clone())
-        {
-            let peers = entry.get_mut();
-            peers.remove(&peer);
-            if peers.is_empty() {
-                entry.remove_entry();
-            }
-        }
-    }
-
-    pub fn inflight_compact_by_block(&self, hash: &Byte32) -> Option<&HashSet<PeerIndex>> {
-        self.compact_reconstruct_inflight.get(hash)
-    }
-
     pub fn mark_slow_block(&mut self, tip: BlockNumber) {
         let now = faketime::unix_time_as_millis();
         for key in self.inflight_states.keys() {
@@ -672,7 +645,6 @@ impl InflightBlocks {
         let trace = &mut self.trace_number;
         let download_schedulers = &mut self.download_schedulers;
         let states = &mut self.inflight_states;
-        let compact_inflight = &mut self.compact_reconstruct_inflight;
 
         let mut remove_key = Vec::new();
         // Since this is a btreemap, with the data already sorted,
@@ -687,7 +659,7 @@ impl InflightBlocks {
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
                 if let Some(set) = download_schedulers.get_mut(&value.peer) {
                     set.hashes.remove(key);
-                    if should_punish {
+                    if should_punish && adjustment {
                         set.punish(2);
                     }
                 };
@@ -730,20 +702,13 @@ impl InflightBlocks {
             if now > 1000 + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        if should_punish {
+                        if should_punish && adjustment {
                             d.punish(1);
                         }
                         d.hashes.remove(key);
                     };
-                } else if let Some(v) = compact_inflight.remove(&key.hash) {
-                    if should_punish && adjustment {
-                        for peer in v {
-                            if let Some(d) = download_schedulers.get_mut(&peer) {
-                                d.punish(1);
-                            }
-                        }
-                    }
                 }
+
                 if key.number > *restart_number {
                     *restart_number = key.number;
                 }
@@ -752,21 +717,11 @@ impl InflightBlocks {
             true
         });
         shrink_to_fit!(trace, SHRINK_THRESHOLD);
-        shrink_to_fit!(compact_inflight, SHRINK_THRESHOLD);
 
         disconnect_list
     }
 
     pub fn insert(&mut self, peer: PeerIndex, block: BlockNumberAndHash) -> bool {
-        if !self.compact_reconstruct_inflight.is_empty()
-            && self.compact_reconstruct_inflight.contains_key(&block.hash)
-        {
-            // Give the compact block a deadline of 1.5 seconds
-            self.trace_number
-                .entry(block)
-                .or_insert(unix_time_as_millis() + 500);
-            return false;
-        }
         let state = self.inflight_states.entry(block.clone());
         match state {
             Entry::Occupied(_entry) => return false,
@@ -791,14 +746,6 @@ impl InflightBlocks {
     pub fn remove_by_peer(&mut self, peer: PeerIndex) -> bool {
         let trace = &mut self.trace_number;
         let state = &mut self.inflight_states;
-        let compact = &mut self.compact_reconstruct_inflight;
-
-        if !compact.is_empty() {
-            compact.retain(|_, peers| {
-                peers.remove(&peer);
-                !peers.is_empty()
-            });
-        }
 
         self.download_schedulers
             .remove(&peer)
@@ -817,7 +764,6 @@ impl InflightBlocks {
         let should_punish = self.download_schedulers.len() > self.protect_num;
         let download_schedulers = &mut self.download_schedulers;
         let trace = &mut self.trace_number;
-        let compact = &mut self.compact_reconstruct_inflight;
         let time_analyzer = &mut self.time_analyzer;
         let adjustment = self.adjustment;
         self.inflight_states
@@ -826,9 +772,6 @@ impl InflightBlocks {
                 let elapsed = unix_time_as_millis().saturating_sub(state.timestamp);
                 if let Some(set) = download_schedulers.get_mut(&state.peer) {
                     set.hashes.remove(&block);
-                    if !compact.is_empty() {
-                        compact.remove(&block.hash);
-                    }
                     if adjustment {
                         match time_analyzer.push_time(elapsed) {
                             TimeQuantile::MinToFast => set.increase(2),
@@ -1162,12 +1105,13 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
     }
 }
 
-// <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>)>
+// <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>, timestamp)>
 type PendingCompactBlockMap = HashMap<
     Byte32,
     (
         packed::CompactBlock,
         HashMap<PeerIndex, (Vec<u32>, Vec<u32>)>,
+        u64,
     ),
 >;
 
@@ -1597,6 +1541,16 @@ impl SyncState {
 
     pub fn peers(&self) -> &Peers {
         &self.peers
+    }
+
+    pub fn compare_with_pending_compact(&self, hash: &Byte32, now: u64) -> bool {
+        let pending = self.pending_compact_blocks.lock();
+        // After compact block request 2s or pending is empty, sync can create tasks
+        pending.is_empty()
+            || pending
+                .get(hash)
+                .map(|(_, _, time)| now > time + 2000)
+                .unwrap_or(true)
     }
 
     pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {

@@ -6,7 +6,7 @@ ${CKB_DIR}/ckb migrate --check
 EXIT_CODE="${PIPESTATUS[0]}"
 # check_code = `printf '%d\n' $?`
 echo "check_code is "${EXIT_CODE}
-if [ ${EXIT_CODE} == 64 ]; then
+if [ ${EXIT_CODE} == 0 ]; then
   ${CKB_DIR}/ckb migrate --force
   EXIT_CODE="${PIPESTATUS[0]}"
   echo "migrate exit code is "${EXIT_CODE}
