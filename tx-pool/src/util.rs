@@ -152,7 +152,7 @@ pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
 
     let rfc_0032 = snapshot.consensus().hardfork_switch.rfc_0032();
 
-    if rfc_0032 == 0 && rfc_0032 == EpochNumber::MAX {
+    if rfc_0032 == 0 || rfc_0032 == EpochNumber::MAX {
         return true;
     }
 
