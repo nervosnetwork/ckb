@@ -69,6 +69,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
         * [Method `ping_peers`](#method-ping_peers)
     * [Module Pool](#module-pool)
         * [Method `send_transaction`](#method-send_transaction)
+        * [Method `remove_transaction`](#method-remove_transaction)
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
@@ -2390,6 +2391,46 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
+
+#### Method `remove_transaction`
+* `remove_transaction(tx_hash)`
+    * `tx_hash`: [`H256`](#type-h256)
+* result: `boolean`
+
+Removes a transaction and all transactions which depends on it from tx pool if it exists.
+
+##### Params
+
+*   `tx_hash` - Hash of a transaction.
+
+##### Returns
+
+If the transaction exists, return true; otherwise, return false.
+
+##### Examples
+
+Request
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "remove_transaction",
+  "params": [
+    "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+  ]
+}
+```
+
+Response
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
 }
 ```
 
