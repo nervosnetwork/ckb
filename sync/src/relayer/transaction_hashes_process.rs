@@ -45,8 +45,6 @@ impl<'a> TransactionHashesProcess<'a> {
                 .collect()
         };
 
-        state.add_ask_for_txs(self.peer, tx_hashes);
-
-        Status::ok()
+        state.add_ask_for_txs(self.peer, tx_hashes)
     }
 }

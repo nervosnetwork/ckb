@@ -290,7 +290,7 @@ fn refresh_txs_verify_cache_after_hardfork() {
         }
     }
 
-    for _ in 0..35 {
+    for _ in 0..40 {
         let epoch = shared
             .consensus()
             .next_epoch_ext(&parent_header, &shared.store().as_data_provider())
@@ -303,9 +303,17 @@ fn refresh_txs_verify_cache_after_hardfork() {
         } else {
             CYCLES_IN_VM0
         };
+
+        let is_in_delay_window = shared
+            .consensus()
+            .is_in_delay_window(&parent_header.epoch());
         let mut counter = 0;
         loop {
             let tx_pool_entries = tx_pool.get_all_entry_info().unwrap();
+            if is_in_delay_window {
+                break;
+            }
+
             if let Some(tx_entry) = tx_pool_entries.pending.get(&tx.hash()) {
                 assert_eq!(
                     tx_entry.cycles,

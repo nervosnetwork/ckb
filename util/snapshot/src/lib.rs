@@ -7,19 +7,17 @@ use ckb_db::{
     DBPinnableSlice,
 };
 use ckb_db_schema::Col;
-use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_proposal_table::ProposalView;
-use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::HeaderProvider;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
-        BlockNumber, BlockReward, EpochExt, HeaderView,
+        BlockNumber, EpochExt, HeaderView,
     },
-    packed::{Byte32, OutPoint, Script},
+    packed::{Byte32, OutPoint},
     U256,
 };
 use std::sync::Arc;
@@ -136,14 +134,6 @@ impl Snapshot {
     /// Return current best chain total_difficulty
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
-    }
-
-    /// Shortcuts for calculate block reward, invoke RewardCalculator
-    pub fn finalize_block_reward(
-        &self,
-        parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error> {
-        RewardCalculator::new(self.consensus(), self).block_reward_to_finalize(parent)
     }
 }
 

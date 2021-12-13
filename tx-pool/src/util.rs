@@ -4,7 +4,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
+use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, EpochNumber, TransactionView};
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualTransactionVerifier, NonContextualTransactionVerifier,
@@ -45,7 +45,7 @@ pub(crate) fn check_tx_fee(
 ) -> Result<Capacity, Reject> {
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
         .transaction_fee(&rtx)
-        .map_err(|err| Reject::Malformed(format!("Transcation fee calculate overflow: {}", err)))?;
+        .map_err(|err| Reject::Malformed(format!("Transaction fee calculate overflow: {}", err)))?;
     let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
@@ -134,11 +134,27 @@ macro_rules! try_or_return_with_snapshot {
         match $expr {
             core::result::Result::Ok(val) => val,
             core::result::Result::Err(err) => {
-                return (
+                return Some((
                     core::result::Result::Err(core::convert::From::from(err)),
                     $snapshot,
-                );
+                ));
             }
         }
     };
+}
+
+pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
+    let epoch = snapshot.tip_header().epoch();
+    let proposal_window = snapshot.consensus().tx_proposal_window();
+
+    let index = epoch.index();
+    let epoch_number = epoch.number();
+
+    let rfc_0032 = snapshot.consensus().hardfork_switch.rfc_0032();
+
+    if rfc_0032 == 0 && rfc_0032 == EpochNumber::MAX {
+        return true;
+    }
+
+    epoch_number > rfc_0032 || (epoch_number == rfc_0032 && index > proposal_window.farthest())
 }

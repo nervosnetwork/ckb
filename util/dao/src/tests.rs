@@ -273,7 +273,7 @@ fn check_withdraw_calculation() {
     let calculator = DaoCalculator::new(&consensus, &data_loader);
     let result = calculator.calculate_maximum_withdraw(
         &output,
-        Capacity::bytes(data.len()).expect("should not overlfow"),
+        Capacity::bytes(data.len()).expect("should not overflow"),
         &deposit_block.hash(),
         &withdrawing_block.hash(),
     );
@@ -326,7 +326,7 @@ fn check_withdraw_calculation_overflows() {
     let calculator = DaoCalculator::new(&consensus, &data_loader);
     let result = calculator.calculate_maximum_withdraw(
         &output,
-        Capacity::bytes(0).expect("should not overlfow"),
+        Capacity::bytes(0).expect("should not overflow"),
         &deposit_block.hash(),
         &withdrawing_block.hash(),
     );

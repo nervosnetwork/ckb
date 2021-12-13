@@ -70,9 +70,9 @@ pub struct MinerReward {
     pub primary: Capacity,
     /// The miner receives part of the secondary issuance.
     pub secondary: Capacity,
-    /// The miner recevies 60% of the transaction fee for each transaction committed in the block.
+    /// The miner receives 60% of the transaction fee for each transaction committed in the block.
     pub committed: Capacity,
-    /// The miner recevies 40% of the transaction fee for each transaction proposed in the block,
+    /// The miner receives 40% of the transaction fee for each transaction proposed in the block,
     /// and committed later in its active commit window.
     pub proposal: Capacity,
 }

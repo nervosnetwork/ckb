@@ -105,7 +105,7 @@ impl Launcher {
                     Some(block_assembler)
                 } else {
                     info!(
-                        "Miner is disabled because block assmebler is not a recommended lock format. \
+                        "Miner is disabled because block assembler is not a recommended lock format. \
                          Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
                     );
 
@@ -138,7 +138,7 @@ impl Launcher {
     // panic immediately if migration_version is none
     fn assert_migrate_version_is_some(&self, shared: &Shared) {
         let store = shared.store();
-        assert!(store.get_migration_verson().is_some());
+        assert!(store.get_migration_version().is_some());
     }
 
     fn check_spec(&self, shared: &Shared) -> Result<(), ExitCode> {
@@ -233,7 +233,7 @@ impl Launcher {
         chain_controller
     }
 
-    /// Start network service and rpc servre
+    /// Start network service and rpc serve
     pub fn start_network_and_rpc(
         &self,
         shared: &Shared,

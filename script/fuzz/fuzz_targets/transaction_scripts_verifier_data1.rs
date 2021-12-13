@@ -91,7 +91,7 @@ fn run(data: &[u8]) {
         resolved_dep_groups: vec![],
     };
 
-    let proivder = MockDataLoader {};
+    let provider = MockDataLoader {};
     let hardfork_switch = HardForkSwitch::new_without_any_enabled()
         .as_builder()
         .rfc_0032(0)
@@ -103,7 +103,7 @@ fn run(data: &[u8]) {
 
     let tx_verify_env =
         TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
-    let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &proivder, &tx_verify_env);
+    let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &provider, &tx_verify_env);
     let _ = verifier.verify(10_000_000);
 }
 

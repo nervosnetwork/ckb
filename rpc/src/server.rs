@@ -22,7 +22,7 @@ impl RpcServer {
     ///
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
-    /// * `notify_controller` - Controler emitting notifications.
+    /// * `notify_controller` - Controller emitting notifications.
     pub fn new(
         config: RpcConfig,
         io_handler: IoHandler,

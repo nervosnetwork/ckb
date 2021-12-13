@@ -6,8 +6,9 @@ use ckb_types::{
 };
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
+    memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
     snapshot::{make_snapshot, Snapshot},
-    SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
+    CoreMachine as _, Memory, SupportMachine, ISA_B, ISA_IMC, ISA_MOP, RISCV_PAGESIZE,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -210,7 +211,7 @@ pub struct TransactionSnapshot {
     /// remain script groups to verify
     pub remain: Vec<(ScriptGroupType, Byte32)>,
     /// vm snapshot
-    pub snap: Option<Snapshot>,
+    pub snap: Option<(Snapshot, Cycle)>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -230,6 +231,10 @@ pub struct TransactionState<'a> {
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
+    /// enable snapshot page dirty flags
+    pub enable_backup_page_flags: bool,
+    /// tracing data as code page index
+    pub flags_tracing: Vec<(u64, u64)>,
 }
 
 impl TransactionState<'_> {
@@ -270,18 +275,38 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
             mut vm,
             current_cycles,
             limit_cycles,
+            enable_backup_page_flags,
+            flags_tracing,
         } = state;
 
         // we should not capture snapshot if load program failed by exceeded cycles
         let (snap, current_cycles) = if vm.program_loaded {
             let vm_cycles = vm.cycles();
+            // To be consistent with the mainnet, add this flag to enable this behavior after hardfork
+            if !enable_backup_page_flags {
+                for (addr, memory_size) in flags_tracing {
+                    let mut current_addr = addr;
+                    while current_addr < addr + memory_size {
+                        let page = current_addr / RISCV_PAGESIZE as u64;
+                        vm.machine
+                            .machine
+                            .memory_mut()
+                            .clear_flag(page, FLAG_EXECUTABLE | FLAG_FREEZED)
+                            .map_err(|e| {
+                                ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                            })?;
+                        current_addr += RISCV_PAGESIZE as u64;
+                    }
+                }
+            }
             (
-                Some(make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                    ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
-                })?),
-                current_cycles.checked_add(vm_cycles).ok_or_else(|| {
-                    ScriptError::CyclesOverflow(current_cycles, vm_cycles).unknown_source()
-                })?,
+                Some((
+                    make_snapshot(&mut vm.machine.machine).map_err(|e| {
+                        ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                    })?,
+                    vm_cycles,
+                )),
+                current_cycles,
             )
         } else {
             (None, current_cycles)

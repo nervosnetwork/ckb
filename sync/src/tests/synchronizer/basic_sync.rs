@@ -11,6 +11,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_launcher::SharedBuilder;
 use ckb_network::SupportProtocols;
+use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
@@ -113,7 +114,9 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .unwrap()
             .epoch();
 
-        let (_, reward) = snapshot.finalize_block_reward(&block.header()).unwrap();
+        let (_, reward) = RewardCalculator::new(snapshot.consensus(), snapshot.as_ref())
+            .block_reward_to_finalize(&block.header())
+            .unwrap();
 
         let builder = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))

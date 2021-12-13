@@ -206,7 +206,7 @@ impl ExpectedResult {
                 "{\"code\":-302,\"message\":\"TransactionFailedToVerify: \
                  Verification failed Script(TransactionScriptError { \
                  source: Outputs[0].Type, \
-                 cause: VM Internal Error: InvalidInstruction(",
+                 cause: VM Internal Error: InvalidInstruction {",
             ),
         }
     }

@@ -12,7 +12,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v0.101.1
+  CKB_CLI_VERSION: v0.101.2
 
 jobs:
   create-release:

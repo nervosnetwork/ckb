@@ -4,6 +4,7 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
@@ -232,9 +233,8 @@ fn finalize_reward() {
         blocks.push(block);
     }
 
-    let (target, reward) = shared
-        .snapshot()
-        .finalize_block_reward(&blocks[21].header())
+    let (target, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
+        .block_reward_to_finalize(&blocks[21].header())
         .unwrap();
     assert_eq!(target, bob);
 
@@ -268,9 +268,8 @@ fn finalize_reward() {
         .process_block(Arc::new(block.clone()))
         .expect("process block ok");
 
-    let (target, reward) = shared
-        .snapshot()
-        .finalize_block_reward(&block.header())
+    let (target, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
+        .block_reward_to_finalize(&block.header())
         .unwrap();
     assert_eq!(target, alice);
 

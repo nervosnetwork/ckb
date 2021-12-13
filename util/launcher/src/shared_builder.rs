@@ -382,7 +382,7 @@ pub struct SharedPackage {
 }
 
 impl SharedPackage {
-    /// Takes the roposal_table out of the package, leaving a None in its place.
+    /// Takes the proposal_table out of the package, leaving a None in its place.
     pub fn take_proposal_table(&mut self) -> ProposalTable {
         self.table.take().expect("take proposal_table")
     }

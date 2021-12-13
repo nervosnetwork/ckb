@@ -26,7 +26,7 @@ pub struct ClientConfig {
     pub block_on_submit: bool,
 }
 
-/// Miner woker config options.
+/// Miner worker config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "worker_type")]
 pub enum WorkerConfig {

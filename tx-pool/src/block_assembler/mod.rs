@@ -1,3 +1,5 @@
+//! Generate a new block
+
 mod candidate_uncles;
 
 #[cfg(test)]
@@ -31,26 +33,31 @@ use tokio::task::block_in_place;
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
 
-pub struct TemplateCache {
-    pub time: u64,
-    pub uncles_updated_at: u64,
-    pub txs_updated_at: u64,
-    pub template: BlockTemplate,
+pub(crate) struct TemplateCache {
+    pub(crate) time: u64,
+    pub(crate) uncles_updated_at: u64,
+    pub(crate) txs_updated_at: u64,
+    pub(crate) template: BlockTemplate,
 }
 
 impl TemplateCache {
-    pub fn is_outdate(&self, current_time: u64) -> bool {
+    pub(crate) fn is_outdate(&self, current_time: u64) -> bool {
         current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
     }
 
-    pub fn is_modified(&self, last_uncles_updated_at: u64, last_txs_updated_at: u64) -> bool {
+    pub(crate) fn is_modified(
+        &self,
+        last_uncles_updated_at: u64,
+        last_txs_updated_at: u64,
+    ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || last_txs_updated_at != self.txs_updated_at
     }
 }
 
-pub type BlockTemplateCacheKey = (Byte32, Cycle, u64, Version);
+pub(crate) type BlockTemplateCacheKey = (Byte32, Cycle, u64, Version);
 
+/// Block generator
 #[derive(Clone)]
 pub struct BlockAssembler {
     pub(crate) config: Arc<BlockAssemblerConfig>,
@@ -61,6 +68,7 @@ pub struct BlockAssembler {
 }
 
 impl BlockAssembler {
+    /// Construct new block generator
     pub fn new(config: BlockAssemblerConfig) -> Self {
         Self {
             config: Arc::new(config),
@@ -214,12 +222,13 @@ impl BlockAssembler {
         Ok(tx)
     }
 
+    /// Get uncles from snapshot and current states.
     // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
     // (1) they are in the same epoch, sharing the same difficulty;
     // (2) height(B2) > height(B1);
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.
-    pub(crate) fn prepare_uncles(
+    pub fn prepare_uncles(
         snapshot: &Snapshot,
         candidate_number: BlockNumber,
         current_epoch_ext: &EpochExt,
@@ -235,23 +244,24 @@ impl BlockAssembler {
                 break;
             }
             let parent_hash = uncle.header().parent_hash();
+            // we should keep candidate util next epoch
             if uncle.compact_target() != current_epoch_ext.compact_target()
                 || uncle.epoch().number() != epoch_number
-                || snapshot.get_block_number(&uncle.hash()).is_some()
-                || snapshot.is_uncle(&uncle.hash())
-                || !(uncles.iter().any(|u| u.hash() == parent_hash)
-                    || snapshot.get_block_number(&parent_hash).is_some()
-                    || snapshot.is_uncle(&parent_hash))
-                || uncle.number() >= candidate_number
             {
                 removed.push(uncle.clone());
-            } else {
+            } else if !snapshot.is_main_chain(&uncle.hash())
+                && !snapshot.is_uncle(&uncle.hash())
+                && uncle.number() < candidate_number
+                && (uncles.iter().any(|u| u.hash() == parent_hash)
+                    || snapshot.is_main_chain(&parent_hash)
+                    || snapshot.is_uncle(&parent_hash))
+            {
                 uncles.push(uncle.clone());
             }
         }
 
         for r in removed {
-            candidate_uncles.remove(&r);
+            candidate_uncles.remove_by_number(&r);
         }
         uncles
     }

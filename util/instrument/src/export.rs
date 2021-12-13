@@ -9,7 +9,7 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// Export block from datbase to specify file.
+/// Export block from database to specify file.
 pub struct Export {
     /// export target path
     pub target: PathBuf,

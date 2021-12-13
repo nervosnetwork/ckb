@@ -183,7 +183,7 @@ impl HardForkSwitch {
     }
 
     /// Returns a vector of epoch numbers, and there are new features which
-    /// require refrese tx-pool caches will be enabled at those epochs.
+    /// require refresh tx-pool caches will be enabled at those epochs.
     pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {
         let mut epochs = vec![self.rfc_0032()];
         // In future, there could be more than one epoch,

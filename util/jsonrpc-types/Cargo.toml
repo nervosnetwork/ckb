@@ -1,6 +1,6 @@
 [package]
 name = "ckb-jsonrpc-types"
-version = "0.101.1"
+version = "0.101.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.101.1" }
+ckb-types = { path = "../types", version = "= 0.101.2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 faster-hex = "0.6"

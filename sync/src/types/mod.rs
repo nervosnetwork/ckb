@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
 use crate::utils::is_internal_db_error;
-use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
+use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -10,7 +10,8 @@ use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
     MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
-    POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
+    MAX_UNKNOWN_TX_HASHES_SIZE, MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER, POW_INTERVAL,
+    RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, trace};
@@ -47,7 +48,6 @@ use ckb_types::core::EpochNumber;
 pub use header_map::HeaderMapLru as HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
-const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -1717,15 +1717,12 @@ impl SyncState {
         result
     }
 
-    pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) {
+    pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) -> Status {
         let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
-        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE {
-            return;
-        }
 
         for tx_hash in tx_hashes
             .into_iter()
-            .take(MAX_UNKNOWN_TX_HASHES_SIZE - unknown_tx_hashes.len())
+            .take(MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER)
         {
             match unknown_tx_hashes.entry(tx_hash) {
                 keyed_priority_queue::Entry::Occupied(entry) => {
@@ -1742,6 +1739,33 @@ impl SyncState {
                 }
             }
         }
+
+        // Check `unknown_tx_hashes`'s length after inserting the arrival `tx_hashes`
+        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE
+            || unknown_tx_hashes.len()
+                >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER
+        {
+            ckb_logger::warn!(
+                "unknown_tx_hashes is too long, len: {}",
+                unknown_tx_hashes.len()
+            );
+
+            let mut peer_unknown_counter = 0;
+            for (_hash, priority) in unknown_tx_hashes.iter() {
+                for peer in priority.peers.iter() {
+                    if *peer == peer_index {
+                        peer_unknown_counter += 1;
+                    }
+                }
+            }
+            if peer_unknown_counter >= MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER {
+                return StatusCode::TooManyUnknownTransactions.into();
+            }
+
+            return Status::ignored();
+        }
+
+        Status::ok()
     }
 
     pub fn already_known_tx(&self, hash: &Byte32) -> bool {

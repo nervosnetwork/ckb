@@ -357,7 +357,7 @@ impl Relayer {
         compact_block: &packed::CompactBlock,
         received_transactions: Vec<core::TransactionView>,
         uncles_index: &[u32],
-        received_unlces: &[core::UncleBlockView],
+        received_uncles: &[core::UncleBlockView],
     ) -> ReconstructionResult {
         let block_txs_len = received_transactions.len();
         let compact_block_hash = compact_block.calc_header_hash();
@@ -425,7 +425,7 @@ impl Relayer {
         for (i, uncle_hash) in compact_block.uncles().into_iter().enumerate() {
             if uncles_index.contains(&(i as u32)) {
                 uncles.push(
-                    received_unlces
+                    received_uncles
                         .get(position)
                         .expect("have checked the indexes")
                         .clone()

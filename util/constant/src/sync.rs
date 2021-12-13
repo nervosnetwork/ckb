@@ -34,7 +34,7 @@ pub const POW_INTERVAL: u64 = 10;
 /// Protect at least this many outbound peers from disconnection due to slow
 /// behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
-/// Chain sync timout
+/// Chain sync timeout
 pub const CHAIN_SYNC_TIMEOUT: u64 = 12 * 60 * 1000; // 12 minutes
 /// Suspend sync time
 pub const SUSPEND_SYNC_TIME: u64 = 5 * 60 * 1000; // 5 minutes
@@ -63,3 +63,10 @@ pub const BAD_MESSAGE_BAN_TIME: Duration = Duration::from_secs(5 * 60);
 /// Default ban time for sync useless
 // 10 minutes, peer have no common ancestor block
 pub const SYNC_USELESS_BAN_TIME: Duration = Duration::from_secs(10 * 60);
+
+/// The maximum number transaction hashes inside a `RelayTransactionHashes` message
+pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
+/// The soft limit to the number of unknown transactions
+pub const MAX_UNKNOWN_TX_HASHES_SIZE: usize = 50000;
+/// The soft limit to the number of unknown transactions per peer
+pub const MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER: usize = MAX_RELAY_TXS_NUM_PER_BATCH;
