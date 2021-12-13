@@ -430,6 +430,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CompactBlockPrefilled),
         Box::new(CompactBlockMissingFreshTxs),
         Box::new(CompactBlockMissingNotFreshTxs),
+        Box::new(CompactBlockMissingWithDropTx),
         Box::new(CompactBlockLoseGetBlockTransactions),
         Box::new(CompactBlockRelayParentOfOrphanBlock),
         Box::new(CompactBlockRelayLessThenSharedBestKnown),
