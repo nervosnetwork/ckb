@@ -2,7 +2,7 @@ use crate::ScriptError;
 use ckb_error::Error;
 use ckb_types::{
     core::{Cycle, ScriptHashType},
-    packed::{Byte32, Script},
+    packed::Script,
 };
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
@@ -206,10 +206,8 @@ impl fmt::Display for ScriptGroupType {
 /// Struct specifies which script has verified so far.
 /// Snapshot is lifetime free, but capture snapshot need heavy memory copy
 pub struct TransactionSnapshot {
-    /// current suspended script
-    pub current: (ScriptGroupType, Byte32),
-    /// remain script groups to verify
-    pub remain: Vec<(ScriptGroupType, Byte32)>,
+    /// current suspended script index
+    pub current: usize,
     /// vm snapshot
     pub snap: Option<(Snapshot, Cycle)>,
     /// current consumed cycle
@@ -221,10 +219,8 @@ pub struct TransactionSnapshot {
 /// Struct specifies which script has verified so far.
 /// State lifetime bound with vm machine.
 pub struct TransactionState<'a> {
-    /// current suspended script
-    pub current: (ScriptGroupType, Byte32),
-    /// remain script groups to verify
-    pub remain: Vec<(ScriptGroupType, Byte32)>,
+    /// current suspended script index
+    pub current: usize,
     /// vm state
     pub vm: ResumableMachine<'a>,
     /// current consumed cycle
@@ -271,7 +267,6 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
     fn try_from(state: TransactionState<'_>) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            remain,
             mut vm,
             current_cycles,
             limit_cycles,
@@ -314,7 +309,6 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
 
         Ok(TransactionSnapshot {
             current,
-            remain,
             snap,
             current_cycles,
             limit_cycles,
@@ -335,7 +329,6 @@ impl std::fmt::Debug for TransactionSnapshot {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("TransactionSnapshot")
             .field("current", &self.current)
-            .field("remain", &self.remain)
             .field("current_cycles", &self.current_cycles)
             .field("limit_cycles", &self.limit_cycles)
             .finish()
@@ -346,7 +339,6 @@ impl std::fmt::Debug for TransactionState<'_> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("TransactionState")
             .field("current", &self.current)
-            .field("remain", &self.remain)
             .field("current_cycles", &self.current_cycles)
             .field("limit_cycles", &self.limit_cycles)
             .finish()

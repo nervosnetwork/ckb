@@ -8,11 +8,11 @@ use ckb_error::Error;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, HeaderProvider};
-use ckb_types::{core::Cycle, packed::Byte32};
+use ckb_types::core::Cycle;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptGroupType, ScriptVerifier,
-    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
+    ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptVerifier, ScriptVerifyResult,
+    ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -219,7 +219,7 @@ impl TxChunkProcess {
             let ret = if let Some(ref snap) = init_snap {
                 if snap.current_cycles > max_cycles {
                     let error =
-                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, &snap.current);
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, snap.current);
                     return Some((Err(Reject::Verification(error)), snapshot));
                 }
 
@@ -233,7 +233,7 @@ impl TxChunkProcess {
                 init_snap = None;
                 if state.current_cycles > max_cycles {
                     let error =
-                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, &state.current);
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, state.current);
                     return Some((Err(Reject::Verification(error)), snapshot));
                 }
 
@@ -265,7 +265,7 @@ impl TxChunkProcess {
                         let error = exceeded_maximum_cycles_error(
                             &script_verifier,
                             max_cycles,
-                            &state.current,
+                            state.current,
                         );
                         return Some((Err(Reject::Verification(error)), snapshot));
                     }
@@ -315,12 +315,13 @@ impl TxChunkProcess {
 fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider>(
     verifier: &ScriptVerifier<'_, DL>,
     max_cycles: Cycle,
-    current: &(ScriptGroupType, Byte32),
+    current: usize,
 ) -> Error {
     verifier
         .inner()
-        .find_script_group(current.0, &current.1)
-        .map(|group| ScriptError::ExceededMaximumCycles(max_cycles).source(&group))
+        .groups()
+        .nth(current)
+        .map(|(_hash, group)| ScriptError::ExceededMaximumCycles(max_cycles).source(group))
         .unwrap_or_else(|| {
             ScriptError::VMInternalError(format!("suspended state group missing {:?}", current))
                 .unknown_source()

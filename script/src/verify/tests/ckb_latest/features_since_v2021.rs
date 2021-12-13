@@ -497,7 +497,7 @@ fn check_type_id_one_in_one_out_chunk() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
 
     verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut groups: Vec<_> = verifier.groups().collect();
+        let mut groups: Vec<_> = verifier.groups_with_type().collect();
         let mut tmp: Option<ResumableMachine<'_>> = None;
 
         loop {
@@ -558,7 +558,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut groups: Vec<_> = verifier.groups().collect();
+        let mut groups: Vec<_> = verifier.groups_with_type().collect();
         let mut tmp: Option<ResumableMachine<'_>> = None;
 
         loop {
