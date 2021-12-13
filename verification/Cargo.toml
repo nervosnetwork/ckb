@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.102.0-pre"
+version = "0.101.3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,20 +9,20 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.102.0-pre" }
-ckb-script = { path = "../script", version = "= 0.102.0-pre" }
-ckb-pow = { path = "../pow", version = "= 0.102.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.101.3" }
+ckb-script = { path = "../script", version = "= 0.101.3" }
+ckb-pow = { path = "../pow", version = "= 0.101.3" }
 faketime = "0.2.0"
 lru = "0.6.0"
-ckb-traits = { path = "../traits", version = "= 0.102.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.102.0-pre" }
-ckb-dao = { path = "../util/dao", version = "= 0.102.0-pre" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.102.0-pre" }
-ckb-error = { path = "../error", version = "= 0.102.0-pre" }
+ckb-traits = { path = "../traits", version = "= 0.101.3" }
+ckb-chain-spec = { path = "../spec", version = "= 0.101.3" }
+ckb-dao = { path = "../util/dao", version = "= 0.101.3" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.101.3" }
+ckb-error = { path = "../error", version = "= 0.101.3" }
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
-ckb-verification-traits = { path = "./traits", version = "= 0.102.0-pre" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.102.0-pre" }
+ckb-verification-traits = { path = "./traits", version = "= 0.101.3" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.101.3" }
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.102.0-pre" }
-ckb-resource = { path = "../resource", version = "= 0.102.0-pre" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.101.3" }
+ckb-resource = { path = "../resource", version = "= 0.101.3" }
