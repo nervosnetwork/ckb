@@ -553,24 +553,30 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError { address, error } => {
-                debug!("DialerError({}) {}", address, error);
-
                 let mut public_addrs = self.network_state.public_addrs.write();
 
-                if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
-                    SecioError::ConnectSelf,
-                )) = error
-                {
-                    debug!("dial observed address success: {:?}", address);
-                    if let Some(ip) = multiaddr_to_socketaddr(&address) {
-                        if is_reachable(ip.ip()) {
-                            public_addrs.insert(address);
+                match error {
+                    DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
+                        SecioError::ConnectSelf,
+                    )) => {
+                        debug!("dial observed address success: {:?}", address);
+                        if let Some(ip) = multiaddr_to_socketaddr(&address) {
+                            if is_reachable(ip.ip()) {
+                                public_addrs.insert(address);
+                            }
                         }
+                        return;
                     }
-                    return;
-                } else {
-                    public_addrs.remove(&address);
+                    DialerErrorKind::IoError(e)
+                        if e.kind() == std::io::ErrorKind::AddrNotAvailable =>
+                    {
+                        warn!("DialerError({}) {}", address, e);
+                    }
+                    _ => {
+                        debug!("DialerError({}) {}", address, error);
+                    }
                 }
+                public_addrs.remove(&address);
                 self.network_state.dial_failed(&address);
             }
             ServiceError::ProtocolError {
@@ -604,7 +610,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 );
             }
             ServiceError::ListenError { address, error } => {
-                debug!("ListenError: address={:?}, error={:?}", address, error);
+                warn!("ListenError: address={:?}, error={:?}", address, error);
             }
             ServiceError::ProtocolSelectError {
                 proto_name,
