@@ -80,12 +80,14 @@ impl ChunkQueue {
     }
 
     pub fn remove_chunk_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
-        self.inner.remove(id)
+        let ret = self.inner.remove(id);
+        self.shrink_to_fit();
+        ret
     }
 
     pub fn remove_chunk_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
         for id in ids {
-            self.remove_chunk_tx(&id);
+            self.inner.remove(&id);
         }
         self.shrink_to_fit();
     }

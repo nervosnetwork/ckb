@@ -1,7 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocolContext};
-use crate::types::InflightBlocks;
 use crate::{Status, StatusCode};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
@@ -81,6 +80,23 @@ fn test_in_block_status_map() {
         compact_block_process.execute(),
         StatusCode::CompactBlockAlreadyStored.into(),
     );
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    // BLOCK_RECEIVED in block_status_map
+    {
+        relayer
+            .shared
+            .state()
+            .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
+    }
+
+    assert_eq!(compact_block_process.execute(), Status::ignored());
 }
 
 // send_getheaders_to_peer when UnknownParent
@@ -170,98 +186,6 @@ fn test_accept_not_a_better_block() {
 }
 
 #[test]
-fn test_already_in_flight() {
-    let (relayer, _) = build_chain(5);
-    let parent = {
-        let active_chain = relayer.shared.active_chain();
-        active_chain.tip_header()
-    };
-
-    // Better block
-    let header = new_header_builder(relayer.shared.shared(), &parent).build();
-
-    // Better block
-    let block = BlockBuilder::default()
-        .header(header)
-        .transaction(TransactionBuilder::default().build())
-        .build();
-
-    let mut prefilled_transactions_indexes = HashSet::new();
-    prefilled_transactions_indexes.insert(0);
-    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
-
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocol_context);
-    let peer_index: PeerIndex = 1.into();
-
-    // Already in flight
-    let mut in_flight_blocks = InflightBlocks::default();
-    in_flight_blocks.compact_reconstruct(peer_index, block.header().hash());
-    *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
-
-    let compact_block_process = CompactBlockProcess::new(
-        compact_block.as_reader(),
-        &relayer,
-        Arc::<MockProtocolContext>::clone(&nc),
-        peer_index,
-    );
-
-    assert_eq!(
-        compact_block_process.execute(),
-        StatusCode::CompactBlockIsAlreadyInFlight.into(),
-    );
-}
-
-#[test]
-fn test_already_pending() {
-    let (relayer, _) = build_chain(5);
-    let parent = {
-        let active_chain = relayer.shared.active_chain();
-        active_chain.tip_header()
-    };
-
-    // Better block
-    let header = new_header_builder(relayer.shared.shared(), &parent).build();
-
-    let block = BlockBuilder::default()
-        .header(header)
-        .transaction(TransactionBuilder::default().build())
-        .build();
-
-    let mut prefilled_transactions_indexes = HashSet::new();
-    prefilled_transactions_indexes.insert(0);
-    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
-
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocol_context);
-    let peer_index: PeerIndex = 1.into();
-
-    // Already in pending
-    {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
-        pending_compact_blocks.insert(
-            compact_block.header().into_view().hash(),
-            (
-                compact_block.clone(),
-                HashMap::from_iter(vec![(1.into(), (vec![0], vec![]))]),
-            ),
-        );
-    }
-
-    let compact_block_process = CompactBlockProcess::new(
-        compact_block.as_reader(),
-        &relayer,
-        Arc::<MockProtocolContext>::clone(&nc),
-        peer_index,
-    );
-
-    assert_eq!(
-        compact_block_process.execute(),
-        StatusCode::CompactBlockIsAlreadyPending.into(),
-    );
-}
-
-#[test]
 fn test_header_invalid() {
     let (relayer, _) = build_chain(5);
     let parent = {
@@ -304,62 +228,6 @@ fn test_header_invalid() {
             .active_chain()
             .get_block_status(&block.header().hash()),
         BlockStatus::BLOCK_INVALID
-    );
-}
-
-#[test]
-fn test_inflight_blocks_reach_limit() {
-    let (relayer, _) = build_chain(5);
-    let parent = {
-        let active_chain = relayer.shared.active_chain();
-        active_chain.tip_header()
-    };
-
-    let header = new_header_builder(relayer.shared.shared(), &parent).build();
-
-    // Better block including one missing transaction
-    let block = BlockBuilder::default()
-        .header(header)
-        .transaction(TransactionBuilder::default().build())
-        .transaction(
-            TransactionBuilder::default()
-                .output(
-                    CellOutputBuilder::default()
-                        .capacity(Capacity::bytes(1).unwrap().pack())
-                        .build(),
-                )
-                .output_data(Bytes::new().pack())
-                .build(),
-        )
-        .build();
-
-    let mut prefilled_transactions_indexes = HashSet::new();
-    prefilled_transactions_indexes.insert(0);
-    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
-
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
-    let nc = Arc::new(mock_protocol_context);
-    let peer_index: PeerIndex = 100.into();
-
-    // in_flight_blocks is full
-    {
-        let mut in_flight_blocks = InflightBlocks::default();
-        for i in 0..=2 {
-            in_flight_blocks.compact_reconstruct(i.into(), block.header().hash());
-        }
-        *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
-    }
-
-    let compact_block_process = CompactBlockProcess::new(
-        compact_block.as_reader(),
-        &relayer,
-        Arc::<MockProtocolContext>::clone(&nc),
-        peer_index,
-    );
-
-    assert_eq!(
-        compact_block_process.execute(),
-        StatusCode::BlocksInFlightReachLimit.into(),
     );
 }
 
@@ -480,6 +348,7 @@ fn test_accept_block() {
             (
                 mock_compact_block_1,
                 HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
+                faketime::unix_time_as_millis(),
             ),
         );
 
@@ -488,6 +357,7 @@ fn test_accept_block() {
             (
                 mock_compact_block_2,
                 HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
+                faketime::unix_time_as_millis(),
             ),
         );
     }

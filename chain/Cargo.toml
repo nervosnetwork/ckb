@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain"
-version = "0.101.2"
+version = "0.101.3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -9,33 +9,33 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.101.2" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.101.2" }
-ckb-types = { path = "../util/types", version = "= 0.101.2" }
-ckb-shared = { path = "../shared", version = "= 0.101.2" }
-ckb-chain-spec = { path = "../spec", version = "= 0.101.2" }
-ckb-store = { path = "../store", version = "= 0.101.2" }
-ckb-verification = { path = "../verification", version = "= 0.101.2" }
-ckb-verification-contextual = { path = "../verification/contextual", version = "= 0.101.2" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.101.2" }
+ckb-logger = { path = "../util/logger", version = "= 0.101.3" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.101.3" }
+ckb-types = { path = "../util/types", version = "= 0.101.3" }
+ckb-shared = { path = "../shared", version = "= 0.101.3" }
+ckb-chain-spec = { path = "../spec", version = "= 0.101.3" }
+ckb-store = { path = "../store", version = "= 0.101.3" }
+ckb-verification = { path = "../verification", version = "= 0.101.3" }
+ckb-verification-contextual = { path = "../verification/contextual", version = "= 0.101.3" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.101.3" }
 faketime = "0.2.0"
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.101.2" }
-ckb-dao = { path = "../util/dao", version = "= 0.101.2" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.101.2" }
-ckb-error = { path = "../error", version = "= 0.101.2" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.101.2" }
-ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.101.2" }
-ckb-channel = { path = "../util/channel", version = "= 0.101.2" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.101.3" }
+ckb-dao = { path = "../util/dao", version = "= 0.101.3" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.101.3" }
+ckb-error = { path = "../error", version = "= 0.101.3" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.101.3" }
+ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.101.3" }
+ckb-channel = { path = "../util/channel", version = "= 0.101.3" }
 faux = { version = "^0.1", optional = true }
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.101.2" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.101.2" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.101.2" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.101.2", features = ["internal"] }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.101.2" }
-ckb-network = { path = "../network", version = "= 0.101.2" }
-ckb-launcher = { path = "../util/launcher", version = "= 0.101.2" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.101.3" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.101.3" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.101.3" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.101.3", features = ["internal"] }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.101.3" }
+ckb-network = { path = "../network", version = "= 0.101.3" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.101.3" }
 lazy_static = "1.4"
 tempfile = "3.0"
 
