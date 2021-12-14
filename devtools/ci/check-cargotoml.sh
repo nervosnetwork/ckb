@@ -159,6 +159,16 @@ function check_dependencies_for() {
                         printf "Warn: [%s::%s] in <%s>\n" \
                             "${deptype}" "${dependency}" "${pkgroot}"
                         ;;
+                    tokio_yamux)
+                        if [ "$(basename "$pkgroot")" != "network" ]; then
+                            printf "Error: [%s::%s] in <%s>\n" \
+                                "${deptype}" "${dependency}" "${pkgroot}"
+                            ERRCNT=$((ERRCNT + 1))
+                        else
+                            printf "Warn: [%s::%s] locked in <%s>\n" \
+                                "${deptype}" "${dependency}" "${pkgroot}"
+                        fi
+                        ;;
                     *)
                         printf "Error: [%s::%s] in <%s>\n" \
                             "${deptype}" "${dependency}" "${pkgroot}"

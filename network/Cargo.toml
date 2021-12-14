@@ -34,7 +34,7 @@ bloom-filters = "0.1"
 ckb-spawn = { path = "../util/spawn", version = "= 0.102.0-pre" }
 
 p2p = { version="0.4.0-alpha.2", package="tentacle", features = ["upnp", "parking_lot"] }
-# lock p2p deps
+# lock p2p deps, update devtools/ci/check-cargotoml.sh as well when removing this
 tokio-yamux = "=0.3.2"
 
 [features]
