@@ -237,6 +237,125 @@ impl Spec for CompactBlockMissingNotFreshTxs {
     }
 }
 
+/// Test case:
+/// 1. CompactBlock new with 2 tx commit, but local node has only one, send GetBlockTransactions to get the missed one
+/// 2. At this time, node lost its tx on tx-pool
+/// 3. Received BlockTransactions with requets one, but can't construct the block, try requests with all 2 tx
+/// 4. Received BlockTransactions with two txs, constract block success
+pub struct CompactBlockMissingWithDropTx;
+
+impl Spec for CompactBlockMissingWithDropTx {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        mine(node, 3);
+
+        // Build the target transaction
+        let cells = gen_spendable(node, 2);
+        let new_tx_1 = always_success_transaction(node, &cells[0]);
+        let new_tx_2 = always_success_transaction(node, &cells[1]);
+
+        node.submit_block(
+            &node
+                .new_block_builder(None, None, None)
+                .proposals(vec![
+                    new_tx_1.proposal_short_id(),
+                    new_tx_2.proposal_short_id(),
+                ])
+                .build(),
+        );
+
+        mine(node, 3);
+
+        // Generate the target block which contains the target transaction as a committed transaction
+        let new_block = node
+            .new_block_builder(None, None, None)
+            .transactions(vec![new_tx_1.clone(), new_tx_2.clone()])
+            .build();
+
+        // Put `new_tx` as an not fresh tx into tx_pool
+        node.rpc_client().send_transaction(new_tx_1.data().into());
+
+        let mut net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Relay]);
+        net.connect(node);
+
+        // Relay the target block
+        net.send(
+            node,
+            SupportProtocols::Relay,
+            build_compact_block(&new_block),
+        );
+
+        let ret = net.should_receive(node, |data| {
+            RelayMessage::from_slice(data)
+                .map(|message| {
+                    if let GetBlockTransactions(get_block_transactions) = message.to_enum() {
+                        let msg = get_block_transactions
+                            .as_reader()
+                            .indexes()
+                            .iter()
+                            .map(|i| Unpack::<u32>::unpack(&i))
+                            .collect::<Vec<u32>>();
+                        vec![2] == msg
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        });
+        assert!(
+            ret,
+            "Node should send GetBlockTransactions message for missing transactions"
+        );
+
+        // Remove tx1 on tx pool
+        node.rpc_client().remove_transaction(new_tx_1.hash());
+
+        let content = packed::BlockTransactions::new_builder()
+            .block_hash(new_block.hash())
+            .transactions(vec![new_tx_2.data()].pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+
+        // Send tx2 to node
+        net.send(node, SupportProtocols::Relay, message.as_bytes());
+
+        let ret = net.should_receive(node, |data| {
+            RelayMessage::from_slice(data)
+                .map(|message| {
+                    if let GetBlockTransactions(get_block_transactions) = message.to_enum() {
+                        let msg = get_block_transactions
+                            .as_reader()
+                            .indexes()
+                            .iter()
+                            .map(|i| Unpack::<u32>::unpack(&i))
+                            .collect::<Vec<u32>>();
+                        vec![1, 2] == msg
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        });
+
+        assert!(
+            ret,
+            "Node should send GetBlockTransactions message with 2 tx missing transactions"
+        );
+
+        let content = packed::BlockTransactions::new_builder()
+            .block_hash(new_block.hash())
+            .transactions(vec![new_tx_1.data(), new_tx_2.data()].pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+
+        // send tx1 and tx2 to node
+        net.send(node, SupportProtocols::Relay, message.as_bytes());
+
+        let ret = wait_until(10, move || node.get_tip_block() == new_block);
+        assert!(ret, "Node should be able to reconstruct the block");
+    }
+}
+
 pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {

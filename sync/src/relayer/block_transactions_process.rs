@@ -58,8 +58,8 @@ impl<'a> BlockTransactionsProcess<'a> {
             .map(|uncle| uncle.into_view())
             .collect();
 
-        let missing_transactions: Vec<u32>;
-        let missing_uncles: Vec<u32>;
+        let mut missing_transactions: Vec<u32>;
+        let mut missing_uncles: Vec<u32>;
         let mut collision = false;
 
         if let Entry::Occupied(mut pending) = shared
@@ -121,8 +121,28 @@ impl<'a> BlockTransactionsProcess<'a> {
                         return Status::ok();
                     }
                     ReconstructionResult::Missing(transactions, uncles) => {
-                        missing_transactions = transactions.into_iter().map(|i| i as u32).collect();
-                        missing_uncles = uncles.into_iter().map(|i| i as u32).collect();
+                        // We need to get all transactions and uncles that do not exist locally
+                        // at once to restore a block
+                        //
+                        // Under normal circumstances, one request is enough, when the chain occurs fork,
+                        // the transaction pool may drop some transactions due to double spend check, at
+                        // this time, the previously issued request to obtain transactions may not meet
+                        // the needs of a one-time construction, we need to send another complete request
+                        // to do so. That is, the current miss + the miss of the previous request are
+                        // combined and requested once. This is a small probability event
+                        missing_transactions = transactions
+                            .into_iter()
+                            .map(|i| i as u32)
+                            .chain(expected_transaction_indexes.iter().copied())
+                            .collect();
+                        missing_uncles = uncles
+                            .into_iter()
+                            .map(|i| i as u32)
+                            .chain(expected_uncle_indexes.iter().copied())
+                            .collect();
+
+                        missing_transactions.sort_unstable();
+                        missing_uncles.sort_unstable();
                     }
                     ReconstructionResult::Collided => {
                         missing_transactions = compact_block
