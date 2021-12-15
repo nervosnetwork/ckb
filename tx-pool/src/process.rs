@@ -14,6 +14,7 @@ use crate::util::{
     verify_rtx,
 };
 use ckb_app_config::BlockAssemblerConfig;
+use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -27,7 +28,6 @@ use ckb_types::{
             get_related_dep_out_points, OverlayCellChecker, ResolveOptions, ResolvedTransaction,
             TransactionsChecker,
         },
-        hardfork::HardForkSwitch,
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
@@ -1087,13 +1087,10 @@ impl TxPoolService {
     ) {
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
-        let hardfork_switch = snapshot.consensus().hardfork_switch();
-        let hardfork_during_detach =
-            check_if_hardfork_during_blocks(hardfork_switch, &detached_blocks);
-        let hardfork_during_attach =
-            check_if_hardfork_during_blocks(hardfork_switch, &attached_blocks);
 
         let new_tip_after_delay = after_delay_window(&snapshot);
+        let is_in_delay_window = self.is_in_delay_window(&snapshot);
+
         let epoch_of_next_block = snapshot
             .tip_header()
             .epoch()
@@ -1112,74 +1109,82 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let fetched_cache = if hardfork_during_detach || hardfork_during_attach {
-            // If the hardfork was happened, don't use the cache.
+        let fetched_cache = if is_in_delay_window {
+            // If in delay_window, don't use the cache.
             HashMap::new()
         } else {
             self.fetch_txs_verify_cache(retain.iter()).await
         };
 
-        {
-            // If there are any transactions requires re-process, return them.
-            //
-            // At present, there is only one situation:
-            // - If the hardfork was happened, then re-process all transactions.
-            let txs_opt = {
-                // This closure is used to limit the lifetime of mutable tx_pool.
-                let mut tx_pool = self.tx_pool.write().await;
+        // If there are any transactions requires re-process, return them.
+        //
+        // At present, there is only one situation:
+        // - If the hardfork was happened, then re-process all transactions.
+        let txs_opt = {
+            // This closure is used to limit the lifetime of mutable tx_pool.
+            let mut tx_pool = self.tx_pool.write().await;
 
-                let txs_opt = if hardfork_during_detach || hardfork_during_attach {
-                    // The tx_pool is locked, remove all caches if has any hardfork.
-                    {
-                        self.txs_verify_cache.write().await.clear();
-                    }
-                    {
-                        self.chunk.write().await.clear();
-                    }
-
-                    Some(tx_pool.drain_all_transactions())
-                } else {
-                    None
-                };
-
-                _update_tx_pool_for_reorg(
-                    &mut tx_pool,
-                    &attached,
-                    &detached_headers,
-                    detached_proposal_id,
-                    snapshot,
-                    &self.callbacks,
-                );
-
-                // Updates network fork switch if required.
-                //
-                // This operation should be ahead of any transaction which is processed with new
-                // hardfork features.
-                if !self.network.load_ckb2021()
-                    && self
-                        .consensus
-                        .hardfork_switch
-                        .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+            let txs_opt = if is_in_delay_window {
                 {
-                    self.network.init_ckb2021()
+                    self.chunk.write().await.clear();
                 }
 
-                self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
-
-                txs_opt
+                Some(tx_pool.drain_all_transactions())
+            } else {
+                None
             };
 
-            if let Some(txs) = txs_opt {
-                self.try_process_txs(txs).await;
+            _update_tx_pool_for_reorg(
+                &mut tx_pool,
+                &attached,
+                &detached_headers,
+                detached_proposal_id,
+                snapshot,
+                &self.callbacks,
+            );
+
+            // Updates network fork switch if required.
+            //
+            // This operation should be ahead of any transaction which is processed with new
+            // hardfork features.
+            if !self.network.load_ckb2021()
+                && self
+                    .consensus
+                    .hardfork_switch
+                    .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+            {
+                self.network.init_ckb2021()
+            }
+
+            // notice: readd_detached_tx don't update cache
+            self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
+
+            txs_opt
+        };
+
+        if let Some(txs) = txs_opt {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                for tx in txs {
+                    delay.insert(tx.proposal_short_id(), tx);
+                }
             }
         }
 
         {
             let delay_txs = if !self.after_delay() && new_tip_after_delay {
+                let limit = MAX_BLOCK_PROPOSALS_LIMIT as usize;
+                let mut txs = Vec::with_capacity(limit);
                 let mut delay = self.delay.write().await;
-                let txs = delay.values().cloned().collect::<Vec<_>>();
-                delay.clear();
-                self.set_after_delay_true();
+                let keys: Vec<_> = { delay.keys().take(limit).cloned().collect() };
+                for k in keys {
+                    if let Some(v) = delay.remove(&k) {
+                        txs.push(v);
+                    }
+                }
+                if delay.is_empty() {
+                    self.set_after_delay_true();
+                }
                 Some(txs)
             } else {
                 None
@@ -1241,7 +1246,7 @@ impl TxPoolService {
         let mut count = 0usize;
         for tx in txs {
             let tx_hash = tx.hash();
-            if let Some((Err(err), _)) = self._process_tx(tx, None).await {
+            if let Err(err) = self.process_tx(tx, None).await {
                 error!("failed to process {:#x}, error: {:?}", tx_hash, err);
                 count += 1;
             }
@@ -1448,34 +1453,6 @@ fn _update_tx_pool_for_reorg(
         if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
             debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
             callbacks.call_reject(tx_pool, &entry, e.clone());
-        }
-    }
-}
-
-// # Notice
-//
-// This method assumes that the inputs blocks are sorted.
-fn check_if_hardfork_during_blocks(
-    hardfork_switch: &HardForkSwitch,
-    blocks: &VecDeque<BlockView>,
-) -> bool {
-    if blocks.is_empty() {
-        false
-    } else {
-        // This method assumes that the hardfork epochs are sorted and unique.
-        let hardfork_epochs = hardfork_switch.script_result_changed_at();
-        if hardfork_epochs.is_empty() {
-            false
-        } else {
-            let epoch_first = blocks.front().unwrap().epoch().number();
-            let epoch_next = blocks
-                .back()
-                .unwrap()
-                .epoch()
-                .minimum_epoch_number_after_n_blocks(1);
-            hardfork_epochs
-                .into_iter()
-                .any(|hardfork_epoch| epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next)
         }
     }
 }
