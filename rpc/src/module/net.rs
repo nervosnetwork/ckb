@@ -3,7 +3,7 @@ use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
 };
-use ckb_network::{extract_peer_id, NetworkController};
+use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
@@ -734,17 +734,20 @@ impl NetRpc for NetRpcImpl {
     }
 
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
-        self.network_controller.add_node(
-            format!("{}/p2p/{}", address, peer_id)
-                .parse()
-                .expect("invalid address"),
-        );
+        if let Ok(multiaddr) = address.parse::<Multiaddr>() {
+            if extract_peer_id(&multiaddr).is_some() {
+                self.network_controller.add_node(multiaddr)
+            } else if let Ok(addr) = format!("{}/p2p/{}", address, peer_id).parse() {
+                self.network_controller.add_node(addr)
+            }
+        }
         Ok(())
     }
 
     fn remove_node(&self, peer_id: String) -> Result<()> {
-        self.network_controller
-            .remove_node(&peer_id.parse().expect("invalid peer_id"));
+        if let Ok(id) = peer_id.parse() {
+            self.network_controller.remove_node(&id)
+        }
         Ok(())
     }
 
