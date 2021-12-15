@@ -664,7 +664,7 @@ impl InflightBlocks {
                     }
                 };
                 if !trace.is_empty() {
-                    trace.remove(&key);
+                    trace.remove(key);
                 }
                 remove_key.push(key.clone());
             }
@@ -827,7 +827,7 @@ impl Peers {
     pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
         if let Some(mut peer_state) = self.state.get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(&hv.total_difficulty()) {
+                if header_view.is_better_than(hv.total_difficulty()) {
                     peer_state.best_known_header = Some(header_view);
                 }
             } else {
@@ -1314,7 +1314,7 @@ impl SyncShared {
             }
         };
         if let Err(ref error) = ret {
-            if !is_internal_db_error(&error) {
+            if !is_internal_db_error(error) {
                 error!("accept block {:?} {}", block, error);
                 self.state
                     .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
@@ -1385,7 +1385,7 @@ impl SyncShared {
                 .get_block_header(hash)
                 .and_then(|header| {
                     store
-                        .get_block_ext(&hash)
+                        .get_block_ext(hash)
                         .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
                 })
                 .or_else(|| self.state.header_map.get(hash))
@@ -1393,7 +1393,7 @@ impl SyncShared {
             self.state.header_map.get(hash).or_else(|| {
                 store.get_block_header(hash).and_then(|header| {
                     store
-                        .get_block_ext(&hash)
+                        .get_block_ext(hash)
                         .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
                 })
             })
@@ -1402,13 +1402,13 @@ impl SyncShared {
 
     /// Check whether block has been inserted to chain store
     pub fn is_stored(&self, hash: &packed::Byte32) -> bool {
-        let status = self.active_chain().get_block_status(&hash);
+        let status = self.active_chain().get_block_status(hash);
         status.contains(BlockStatus::BLOCK_STORED)
     }
 
     /// Get epoch ext by block hash
     pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
-        self.store().get_block_epoch(&hash)
+        self.store().get_block_epoch(hash)
     }
 }
 
@@ -1582,7 +1582,7 @@ impl SyncState {
     }
 
     pub fn may_set_shared_best_header(&self, header: HeaderView) {
-        if !header.is_better_than(&self.shared_best_header.read().total_difficulty()) {
+        if !header.is_better_than(self.shared_best_header.read().total_difficulty()) {
             return;
         }
 

@@ -16,7 +16,7 @@ impl Spec for RelayTooNewBlock {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
-        out_ibd_mode(&nodes);
+        out_ibd_mode(nodes);
 
         node1.connect(node0);
         let future = Duration::from_secs(6_000).as_millis() as u64;
@@ -32,7 +32,7 @@ impl Spec for RelayTooNewBlock {
         waiting_for_sync(&[node0, node2]);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        mine(&node0, 1);
+        mine(node0, 1);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();

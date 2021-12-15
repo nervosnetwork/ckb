@@ -35,7 +35,7 @@ impl Spec for RemoveTx {
 
             node0.assert_tx_pool_statics(0, 0);
 
-            relay_tx(&net, &node0, child_tx.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
+            relay_tx(&net, node0, child_tx.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
             let result = wait_until(5, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
@@ -99,7 +99,7 @@ impl Spec for RemoveTx {
             assert!(check::is_transaction_pending(node0, &tx));
             node0.assert_tx_pool_statics(tx_size, tx_cycles);
 
-            mine(&node0, 2);
+            mine(node0, 2);
             let result = wait_until(5, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 0 && tx_pool_info.proposed.value() == 1

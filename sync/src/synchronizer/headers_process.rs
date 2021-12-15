@@ -54,7 +54,7 @@ impl<'a> HeadersProcess<'a> {
 
     pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
         let shared: &SyncShared = self.synchronizer.shared();
-        let verifier = HeaderVerifier::new(shared, &shared.consensus());
+        let verifier = HeaderVerifier::new(shared, shared.consensus());
         let acceptor = HeaderAcceptor::new(first, self.peer, verifier, self.active_chain.clone());
         acceptor.accept()
     }
@@ -148,7 +148,7 @@ impl<'a> HeadersProcess<'a> {
         for header in headers.iter().skip(1) {
             let verifier = HeaderVerifier::new(shared, consensus);
             let acceptor =
-                HeaderAcceptor::new(&header, self.peer, verifier, self.active_chain.clone());
+                HeaderAcceptor::new(header, self.peer, verifier, self.active_chain.clone());
             let result = acceptor.accept();
             match result.state {
                 ValidationState::Invalid => {
@@ -327,7 +327,7 @@ impl<'a, DL: HeaderProvider> HeaderAcceptor<'a, DL> {
             return result;
         }
 
-        shared.insert_valid_header(self.peer, &self.header);
+        shared.insert_valid_header(self.peer, self.header);
         result
     }
 }

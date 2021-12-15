@@ -14,11 +14,9 @@ fn all() -> Vec<BlockStatus> {
 }
 
 fn assert_contain(includes: Vec<BlockStatus>, target: BlockStatus) {
-    let excludes: Vec<BlockStatus> = all()
-        .into_iter()
-        .filter(|s1| !includes.iter().any(|s2| s2 == s1))
-        .collect();
-    includes.into_iter().for_each(|status| {
+    let all = all();
+    let excludes = all.iter().filter(|s1| !includes.iter().any(|s2| &s2 == s1));
+    includes.iter().for_each(|status| {
         assert!(
             status.contains(target),
             "{:?} should contains {:?}",

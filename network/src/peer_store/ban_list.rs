@@ -42,7 +42,7 @@ impl BanList {
 
     /// Unban address
     pub fn unban_network(&mut self, ip_network: &IpNetwork) {
-        self.inner.remove(&ip_network);
+        self.inner.remove(ip_network);
     }
 
     fn is_ip_banned_until(&self, ip: IpAddr, now_ms: u64) -> bool {

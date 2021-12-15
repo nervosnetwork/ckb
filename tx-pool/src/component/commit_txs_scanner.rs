@@ -194,27 +194,27 @@ impl<'a> CommitTxsScanner<'a> {
     // stale due to ancestor inclusion in the block)
     // Also skip transactions that we've already failed to add.
     fn skip_proposed_entry(&self, short_id: &ProposalShortId) -> bool {
-        self.fetched_txs.contains(&short_id)
-            || self.modified_entries.contains_key(&short_id)
-            || self.failed_txs.contains(&short_id)
+        self.fetched_txs.contains(short_id)
+            || self.modified_entries.contains_key(short_id)
+            || self.failed_txs.contains(short_id)
     }
 
     /// Add descendants of given transactions to `modified_entries` with ancestor
     /// state updated assuming given transactions are inBlock.
     fn update_modified_entries(&mut self, already_added: &LinkedHashMap<ProposalShortId, TxEntry>) {
         for (id, entry) in already_added {
-            let descendants = self.proposed_pool.calc_descendants(&id);
+            let descendants = self.proposed_pool.calc_descendants(id);
             for desc_id in descendants
                 .iter()
                 .filter(|id| !already_added.contains_key(id))
             {
-                let mut desc = self.modified_entries.remove(&desc_id).unwrap_or_else(|| {
+                let mut desc = self.modified_entries.remove(desc_id).unwrap_or_else(|| {
                     self.proposed_pool
-                        .get(&desc_id)
+                        .get(desc_id)
                         .map(ToOwned::to_owned)
                         .expect("pool consistent")
                 });
-                desc.sub_entry_weight(&entry);
+                desc.sub_entry_weight(entry);
                 self.modified_entries.insert(desc);
             }
         }

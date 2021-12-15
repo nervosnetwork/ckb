@@ -255,7 +255,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), DaoError> {
         let data_loader = self.store.as_data_provider();
-        let calculator = DaoCalculator::new(&self.consensus, &data_loader);
+        let calculator = DaoCalculator::new(self.consensus, &data_loader);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
 
@@ -264,7 +264,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     fn get_proposal_ids_by_hash(&self, hash: &Byte32) -> HashSet<ProposalShortId> {
         let mut ids_set = HashSet::new();
-        if let Some(ids) = self.store.get_block_proposal_txs_ids(&hash) {
+        if let Some(ids) = self.store.get_block_proposal_txs_ids(hash) {
             ids_set.extend(ids)
         }
         if let Some(us) = self.store.get_block_uncles(hash) {

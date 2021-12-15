@@ -82,7 +82,7 @@ impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
 
 impl<'a, CS: ChainStore<'a>> ConsensusProvider for VerifyContext<'a, CS> {
     fn get_consensus(&self) -> &Consensus {
-        &self.consensus
+        self.consensus
     }
 }
 
@@ -122,7 +122,7 @@ impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, 
     }
 
     fn epoch(&self) -> &EpochExt {
-        &self.epoch
+        self.epoch
     }
 
     fn consensus(&self) -> &Consensus {
@@ -299,7 +299,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
             self.context.consensus,
             &self.context.store.as_data_provider(),
         )
-        .dao_field(&self.resolved, self.parent)
+        .dao_field(self.resolved, self.parent)
         .map_err(|e| {
             error_target!(
                 crate::LOG_TARGET,
@@ -392,7 +392,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
                     match cache_entry {
                         CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
-                            &tx,
+                            tx,
                             self.context.consensus,
                             self.context,
                             &tx_env,
@@ -407,7 +407,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         })
                         .map(|_| (tx_hash, *completed)),
                         CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
-                            &tx,
+                            tx,
                             self.context.consensus,
                             &self.context.store.as_data_provider(),
                             &tx_env,
@@ -428,7 +428,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                     }
                 } else {
                     ContextualTransactionVerifier::new(
-                        &tx,
+                        tx,
                         self.context.consensus,
                         &self.context.store.as_data_provider(),
                         &tx_env,
@@ -566,23 +566,23 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         }
 
         if !switch.disable_uncles() {
-            let uncle_verifier_context = UncleVerifierContext::new(&self.context, &epoch_ext);
+            let uncle_verifier_context = UncleVerifierContext::new(self.context, &epoch_ext);
             UnclesVerifier::new(uncle_verifier_context, block).verify()?;
         }
 
         if !switch.disable_two_phase_commit() {
-            TwoPhaseCommitVerifier::new(&self.context, block).verify()?;
+            TwoPhaseCommitVerifier::new(self.context, block).verify()?;
         }
 
         if !switch.disable_daoheader() {
-            DaoHeaderVerifier::new(&self.context, resolved, &parent, &block.header()).verify()?;
+            DaoHeaderVerifier::new(self.context, resolved, &parent, &block.header()).verify()?;
         }
 
         if !switch.disable_reward() {
-            RewardVerifier::new(&self.context, resolved, &parent).verify()?;
+            RewardVerifier::new(self.context, resolved, &parent).verify()?;
         }
 
-        let ret = BlockTxsVerifier::new(&self.context, header, resolved).verify(
+        let ret = BlockTxsVerifier::new(self.context, header, resolved).verify(
             txs_verify_cache,
             handle,
             switch.disable_script(),

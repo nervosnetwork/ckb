@@ -59,7 +59,7 @@ pub(crate) struct Notify<A> {
 }
 
 impl<A> Notify<A> {
-    pub(crate) fn notify(arguments: A) -> Notify<A> {
+    pub(crate) fn new(arguments: A) -> Notify<A> {
         Notify { arguments }
     }
 }
@@ -202,7 +202,7 @@ impl TxPoolController {
 
     /// Notify new uncle
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), AnyError> {
-        let notify = Notify::notify(uncle);
+        let notify = Notify::new(uncle);
         self.sender
             .try_send(Message::NewUncle(notify))
             .map_err(|e| {
@@ -222,7 +222,7 @@ impl TxPoolController {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
-        let notify = Notify::notify((
+        let notify = Notify::new((
             detached_blocks,
             attached_blocks,
             detached_proposal_id,
@@ -301,7 +301,7 @@ impl TxPoolController {
 
     /// Receive txs from network, try to add txs to tx-pool
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        let notify = Notify::notify(txs);
+        let notify = Notify::new(txs);
         self.sender
             .try_send(Message::NotifyTxs(notify))
             .map_err(|e| {
@@ -823,7 +823,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: mut proposals,
         }) => {
             let tx_pool = service.tx_pool.read().await;
-            proposals.retain(|id| !tx_pool.contains_proposal_id(&id));
+            proposals.retain(|id| !tx_pool.contains_proposal_id(id));
             if let Err(e) = responder.send(proposals) {
                 error!("responder send fresh_proposals_filter failed {:?}", e);
             };
@@ -916,11 +916,9 @@ async fn process(mut service: TxPoolService, message: Message) {
             let txs = short_ids
                 .into_iter()
                 .filter_map(|short_id| {
-                    if let Some(tx) = tx_pool.get_tx_from_pool_or_store(&short_id) {
-                        Some((short_id, tx))
-                    } else {
-                        None
-                    }
+                    tx_pool
+                        .get_tx_from_pool_or_store(&short_id)
+                        .map(|tx| (short_id, tx))
                 })
                 .collect();
             if let Err(e) = responder.send(txs) {

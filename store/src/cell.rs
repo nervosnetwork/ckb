@@ -102,7 +102,7 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     let undo_deads = input_pts
         .iter()
         .filter_map(|(tx_hash, indexes)| {
-            txn.get_transaction_with_info(&tx_hash)
+            txn.get_transaction_with_info(tx_hash)
                 .map(move |(tx, info)| {
                     let block_hash = info.block_hash;
                     let block_number = info.block_number;

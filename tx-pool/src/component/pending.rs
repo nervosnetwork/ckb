@@ -215,7 +215,7 @@ impl PendingQueue {
             }
         }
         for entry in &removed {
-            self.remove_entry_relation(&entry);
+            self.remove_entry_relation(entry);
         }
 
         removed
@@ -236,7 +236,7 @@ impl PendingQueue {
             if proposals.len() == limit {
                 break;
             }
-            if !exclusion.contains(&id) {
+            if !exclusion.contains(id) {
                 proposals.insert(id.clone());
             }
         }

@@ -420,7 +420,7 @@ fn test_since() {
 
     for v in valids.into_iter() {
         let since = Since(v);
-        assert_eq!(since.flags_is_valid(), true);
+        assert!(since.flags_is_valid());
     }
 
     let invalids = vec![
@@ -431,7 +431,7 @@ fn test_since() {
 
     for v in invalids.into_iter() {
         let since = Since(v);
-        assert_eq!(since.flags_is_valid(), false);
+        assert!(!since.flags_is_valid());
     }
 }
 

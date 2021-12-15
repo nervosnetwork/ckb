@@ -40,7 +40,7 @@ impl Spec for BootstrapCellbase {
             );
         });
 
-        mine(&node, 1);
+        mine(node, 1);
         let blk = node.get_tip_block();
         assert!(
             blk.transactions()[0].is_cellbase()

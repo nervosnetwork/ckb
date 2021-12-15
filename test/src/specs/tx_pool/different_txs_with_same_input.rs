@@ -31,9 +31,9 @@ impl Spec for DifferentTxsWithSameInput {
         node0.rpc_client().send_transaction(tx1.data().into());
         node0.rpc_client().send_transaction(tx2.data().into());
 
-        mine(&node0, 1);
-        mine(&node0, 1);
-        mine(&node0, 1);
+        mine(node0, 1);
+        mine(node0, 1);
+        mine(node0, 1);
 
         // tx pool statics should reset
         node0.assert_tx_pool_statics(0, 0);

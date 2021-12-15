@@ -14,7 +14,6 @@ use ckb_verification::{
     ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptVerifier, ScriptVerifyResult,
     ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
-use std::convert::TryInto;
 use std::sync::Arc;
 
 const MIN_STEP_CYCLE: Cycle = 10_000_000;

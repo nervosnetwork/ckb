@@ -8,19 +8,19 @@ use crate::core::{
 #[test]
 fn test_if_is_malformed_tx() {
     let reject = Reject::LowFeeRate(Default::default(), 0, 0);
-    assert_eq!(reject.is_malformed_tx(), false);
+    assert!(!reject.is_malformed_tx());
 
     let reject = Reject::ExceededMaximumAncestorsCount;
-    assert_eq!(reject.is_malformed_tx(), false);
+    assert!(!reject.is_malformed_tx());
 
     let reject = Reject::Full(Default::default(), 0);
-    assert_eq!(reject.is_malformed_tx(), false);
+    assert!(!reject.is_malformed_tx());
 
     let reject = Reject::Duplicated(Default::default());
-    assert_eq!(reject.is_malformed_tx(), false);
+    assert!(!reject.is_malformed_tx());
 
     let reject = Reject::Malformed(Default::default());
-    assert_eq!(reject.is_malformed_tx(), true);
+    assert!(reject.is_malformed_tx());
 
     for error in vec![
         OutPointError::Dead(Default::default()),
@@ -31,7 +31,7 @@ fn test_if_is_malformed_tx() {
         OutPointError::ImmatureHeader(Default::default()),
     ] {
         let reject = Reject::Resolve(error);
-        assert_eq!(reject.is_malformed_tx(), false);
+        assert!(!reject.is_malformed_tx());
     }
 
     for ban in vec![true, false].into_iter() {
@@ -96,7 +96,7 @@ fn test_if_is_malformed_tx() {
         let error_kind = ErrorKind::Script;
         let error = error_kind.because(DefaultError);
         let reject = Reject::Verification(error);
-        assert_eq!(reject.is_malformed_tx(), true);
+        assert!(reject.is_malformed_tx());
     }
 
     for error_kind in &[

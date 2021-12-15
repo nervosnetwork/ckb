@@ -102,7 +102,7 @@ impl AddrManager {
         multiaddr_to_socketaddr(addr).and_then(|addr| {
             self.addr_to_id
                 .get(&addr)
-                .and_then(|id| self.id_to_info.get(&id))
+                .and_then(|id| self.id_to_info.get(id))
         })
     }
 

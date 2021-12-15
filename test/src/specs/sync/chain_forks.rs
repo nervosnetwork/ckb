@@ -561,8 +561,8 @@ impl Spec for ForksContainSameUncle {
 
         info!("(1) Construct an uncle before fork point");
         let uncle = node_a.construct_uncle();
-        mine(&node_a, 1);
-        mine(&node_b, 1);
+        mine(node_a, 1);
+        mine(node_b, 1);
 
         info!("(2) Add `uncle` into different forks in node_a and node_b");
         node_a.submit_block(&uncle);
@@ -580,7 +580,7 @@ impl Spec for ForksContainSameUncle {
         node_b.submit_block(&block_b);
 
         info!("(3) Make node_b's fork longer(to help check whether is synchronized)");
-        mine(&node_b, 1);
+        mine(node_b, 1);
 
         info!("(4) Connect node_a and node_b, expect that they sync into convergence");
         node_a.connect(node_b);

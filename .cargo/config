@@ -1,7 +1,7 @@
 [cargo-new]
 name = "Nervos Core Dev"
 email = "dev@nervos.org"
-edition = "2018"
+edition = "2021"
 
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"

@@ -1,7 +1,6 @@
 use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
 use ckb_types::{packed, prelude::*};
-use std::convert::TryFrom;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct IdentifyMessage<'a> {

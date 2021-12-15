@@ -256,7 +256,7 @@ impl AppConfig {
 impl CKBAppConfig {
     /// Load a new instance from a file
     pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
-        let legacy_config: legacy::CKBAppConfig = toml::from_slice(&slice)?;
+        let legacy_config: legacy::CKBAppConfig = toml::from_slice(slice)?;
         for field in legacy_config.deprecated_fields() {
             eprintln!(
                 "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
@@ -309,7 +309,7 @@ impl CKBAppConfig {
 impl MinerAppConfig {
     /// Load a new instance from a file.
     pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
-        let legacy_config: legacy::MinerAppConfig = toml::from_slice(&slice)?;
+        let legacy_config: legacy::MinerAppConfig = toml::from_slice(slice)?;
         for field in legacy_config.deprecated_fields() {
             eprintln!(
                 "WARN: the option \"{}\" in configuration files is deprecated since v{}.",

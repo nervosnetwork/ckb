@@ -320,7 +320,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains(&addr) {
+        if self.public_addrs.read().contains(addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -582,7 +582,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 let message = format!("ProtocolError id={}", proto_id);
                 // Ban because misbehave of remote peer
                 self.network_state.ban_session(
-                    &context.control(),
+                    context.control(),
                     id,
                     Duration::from_secs(300),
                     message,
@@ -624,7 +624,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
                     if let Some(id) = opt_session_id {
                         self.network_state.ban_session(
-                            &context.control(),
+                            context.control(),
                             id,
                             Duration::from_secs(300),
                             format!("protocol {} panic when process peer message", proto_id),
@@ -1265,7 +1265,6 @@ impl NetworkController {
         let now = Instant::now();
         loop {
             let target = target
-                .clone()
                 .map(TargetSession::Single)
                 .unwrap_or(TargetSession::All);
             let result = if quick {

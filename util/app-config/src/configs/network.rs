@@ -165,7 +165,7 @@ pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), E
         .write(true)
         .open(path)
         .and_then(|mut file| {
-            file.write_all(&secret)?;
+            file.write_all(secret)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;

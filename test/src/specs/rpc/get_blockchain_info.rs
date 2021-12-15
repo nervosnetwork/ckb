@@ -73,7 +73,7 @@ impl Spec for RpcGetBlockchainInfo {
         check_median_time(blockchain_info, node0);
 
         // mine 1 block to make tip_block_number is even
-        mine(&node0, 1);
+        mine(node0, 1);
         let blockchain_info = node0.rpc_client().get_blockchain_info();
         assert_eq!(
             2,
@@ -85,7 +85,7 @@ impl Spec for RpcGetBlockchainInfo {
         check_median_time(blockchain_info, node0);
 
         // mine epoch_length blocks to make epoch number change
-        mine(&node0, epoch_length);
+        mine(node0, epoch_length);
         let blockchain_info = node0.rpc_client().get_blockchain_info();
         assert_eq!(
             1,

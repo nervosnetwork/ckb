@@ -24,7 +24,7 @@ impl Spec for OrphanTxAccepted {
         let parent_tx = node0.new_transaction_spend_tip_cellbase();
         let child_tx = node0.new_transaction(parent_tx.hash());
 
-        relay_tx(&net, &node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        relay_tx(&net, node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
@@ -34,7 +34,7 @@ impl Spec for OrphanTxAccepted {
             "Send child tx first, it will be added to orphan tx pool"
         );
 
-        relay_tx(&net, &node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        relay_tx(&net, node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 2
@@ -65,7 +65,7 @@ impl Spec for OrphanTxRejected {
         let parent_tx = node0.new_transaction_spend_tip_cellbase();
         let child_tx = node0.new_transaction(parent_tx.hash());
 
-        relay_tx(&net, &node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
+        relay_tx(&net, node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE + 1);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
@@ -75,7 +75,7 @@ impl Spec for OrphanTxRejected {
             "Send child tx first, it will be added to orphan tx pool"
         );
 
-        relay_tx(&net, &node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        relay_tx(&net, node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 1

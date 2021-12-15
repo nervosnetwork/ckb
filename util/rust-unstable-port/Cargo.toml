@@ -2,7 +2,7 @@
 name = "ckb-rust-unstable-port"
 version = "0.102.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Collection of features backport from unstable Rust."
 homepage = "https://github.com/nervosnetwork/ckb"

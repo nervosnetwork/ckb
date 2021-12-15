@@ -77,9 +77,9 @@ impl Spec for SendDefectedBinary {
         let witness_len = witness.as_slice().len() as u64;
         let message = {
             let mut hasher = new_blake2b();
-            hasher.update(&tx_hash.as_slice());
+            hasher.update(tx_hash.as_slice());
             hasher.update(&witness_len.to_le_bytes());
-            hasher.update(&witness.as_slice());
+            hasher.update(witness.as_slice());
             let mut buf = [0u8; 32];
             hasher.finalize(&mut buf);
             H256::from(buf)

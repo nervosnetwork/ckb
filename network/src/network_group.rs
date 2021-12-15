@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub enum Group {
-    NoGroup,
+    None,
     LocalNetwork,
     IP4([u8; 2]),
     IP6([u8; 4]),
@@ -38,6 +38,6 @@ impl From<&Multiaddr> for Group {
             }
         }
         // Can't group addr
-        Group::NoGroup
+        Group::None
     }
 }

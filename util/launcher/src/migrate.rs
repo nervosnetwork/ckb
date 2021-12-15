@@ -48,12 +48,12 @@ impl Migrate {
     /// - Greater: The database version is greater than the matched version of the executable binary.
     ///   Requires upgrade the executable binary.
     pub fn check(&self, db: &ReadOnlyDB) -> Ordering {
-        self.migrations.check(&db)
+        self.migrations.check(db)
     }
 
     /// Check whether database requires expensive migrations.
     pub fn require_expensive(&self, db: &ReadOnlyDB) -> bool {
-        self.migrations.expensive(&db)
+        self.migrations.expensive(db)
     }
 
     /// Open bulk load db.

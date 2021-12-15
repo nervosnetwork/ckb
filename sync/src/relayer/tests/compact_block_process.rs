@@ -13,7 +13,6 @@ use ckb_types::{
 };
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::sync::Arc;
 
 #[test]
@@ -26,7 +25,7 @@ fn test_in_block_status_map() {
             .get_block_hash(4)
             .and_then(|block_hash| shared.store().get_block(&block_hash))
             .unwrap();
-        new_header_builder(&relayer.shared.shared(), &parent.header()).build()
+        new_header_builder(relayer.shared.shared(), &parent.header()).build()
     };
     let block = BlockBuilder::default()
         .transaction(TransactionBuilder::default().build())

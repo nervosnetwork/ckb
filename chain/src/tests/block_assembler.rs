@@ -84,7 +84,7 @@ fn test_get_block_template() {
 
     let header_verify_result = {
         let snapshot: &Snapshot = &shared.snapshot();
-        let header_verifier = HeaderVerifier::new(snapshot, &shared.consensus());
+        let header_verifier = HeaderVerifier::new(snapshot, shared.consensus());
         header_verifier.verify(&header)
     };
     assert!(header_verify_result.is_ok());

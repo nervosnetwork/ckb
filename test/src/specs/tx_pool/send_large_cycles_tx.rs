@@ -43,15 +43,15 @@ impl Spec for SendLargeCyclesTxInBlock {
 
         mine_until_out_bootstrap_period(node1);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node1, &self.random_key.privkey, self.random_key.lock_arg());
+        let tx = build_tx(node1, &self.random_key.privkey, self.random_key.lock_arg());
 
         info!("Node0 mine large cycles tx");
-        node0.connect(&node1);
+        node0.connect(node1);
         let result = wait_until(60, || {
             node1.get_tip_block_number() == node0.get_tip_block_number()
         });
         assert!(result, "node0 can't sync with node1");
-        node0.disconnect(&node1);
+        node0.disconnect(node1);
         let ret = node0.rpc_client().send_transaction_result(tx.data().into());
         ret.expect("package large cycles tx");
         let result = wait_until(60, || {
@@ -61,10 +61,10 @@ impl Spec for SendLargeCyclesTxInBlock {
             ret.is_some() && matches!(ret.unwrap().tx_status.status, Status::Pending)
         });
         assert!(result, "large cycles tx rejected by node0");
-        mine(&node0, 3);
+        mine(node0, 3);
         let block: BlockView = node0.get_tip_block();
         assert_eq!(block.transactions()[1], tx);
-        node0.connect(&node1);
+        node0.connect(node1);
 
         info!("Wait block relay to node1");
         let result = wait_until(60, || {
@@ -104,10 +104,10 @@ impl Spec for SendLargeCyclesTxToRelay {
         let node1 = &nodes[1];
 
         mine_until_out_bootstrap_period(node1);
-        node0.connect(&node1);
+        node0.connect(node1);
         info!("Generate large cycles tx");
 
-        let tx = build_tx(&node1, &self.random_key.privkey, self.random_key.lock_arg());
+        let tx = build_tx(node1, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let ret = node1.rpc_client().send_transaction_result(tx.data().into());
         assert!(ret.is_ok());
@@ -155,7 +155,7 @@ impl Spec for NotifyLargeCyclesTx {
 
         mine_until_out_bootstrap_period(node0);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
+        let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let _ = node0.rpc_client().notify_transaction(tx.data().into());
 
@@ -197,7 +197,7 @@ impl Spec for LoadProgramFailedTx {
 
         mine_until_out_bootstrap_period(node0);
         info!("Generate large cycles tx");
-        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
+        let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
         let _ = node0.rpc_client().notify_transaction(tx.data().into());
 
@@ -240,7 +240,7 @@ impl Spec for RelayWithWrongTx {
         mine_until_out_bootstrap_period(node0);
         let rpc_client = node0.rpc_client();
 
-        let tx = build_tx(&node0, &self.random_key.privkey, self.random_key.lock_arg());
+        let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
 
         let mut net = Net::new(
             self.name(),
@@ -249,7 +249,7 @@ impl Spec for RelayWithWrongTx {
         );
         net.connect(node0);
 
-        relay_tx(&net, &node0, tx, 100_000_000);
+        relay_tx(&net, node0, tx, 100_000_000);
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()
@@ -261,14 +261,14 @@ impl Spec for RelayWithWrongTx {
         rpc_client.clear_banned_addresses();
 
         // Advance one block, in order to prevent tx hash is same
-        mine(&node0, 1);
+        mine(node0, 1);
 
         let mut generator = Generator::new();
-        let tx_wrong_pk = build_tx(&node0, &generator.gen_privkey(), self.random_key.lock_arg());
+        let tx_wrong_pk = build_tx(node0, &generator.gen_privkey(), self.random_key.lock_arg());
 
         net.connect(node0);
 
-        relay_tx(&net, &node0, tx_wrong_pk, 100_000_000);
+        relay_tx(&net, node0, tx_wrong_pk, 100_000_000);
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()
@@ -340,9 +340,9 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
     let witness_len = witness.as_slice().len() as u64;
     let message = {
         let mut hasher = new_blake2b();
-        hasher.update(&tx_hash.as_bytes());
+        hasher.update(tx_hash.as_bytes());
         hasher.update(&witness_len.to_le_bytes());
-        hasher.update(&witness.as_slice());
+        hasher.update(witness.as_slice());
         let mut buf = [0u8; 32];
         hasher.finalize(&mut buf);
         H256::from(buf)

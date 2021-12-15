@@ -77,7 +77,7 @@ impl DnsSeedingService {
                         for inner in record.iter() {
                             match std::str::from_utf8(inner) {
                                 Ok(record) => {
-                                    match SeedRecord::decode_with_pubkey(&record, &pubkey) {
+                                    match SeedRecord::decode_with_pubkey(record, &pubkey) {
                                         Ok(seed_record) => {
                                             let address = seed_record.address();
                                             trace!("got dns txt address: {}", address);

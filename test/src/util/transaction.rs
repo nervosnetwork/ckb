@@ -57,7 +57,7 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
     net.send(node, SupportProtocols::Relay, tx_hashes_msg.as_bytes());
 
     let ret = net.should_receive(node, |data: &Bytes| {
-        packed::RelayMessage::from_slice(&data)
+        packed::RelayMessage::from_slice(data)
             .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
             .unwrap_or(false)
     });

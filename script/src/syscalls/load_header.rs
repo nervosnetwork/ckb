@@ -56,7 +56,7 @@ impl<'a, DL: HeaderProvider + 'a> LoadHeader<'a, DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_header(&block_hash)
+            self.data_loader.get_header(block_hash)
         } else {
             None
         }

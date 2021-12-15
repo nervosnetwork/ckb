@@ -75,7 +75,7 @@ fn bench(c: &mut Criterion) {
                             .unwrap()];
                         let mut parent = blocks[0].clone();
                         (0..5).for_each(|i| {
-                            let block = gen_secp_block(&mut blocks, &parent, &shared2);
+                            let block = gen_secp_block(&mut blocks, &parent, shared2);
                             chain2
                                 .internal_process_block(
                                     Arc::new(block.clone()),
@@ -94,7 +94,7 @@ fn bench(c: &mut Criterion) {
                         });
                         let mut parent = blocks[2].clone();
                         (0..2).for_each(|_| {
-                            let block = gen_secp_block(&mut blocks, &parent, &shared3);
+                            let block = gen_secp_block(&mut blocks, &parent, shared3);
                             chain3
                                 .internal_process_block(
                                     Arc::new(block.clone()),
@@ -149,7 +149,7 @@ fn bench(c: &mut Criterion) {
                             .unwrap()];
                         let mut parent = blocks[0].clone();
                         (0..5).for_each(|i| {
-                            let block = gen_secp_block(&mut blocks, &parent, &shared2);
+                            let block = gen_secp_block(&mut blocks, &parent, shared2);
                             let arc_block = Arc::new(block.clone());
                             chain2
                                 .internal_process_block(Arc::clone(&arc_block), Switch::DISABLE_ALL)
@@ -163,7 +163,7 @@ fn bench(c: &mut Criterion) {
                         });
                         let mut parent = blocks[2].clone();
                         (0..4).for_each(|_| {
-                            let block = gen_secp_block(&mut blocks, &parent, &shared3);
+                            let block = gen_secp_block(&mut blocks, &parent, shared3);
                             chain3
                                 .internal_process_block(
                                     Arc::new(block.clone()),

@@ -295,7 +295,7 @@ impl ChainService {
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
 
         for blk in fork.attached_blocks() {
-            db_txn.delete_block(&blk)?;
+            db_txn.delete_block(blk)?;
         }
         db_txn.commit()?;
 
@@ -340,13 +340,13 @@ impl ChainService {
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
         let consensus = self.shared.consensus();
-        BlockVerifier::new(consensus).verify(&block).map_err(|e| {
+        BlockVerifier::new(consensus).verify(block).map_err(|e| {
             debug!("[process_block] BlockVerifier error {:?}", e);
             e
         })?;
 
         NonContextualBlockTxsVerifier::new(consensus)
-            .verify(&block)
+            .verify(block)
             .map_err(|e| {
                 debug!(
                     "[process_block] NonContextualBlockTxsVerifier error {:?}",
@@ -535,7 +535,7 @@ impl ChainService {
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
 
-        self.reload_proposal_table(&fork);
+        self.reload_proposal_table(fork);
     }
 
     // if rollback happen, go back check whether need reload proposal_table from block
@@ -771,7 +771,7 @@ impl ChainService {
                                 &resolved,
                                 b,
                                 Arc::clone(&txs_verify_cache),
-                                &async_handle,
+                                async_handle,
                                 switch,
                             ) {
                                 Ok((cycles, cache_entries)) => {

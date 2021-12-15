@@ -24,7 +24,6 @@ use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use rand::random;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[cfg(not(feature = "ci"))]
@@ -200,7 +199,7 @@ fn bench(c: &mut Criterion) {
                             let block = raw_block.as_builder().header(header).build().into_view();
 
                             let header_verifier =
-                                HeaderVerifier::new(snapshot.as_ref(), &shared.consensus());
+                                HeaderVerifier::new(snapshot.as_ref(), shared.consensus());
                             header_verifier
                                 .verify(&block.header())
                                 .expect("header verified");

@@ -257,7 +257,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
             .output_data(Default::default())
             .build();
         if let Some(errmsg) = expected.error_message() {
-            assert_send_transaction_fail(self.node, &tx, &errmsg);
+            assert_send_transaction_fail(self.node, &tx, errmsg);
             None
         } else {
             self.submit_transaction_until_committed(&tx);
@@ -288,7 +288,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
         .output_data(Default::default())
         .build();
         if let Some(errmsg) = expected.error_message() {
-            assert_send_transaction_fail(self.node, &tx, &errmsg);
+            assert_send_transaction_fail(self.node, &tx, errmsg);
         } else {
             self.submit_transaction_until_committed(&tx);
         }
