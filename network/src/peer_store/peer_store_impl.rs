@@ -23,7 +23,7 @@ use std::collections::{hash_map::Entry, HashMap};
 pub struct PeerStore {
     addr_manager: AddrManager,
     ban_list: BanList,
-    peers: HashMap<PeerId, PeerInfo>,
+    connected_peers: HashMap<PeerId, PeerInfo>,
     score_config: PeerScoreConfig,
 }
 
@@ -33,7 +33,7 @@ impl PeerStore {
         PeerStore {
             addr_manager,
             ban_list,
-            peers: Default::default(),
+            connected_peers: Default::default(),
             score_config: Default::default(),
         }
     }
@@ -42,7 +42,7 @@ impl PeerStore {
     pub fn add_connected_peer(&mut self, addr: Multiaddr, session_type: SessionType) {
         let now_ms = faketime::unix_time_as_millis();
         match self
-            .peers
+            .connected_peers
             .entry(extract_peer_id(&addr).expect("connected addr should have peer id"))
         {
             Entry::Occupied(mut entry) => {
@@ -109,12 +109,12 @@ impl PeerStore {
 
     /// Remove peer id
     pub fn remove_disconnected_peer(&mut self, addr: &Multiaddr) -> Option<PeerInfo> {
-        extract_peer_id(addr).and_then(|peer_id| self.peers.remove(&peer_id))
+        extract_peer_id(addr).and_then(|peer_id| self.connected_peers.remove(&peer_id))
     }
 
     /// Get peer status
     pub fn peer_status(&self, peer_id: &PeerId) -> Status {
-        if self.peers.contains_key(peer_id) {
+        if self.connected_peers.contains_key(peer_id) {
             Status::Connected
         } else {
             Status::Disconnected
@@ -128,7 +128,7 @@ impl PeerStore {
         // 2. Connected within 3 days
 
         let now_ms = faketime::unix_time_as_millis();
-        let peers = &self.peers;
+        let peers = &self.connected_peers;
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         // get addrs that can attempt.
         self.addr_manager
@@ -152,7 +152,7 @@ impl PeerStore {
 
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
-        let peers = &self.peers;
+        let peers = &self.connected_peers;
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 extract_peer_id(&peer_addr.addr)
@@ -170,7 +170,7 @@ impl PeerStore {
 
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TIMEOUT_MS);
-        let peers = &self.peers;
+        let peers = &self.connected_peers;
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {

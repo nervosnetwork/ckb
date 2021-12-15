@@ -11,7 +11,7 @@ impl Spec for Discovery {
             nodes[i].connect(&nodes[i + 1]);
         }
 
-        let all_connected = wait_until(10, || {
+        let all_connected = wait_until(30, || {
             nodes
                 .iter()
                 .all(|node| node.rpc_client().get_peers().len() == nodes.len() - 1)
