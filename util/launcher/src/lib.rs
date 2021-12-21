@@ -19,8 +19,8 @@ use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
-    CKBProtocol, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
-    SupportProtocols,
+    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, NetworkController,
+    NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
@@ -190,6 +190,10 @@ impl Launcher {
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
+        self.async_handle.block_on(observe_listen_port_occupancy(
+            &self.args.config.network.listen_addresses,
+        ))?;
+
         let shared_builder = SharedBuilder::new(
             &self.args.config.bin_name,
             self.args.config.root_dir.as_path(),
