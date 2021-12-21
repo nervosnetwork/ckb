@@ -213,7 +213,7 @@ impl Node {
 
     pub fn connect(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_address());
+            .add_node(peer.node_id().to_string(), peer.p2p_listen());
         let connected = wait_until(5, || {
             self.rpc_client()
                 .get_peers()
@@ -227,7 +227,7 @@ impl Node {
 
     pub fn connect_uncheck(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_address());
+            .add_node(peer.node_id().to_string(), peer.p2p_listen());
     }
 
     // workaround for banned address checking (because we are using loopback address)
@@ -240,7 +240,7 @@ impl Node {
             rpc_client.get_banned_addresses().is_empty(),
             "banned addresses should be empty"
         );
-        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_address());
+        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_listen());
         let result = wait_until(10, || {
             let banned_addresses = rpc_client.get_banned_addresses();
             let result = !banned_addresses.is_empty();

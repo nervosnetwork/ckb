@@ -1,4 +1,7 @@
-use crate::NetworkState;
+use crate::{
+    peer_store::{types::AddrInfo, PeerStore},
+    NetworkState,
+};
 use ckb_logger::trace;
 use faketime::unix_time_as_millis;
 use futures::Future;
@@ -76,28 +79,47 @@ impl OutboundPeerService {
         }
         self.try_identify_count += 1;
 
+        let f = |peer_store: &mut PeerStore, number: usize, now_ms: u64| -> Vec<AddrInfo> {
+            let paddrs = peer_store.fetch_addrs_to_attempt(number);
+            for paddr in paddrs.iter() {
+                // mark addr as tried
+                if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {
+                    paddr.mark_tried(now_ms);
+                }
+            }
+            paddrs
+        };
+
         let peers: Box<dyn Iterator<Item = MultiAddr>> = if self.try_identify_count > 3 {
             self.try_identify_count = 0;
-            Box::new(
-                self.network_state
-                    .bootnodes
-                    .iter()
-                    .choose_multiple(&mut rand::thread_rng(), count)
-                    .into_iter()
-                    .cloned(),
-            )
+            let len = self.network_state.bootnodes.len();
+            if len < count {
+                let now_ms = unix_time_as_millis();
+                let attempt_peers = self
+                    .network_state
+                    .with_peer_store_mut(|peer_store| f(peer_store, count - len, now_ms));
+
+                Box::new(
+                    attempt_peers
+                        .into_iter()
+                        .map(|info| info.addr)
+                        .chain(self.network_state.bootnodes.iter().cloned()),
+                )
+            } else {
+                Box::new(
+                    self.network_state
+                        .bootnodes
+                        .iter()
+                        .choose_multiple(&mut rand::thread_rng(), count)
+                        .into_iter()
+                        .cloned(),
+                )
+            }
         } else {
             let now_ms = unix_time_as_millis();
-            let attempt_peers = self.network_state.with_peer_store_mut(|peer_store| {
-                let paddrs = peer_store.fetch_addrs_to_attempt(count);
-                for paddr in paddrs.iter() {
-                    // mark addr as tried
-                    if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {
-                        paddr.mark_tried(now_ms);
-                    }
-                }
-                paddrs
-            });
+            let attempt_peers = self
+                .network_state
+                .with_peer_store_mut(|peer_store| f(peer_store, count, now_ms));
 
             trace!(
                 "identify dial count={}, attempt_peers: {:?}",
