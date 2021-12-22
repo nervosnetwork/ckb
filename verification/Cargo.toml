@@ -13,7 +13,7 @@ ckb-types = { path = "../util/types", version = "= 0.102.0-pre" }
 ckb-script = { path = "../script", version = "= 0.102.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.102.0-pre" }
 faketime = "0.2.0"
-lru = "0.6.0"
+lru = "0.7.1"
 ckb-traits = { path = "../traits", version = "= 0.102.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.102.0-pre" }
 ckb-dao = { path = "../util/dao", version = "= 0.102.0-pre" }
