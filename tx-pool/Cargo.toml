@@ -15,7 +15,7 @@ ckb-types = { path = "../util/types", version = "= 0.102.0-pre" }
 ckb-logger = {path = "../util/logger", version = "= 0.102.0-pre"}
 ckb-verification = { path = "../verification", version = "= 0.102.0-pre" }
 faketime = "0.2"
-lru = "0.6.0"
+lru = "0.7.1"
 ckb-dao = { path = "../util/dao", version = "= 0.102.0-pre" }
 ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.102.0-pre" }
 ckb-store = { path = "../store", version = "= 0.102.0-pre" }

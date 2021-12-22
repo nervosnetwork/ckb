@@ -23,7 +23,7 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.102.0-pre" 
 hyper = { version = "0.14", features = ["http1"] }
 hyper-tls = "0.5"
 futures = "0.3"
-lru = "0.6.0"
+lru = "0.7.1"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.102.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.102.0-pre" }
 indicatif = "0.16"
