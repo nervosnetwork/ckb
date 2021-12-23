@@ -719,12 +719,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     session_context.id, session_context.address,
                 );
 
-                let peer_exists = self
-                    .network_state
-                    .peer_registry
-                    .write()
-                    .remove_peer(session_context.id)
-                    .is_some();
+                let peer_exists = self.network_state.with_peer_registry_mut(|reg| {
+                    // should make sure feelers is clean
+                    reg.remove_feeler(&session_context.address);
+                    reg.remove_peer(session_context.id).is_some()
+                });
                 if peer_exists {
                     debug!(
                         "{} closed, remove {} from peer_registry",
@@ -732,7 +731,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     );
                     self.network_state.with_peer_store_mut(|peer_store| {
                         peer_store.remove_disconnected_peer(&session_context.address);
-                    })
+                    });
                 }
             }
             _ => {
