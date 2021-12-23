@@ -1,0 +1,27 @@
+name: CKBIntegrationTest
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+
+jobs:
+  call-ckb-integration-test:
+    # Notes
+    #
+    # * `workflow_call uses` keyword does not support context expression, so
+    # `${{ github.repository }}/.github/workflows/ckb-integration-test.yml@main`
+    # is invalid.
+    #
+    # * `workflow_call uses` keyword does not support calling local workflow, so
+    # `.github/workflows/ckb-integration-test.yml@main` is invalid.
+    #
+    # * Target workflow file must locate at `.github/workflows`, so putting a
+    # reusable workflow in `.github/actions/` is invalid.
+    #
+    # * `actions/checkout@v2` inside reusable workflow check-out the current
+    # repository but not the reusable workflow belong in.
+    if: ${{ github.owner == 'nervosnetwork' }}
+    uses: nervosnetwork/ckb-integration-test/.github/workflows/ckb-integration-test.yml@main
+    with:
+      CKB_GITHUB_REPOSITORY: ${{ github.repository }}
+      CKB_GITHUB_SHA: develop
