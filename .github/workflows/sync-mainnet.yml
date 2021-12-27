@@ -51,7 +51,7 @@ jobs:
           PGPASSWORD: ${{ secrets.PGPASSWORD }}
           PGDATABASE: ckbtest
         run: |
-            [ -z "${{ secrets.PGHOST }}" ] || ./ckb-sync-mainnet/script/sync-mainnet.sh insert_report_to_postgres
+            [ -z "${PGHOST}" ] || ./ckb-sync-mainnet/script/sync-mainnet.sh insert_report_to_postgres
       - name: Clean Up
         if: ${{ always() }}
         env:
