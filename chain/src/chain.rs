@@ -187,7 +187,7 @@ impl ForkChanges {
         if blocks.is_empty() {
             false
         } else {
-            // This method assumes that the hardfork epochs are sorted and unique.
+            // This method assumes that the input blocks are sorted and unique.
             let hardfork_epochs = hardfork_switch.script_result_changed_at();
             if hardfork_epochs.is_empty() {
                 false
