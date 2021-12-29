@@ -1959,6 +1959,7 @@ impl ActiveChain {
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
         let mut base = start.hash();
+
         loop {
             let header_hash = self
                 .get_ancestor(&base, index)
@@ -1984,7 +1985,12 @@ impl ActiveChain {
                 // Insert some low-height blocks in the locator
                 // to quickly start parallel ibd block downloads
                 // and it should not be too much
-                if locator.len() < 31 && index > ONE_DAY_BLOCK_NUMBER {
+                //
+                // 100 * 365 * 86400 / 8 = 394200000  100 years block number
+                // 2 ** 29 = 536870912
+                // 2 ** 13 = 8192
+                // 52 = 10 + 29 + 13
+                if locator.len() < 52 && index > ONE_DAY_BLOCK_NUMBER {
                     index >>= 1;
                     base = header_hash;
                     continue;
