@@ -17,6 +17,7 @@ use ckb_types::{
             resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
             ResolveOptions, ResolvedTransaction,
         },
+        hardfork::HardForkSwitch,
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
@@ -167,6 +168,41 @@ impl ForkChanges {
         }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
             blk.header().number()
         })
+    }
+
+    pub fn during_hardfork(&self, hardfork_switch: &HardForkSwitch) -> bool {
+        let hardfork_during_detach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.detached_blocks);
+        let hardfork_during_attach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.attached_blocks);
+
+        hardfork_during_detach || hardfork_during_attach
+    }
+
+    fn check_if_hardfork_during_blocks(
+        &self,
+        hardfork_switch: &HardForkSwitch,
+        blocks: &VecDeque<BlockView>,
+    ) -> bool {
+        if blocks.is_empty() {
+            false
+        } else {
+            // This method assumes that the input blocks are sorted and unique.
+            let hardfork_epochs = hardfork_switch.script_result_changed_at();
+            if hardfork_epochs.is_empty() {
+                false
+            } else {
+                let epoch_first = blocks.front().unwrap().epoch().number();
+                let epoch_next = blocks
+                    .back()
+                    .unwrap()
+                    .epoch()
+                    .minimum_epoch_number_after_n_blocks(1);
+                hardfork_epochs.into_iter().any(|hardfork_epoch| {
+                    epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next
+                })
+            }
+        }
     }
 }
 
@@ -711,6 +747,16 @@ impl ChainService {
         switch: Switch,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
+        let consensus = self.shared.consensus();
+        let hardfork_switch = consensus.hardfork_switch();
+        let during_hardfork = fork.during_hardfork(hardfork_switch);
+        let async_handle = self.shared.tx_pool_controller().handle();
+
+        if during_hardfork {
+            async_handle.block_on(async {
+                txs_verify_cache.write().await.clear();
+            });
+        }
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
@@ -718,8 +764,7 @@ impl ChainService {
             attach_block_cell(txn, b)?;
         }
 
-        let verify_context = VerifyContext::new(txn, self.shared.consensus());
-        let async_handle = self.shared.tx_pool_controller().handle();
+        let verify_context = VerifyContext::new(txn, consensus);
 
         let mut found_error = None;
         for (ext, b) in fork

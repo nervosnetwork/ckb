@@ -75,6 +75,57 @@ jobs:
       BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.51.0
       REL_PKG: x86_64-unknown-linux-gnu.tar.gz
 
+  package-for-linux-aarch64:
+    name: package-for-linux-aarch64
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set Env
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+    - name: Add rust target
+      run: rustup target add aarch64-unknown-linux-gnu
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+    - name: Build CKB and Package CKB
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+        QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+        SKIP_CKB_CLI: true
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        export TOP_DIR=$(pwd)
+        curl -LO https://www.openssl.org/source/openssl-1.1.1.tar.gz
+        tar -xzf openssl-1.1.1.tar.gz
+        cd openssl-1.1.1
+        CC=aarch64-linux-gnu-gcc ./Configure linux-aarch64 shared
+        CC=aarch64-linux-gnu-gcc make
+        cd ..
+        export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-1.1.1
+        export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-1.1.1/include
+        PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc cargo build --target=aarch64-unknown-linux-gnu --release
+        gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+        gpg --import devtools/ci/signer.asc
+        devtools/ci/package.sh target/aarch64-unknown-linux-gnu/release/ckb
+        mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+        mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+        devtools/ci/qput-7z "releases/ckb_${GIT_TAG_NAME}_aarch64-unknown-linux-gnu"
+    - name: upload-zip-file
+      uses: actions/upload-artifact@v2
+      with:
+        name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+        path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+    - name: upload-asc-file
+      uses: actions/upload-artifact@v2
+      with:
+        name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
+        path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
+    env:
+      REL_PKG: aarch64-unknown-linux-gnu.tar.gz
+
   package-for-centos:
     name: package-for-centos
     runs-on: ubuntu-latest
@@ -209,12 +260,14 @@ jobs:
       matrix:
         include:
           - REL_PKG: x86_64-unknown-linux-gnu.tar.gz
+          - REL_PKG: aarch64-unknown-linux-gnu.tar.gz
           - REL_PKG: x86_64-unknown-centos-gnu.tar.gz
           - REL_PKG: x86_64-apple-darwin.zip
           - REL_PKG: x86_64-pc-windows-msvc.zip
     needs:
       - create-release
       - package-for-linux
+      - package-for-linux-aarch64
       - package-for-mac
       - package-for-windows
       - package-for-centos
