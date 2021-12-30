@@ -14,6 +14,11 @@ env:
   RUST_BACKTRACE: full
   TESTNET_SNAPSHOT_URL: ${{secrets.TESTNET_SNAPSHOT_URL}}
   CARGO_TARGET_DIR: ${{ github.workspace }}/../target
+  PGHOST: ${{ secrets.PGHOST }}
+  PGPORT: ${{ secrets.PGPORT }}
+  PGUSER: ${{ secrets.PGUSER }}
+  PGPASSWORD: ${{ secrets.PGPASSWORD }}
+  PGDATABASE: "ckbtest"
 
 jobs:
    Start_and_sync:
@@ -22,6 +27,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Download&Unzip v0.35.0
       run: |
+        echo "start_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
         if [ ! -f "/tmp/ckb_v0.35.0_linux.tar.gz" ]; then
            curl -L https://github.com/nervosnetwork/ckb/releases/download/v0.35.0/ckb_v0.35.0_x86_64-unknown-linux-gnu.tar.gz -o /tmp/ckb_v0.35.0_linux.tar.gz
         fi
@@ -99,5 +105,24 @@ jobs:
          sudo systemctl daemon-reload
          sudo systemctl reset-failed
          sudo rm /etc/systemd/system/ckb.service
+         echo "GITHUB_RUN_STATE=0" >> $GITHUB_ENV
+    - name: Set test state when test failed.
+      if: ${{ failure() }}
+      run: |
+         echo "GITHUB_RUN_STATE=1" >> $GITHUB_ENV
+    - name: insert data to DB
+      if: ${{ always() && github.repository_owner == 'nervosnetwork'}}
+      env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ckbtest
+      run: |
+        if [ -z "${PGHOST}" ];then
+          end_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)
+          psql -c "INSERT INTO smoking_test (github_run_id,github_run_state,start_time,end_time,github_branch,github_trigger_event,github_run_link)  \
+             VALUES ('$GITHUB_RUN_ID','${{ env.GITHUB_RUN_STATE }}','${{ env.start_time }}','$end_time','${{ github.ref_name }}','${{ github.event_name }}','https://github.com/${{ github.repository }}actions/runs/${{ github.run_id }}');"
+        fi
     env:
       CKB_DIR: ${{ github.workspace }}
