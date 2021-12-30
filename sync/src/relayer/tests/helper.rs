@@ -204,8 +204,6 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         Relayer::new(
             chain_controller,
             sync_shared,
-            FeeRate::zero(),
-            std::u64::MAX,
         ),
         always_success_out_point,
     )

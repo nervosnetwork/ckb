@@ -34,7 +34,7 @@ use ckb_network::{
 };
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
-    core::{self, BlockView, Cycle, FeeRate},
+    core::{self, BlockView},
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
@@ -72,8 +72,6 @@ pub enum ReconstructionResult {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
-    pub(crate) min_fee_rate: FeeRate,
-    pub(crate) max_tx_verify_cycles: Cycle,
     rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
     v2: bool,
 }
@@ -82,14 +80,9 @@ impl Relayer {
     /// Init relay protocol handle
     ///
     /// This is a runtime relay protocol shared state, and any relay messages will be processed and forwarded by it
-    ///
-    /// min_fee_rate: Default transaction fee unit, can be modified by configuration file
-    /// max_tx_verify_cycles: Maximum transaction consumption allowed by default, can be modified by configuration file
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncShared>,
-        min_fee_rate: FeeRate,
-        max_tx_verify_cycles: Cycle,
     ) -> Self {
         // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
@@ -98,8 +91,6 @@ impl Relayer {
         Relayer {
             chain,
             shared,
-            min_fee_rate,
-            max_tx_verify_cycles,
             rate_limiter,
             v2: false,
         }
