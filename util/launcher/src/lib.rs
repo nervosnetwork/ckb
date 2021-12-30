@@ -276,10 +276,7 @@ impl Launcher {
         let support_protocols = &self.args.config.network.support_protocols;
 
         if support_protocols.contains(&SupportProtocol::Relay) {
-            let relayer = Relayer::new(
-                chain_controller.clone(),
-                Arc::clone(&sync_shared),
-            );
+            let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV2,

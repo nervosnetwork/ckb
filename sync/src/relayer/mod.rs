@@ -80,10 +80,7 @@ impl Relayer {
     /// Init relay protocol handle
     ///
     /// This is a runtime relay protocol shared state, and any relay messages will be processed and forwarded by it
-    pub fn new(
-        chain: ChainController,
-        shared: Arc<SyncShared>,
-    ) -> Self {
+    pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Self {
         // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
