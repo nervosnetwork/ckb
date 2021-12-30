@@ -32,11 +32,6 @@ jobs:
       AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
       AWS_EC2_TYPE:  "c5.xlarge"
       GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
-      PGHOST: ${{ secrets.PGHOST }}
-      PGPORT: ${{ secrets.PGPORT }}
-      PGUSER: ${{ secrets.PGUSER }}
-      PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      PGDATABASE: ckbtest
       GITHUB_REF_NAME: ${{ github.ref_name }}
       GITHUB_REPO: ${{ github.repository }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -57,7 +52,7 @@ jobs:
           echo "CKB_COMMIT_TIME=$(git log -1 --date=iso "--pretty=format:%cd" | cut -d ' ' -f 1,2)" >> $GITHUB_ENV
       - name: Start
         env:
-          JOB_ID: "benchmark-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
         run: |
           export GITHUB_BRANCH=${{ steps.comment-branch.outputs.head_ref }}
           ./ckb-bench/devtools/ci/script/benchmark.sh run
@@ -68,14 +63,20 @@ jobs:
         if: ${{ failure() }}
         run: echo "GITHUB_RUN_STATE=1" >> $GITHUB_ENV
       - name: insert report to postgres
-        if: ${{ always() && secrets.PGHOST != "" }}
+        if: ${{ always() }}
         env:
-          JOB_ID: "benchmark-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
-        run: ./ckb-bench/devtools/ci/script/benchmark.sh insert_report_to_postgres
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ckbtest
+        run: |
+           [ -z "${PGHOST}" ] || ./ckb-bench/devtools/ci/script/benchmark.sh insert_report_to_postgres
       - name: Clean Up
         if: ${{ always() }}
         env:
-          JOB_ID: "benchmark-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
         run: ./ckb-bench/devtools/ci/script/benchmark.sh clean
       - uses: actions/upload-artifact@v2
         with:
