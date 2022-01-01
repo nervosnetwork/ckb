@@ -3116,6 +3116,10 @@ Pool rejects a large package of chained transactions to avoid certain kinds of D
 
 For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
+### Error `TransactionExpired`
+
+(-1109): The transaction is expired from tx-pool after `expiry_hours`.
+
 
 ## RPC Types
 
@@ -3725,7 +3729,7 @@ An enum to represent the two kinds of dao withdrawal amount calculation option. 
 `DaoWithdrawingCalculationKind` is equivalent to `"withdrawing_header_hash" | "withdrawing_out_point"`.
 
 *   the assumed reference block hash for withdrawing phase 1 transaction
-*   Returns a copy of the value. [Read more](#method-clone)
+*   the out point of the withdrawing phase 1 transaction
 
 
 ### Type `DepType`
@@ -4192,19 +4196,20 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
 
 *   `LowFeeRate`: Transaction fee lower than config
-*   `ExceededMaximumAncestorsCount`: Transaction pool exceeded maximum size or cycles limit,
-*   `Full`: Transaction already exist in transaction_pool
-*   `Duplicated`: Malformed transaction
-*   `Malformed`: Declared wrong cycles
-*   `DeclaredWrongCycles`: Resolve failed
-*   `Resolve`: Verification failed
-*   `Verification`: Returns a copy of the value. [Read more](#method-clone)
+*   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
+*   `Full`: Transaction pool exceeded maximum size or cycles limit,
+*   `Duplicated`: Transaction already exist in transaction_pool
+*   `Malformed`: Malformed transaction
+*   `DeclaredWrongCycles`: Declared wrong cycles
+*   `Resolve`: Resolve failed
+*   `Verification`: Verification failed
+*   `Expiry`: Transaction expired
 
 
 ### Type `ProposalShortId`
