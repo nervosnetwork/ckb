@@ -33,6 +33,8 @@ pub struct TxPoolConfig {
     /// By default, it is a subdirectory of 'tx-pool' subdirectory under the data directory.
     #[serde(default)]
     pub recent_reject: PathBuf,
+    /// The expiration time for pool transactions in hours
+    pub expiry_hours: u8,
 }
 
 /// Block assembler config options.

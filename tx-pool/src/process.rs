@@ -1082,6 +1082,7 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
+        let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
 
@@ -1138,6 +1139,7 @@ impl TxPoolService {
                 detached_proposal_id,
                 snapshot,
                 &self.callbacks,
+                mine_mode,
             );
 
             // Updates network fork switch if required.
@@ -1377,6 +1379,7 @@ fn _update_tx_pool_for_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
+    mine_mode: bool,
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
 
@@ -1386,62 +1389,67 @@ fn _update_tx_pool_for_reorg(
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
     tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
-    tx_pool.remove_expired(detached_proposal_id.iter());
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter());
 
     let mut entries = Vec::new();
     let mut gaps = Vec::new();
 
+    // mine mode:
     // pending ---> gap ----> proposed
     // try move gap to proposed
+    if mine_mode {
+        tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push((
+                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
+                    tx_entry.clone(),
+                ));
+                true
+            } else {
+                false
+            }
+        });
 
-    tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
+        tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push((
+                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
+                    tx_entry.clone(),
+                ));
+                true
+            } else if snapshot.proposals().contains_gap(id) {
+                gaps.push((
+                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
+                    tx_entry.clone(),
+                ));
+                true
+            } else {
+                false
+            }
+        });
+
+        for (cycles, entry) in entries {
+            let tx_hash = entry.transaction().hash();
+            if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            } else {
+                callbacks.call_proposed(tx_pool, &entry, false);
+            }
         }
-    });
 
-    tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else if snapshot.proposals().contains_gap(id) {
-            gaps.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
-        }
-    });
-
-    for (cycles, entry) in entries {
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
-        } else {
-            callbacks.call_proposed(tx_pool, &entry, false);
+        for (cycles, entry) in gaps {
+            debug!("tx proposed, add to gap {}", entry.transaction().hash());
+            let tx_hash = entry.transaction().hash();
+            if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            }
         }
     }
 
-    for (cycles, entry) in gaps {
-        debug!("tx proposed, add to gap {}", entry.transaction().hash());
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
-        }
-    }
+    // remove expired transaction from pending
+    tx_pool.remove_expired(callbacks);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {

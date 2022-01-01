@@ -54,6 +54,8 @@ pub struct TxPool {
     pub(crate) snapshot: Arc<Snapshot>,
     /// record recent reject
     pub recent_reject: Option<RecentReject>,
+    // expiration milliseconds,
+    pub(crate) expiry: u64,
 }
 
 /// Transaction pool information.
@@ -96,6 +98,7 @@ impl TxPool {
         last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
         let recent_reject = build_recent_reject(&config);
+        let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
         TxPool {
             pending: PendingQueue::new(),
             gap: PendingQueue::new(),
@@ -107,6 +110,7 @@ impl TxPool {
             config,
             snapshot,
             recent_reject,
+            expiry,
         }
     }
 
@@ -324,7 +328,24 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
+    pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
+        let now_ms = faketime::unix_time_as_millis();
+        let removed = self
+            .pending
+            .remove_entries_by_filter(|_id, tx_entry| now_ms > self.expiry + tx_entry.timestamp);
+
+        for entry in removed {
+            let reject = Reject::Expiry(entry.timestamp);
+            callbacks.call_reject(self, &entry, reject);
+        }
+    }
+
+    // remove transaction with detached proposal from gap and proposed
+    // try re-put to pending
+    pub(crate) fn remove_by_detached_proposal<'a>(
+        &mut self,
+        ids: impl Iterator<Item = &'a ProposalShortId>,
+    ) {
         for id in ids {
             if let Some(entry) = self.gap.remove_entry(id) {
                 self.add_pending(entry);

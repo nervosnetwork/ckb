@@ -43,6 +43,10 @@ pub enum Reject {
     /// Verification failed
     #[error("Verification failed {0}")]
     Verification(Error),
+
+    /// Expired
+    #[error("Expiry transaction, timestamp {0}")]
+    Expiry(u64),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {
