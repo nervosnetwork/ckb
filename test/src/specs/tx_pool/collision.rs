@@ -1,8 +1,11 @@
-use crate::util::{check::is_transaction_committed, mining::mine};
+use crate::util::{
+    check::{is_transaction_committed, is_transaction_pending, is_transaction_unknown},
+    mining::mine,
+};
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
-use ckb_types::core::{Capacity, TransactionView};
+use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
 use ckb_types::prelude::*;
 
 // Convention:
@@ -145,14 +148,49 @@ impl Spec for SubmitConflict {
     }
 }
 
-fn conflict_transactions(node: &Node) -> (TransactionView, TransactionView) {
+pub struct RemoveConflictFromPending;
+
+impl Spec for RemoveConflictFromPending {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        let window = node.consensus().tx_proposal_window();
+        mine(node, window.farthest() + 2);
+
+        let (txa, txb) =
+            conflict_transactions_with_capacity(node, Bytes::new(), capacity_bytes!(1000));
+        let txc = node.new_transaction_with_since_capacity(txb.hash(), 0, capacity_bytes!(100));
+        node.submit_transaction(&txa);
+        node.submit_transaction(&txb);
+        node.submit_transaction(&txc);
+
+        assert!(is_transaction_pending(node, &txa));
+        assert!(is_transaction_pending(node, &txb));
+        assert!(is_transaction_pending(node, &txc));
+
+        node.submit_block(&propose(node, &[&txa]));
+        (0..window.closest()).for_each(|_| {
+            node.submit_block(&blank(node));
+        });
+        node.submit_block(&commit(node, &[&txa]));
+        node.wait_for_tx_pool();
+
+        assert!(is_transaction_committed(node, &txa));
+        assert!(is_transaction_unknown(node, &txb));
+        assert!(is_transaction_unknown(node, &txc));
+    }
+}
+
+fn conflict_transactions_with_capacity(
+    node: &Node,
+    output_data: Bytes,
+    cap: Capacity,
+) -> (TransactionView, TransactionView) {
     let txa = node.new_transaction_spend_tip_cellbase();
-    let output_data = Bytes::from(b"b0b".to_vec());
     let output = txa
         .output(0)
         .unwrap()
         .as_builder()
-        .build_exact_capacity(Capacity::bytes(output_data.len()).unwrap())
+        .build_exact_capacity(cap)
         .unwrap();
     let txb = txa
         .as_advanced_builder()
@@ -161,6 +199,12 @@ fn conflict_transactions(node: &Node) -> (TransactionView, TransactionView) {
         .build();
     assert_ne!(txa.hash(), txb.hash());
     (txa, txb)
+}
+
+fn conflict_transactions(node: &Node) -> (TransactionView, TransactionView) {
+    let output_data = Bytes::from(b"b0b".to_vec());
+    let cap = Capacity::bytes(output_data.len()).unwrap();
+    conflict_transactions_with_capacity(node, output_data, cap)
 }
 
 fn cousin_txs_with_same_hash_different_witness_hash(

@@ -208,11 +208,7 @@ impl ProposedPool {
         removed_entries
     }
 
-    pub(crate) fn remove_committed_tx(
-        &mut self,
-        tx: &TransactionView,
-        related_out_points: &[OutPoint],
-    ) -> Option<TxEntry> {
+    pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView) -> Option<TxEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
         let id = tx.proposal_short_id();
@@ -232,7 +228,7 @@ impl ProposedPool {
                 self.edges.remove_input(&i);
             }
 
-            for d in related_out_points {
+            for d in entry.related_dep_out_points() {
                 self.edges.delete_txid_by_dep(d, &id);
             }
 

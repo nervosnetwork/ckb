@@ -24,14 +24,11 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{
-            get_related_dep_out_points, OverlayCellChecker, ResolveOptions, ResolvedTransaction,
-            TransactionsChecker,
-        },
+        cell::{OverlayCellChecker, ResolveOptions, ResolvedTransaction, TransactionsChecker},
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, Bytes, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -1383,22 +1380,12 @@ fn _update_tx_pool_for_reorg(
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
 
-    let txs_iter = attached.iter().map(|tx| {
-        let get_cell_data = |out_point: &OutPoint| {
-            snapshot
-                .get_cell_data(out_point)
-                .map(|(data, _data_hash)| data)
-        };
-        let related_out_points =
-            get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
-        (tx, related_out_points)
-    });
     // NOTE: `remove_expired` will try to re-put the given expired/detached proposals into
     // pending-pool if they can be found within txpool. As for a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(txs_iter, callbacks, detached_headers);
+    tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
     tx_pool.remove_expired(detached_proposal_id.iter());
 
     let mut entries = Vec::new();

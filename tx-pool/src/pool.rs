@@ -20,7 +20,7 @@ use ckb_types::{
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Cycle, TransactionView,
     },
-    packed::{Byte32, OutPoint, ProposalShortId},
+    packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use faketime::unix_time_as_millis;
@@ -252,12 +252,12 @@ impl TxPool {
 
     pub(crate) fn remove_committed_txs<'a>(
         &mut self,
-        txs: impl Iterator<Item = (&'a TransactionView, Vec<OutPoint>)>,
+        txs: impl Iterator<Item = &'a TransactionView>,
         callbacks: &Callbacks,
         detached_headers: &HashSet<Byte32>,
     ) {
-        for (tx, related_out_points) in txs {
-            self.remove_committed_tx(tx, &related_out_points, callbacks);
+        for tx in txs {
+            self.remove_committed_tx(tx, callbacks);
 
             self.committed_txs_hash_cache
                 .put(tx.proposal_short_id(), tx.hash());
@@ -284,17 +284,13 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_committed_tx(
-        &mut self,
-        tx: &TransactionView,
-        related_out_points: &[OutPoint],
-        callbacks: &Callbacks,
-    ) {
+    pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let hash = tx.hash();
+        let short_id = tx.proposal_short_id();
         trace!("committed {}", hash);
         // try remove committed tx from proposed
         // proposed tx should not contain conflict, if exists just skip resolve conflict
-        if let Some(entry) = self.proposed.remove_committed_tx(tx, related_out_points) {
+        if let Some(entry) = self.proposed.remove_committed_tx(tx) {
             callbacks.call_committed(self, &entry)
         } else {
             let conflicts = self.proposed.resolve_conflict(tx);
@@ -305,7 +301,7 @@ impl TxPool {
         }
 
         // pending and gap should resolve conflict no matter exists or not
-        if let Some(entry) = self.gap.remove_committed_tx(tx, related_out_points) {
+        if let Some(entry) = self.gap.remove_entry(&short_id) {
             callbacks.call_committed(self, &entry)
         }
         {
@@ -316,7 +312,7 @@ impl TxPool {
             }
         }
 
-        if let Some(entry) = self.pending.remove_committed_tx(tx, related_out_points) {
+        if let Some(entry) = self.pending.remove_entry(&short_id) {
             callbacks.call_committed(self, &entry)
         }
         {

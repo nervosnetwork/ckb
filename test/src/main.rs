@@ -493,6 +493,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(ConflictInPending),
         Box::new(ConflictInGap),
         Box::new(ConflictInProposed),
+        Box::new(RemoveConflictFromPending),
         Box::new(SubmitConflict),
         Box::new(DAOVerify),
         Box::new(AvoidDuplicatedProposalsWithUncles),
