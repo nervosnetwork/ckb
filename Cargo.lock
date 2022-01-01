@@ -1414,9 +1414,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21c3076951bd27db83eb3409adb09a1019ffe20b4a5592cb321dcc0cc26c238f"
+checksum = "a33a9a7cbd7eb53af03ade3903109c207abc1eb7d13aeeb04d2dd41cfe7777c3"
 dependencies = [
  "byteorder",
  "bytes 1.1.0",
@@ -1434,9 +1434,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e950bd22618e158bb8b54ba9fe1fbcfd1632da00d590323766e08ebd9090582"
+checksum = "59b85b56f35eb5a5d4c64b538ec4a4bf49d3335455d57755151f201bcfff74e2"
 
 [[package]]
 name = "clang-sys"

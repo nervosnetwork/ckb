@@ -519,7 +519,7 @@ fn check_type_id_one_in_one_out_resume() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -636,7 +636,7 @@ fn check_type_id_one_in_one_out_chunk() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -694,7 +694,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -897,7 +897,7 @@ fn load_code_into_global() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
-        let vm_error = VmError::InvalidPermission;
+        let vm_error = VmError::MemWriteOnFreezedPage;
         let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
@@ -959,7 +959,7 @@ fn load_code_with_snapshot() {
         let snap = init_snap.take().unwrap();
         let result = verifier.resume_from_snap(&snap, max_cycles);
         if should_be_invalid_permission {
-            let vm_error = VmError::InvalidPermission;
+            let vm_error = VmError::MemWriteOnExecutablePage;
             let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
             assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
         } else {
@@ -1066,7 +1066,7 @@ fn load_code_with_snapshot_more_times() {
             let snap = init_snap.take().unwrap();
             let result = verifier.resume_from_snap(&snap, max_cycles);
             if should_be_invalid_permission {
-                let vm_error = VmError::InvalidPermission;
+                let vm_error = VmError::MemWriteOnExecutablePage;
                 let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
                 assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
                 break;

@@ -135,9 +135,12 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
                 return Ok(true);
             }
             let cell = cell.unwrap();
-            self.data_loader
-                .load_cell_data(cell)
-                .ok_or(VMError::Unexpected)?
+            self.data_loader.load_cell_data(cell).ok_or_else(|| {
+                VMError::Unexpected(format!(
+                    "Unexpected load_cell_data failed {}",
+                    cell.out_point,
+                ))
+            })?
         } else {
             let witness = self.fetch_witness(source, index as usize);
             if witness.is_none() {
@@ -155,7 +158,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
         let data = if length == 0 {
             data.slice(offset..data_size)
         } else {
-            let end = offset.checked_add(length).ok_or(VMError::OutOfBound)?;
+            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
             if end >= data_size {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
                 return Ok(true);

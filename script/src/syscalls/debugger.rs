@@ -43,7 +43,8 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
         }
 
         machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;
-        let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
+        let s = String::from_utf8(buffer)
+            .map_err(|e| VMError::External(format!("String from buffer {:?}", e)))?;
         (self.printer)(&self.hash, s.as_str());
 
         Ok(true)

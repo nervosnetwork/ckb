@@ -25,6 +25,6 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Pause<'a> {
         if *self.skip.borrow() {
             return Ok(true);
         }
-        Err(VMError::InvalidCycles)
+        Err(VMError::CyclesExceeded)
     }
 }
