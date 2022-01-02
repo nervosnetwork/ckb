@@ -683,7 +683,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     }
                 }
                 Err(error) => match error {
-                    VMInternalError::InvalidCycles => {
+                    VMInternalError::CyclesExceeded => {
                         let state = self.build_state(Some(vm), current, cycles, limit_cycles);
                         return Ok(VerifyResult::Suspended(state));
                     }
@@ -975,7 +975,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut machine = self.build_machine(script_group, max_cycles)?;
 
         let map_vm_internal_error = |error: VMInternalError| match error {
-            VMInternalError::InvalidCycles => ScriptError::ExceededMaximumCycles(max_cycles),
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(format!("{:?}", error)),
         };
 
@@ -1004,7 +1004,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut machine = self.build_machine(script_group, max_cycles)?;
 
         let map_vm_internal_error = |error: VMInternalError| match error {
-            VMInternalError::InvalidCycles => ScriptError::ExceededMaximumCycles(max_cycles),
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(format!("{:?}", error)),
         };
 
@@ -1018,7 +1018,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 .load_program(&program, &[])
                 .map_err(map_vm_internal_error)?;
             let load_ret = machine.machine.add_cycles(transferred_byte_cycles(bytes));
-            if matches!(load_ret, Err(ref error) if error == &VMInternalError::InvalidCycles) {
+            if matches!(load_ret, Err(ref error) if error == &VMInternalError::CyclesExceeded) {
                 return Ok(ChunkState::suspended(ResumableMachine::new(machine, false)));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -1034,7 +1034,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 }
             }
             Err(error) => match error {
-                VMInternalError::InvalidCycles => {
+                VMInternalError::CyclesExceeded => {
                     Ok(ChunkState::suspended(ResumableMachine::new(machine, true)))
                 }
                 _ => {

@@ -96,7 +96,7 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
 
         let content_end = content_offset
             .checked_add(content_size)
-            .ok_or(VMError::OutOfBound)?;
+            .ok_or(VMError::MemOutOfBound)?;
         if content_offset >= cell.data_bytes
             || content_end > cell.data_bytes
             || content_size > memory_size
@@ -107,7 +107,12 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
         let data = self
             .data_loader
             .load_cell_data(cell)
-            .ok_or(VMError::Unexpected)?
+            .ok_or_else(|| {
+                VMError::Unexpected(format!(
+                    "Unexpected load_cell_data failed {}",
+                    cell.out_point,
+                ))
+            })?
             .slice((content_offset as usize)..(content_end as usize));
         machine.memory_mut().init_pages(
             addr,
@@ -136,10 +141,12 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
             return Ok(());
         }
         let cell = cell.unwrap();
-        let data = self
-            .data_loader
-            .load_cell_data(cell)
-            .ok_or(VMError::Unexpected)?;
+        let data = self.data_loader.load_cell_data(cell).ok_or_else(|| {
+            VMError::Unexpected(format!(
+                "Unexpected load_cell_data failed {}",
+                cell.out_point,
+            ))
+        })?;
 
         let wrote_size = store_data(machine, &data)?;
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
