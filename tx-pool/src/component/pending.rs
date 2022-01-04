@@ -10,7 +10,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::{LinkedHashMap, LinkedHashMapEntries};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 
 type ConflictEntry = (TxEntry, Reject);
 
@@ -190,8 +190,6 @@ impl PendingQueue {
     }
 
     pub(crate) fn get_descendants(&self, entry: &TxEntry) -> Vec<ProposalShortId> {
-        use std::collections::VecDeque;
-
         let mut entries: VecDeque<&TxEntry> = VecDeque::new();
         entries.push_back(entry);
 
@@ -219,28 +217,29 @@ impl PendingQueue {
         let outputs = entry.transaction().output_pts();
 
         for i in inputs {
-            let mut empty = false;
-
-            if let Some(ids) = self.inputs.get_mut(&i) {
-                ids.remove(&tx_short_id);
-                empty = ids.is_empty();
-            }
-
-            if empty {
-                self.inputs.remove(&i);
+            if let Entry::Occupied(mut occupied) = self.inputs.entry(i) {
+                let empty = {
+                    let ids = occupied.get_mut();
+                    ids.remove(&tx_short_id);
+                    ids.is_empty()
+                };
+                if empty {
+                    occupied.remove();
+                }
             }
         }
 
         // remove dep
-        for d in entry.related_dep_out_points() {
-            let mut empty = false;
-            if let Some(x) = self.deps.get_mut(d) {
-                x.remove(&tx_short_id);
-                empty = x.is_empty();
-            }
-
-            if empty {
-                self.deps.remove(d);
+        for d in entry.related_dep_out_points().cloned() {
+            if let Entry::Occupied(mut occupied) = self.deps.entry(d) {
+                let empty = {
+                    let ids = occupied.get_mut();
+                    ids.remove(&tx_short_id);
+                    ids.is_empty()
+                };
+                if empty {
+                    occupied.remove();
+                }
             }
         }
 

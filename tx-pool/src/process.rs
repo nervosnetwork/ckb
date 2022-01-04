@@ -1383,7 +1383,7 @@ fn _update_tx_pool_for_reorg(
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
 
-    // NOTE: `remove_expired` will try to re-put the given expired/detached proposals into
+    // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
     // pending-pool if they can be found within txpool. As for a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
@@ -1391,19 +1391,16 @@ fn _update_tx_pool_for_reorg(
     tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
     tx_pool.remove_by_detached_proposal(detached_proposal_id.iter());
 
-    let mut entries = Vec::new();
-    let mut gaps = Vec::new();
-
     // mine mode:
     // pending ---> gap ----> proposed
     // try move gap to proposed
     if mine_mode {
+        let mut entries = Vec::new();
+        let mut gaps = Vec::new();
+
         tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
             if snapshot.proposals().contains_proposed(id) {
-                entries.push((
-                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                    tx_entry.clone(),
-                ));
+                entries.push(tx_entry.clone());
                 true
             } else {
                 false
@@ -1412,25 +1409,20 @@ fn _update_tx_pool_for_reorg(
 
         tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
             if snapshot.proposals().contains_proposed(id) {
-                entries.push((
-                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                    tx_entry.clone(),
-                ));
+                entries.push(tx_entry.clone());
                 true
             } else if snapshot.proposals().contains_gap(id) {
-                gaps.push((
-                    Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                    tx_entry.clone(),
-                ));
+                gaps.push(tx_entry.clone());
                 true
             } else {
                 false
             }
         });
 
-        for (cycles, entry) in entries {
+        for entry in entries {
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
             let tx_hash = entry.transaction().hash();
-            if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
+            if let Err(e) = tx_pool.proposed_rtx(cached, entry.size, entry.rtx.clone()) {
                 debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             } else {
@@ -1438,10 +1430,11 @@ fn _update_tx_pool_for_reorg(
             }
         }
 
-        for (cycles, entry) in gaps {
+        for entry in gaps {
             debug!("tx proposed, add to gap {}", entry.transaction().hash());
             let tx_hash = entry.transaction().hash();
-            if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
+            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.rtx.clone()) {
                 debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             }

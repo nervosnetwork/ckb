@@ -11,7 +11,7 @@ use ckb_types::{
     packed::{Byte32, CellOutput, OutPoint, ProposalShortId},
     prelude::*,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::iter;
 
 type ConflictEntry = (TxEntry, Reject);
@@ -78,16 +78,16 @@ impl Edges {
         self.deps.entry(out_point).or_default().insert(txid);
     }
 
-    pub(crate) fn delete_txid_by_dep(&mut self, out_point: &OutPoint, txid: &ProposalShortId) {
-        let mut empty = false;
-
-        if let Some(x) = self.deps.get_mut(out_point) {
-            x.remove(txid);
-            empty = x.is_empty();
-        }
-
-        if empty {
-            self.deps.remove(out_point);
+    pub(crate) fn delete_txid_by_dep(&mut self, out_point: OutPoint, txid: &ProposalShortId) {
+        if let Entry::Occupied(mut occupied) = self.deps.entry(out_point) {
+            let empty = {
+                let ids = occupied.get_mut();
+                ids.remove(txid);
+                ids.is_empty()
+            };
+            if empty {
+                occupied.remove();
+            }
         }
     }
 
@@ -194,7 +194,7 @@ impl ProposedPool {
                 }
             }
 
-            for d in entry.related_dep_out_points() {
+            for d in entry.related_dep_out_points().cloned() {
                 self.edges.delete_txid_by_dep(d, id);
             }
 
@@ -228,7 +228,7 @@ impl ProposedPool {
                 self.edges.remove_input(&i);
             }
 
-            for d in entry.related_dep_out_points() {
+            for d in entry.related_dep_out_points().cloned() {
                 self.edges.delete_txid_by_dep(d, &id);
             }
 

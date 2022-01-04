@@ -454,7 +454,7 @@ impl TxPool {
 
     pub(crate) fn gap_rtx(
         &mut self,
-        cache_entry: Option<CacheEntry>,
+        cache_entry: CacheEntry,
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
@@ -471,7 +471,7 @@ impl TxPool {
         self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
@@ -484,7 +484,7 @@ impl TxPool {
 
     pub(crate) fn proposed_rtx(
         &mut self,
-        cache_entry: Option<CacheEntry>,
+        cache_entry: CacheEntry,
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
@@ -501,7 +501,7 @@ impl TxPool {
         self.check_rtx_from_proposed(&rtx, resolve_opts)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, &cache_entry, max_cycles)?;
+        let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
         let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
         let tx_hash = entry.transaction().hash();
