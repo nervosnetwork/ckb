@@ -33,7 +33,7 @@ jobs:
       - name: Start
         timeout-minutes: 1200
         env:
-          JOB_ID: "sync-mainnet-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          JOB_ID: "sync-mainnet-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
         run: ./ckb-sync-mainnet/script/sync-mainnet.sh run
       - name: Set test state when sync-mainnet success.
         if: ${{ success() }}
@@ -44,7 +44,7 @@ jobs:
       - name: insert report to postgres
         if: ${{ always() }}
         env:
-          JOB_ID: "sync-mainnet-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          JOB_ID: "sync-mainnet-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
           PGHOST: ${{ secrets.PGHOST }}
           PGPORT: ${{ secrets.PGPORT }}
           PGUSER: ${{ secrets.PGUSER }}
@@ -55,5 +55,5 @@ jobs:
       - name: Clean Up
         if: ${{ always() }}
         env:
-          JOB_ID: "sync-mainnet-${{ github.repository }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          JOB_ID: "sync-mainnet-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
         run: ./ckb-sync-mainnet/script/sync-mainnet.sh clean
