@@ -510,7 +510,7 @@ class EnumSchema(HTMLParser):
         if self.next_variant is None:
             if tag == 'div':
                 attrs_dict = dict(attrs)
-                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.'):
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
                     self.next_variant = camel_to_snake(
                         attrs_dict['id'].split('.')[1])
         elif self.variant_parser is None:
@@ -521,13 +521,14 @@ class EnumSchema(HTMLParser):
             self.variant_parser.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
-        if self.variant_parser is not None:
+        if self.next_variant is not None and self.variant_parser is not None:
             self.variant_parser.handle_endtag(tag)
             if self.variant_parser.completed():
                 if self.next_variant not in [v[0] for v in self.variants]:
                     self.variants.append((self.next_variant, self.variant_parser))
+                    self.variant_parser = None
                 self.next_variant = None
-                self.variant_parser = None
+
 
     def handle_data(self, data):
         if self.variant_parser is not None:

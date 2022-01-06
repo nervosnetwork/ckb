@@ -24,14 +24,11 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{
-            get_related_dep_out_points, OverlayCellChecker, ResolveOptions, ResolvedTransaction,
-            TransactionsChecker,
-        },
+        cell::{OverlayCellChecker, ResolveOptions, ResolvedTransaction, TransactionsChecker},
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, Bytes, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -1085,6 +1082,7 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
+        let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
 
@@ -1141,6 +1139,7 @@ impl TxPoolService {
                 detached_proposal_id,
                 snapshot,
                 &self.callbacks,
+                mine_mode,
             );
 
             // Updates network fork switch if required.
@@ -1380,81 +1379,70 @@ fn _update_tx_pool_for_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
+    mine_mode: bool,
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
 
-    let txs_iter = attached.iter().map(|tx| {
-        let get_cell_data = |out_point: &OutPoint| {
-            snapshot
-                .get_cell_data(out_point)
-                .map(|(data, _data_hash)| data)
-        };
-        let related_out_points =
-            get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
-        (tx, related_out_points)
-    });
-    // NOTE: `remove_expired` will try to re-put the given expired/detached proposals into
+    // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
     // pending-pool if they can be found within txpool. As for a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(txs_iter, callbacks, detached_headers);
-    tx_pool.remove_expired(detached_proposal_id.iter());
+    tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter());
 
-    let mut entries = Vec::new();
-    let mut gaps = Vec::new();
-
+    // mine mode:
     // pending ---> gap ----> proposed
     // try move gap to proposed
+    if mine_mode {
+        let mut entries = Vec::new();
+        let mut gaps = Vec::new();
 
-    tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
+        tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push(tx_entry.clone());
+                true
+            } else {
+                false
+            }
+        });
+
+        tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push(tx_entry.clone());
+                true
+            } else if snapshot.proposals().contains_gap(id) {
+                gaps.push(tx_entry.clone());
+                true
+            } else {
+                false
+            }
+        });
+
+        for entry in entries {
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
+            let tx_hash = entry.transaction().hash();
+            if let Err(e) = tx_pool.proposed_rtx(cached, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            } else {
+                callbacks.call_proposed(tx_pool, &entry, false);
+            }
         }
-    });
 
-    tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else if snapshot.proposals().contains_gap(id) {
-            gaps.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
-        }
-    });
-
-    for (cycles, entry) in entries {
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
-        } else {
-            callbacks.call_proposed(tx_pool, &entry, false);
-        }
-    }
-
-    for (cycles, entry) in gaps {
-        debug!("tx proposed, add to gap {}", entry.transaction().hash());
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
+        for entry in gaps {
+            debug!("tx proposed, add to gap {}", entry.transaction().hash());
+            let tx_hash = entry.transaction().hash();
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
+            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            }
         }
     }
+
+    // remove expired transaction from pending
+    tx_pool.remove_expired(callbacks);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {

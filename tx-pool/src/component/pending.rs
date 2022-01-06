@@ -10,7 +10,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::{LinkedHashMap, LinkedHashMapEntries};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 
 type ConflictEntry = (TxEntry, Reject);
 
@@ -19,10 +19,12 @@ pub(crate) struct PendingQueue {
     pub(crate) inner: LinkedHashMap<ProposalShortId, TxEntry>,
     /// dep-set<txid> map represent in-pool tx's deps
     pub(crate) deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
-    /// input-txid map represent in-pool tx's inputs
-    pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
+    /// input-set<txid> map represent in-pool tx's inputs
+    pub(crate) inputs: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// dep-set<txid-headers> map represent in-pool tx's header deps
     pub(crate) header_deps: HashMap<ProposalShortId, Vec<Byte32>>,
+    // /// output-op<txid> map represent in-pool tx's outputs
+    pub(crate) outputs: HashMap<OutPoint, HashSet<ProposalShortId>>,
 }
 
 impl PendingQueue {
@@ -32,6 +34,7 @@ impl PendingQueue {
             deps: Default::default(),
             inputs: Default::default(),
             header_deps: Default::default(),
+            outputs: Default::default(),
         }
     }
 
@@ -42,13 +45,22 @@ impl PendingQueue {
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> bool {
         let inputs = entry.transaction().input_pts_iter();
         let tx_short_id = entry.proposal_short_id();
+        let outputs = entry.transaction().output_pts();
 
         if self.inner.contains_key(&tx_short_id) {
             return false;
         }
 
         for i in inputs {
-            self.inputs.insert(i.to_owned(), tx_short_id.clone());
+            self.inputs
+                .entry(i.to_owned())
+                .or_default()
+                .insert(tx_short_id.clone());
+
+            self.outputs
+                .entry(i.to_owned())
+                .or_default()
+                .insert(tx_short_id.clone());
         }
 
         // record dep-txid
@@ -57,6 +69,16 @@ impl PendingQueue {
                 .entry(d.to_owned())
                 .or_default()
                 .insert(tx_short_id.clone());
+
+            self.outputs
+                .entry(d.to_owned())
+                .or_default()
+                .insert(tx_short_id.clone());
+        }
+
+        // record tx unconsumed output
+        for o in outputs {
+            self.outputs.insert(o, HashSet::new());
         }
 
         // record header_deps
@@ -75,24 +97,27 @@ impl PendingQueue {
         let mut conflicts = Vec::new();
 
         for i in inputs {
-            if let Some(id) = self.inputs.remove(&i) {
-                if let Some(entry) = self.remove_entry(&id) {
-                    let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                    conflicts.push((entry, reject));
+            if let Some(ids) = self.inputs.remove(&i) {
+                for id in ids {
+                    let entries = self.remove_entry_and_descendants(&id);
+                    for entry in entries {
+                        let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
+                        conflicts.push((entry, reject));
+                    }
                 }
             }
 
             // deps consumed
-            if let Some(x) = self.deps.remove(&i) {
-                for id in x {
-                    if let Some(entry) = self.remove_entry(&id) {
+            if let Some(ids) = self.deps.remove(&i) {
+                for id in ids {
+                    let entries = self.remove_entry_and_descendants(&id);
+                    for entry in entries {
                         let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
                         conflicts.push((entry, reject));
                     }
                 }
             }
         }
-
         conflicts
     }
 
@@ -114,8 +139,9 @@ impl PendingQueue {
         }
 
         for (blk_hash, id) in ids {
-            if let Some(entry) = self.remove_entry(&id) {
-                let reject = Reject::Resolve(OutPointError::InvalidHeader(blk_hash));
+            let entries = self.remove_entry_and_descendants(&id);
+            for entry in entries {
+                let reject = Reject::Resolve(OutPointError::InvalidHeader(blk_hash.to_owned()));
                 conflicts.push((entry, reject));
             }
         }
@@ -138,38 +164,6 @@ impl PendingQueue {
         self.inner.get(id).map(|entry| entry.transaction())
     }
 
-    pub(crate) fn remove_committed_tx(
-        &mut self,
-        tx: &TransactionView,
-        related_out_points: &[OutPoint],
-    ) -> Option<TxEntry> {
-        let inputs = tx.input_pts_iter();
-        let id = tx.proposal_short_id();
-
-        if let Some(entry) = self.inner.remove(&id) {
-            for i in inputs {
-                self.inputs.remove(&i);
-            }
-
-            for d in related_out_points {
-                let mut empty = false;
-                if let Some(x) = self.deps.get_mut(d) {
-                    x.remove(&id);
-                    empty = x.is_empty();
-                }
-
-                if empty {
-                    self.deps.remove(d);
-                }
-            }
-
-            self.header_deps.remove(&id);
-
-            return Some(entry);
-        }
-        None
-    }
-
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         let removed = self.inner.remove(id);
 
@@ -180,26 +174,79 @@ impl PendingQueue {
         removed
     }
 
+    pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        let mut removed = Vec::new();
+        if let Some(entry) = self.inner.remove(id) {
+            let descendants = self.get_descendants(&entry);
+            self.remove_entry_relation(&entry);
+            removed.push(entry);
+            for id in descendants {
+                if let Some(entry) = self.remove_entry(&id) {
+                    removed.push(entry);
+                }
+            }
+        }
+        removed
+    }
+
+    pub(crate) fn get_descendants(&self, entry: &TxEntry) -> Vec<ProposalShortId> {
+        let mut entries: VecDeque<&TxEntry> = VecDeque::new();
+        entries.push_back(entry);
+
+        let mut descendants = Vec::new();
+        while let Some(entry) = entries.pop_front() {
+            let outputs = entry.transaction().output_pts();
+
+            for output in outputs {
+                if let Some(ids) = self.outputs.get(&output) {
+                    descendants.extend(ids.iter().cloned());
+                    for id in ids {
+                        if let Some(entry) = self.inner.get(id) {
+                            entries.push_back(entry);
+                        }
+                    }
+                }
+            }
+        }
+        descendants
+    }
+
     pub(crate) fn remove_entry_relation(&mut self, entry: &TxEntry) {
         let inputs = entry.transaction().input_pts_iter();
         let tx_short_id = entry.proposal_short_id();
+        let outputs = entry.transaction().output_pts();
 
         for i in inputs {
-            self.inputs.remove(&i);
+            if let Entry::Occupied(mut occupied) = self.inputs.entry(i) {
+                let empty = {
+                    let ids = occupied.get_mut();
+                    ids.remove(&tx_short_id);
+                    ids.is_empty()
+                };
+                if empty {
+                    occupied.remove();
+                }
+            }
         }
 
         // remove dep
-        for d in entry.related_dep_out_points() {
-            let mut empty = false;
-            if let Some(x) = self.deps.get_mut(d) {
-                x.remove(&tx_short_id);
-                empty = x.is_empty();
-            }
-
-            if empty {
-                self.deps.remove(d);
+        for d in entry.related_dep_out_points().cloned() {
+            if let Entry::Occupied(mut occupied) = self.deps.entry(d) {
+                let empty = {
+                    let ids = occupied.get_mut();
+                    ids.remove(&tx_short_id);
+                    ids.is_empty()
+                };
+                if empty {
+                    occupied.remove();
+                }
             }
         }
+
+        for o in outputs {
+            self.outputs.remove(&o);
+        }
+
         self.header_deps.remove(&tx_short_id);
     }
 
@@ -252,6 +299,7 @@ impl PendingQueue {
         self.deps.clear();
         self.inputs.clear();
         self.header_deps.clear();
+        self.outputs.clear();
         txs
     }
 }

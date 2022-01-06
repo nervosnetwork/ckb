@@ -207,6 +207,9 @@ pub enum PoolTransactionReject {
 
     /// Verification failed
     Verification(String),
+
+    /// Transaction expired
+    Expiry(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -222,6 +225,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{}", reject)),
             Reject::Resolve(_) => Self::Resolve(format!("{}", reject)),
             Reject::Verification(_) => Self::Verification(format!("{}", reject)),
+            Reject::Expiry(_) => Self::Expiry(format!("{}", reject)),
         }
     }
 }

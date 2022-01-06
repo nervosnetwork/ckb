@@ -69,7 +69,7 @@ fn test_add_entry() {
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
 
-    pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+    pool.remove_committed_tx(&tx1);
     assert_eq!(pool.edges.outputs_len(), 1);
     assert_eq!(pool.edges.inputs_len(), 1);
 }
@@ -102,7 +102,7 @@ fn test_add_roots() {
     assert_eq!(pool.edges.outputs_len(), 4);
     assert_eq!(pool.edges.inputs_len(), 4);
 
-    pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+    pool.remove_committed_tx(&tx1);
 
     assert_eq!(pool.edges.outputs_len(), 3);
     assert_eq!(pool.edges.inputs_len(), 2);
@@ -163,7 +163,7 @@ fn test_add_no_roots() {
     assert_eq!(pool.edges.outputs_len(), 13);
     assert_eq!(pool.edges.inputs_len(), 2);
 
-    pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None).unwrap());
+    pool.remove_committed_tx(&tx1);
 
     assert_eq!(pool.edges.outputs_len(), 10);
     assert_eq!(pool.edges.inputs_len(), 4);
@@ -465,10 +465,7 @@ fn test_dep_group() {
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 1);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
 
-    pool.remove_committed_tx(
-        &tx3,
-        &get_related_dep_out_points(&tx3, &get_cell_data).unwrap(),
-    );
+    pool.remove_committed_tx(&tx3);
     assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
