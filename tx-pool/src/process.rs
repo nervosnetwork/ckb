@@ -816,8 +816,12 @@ impl TxPoolService {
         while let Some(previous) = orphan_queue.pop_front() {
             if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
+                    debug!(
+                        "process_orphan {} add to chunk,  find previous from {}",
+                        tx.hash(),
+                        orphan.tx.hash()
+                    );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    orphan_queue.push_back(orphan.tx.clone());
                     self.chunk
                         .write()
                         .await
@@ -842,18 +846,34 @@ impl TxPoolService {
                                 with_vm_2021,
                                 tx_hash: orphan.tx.hash(),
                             });
+                            debug!(
+                                "process_orphan {} success, find previous from {}",
+                                tx.hash(),
+                                orphan.tx.hash()
+                            );
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             orphan_queue.push_back(orphan.tx);
                         }
                         Err(reject) => {
+                            debug!(
+                                "process_orphan {} reject {}, find previous from {}",
+                                tx.hash(),
+                                reject,
+                                orphan.tx.hash()
+                            );
                             if !is_missing_input(&reject) {
                                 self.send_result_to_relayer(TxVerificationResult::Reject {
                                     tx_hash: orphan.tx.hash(),
                                 });
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                            }
-                            if reject.is_malformed_tx() {
-                                self.ban_malformed(orphan.peer, format!("reject {}", reject));
+
+                                if reject.is_malformed_tx() {
+                                    self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                                }
+                                if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
+                                {
+                                    self.put_recent_reject(&orphan.tx.hash(), &reject).await;
+                                }
                             }
                             break;
                         }
@@ -1226,7 +1246,9 @@ impl TxPoolService {
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
-                            debug!("readd_detached_tx submit_entry error {}", e);
+                            error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
+                        } else {
+                            debug!("readd_detached_tx submit_entry {}", tx_hash);
                         }
                     }
                 }
@@ -1349,6 +1371,7 @@ fn _submit_entry(
     match status {
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone()) {
+                debug!("submit_entry pending {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1356,6 +1379,7 @@ fn _submit_entry(
         }
         TxStatus::Gap => {
             if tx_pool.add_gap(entry.clone()) {
+                debug!("submit_entry gap {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1363,6 +1387,7 @@ fn _submit_entry(
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
+                debug!("submit_entry proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1420,6 +1445,7 @@ fn _update_tx_pool_for_reorg(
         });
 
         for entry in entries {
+            debug!("tx move to proposed {}", entry.transaction().hash());
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
             let tx_hash = entry.transaction().hash();
             if let Err(e) = tx_pool.proposed_rtx(cached, entry.size, entry.rtx.clone()) {
@@ -1431,7 +1457,7 @@ fn _update_tx_pool_for_reorg(
         }
 
         for entry in gaps {
-            debug!("tx proposed, add to gap {}", entry.transaction().hash());
+            debug!("tx move to gap {}", entry.transaction().hash());
             let tx_hash = entry.transaction().hash();
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
             if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.rtx.clone()) {

@@ -21,3 +21,4 @@ pub use txo::{TXOSet, TXO};
 pub const DEFAULT_TX_PROPOSAL_WINDOW: (BlockNumber, BlockNumber) = (2, 10);
 pub const FINALIZATION_DELAY_LENGTH: BlockNumber = DEFAULT_TX_PROPOSAL_WINDOW.1 + 1;
 pub const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 5;
+pub const SYSTEM_CELL_ALWAYS_FAILURE_INDEX: u32 = 6;

@@ -7,7 +7,7 @@ use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
 use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
-use ckb_logger::{error, trace, warn};
+use ckb_logger::{debug, error, trace, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
@@ -261,10 +261,12 @@ impl TxPool {
         detached_headers: &HashSet<Byte32>,
     ) {
         for tx in txs {
+            let tx_hash = tx.hash();
+            debug!("try remove_committed_tx {}", tx_hash);
             self.remove_committed_tx(tx, callbacks);
 
             self.committed_txs_hash_cache
-                .put(tx.proposal_short_id(), tx.hash());
+                .put(tx.proposal_short_id(), tx_hash);
         }
 
         if !detached_headers.is_empty() {
@@ -291,10 +293,10 @@ impl TxPool {
     pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let hash = tx.hash();
         let short_id = tx.proposal_short_id();
-        trace!("committed {}", hash);
         // try remove committed tx from proposed
         // proposed tx should not contain conflict, if exists just skip resolve conflict
         if let Some(entry) = self.proposed.remove_committed_tx(tx) {
+            debug!("remove_committed_tx from proposed {}", hash);
             callbacks.call_committed(self, &entry)
         } else {
             let conflicts = self.proposed.resolve_conflict(tx);
@@ -306,6 +308,7 @@ impl TxPool {
 
         // pending and gap should resolve conflict no matter exists or not
         if let Some(entry) = self.gap.remove_entry(&short_id) {
+            debug!("remove_committed_tx from gap {}", hash);
             callbacks.call_committed(self, &entry)
         }
         {
@@ -317,6 +320,7 @@ impl TxPool {
         }
 
         if let Some(entry) = self.pending.remove_entry(&short_id) {
+            debug!("remove_committed_tx from pending {}", hash);
             callbacks.call_committed(self, &entry)
         }
         {
@@ -335,6 +339,11 @@ impl TxPool {
             .remove_entries_by_filter(|_id, tx_entry| now_ms > self.expiry + tx_entry.timestamp);
 
         for entry in removed {
+            let tx_hash = entry.transaction().hash();
+            debug!(
+                "remove_expired from pending {} timestamp({})",
+                tx_hash, entry.timestamp
+            );
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
         }
@@ -348,13 +357,23 @@ impl TxPool {
     ) {
         for id in ids {
             if let Some(entry) = self.gap.remove_entry(id) {
-                self.add_pending(entry);
+                let tx_hash = entry.transaction().hash();
+                let ret = self.add_pending(entry);
+                debug!(
+                    "remove_by_detached_proposal from gap {} add_pending {}",
+                    tx_hash, ret
+                );
             }
             let mut entries = self.proposed.remove_entry_and_descendants(id);
             entries.sort_unstable_by_key(|entry| entry.ancestors_count);
             for mut entry in entries {
+                let tx_hash = entry.transaction().hash();
                 entry.reset_ancestors_state();
-                self.add_pending(entry);
+                let ret = self.add_pending(entry);
+                debug!(
+                    "remove_by_detached_proposal from proposed {} add_pending {}",
+                    tx_hash, ret
+                );
             }
         }
     }

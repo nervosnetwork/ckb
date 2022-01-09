@@ -495,3 +495,37 @@ fn test_resolve_conflict_header_dep() {
         HashSet::from_iter(vec![entry])
     );
 }
+
+#[test]
+fn test_disordered_remove_committed_tx() {
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 1);
+    let tx1_hash = tx1.hash();
+    let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+
+    let entry1 = TxEntry::new(
+        dummy_resolve(tx1.clone(), |_| None),
+        MOCK_CYCLES,
+        MOCK_FEE,
+        MOCK_SIZE,
+    );
+    let entry2 = TxEntry::new(
+        dummy_resolve(tx2.clone(), |_| None),
+        MOCK_CYCLES,
+        MOCK_FEE,
+        MOCK_SIZE,
+    );
+
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+
+    pool.add_entry(entry1).unwrap();
+    pool.add_entry(entry2).unwrap();
+
+    assert_eq!(pool.edges.outputs_len(), 2);
+    assert_eq!(pool.edges.inputs_len(), 1);
+
+    pool.remove_committed_tx(&tx2);
+    pool.remove_committed_tx(&tx1);
+
+    assert_eq!(pool.edges.inputs_len(), 0);
+    assert_eq!(pool.edges.outputs_len(), 0);
+}
