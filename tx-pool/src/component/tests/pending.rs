@@ -21,6 +21,9 @@ fn test_basic() {
     assert!(queue.contains_key(&tx1.proposal_short_id()));
     assert!(queue.contains_key(&tx2.proposal_short_id()));
 
+    assert_eq!(queue.inputs_len(), 4);
+    assert_eq!(queue.outputs_len(), 4);
+
     assert_eq!(queue.get(&tx1.proposal_short_id()).unwrap(), &entry1);
     assert_eq!(queue.get_tx(&tx2.proposal_short_id()).unwrap(), &tx2);
 
@@ -112,6 +115,10 @@ fn test_resolve_conflict_header_dep() {
     assert!(queue.add_entry(entry.clone()));
     assert!(queue.add_entry(entry1.clone()));
 
+    assert_eq!(queue.inputs_len(), 3);
+    assert_eq!(queue.header_deps_len(), 1);
+    assert_eq!(queue.outputs_len(), 2);
+
     let mut headers = HashSet::new();
     headers.insert(header);
 
@@ -190,6 +197,10 @@ fn test_fill_proposals() {
     assert!(queue.add_entry(entry1));
     assert!(queue.add_entry(entry2));
     assert!(queue.add_entry(entry3));
+
+    assert_eq!(queue.inputs_len(), 5);
+    assert_eq!(queue.deps_len(), 1);
+    assert_eq!(queue.outputs_len(), 7);
 
     let id1 = tx1.proposal_short_id();
     let id2 = tx2.proposal_short_id();
