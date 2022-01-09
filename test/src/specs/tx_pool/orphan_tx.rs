@@ -5,6 +5,8 @@ use ckb_jsonrpc_types::Status;
 use ckb_network::SupportProtocols;
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
+// always_failure, as the name implies, so it doesn't matter what the cycles are
+const ALWAYS_FAILURE_SCRIPT_CYCLE: u64 = 1000;
 
 pub struct OrphanTxAccepted;
 
@@ -67,7 +69,7 @@ impl Spec for OrphanTxRejected {
         let child_tx = node0.new_always_failure_transaction(parent_tx.hash());
         let child_hash = child_tx.hash();
 
-        relay_tx(&net, node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        relay_tx(&net, node0, child_tx, ALWAYS_FAILURE_SCRIPT_CYCLE);
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0

@@ -67,7 +67,7 @@ fn test_add_entry() {
 
     assert_eq!(pool.size(), 2);
     assert_eq!(pool.edges.outputs_len(), 2);
-    assert_eq!(pool.edges.inputs_len(), 2);
+    assert_eq!(pool.edges.inputs_len(), 3);
 
     pool.remove_committed_tx(&tx1);
     assert_eq!(pool.edges.outputs_len(), 1);
@@ -161,12 +161,12 @@ fn test_add_no_roots() {
     .unwrap();
 
     assert_eq!(pool.edges.outputs_len(), 13);
-    assert_eq!(pool.edges.inputs_len(), 2);
+    assert_eq!(pool.edges.inputs_len(), 7);
 
     pool.remove_committed_tx(&tx1);
 
     assert_eq!(pool.edges.outputs_len(), 10);
-    assert_eq!(pool.edges.inputs_len(), 4);
+    assert_eq!(pool.edges.inputs_len(), 6);
 }
 
 #[test]
@@ -521,7 +521,7 @@ fn test_disordered_remove_committed_tx() {
     pool.add_entry(entry2).unwrap();
 
     assert_eq!(pool.edges.outputs_len(), 2);
-    assert_eq!(pool.edges.inputs_len(), 1);
+    assert_eq!(pool.edges.inputs_len(), 2);
 
     pool.remove_committed_tx(&tx2);
     pool.remove_committed_tx(&tx1);
