@@ -42,6 +42,26 @@ impl PendingQueue {
         self.inner.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn outputs_len(&self) -> usize {
+        self.outputs.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn header_deps_len(&self) -> usize {
+        self.header_deps.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deps_len(&self) -> usize {
+        self.deps.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inputs_len(&self) -> usize {
+        self.inputs.len()
+    }
+
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> bool {
         let inputs = entry.transaction().input_pts_iter();
         let tx_short_id = entry.proposal_short_id();
@@ -57,10 +77,9 @@ impl PendingQueue {
                 .or_default()
                 .insert(tx_short_id.clone());
 
-            self.outputs
-                .entry(i.to_owned())
-                .or_default()
-                .insert(tx_short_id.clone());
+            if let Some(outputs) = self.outputs.get_mut(&i) {
+                outputs.insert(tx_short_id.clone());
+            }
         }
 
         // record dep-txid
@@ -70,10 +89,9 @@ impl PendingQueue {
                 .or_default()
                 .insert(tx_short_id.clone());
 
-            self.outputs
-                .entry(d.to_owned())
-                .or_default()
-                .insert(tx_short_id.clone());
+            if let Some(outputs) = self.outputs.get_mut(d) {
+                outputs.insert(tx_short_id.clone());
+            }
         }
 
         // record tx unconsumed output
@@ -189,20 +207,21 @@ impl PendingQueue {
         removed
     }
 
-    pub(crate) fn get_descendants(&self, entry: &TxEntry) -> Vec<ProposalShortId> {
+    pub(crate) fn get_descendants(&self, entry: &TxEntry) -> HashSet<ProposalShortId> {
         let mut entries: VecDeque<&TxEntry> = VecDeque::new();
         entries.push_back(entry);
 
-        let mut descendants = Vec::new();
+        let mut descendants = HashSet::new();
         while let Some(entry) = entries.pop_front() {
             let outputs = entry.transaction().output_pts();
 
             for output in outputs {
                 if let Some(ids) = self.outputs.get(&output) {
-                    descendants.extend(ids.iter().cloned());
                     for id in ids {
-                        if let Some(entry) = self.inner.get(id) {
-                            entries.push_back(entry);
+                        if descendants.insert(id.clone()) {
+                            if let Some(entry) = self.inner.get(id) {
+                                entries.push_back(entry);
+                            }
                         }
                     }
                 }
