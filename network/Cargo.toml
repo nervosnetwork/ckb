@@ -20,11 +20,11 @@ tokio-util = { version = "0.6", features = ["codec"] }
 futures = "0.3"
 faketime = "0.2.0"
 lazy_static = { version = "1.3.0", optional = true }
-bs58 = { version = "0.3.0", optional = true }
+bs58 = { version = "0.4.0", optional = true }
 sentry = { version = "0.23.0", optional = true }
 faster-hex = { version = "0.6", optional = true }
 ckb-hash = {path = "../util/hash", version = "= 0.102.0-pre"}
-secp256k1 = {version = "0.19", features = ["recovery"], optional = true }
+secp256k1 = {version = "0.20", features = ["recovery"], optional = true }
 trust-dns-resolver = { version = "0.20", optional = true }
 snap = "1"
 ckb-types = { path = "../util/types", version = "= 0.102.0-pre" }
@@ -33,9 +33,7 @@ serde_json = "1.0"
 bloom-filters = "0.1"
 ckb-spawn = { path = "../util/spawn", version = "= 0.102.0-pre" }
 
-p2p = { version="0.4.0-alpha.2", package="tentacle", features = ["upnp", "parking_lot"] }
-# lock p2p deps, update devtools/ci/check-cargotoml.sh as well when removing this
-tokio-yamux = "=0.3.2"
+p2p = { version="=0.4.0-alpha.2", package="tentacle", features = ["upnp", "parking_lot"] }
 
 [features]
 with_sentry = ["sentry"]
