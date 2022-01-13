@@ -669,7 +669,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         if let Some(mut vm) = vm {
             vm.set_max_cycles(limit_cycles);
-            match vm.machine.run() {
+            match vm.run() {
                 Ok(code) => {
                     self.tracing_data_as_code_pages.borrow_mut().clear();
                     if code == 0 {
@@ -1017,9 +1017,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             let bytes = machine
                 .load_program(&program, &[])
                 .map_err(map_vm_internal_error)?;
-            let load_ret = machine.machine.add_cycles(transferred_byte_cycles(bytes));
+            let program_bytes_cycles = transferred_byte_cycles(bytes);
+            let load_ret = machine.machine.add_cycles(program_bytes_cycles);
             if matches!(load_ret, Err(ref error) if error == &VMInternalError::CyclesExceeded) {
-                return Ok(ChunkState::suspended(ResumableMachine::new(machine, false)));
+                return Ok(ChunkState::suspended(ResumableMachine::new(
+                    machine,
+                    Some(program_bytes_cycles),
+                )));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
         }
@@ -1035,7 +1039,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded => {
-                    Ok(ChunkState::suspended(ResumableMachine::new(machine, true)))
+                    Ok(ChunkState::suspended(ResumableMachine::new(machine, None)))
                 }
                 _ => {
                     self.tracing_data_as_code_pages.borrow_mut().clear();
