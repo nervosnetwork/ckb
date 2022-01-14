@@ -1,5 +1,5 @@
 use crate::component::tests::util::{
-    build_tx, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_SIZE, MOCK_CYCLES, MOCK_FEE,
+    build_tx, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT, MOCK_CYCLES, MOCK_FEE,
     MOCK_SIZE,
 };
 use crate::component::{entry::TxEntry, proposed::ProposedPool};
@@ -48,7 +48,7 @@ fn test_add_entry() {
     let tx1_hash = tx1.hash();
     let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     pool.add_entry(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
@@ -82,7 +82,7 @@ fn test_add_roots() {
         3,
     );
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     pool.add_entry(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
@@ -122,7 +122,7 @@ fn test_add_no_roots() {
     let tx3_hash = tx3.hash();
     let tx5 = build_tx(vec![(&tx1_hash, 2), (&tx3_hash, 0)], 2);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     pool.add_entry(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
@@ -175,7 +175,7 @@ fn test_sorted_by_tx_fee_rate() {
     let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
     let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
@@ -219,7 +219,7 @@ fn test_sorted_by_ancestors_score() {
     let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
     let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
@@ -277,7 +277,7 @@ fn test_sorted_by_ancestors_score_competitive() {
     let tx2_3_hash = tx2_3.hash();
     let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
     // calculating the vbytes for a package.
@@ -312,7 +312,7 @@ fn test_get_ancestors() {
     let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
     let tx4 = build_tx(vec![(&tx2_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
@@ -443,7 +443,7 @@ fn test_dep_group() {
         }
     };
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
     for tx in &[&tx1, &tx2, &tx3] {
         pool.add_entry(TxEntry::new(
             dummy_resolve((*tx).clone(), get_cell_data),
@@ -473,7 +473,7 @@ fn test_dep_group() {
 
 #[test]
 fn test_resolve_conflict_header_dep() {
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let header: Byte32 = h256!("0x1").pack();
     let tx = build_tx_with_header_dep(
@@ -515,7 +515,7 @@ fn test_disordered_remove_committed_tx() {
         MOCK_SIZE,
     );
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     pool.add_entry(entry1).unwrap();
     pool.add_entry(entry2).unwrap();

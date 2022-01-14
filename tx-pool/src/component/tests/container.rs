@@ -11,7 +11,7 @@ use crate::component::{
     entry::TxEntry,
 };
 
-const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
+const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 
 #[test]
 fn test_min_fee_and_vbytes() {
@@ -98,7 +98,7 @@ fn test_ancestors_sorted_key_order() {
 
 #[test]
 fn test_remove_entry() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
@@ -171,7 +171,7 @@ fn test_remove_entry() {
 
 #[test]
 fn test_remove_entry_and_descendants() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_SIZE);
+    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
