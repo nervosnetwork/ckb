@@ -147,7 +147,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
     let mut parent_tx_hash = tip_block.transactions().get(0).unwrap().hash();
 
     // generate 30 child-spends-parent txs
-    for i in 0..30 {
+    for i in 0..130 {
         let input = CellInput::new(OutPoint::new(parent_tx_hash.clone(), 0), 0);
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(1000 - i).unwrap().pack())
@@ -172,7 +172,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         parent_tx_hash = tx.hash();
     }
 
-    // 30 txs will be added to proposal list, block template updating is async, 1 second sleeping is enough even on poor CI server
+    // 130 txs will be added to proposal list, block template updating is async, 1 second sleeping is enough even on poor CI server
     for _ in 0..2 {
         sleep(Duration::from_secs(1));
         suite.rpc(&RpcTestRequest {
@@ -183,7 +183,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         });
     }
 
-    // the default value of pool config `max_ancestors_count` is 25, only 25 txs will be added to committed list of the block template
+    // the default value of pool config `max_ancestors_count` is 125, only 125 txs will be added to committed list of the block template
     sleep(Duration::from_secs(1));
     let response = suite.rpc(&RpcTestRequest {
         id: 42,
@@ -192,7 +192,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         params: vec![],
     });
     assert_eq!(
-        25,
+        125,
         response.result["transactions"].as_array().unwrap().len()
     );
 }
