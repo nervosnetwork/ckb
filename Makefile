@@ -50,7 +50,7 @@ cov-gen-report:
 .PHONY: cov
 cov: cov-install-tools ## Run code coverage.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
-	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly test --all
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2021-12-29 test --all
 	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
 .PHONY: wasm-build-test

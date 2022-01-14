@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '0 0 * * 5'
   workflow_dispatch:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
 env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/../target
 jobs:
@@ -16,10 +18,10 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2021-12-29
       - name: overwrite toolchain
         # It's easier to clean than `rustup override`
-        run: echo nightly > rust-toolchain
+        run: echo nightly-2021-12-29 > rust-toolchain
       - name: unit coverage
         run: make cov
       - name: integration cov
