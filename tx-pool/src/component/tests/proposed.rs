@@ -529,3 +529,28 @@ fn test_disordered_remove_committed_tx() {
     assert_eq!(pool.edges.inputs_len(), 0);
     assert_eq!(pool.edges.outputs_len(), 0);
 }
+
+#[test]
+fn test_max_ancestors() {
+    let mut pool = ProposedPool::new(1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
+    let tx1_id = tx1.proposal_short_id();
+    let tx1_hash = tx1.hash();
+    let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+
+    let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+
+    assert!(pool.add_entry(entry1).is_ok());
+    assert!(pool.add_entry(entry2).is_err());
+    assert_eq!(
+        pool.inner()
+            .get_children(&tx1_id)
+            .map(|children| children.is_empty()),
+        Some(true)
+    );
+    assert!(pool.inner().calc_descendants(&tx1_id).is_empty());
+
+    assert_eq!(pool.edges.inputs_len(), 1);
+    assert_eq!(pool.edges.outputs_len(), 1);
+}

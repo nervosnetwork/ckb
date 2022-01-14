@@ -238,43 +238,47 @@ impl ProposedPool {
     }
 
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        let inputs = entry.transaction().input_pts_iter();
-        let outputs = entry.transaction().output_pts();
-
         let tx_short_id = entry.proposal_short_id();
 
         if self.inner.contains_key(&tx_short_id) {
             return Ok(false);
         }
 
-        // if input reference a in-pool output, connect it
-        // otherwise, record input for conflict check
-        for i in inputs {
-            if let Some(id) = self.edges.get_mut_output(&i) {
-                *id = Some(tx_short_id.clone());
-            }
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
-        }
-
-        // record dep-txid
-        for d in entry.related_dep_out_points() {
-            self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
-        }
-
-        // record tx unconsumed output
-        for o in outputs {
-            self.edges.insert_output(o);
-        }
-
-        // record header_deps
+        let inputs = entry.transaction().input_pts_iter();
+        let outputs = entry.transaction().output_pts();
+        let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
         let header_deps = entry.transaction().header_deps();
-        if !header_deps.is_empty() {
-            self.edges
-                .header_deps
-                .insert(tx_short_id, header_deps.into_iter().collect());
-        }
 
-        self.inner.add_entry(entry)
+        self.inner.add_entry(entry).map(|inserted| {
+            if inserted {
+                // if input reference a in-pool output, connect it
+                // otherwise, record input for conflict check
+                for i in inputs {
+                    if let Some(id) = self.edges.get_mut_output(&i) {
+                        *id = Some(tx_short_id.clone());
+                    }
+                    self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+                }
+
+                // record dep-txid
+                for d in related_dep_out_points {
+                    self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
+                }
+
+                // record tx unconsumed output
+                for o in outputs {
+                    self.edges.insert_output(o);
+                }
+
+                // record header_deps
+                if !header_deps.is_empty() {
+                    self.edges
+                        .header_deps
+                        .insert(tx_short_id, header_deps.into_iter().collect());
+                }
+            }
+            inserted
+        })
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
@@ -349,6 +353,11 @@ impl ProposedPool {
     /// find all descendants from pool
     pub fn calc_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
         self.inner.calc_descendants(tx_short_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inner(&self) -> &SortedTxMap {
+        &self.inner
     }
 
     pub(crate) fn clear(&mut self) {
