@@ -68,9 +68,9 @@ macro_rules! metrics {
     };
     (gauge, $label:literal, $value:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
         $crate::global_meter()
-            .i64_value_recorder($label)
+            .i64_up_down_counter($label)
             .init()
-            .record($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
+            .add($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
     };
     (timing, $label:literal, $duration:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
         $crate::global_meter()
