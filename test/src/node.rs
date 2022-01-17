@@ -1,7 +1,7 @@
 use crate::global::binary;
 use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
-use crate::SYSTEM_CELL_ALWAYS_SUCCESS_INDEX;
+use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
@@ -66,6 +66,7 @@ impl Node {
             "ckb.toml",
             "specs/integration.toml",
             "specs/cells/always_success",
+            "specs/cells/always_failure",
         ] {
             let src = PathBuf::from("template").join(file);
             let dest = working_dir.join(file);
@@ -208,6 +209,32 @@ impl Node {
             OutPoint::new(genesis_cellbase_hash, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX);
         CellDep::new_builder()
             .out_point(always_success_out_point)
+            .build()
+    }
+
+    pub fn always_failure_raw_data(&self) -> bytes::Bytes {
+        self.consensus().genesis_block().transactions()[0]
+            .outputs_data()
+            .get(SYSTEM_CELL_ALWAYS_FAILURE_INDEX as usize)
+            .unwrap()
+            .raw_data()
+    }
+
+    pub fn always_failure_script(&self) -> Script {
+        let always_failure_raw = self.always_success_raw_data();
+        let always_failure_code_hash = CellOutput::calc_data_hash(&always_failure_raw);
+        Script::new_builder()
+            .code_hash(always_failure_code_hash)
+            .hash_type(ScriptHashType::Data.into())
+            .build()
+    }
+
+    pub fn always_failure_cell_dep(&self) -> CellDep {
+        let genesis_cellbase_hash = self.consensus().genesis_block().transactions()[0].hash();
+        let always_failure_out_point =
+            OutPoint::new(genesis_cellbase_hash, SYSTEM_CELL_ALWAYS_FAILURE_INDEX);
+        CellDep::new_builder()
+            .out_point(always_failure_out_point)
             .build()
     }
 
@@ -480,6 +507,23 @@ impl Node {
             )
             .output_data(Default::default())
             .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .build()
+    }
+
+    pub fn new_always_failure_transaction(&self, hash: Byte32) -> TransactionView {
+        let always_failure_cell_dep = self.always_failure_cell_dep();
+        let always_failure_script = self.always_failure_script();
+
+        core::TransactionBuilder::default()
+            .cell_dep(always_failure_cell_dep)
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .lock(always_failure_script)
+                    .build(),
+            )
+            .output_data(Default::default())
+            .input(CellInput::new(OutPoint::new(hash, 0), 0))
             .build()
     }
 

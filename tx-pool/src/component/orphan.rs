@@ -1,4 +1,4 @@
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Cycle, TransactionView},
@@ -122,6 +122,7 @@ impl OrphanPool {
         if self.entries.contains_key(&tx.proposal_short_id()) {
             return;
         }
+        debug!("add_orphan_tx {}", tx.hash());
 
         self.entries.insert(
             tx.proposal_short_id(),

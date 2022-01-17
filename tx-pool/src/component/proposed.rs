@@ -63,7 +63,7 @@ impl Edges {
         self.inputs.get(out_point)
     }
 
-    pub(crate) fn get_output_mut_ref(
+    pub(crate) fn get_mut_output(
         &mut self,
         out_point: &OutPoint,
     ) -> Option<&mut Option<ProposalShortId>> {
@@ -110,19 +110,19 @@ impl CellProvider for ProposedPool {
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
-                CellStatus::Dead
+                return CellStatus::Dead;
             } else {
                 let (output, data) = self.get_output_with_data(out_point).expect("output");
                 let cell_meta = CellMetaBuilder::from_cell_output(output, data)
                     .out_point(out_point.to_owned())
                     .build();
-                CellStatus::live_cell(cell_meta)
+                return CellStatus::live_cell(cell_meta);
             }
-        } else if self.edges.get_input_ref(out_point).is_some() {
-            CellStatus::Dead
-        } else {
-            CellStatus::Unknown
         }
+        if self.edges.get_input_ref(out_point).is_some() {
+            return CellStatus::Dead;
+        }
+        CellStatus::Unknown
     }
 }
 
@@ -131,15 +131,15 @@ impl CellChecker for ProposedPool {
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
-                Some(false)
+                return Some(false);
             } else {
-                Some(true)
+                return Some(true);
             }
-        } else if self.edges.get_input_ref(out_point).is_some() {
-            Some(false)
-        } else {
-            None
         }
+        if self.edges.get_input_ref(out_point).is_some() {
+            return Some(false);
+        }
+        None
     }
 }
 
@@ -189,8 +189,9 @@ impl ProposedPool {
             let inputs = tx.input_pts_iter();
             let outputs = tx.output_pts();
             for i in inputs {
-                if self.edges.outputs.remove(&i).is_none() {
-                    self.edges.inputs.remove(&i);
+                self.edges.inputs.remove(&i);
+                if let Some(id) = self.edges.get_mut_output(&i) {
+                    *id = None;
                 }
             }
 
@@ -200,7 +201,6 @@ impl ProposedPool {
 
             for o in outputs {
                 self.edges.remove_output(&o);
-                // self.edges.remove_deps(&o);
             }
 
             self.edges.header_deps.remove(&entry.proposal_short_id());
@@ -215,17 +215,15 @@ impl ProposedPool {
 
         if let Some(entry) = self.inner.remove_entry(&id) {
             for o in outputs {
-                // notice: cause tx removed by committed,
-                // remove output, but if this output consumed by other in-pool tx,
-                // we need record it to inputs' map
-                if let Some(cid) = self.edges.remove_output(&o) {
-                    self.edges.insert_input(o.clone(), cid);
-                }
+                self.edges.remove_output(&o);
             }
 
             for i in inputs {
                 // release input record
                 self.edges.remove_input(&i);
+                if let Some(id) = self.edges.get_mut_output(&i) {
+                    *id = None;
+                }
             }
 
             for d in entry.related_dep_out_points().cloned() {
@@ -240,44 +238,47 @@ impl ProposedPool {
     }
 
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        let inputs = entry.transaction().input_pts_iter();
-        let outputs = entry.transaction().output_pts();
-
         let tx_short_id = entry.proposal_short_id();
 
         if self.inner.contains_key(&tx_short_id) {
             return Ok(false);
         }
 
-        // if input reference a in-pool output, connect it
-        // otherwise, record input for conflict check
-        for i in inputs {
-            if let Some(id) = self.edges.get_output_mut_ref(&i) {
-                *id = Some(tx_short_id.clone());
-            } else {
-                self.edges.insert_input(i.to_owned(), tx_short_id.clone());
-            }
-        }
-
-        // record dep-txid
-        for d in entry.related_dep_out_points() {
-            self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
-        }
-
-        // record tx unconsumed output
-        for o in outputs {
-            self.edges.insert_output(o);
-        }
-
-        // record header_deps
+        let inputs = entry.transaction().input_pts_iter();
+        let outputs = entry.transaction().output_pts();
+        let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
         let header_deps = entry.transaction().header_deps();
-        if !header_deps.is_empty() {
-            self.edges
-                .header_deps
-                .insert(tx_short_id, header_deps.into_iter().collect());
-        }
 
-        self.inner.add_entry(entry)
+        self.inner.add_entry(entry).map(|inserted| {
+            if inserted {
+                // if input reference a in-pool output, connect it
+                // otherwise, record input for conflict check
+                for i in inputs {
+                    if let Some(id) = self.edges.get_mut_output(&i) {
+                        *id = Some(tx_short_id.clone());
+                    }
+                    self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+                }
+
+                // record dep-txid
+                for d in related_dep_out_points {
+                    self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
+                }
+
+                // record tx unconsumed output
+                for o in outputs {
+                    self.edges.insert_output(o);
+                }
+
+                // record header_deps
+                if !header_deps.is_empty() {
+                    self.edges
+                        .header_deps
+                        .insert(tx_short_id, header_deps.into_iter().collect());
+                }
+            }
+            inserted
+        })
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
@@ -352,6 +353,11 @@ impl ProposedPool {
     /// find all descendants from pool
     pub fn calc_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
         self.inner.calc_descendants(tx_short_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inner(&self) -> &SortedTxMap {
+        &self.inner
     }
 
     pub(crate) fn clear(&mut self) {

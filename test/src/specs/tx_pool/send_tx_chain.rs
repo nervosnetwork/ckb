@@ -9,7 +9,7 @@ use ckb_types::{
 
 pub struct SendTxChain;
 
-const MAX_ANCESTORS_COUNT: usize = 25;
+const MAX_ANCESTORS_COUNT: usize = 125;
 
 impl Spec for SendTxChain {
     fn run(&self, nodes: &mut Vec<Node>) {
