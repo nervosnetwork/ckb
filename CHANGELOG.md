@@ -1,3 +1,26 @@
+# [v0.101.4](https://github.com/nervosnetwork/ckb/compare/v0.101.3...v0.101.4) (2022-01-18)
+
+### Features
+
+* #3231: Check listen port occupancy (@driftluo)
+* #3261: Tuning the locator algorithm (@driftluo)
+* #3254: Port to aarch64, and provide official binary when release (@yangby-cryptape)
+* #3134: Ckb2021 on rust2021 (@zhangsoledad)
+
+### Bug Fixes
+
+* #3228: Fix block transaction process dead loop (@driftluo)
+* #3251: Session close also should remove feeler dialing flag (@driftluo)
+* #3242: Verification cache reset during hardfork (@zhangsoledad)
+* #3264: Resolve conflict descendants (@zhangsoledad)
+* #3270: Fix pending leak (@zhangsoledad)
+* #3269: Proposed pool remove committed (@zhangsoledad)
+
+### Improvements
+
+* #3244 **relay:** Split compact block execute code, more readable (@chanhsu001)
+* #3263 **relay:** Remove obsolete `min_fee_rate`, `max_tx_verify_cycles` from relayer (@chanhsu001)
+
 # [v0.101.3](https://github.com/nervosnetwork/ckb/compare/v0.101.2...v0.101.3) (2021-12-13)
 
 ### Features
