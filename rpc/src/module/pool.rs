@@ -311,7 +311,8 @@ impl PoolRpcImpl {
 }
 
 /// Build well known lock scripts
-/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md
+/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0026-anyone-can-pay/0026-anyone-can-pay.md
+/// https://talk.nervos.org/t/sudt-cheque-deposit-design-and-implementation/5209
 /// 1. anyone_can_pay
 /// 2. cheque
 fn build_well_known_lock_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
@@ -354,7 +355,7 @@ fn build_well_known_lock_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
 }
 
 /// Build well known type scripts
-/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md
+/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0025-simple-udt/0025-simple-udt.md
 /// 1. Simple UDT
 fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
     serde_json::from_str::<Vec<Script>>(
