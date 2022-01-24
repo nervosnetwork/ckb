@@ -1,17 +1,17 @@
 [package]
 name = "ckb-memory-tracker"
-version = "0.101.3"
+version = "0.101.4"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Track the memory usage of CKB."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.101.3" }
-ckb-metrics = { path = "../metrics", version = "= 0.101.3" }
-ckb-db = { path = "../../db", version = "= 0.101.3" }
+ckb-logger = { path = "../logger", version = "= 0.101.4" }
+ckb-metrics = { path = "../metrics", version = "= 0.101.4" }
+ckb-db = { path = "../../db", version = "= 0.101.4" }
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 jemalloc-ctl = { package = "tikv-jemalloc-ctl", version = "0.4.2" }

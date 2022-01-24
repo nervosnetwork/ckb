@@ -4,6 +4,9 @@ on:
   # Submit your review with a comment body containing "#benchmark"
   pull_request_review:
     types: [ submitted ]
+  push:
+    branches:
+      - 'pkg/*'
   schedule:
     - cron: '0 0 * * *'
   # Manurally trigger
@@ -29,22 +32,52 @@ jobs:
       AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
       AWS_EC2_TYPE:  "c5.xlarge"
       GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+      GITHUB_REF_NAME: ${{ github.ref_name }}
+      GITHUB_REPO: ${{ github.repository }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@v2
+        with:
+          repository: nervosnetwork/ckb-integration-test
       - name: Get branch name when event is pr review comments
         if: github.event_name == 'pull_request_review' && contains(github.event.review.body, '#benchmark')
         uses: xt0rted/pull-request-comment-branch@v1
         id: comment-branch
-      - name: Benchmark
+      - name: Get Current Date & Set ENV
+        id: date
         run: |
-          git clone https://github.com/nervosnetwork/ckb-integration-test.git
+          echo "::set-output name=date::$(date +'%Y-%m-%d')"
+          echo "START_TIME=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
+          echo "CKB_COMMIT_ID=$(git describe --dirty --always --match _EXCLUDE__ --abbrev=7)" >> $GITHUB_ENV
+          echo "CKB_COMMIT_TIME=$(git log -1 --date=iso "--pretty=format:%cd" | cut -d ' ' -f 1,2)" >> $GITHUB_ENV
+      - name: Start
+        env:
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+        run: |
           export GITHUB_BRANCH=${{ steps.comment-branch.outputs.head_ref }}
-          export GITHUB_REPO=${{ github.repository }}
-          devtools/ci/benchmark.sh
-      - uses: actions/upload-artifact@v2
-        with:
-          name: report.yml
-          path: ${{ env.ANSIBLE_DIR }}/report.yml
+          ./ckb-bench/devtools/ci/script/benchmark.sh run
+      - name: Set test state when benchmark success.
+        if: ${{ success() }}
+        run: echo "GITHUB_RUN_STATE=0" >> $GITHUB_ENV
+      - name: Set test state when benchmark failed.
+        if: ${{ failure() }}
+        run: echo "GITHUB_RUN_STATE=1" >> $GITHUB_ENV
+      - name: insert report to postgres
+        if: ${{ always() }}
+        env:
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ckbtest
+        run: |
+           [ -z "${PGHOST}" ] || ./ckb-bench/devtools/ci/script/benchmark.sh insert_report_to_postgres
+      - name: Clean Up
+        if: ${{ always() }}
+        env:
+          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+        run: ./ckb-bench/devtools/ci/script/benchmark.sh clean
       - uses: actions/upload-artifact@v2
         with:
           name: ckb-bench.log

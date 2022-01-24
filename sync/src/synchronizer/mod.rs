@@ -338,7 +338,7 @@ impl Synchronizer {
         peer: PeerIndex,
         ibd: IBDState,
     ) -> Option<Vec<Vec<packed::Byte32>>> {
-        BlockFetcher::new(&self, peer, ibd).fetch()
+        BlockFetcher::new(self, peer, ibd).fetch()
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {

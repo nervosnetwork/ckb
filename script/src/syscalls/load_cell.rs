@@ -112,7 +112,12 @@ impl<'a, DL: CellDataProvider + 'a> LoadCell<'a, DL> {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(
                     cell.occupied_capacity()
-                        .map_err(|_| VMError::Unexpected)?
+                        .map_err(|_| {
+                            VMError::Unexpected(format!(
+                                "Unexpected occupied_capacity overflow {}",
+                                cell.out_point,
+                            ))
+                        })?
                         .as_u64(),
                 )?;
                 (SUCCESS, store_data(machine, &buffer)?)

@@ -320,7 +320,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains(&addr) {
+        if self.public_addrs.read().contains(addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -553,24 +553,30 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError { address, error } => {
-                debug!("DialerError({}) {}", address, error);
-
                 let mut public_addrs = self.network_state.public_addrs.write();
 
-                if let DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
-                    SecioError::ConnectSelf,
-                )) = error
-                {
-                    debug!("dial observed address success: {:?}", address);
-                    if let Some(ip) = multiaddr_to_socketaddr(&address) {
-                        if is_reachable(ip.ip()) {
-                            public_addrs.insert(address);
+                match error {
+                    DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
+                        SecioError::ConnectSelf,
+                    )) => {
+                        debug!("dial observed address success: {:?}", address);
+                        if let Some(ip) = multiaddr_to_socketaddr(&address) {
+                            if is_reachable(ip.ip()) {
+                                public_addrs.insert(address);
+                            }
                         }
+                        return;
                     }
-                    return;
-                } else {
-                    public_addrs.remove(&address);
+                    DialerErrorKind::IoError(e)
+                        if e.kind() == std::io::ErrorKind::AddrNotAvailable =>
+                    {
+                        warn!("DialerError({}) {}", address, e);
+                    }
+                    _ => {
+                        debug!("DialerError({}) {}", address, error);
+                    }
                 }
+                public_addrs.remove(&address);
                 self.network_state.dial_failed(&address);
             }
             ServiceError::ProtocolError {
@@ -582,7 +588,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 let message = format!("ProtocolError id={}", proto_id);
                 // Ban because misbehave of remote peer
                 self.network_state.ban_session(
-                    &context.control(),
+                    context.control(),
                     id,
                     Duration::from_secs(300),
                     message,
@@ -604,7 +610,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 );
             }
             ServiceError::ListenError { address, error } => {
-                debug!("ListenError: address={:?}, error={:?}", address, error);
+                warn!("ListenError: address={:?}, error={:?}", address, error);
             }
             ServiceError::ProtocolSelectError {
                 proto_name,
@@ -624,7 +630,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
                     if let Some(id) = opt_session_id {
                         self.network_state.ban_session(
-                            &context.control(),
+                            context.control(),
                             id,
                             Duration::from_secs(300),
                             format!("protocol {} panic when process peer message", proto_id),
@@ -713,12 +719,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     session_context.id, session_context.address,
                 );
 
-                let peer_exists = self
-                    .network_state
-                    .peer_registry
-                    .write()
-                    .remove_peer(session_context.id)
-                    .is_some();
+                let peer_exists = self.network_state.with_peer_registry_mut(|reg| {
+                    // should make sure feelers is clean
+                    reg.remove_feeler(&session_context.address);
+                    reg.remove_peer(session_context.id).is_some()
+                });
                 if peer_exists {
                     debug!(
                         "{} closed, remove {} from peer_registry",
@@ -726,7 +731,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     );
                     self.network_state.with_peer_store_mut(|peer_store| {
                         peer_store.remove_disconnected_peer(&session_context.address);
-                    })
+                    });
                 }
             }
             _ => {
@@ -1265,7 +1270,6 @@ impl NetworkController {
         let now = Instant::now();
         loop {
             let target = target
-                .clone()
                 .map(TargetSession::Single)
                 .unwrap_or(TargetSession::All);
             let result = if quick {

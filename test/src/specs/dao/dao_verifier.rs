@@ -8,7 +8,6 @@ use ckb_types::packed::{Byte32, CellOutput, OutPoint};
 use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 #[derive(Default)]
 #[allow(non_snake_case)]

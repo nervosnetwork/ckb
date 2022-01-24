@@ -21,7 +21,7 @@ impl Spec for MissingUncleRequest {
         );
         net.connect(node);
 
-        mine(&node, 1);
+        mine(node, 1);
 
         let builder = node.new_block_builder(None, None, None);
         let block1 = builder.clone().nonce(0.pack()).build();
@@ -45,7 +45,7 @@ impl Spec for MissingUncleRequest {
         net.send(node, SupportProtocols::Relay, message.as_bytes());
 
         let ret = net.should_receive(node, |data: &Bytes| {
-            RelayMessage::from_slice(&data)
+            RelayMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::BlockTransactions::NAME)
                 .unwrap_or(false)
         });

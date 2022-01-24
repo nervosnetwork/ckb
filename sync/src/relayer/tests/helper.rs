@@ -15,7 +15,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, FeeRate,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
         HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{
@@ -50,7 +50,7 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
     let snapshot = shared.snapshot();
     let epoch = snapshot
         .consensus()
-        .next_epoch_ext(&parent, &snapshot.as_data_provider())
+        .next_epoch_ext(parent, &snapshot.as_data_provider())
         .unwrap()
         .epoch();
     HeaderBuilder::default()
@@ -201,12 +201,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         pack.take_relay_tx_receiver(),
     ));
     (
-        Relayer::new(
-            chain_controller,
-            sync_shared,
-            FeeRate::zero(),
-            std::u64::MAX,
-        ),
+        Relayer::new(chain_controller, sync_shared),
         always_success_out_point,
     )
 }

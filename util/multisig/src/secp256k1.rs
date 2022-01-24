@@ -33,7 +33,7 @@ where
                 &sig.serialize()[..],
                 message.as_ref()
             );
-            match sig.recover(&message) {
+            match sig.recover(message) {
                 Ok(pubkey) => Some(pubkey),
                 Err(err) => {
                     debug!("recover secp256k1 sig error: {}", err);

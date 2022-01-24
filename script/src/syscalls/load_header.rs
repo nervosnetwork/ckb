@@ -56,7 +56,7 @@ impl<'a, DL: HeaderProvider + 'a> LoadHeader<'a, DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_header(&block_hash)
+            self.data_loader.get_header(block_hash)
         } else {
             None
         }
@@ -118,10 +118,14 @@ impl<'a, DL: HeaderProvider + 'a> LoadHeader<'a, DL> {
 
         let result = match field {
             HeaderField::EpochNumber => epoch.number(),
-            HeaderField::EpochStartBlockNumber => header
-                .number()
-                .checked_sub(epoch.index())
-                .ok_or(VMError::Unexpected)?,
+            HeaderField::EpochStartBlockNumber => {
+                header.number().checked_sub(epoch.index()).ok_or_else(|| {
+                    VMError::Unexpected(format!(
+                        "Unexpected header epoch number index overflow {}",
+                        epoch,
+                    ))
+                })?
+            }
             HeaderField::EpochLength => epoch.length(),
         };
 

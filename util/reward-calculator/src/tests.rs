@@ -9,7 +9,6 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use tempfile::TempDir;
 
 use crate::RewardCalculator;

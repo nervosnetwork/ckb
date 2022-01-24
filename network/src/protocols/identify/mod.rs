@@ -144,7 +144,7 @@ impl<T: Callback> IdentifyProtocol<T> {
                 })
                 .collect::<Vec<_>>();
             self.callback
-                .add_remote_listen_addrs(&session, reachable_addrs);
+                .add_remote_listen_addrs(session, reachable_addrs);
             MisbehaveResult::Continue
         }
     }

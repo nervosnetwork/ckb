@@ -95,7 +95,7 @@ fn test_script_serialization() {
             },
         ),
     ] {
-        let decoded: Script = serde_json::from_str(&original).unwrap();
+        let decoded: Script = serde_json::from_str(original).unwrap();
         assert_eq!(&decoded, entity);
         let encoded = serde_json::to_string(&decoded).unwrap();
         assert_eq!(&encoded, original);
@@ -132,7 +132,7 @@ fn test_script_serialization() {
             \"args\":\"0x\"\
         }",
     ] {
-        let result: Result<Script, _> = serde_json::from_str(&malformed);
+        let result: Result<Script, _> = serde_json::from_str(malformed);
         assert!(
             result.is_err(),
             "should reject malformed json: [{}]",

@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use p2p::{
     bytes::{Bytes, BytesMut},
     multiaddr::Multiaddr,
@@ -27,7 +25,7 @@ pub(crate) fn encode(data: DiscoveryMessage, v2: bool) -> Bytes {
 
 pub(crate) fn decode(data: &Bytes, v2: bool) -> Option<DiscoveryMessage> {
     if v2 {
-        DiscoveryMessage::decode(&data)
+        DiscoveryMessage::decode(data)
     } else {
         let mut data = BytesMut::from(data.as_ref());
         // Length Delimited Codec is not a mandatory requirement.

@@ -50,8 +50,8 @@ impl Spec for SizeLimit {
         assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum size limit");
 
         node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
-        mine(&node, 1);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, 1);
         node.assert_tx_pool_serialized_size(0);
     }
 
@@ -107,8 +107,8 @@ impl Spec for CyclesLimit {
         assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum cycles limit");
 
         node.assert_tx_pool_cycles(max_tx_num * one_tx_cycles);
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
-        mine(&node, 1);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, 1);
         node.assert_tx_pool_cycles(0);
     }
 

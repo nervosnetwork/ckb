@@ -775,7 +775,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         .build();
         self.adjust_tip_before_test();
         if let Some(errmsg) = expected.error_message() {
-            assert_send_transaction_fail(self.node, &tx, &errmsg);
+            assert_send_transaction_fail(self.node, &tx, errmsg);
         } else {
             self.submit_transaction_until_committed(&tx);
         }

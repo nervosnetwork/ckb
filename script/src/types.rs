@@ -11,7 +11,6 @@ use ckb_vm::{
     CoreMachine as _, Memory, SupportMachine, ISA_B, ISA_IMC, ISA_MOP, RISCV_PAGESIZE,
 };
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt;
 
 #[cfg(has_asm)]

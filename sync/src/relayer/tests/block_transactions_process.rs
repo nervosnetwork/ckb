@@ -14,7 +14,6 @@ use ckb_types::{
     },
 };
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::sync::Arc;
 
 #[test]
@@ -358,6 +357,12 @@ fn test_collision_and_send_missing_indexes() {
 
 #[test]
 fn test_missing() {
+    // test case:
+    //  1. Relayer received a compact block with 3 tx
+    //  2. Assuming that tx1 is prefilled, tx2 makes a request, and tx3 is in the transaction pool
+    //  3. When the relayer receives the return from tx2, tx3 is not in the transaction pool
+    //  4. Relayer must make another request for tx2 and tx3
+
     let (relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
 
@@ -422,7 +427,7 @@ fn test_missing() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes(vec![2u32].pack())
+        .indexes(vec![1, 2u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
 

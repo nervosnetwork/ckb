@@ -7,7 +7,6 @@ use ckb_types::{
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };
 use ckb_vm::Error as VmError;
-use std::convert::TryInto;
 
 use super::SCRIPT_VERSION;
 use crate::{
@@ -520,7 +519,7 @@ fn check_type_id_one_in_one_out_resume() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -534,7 +533,7 @@ fn check_type_id_one_in_one_out_resume() {
 
             while let Some((_ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(&group, step_cycles, &None)
+                    .verify_group_with_chunk(group, step_cycles, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
@@ -637,7 +636,7 @@ fn check_type_id_one_in_one_out_chunk() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -650,10 +649,7 @@ fn check_type_id_one_in_one_out_chunk() {
                     ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
                     ScriptGroupType::Type => TYPE_ID_CYCLES,
                 };
-                match verifier
-                    .verify_group_with_chunk(&group, max, &None)
-                    .unwrap()
-                {
+                match verifier.verify_group_with_chunk(group, max, &None).unwrap() {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                     }
@@ -698,7 +694,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::InvalidCycles => {
+                        VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
                             continue;
                         }
@@ -708,7 +704,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
             }
             while let Some((_, _, group)) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(&group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
+                    .verify_group_with_chunk(group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
@@ -901,7 +897,7 @@ fn load_code_into_global() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
-        let vm_error = VmError::InvalidPermission;
+        let vm_error = VmError::MemWriteOnFreezedPage;
         let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
@@ -963,7 +959,7 @@ fn load_code_with_snapshot() {
         let snap = init_snap.take().unwrap();
         let result = verifier.resume_from_snap(&snap, max_cycles);
         if should_be_invalid_permission {
-            let vm_error = VmError::InvalidPermission;
+            let vm_error = VmError::MemWriteOnExecutablePage;
             let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
             assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
         } else {
@@ -1070,7 +1066,7 @@ fn load_code_with_snapshot_more_times() {
             let snap = init_snap.take().unwrap();
             let result = verifier.resume_from_snap(&snap, max_cycles);
             if should_be_invalid_permission {
-                let vm_error = VmError::InvalidPermission;
+                let vm_error = VmError::MemWriteOnExecutablePage;
                 let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
                 assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
                 break;

@@ -21,7 +21,7 @@ impl Spec for MalformedMessage {
 
         info!("Test node should receive GetHeaders message from node0");
         let ret = net.should_receive(node0, |data: &Bytes| {
-            SyncMessage::from_slice(&data)
+            SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
                 .unwrap_or(false)
         });
@@ -61,7 +61,7 @@ impl Spec for MalformedMessageWithWhitelist {
 
         info!("Test node should receive GetHeaders message from node0");
         let ret = net.should_receive(&node0, |data: &Bytes| {
-            SyncMessage::from_slice(&data)
+            SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
                 .unwrap_or(false)
         });

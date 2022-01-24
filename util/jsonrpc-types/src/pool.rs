@@ -75,7 +75,7 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 pub enum OutputsValidator {
     /// "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
     Passthrough,
-    /// "well_known_scripts_only": restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
+    /// "well_known_scripts_only": restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
     WellKnownScriptsOnly,
 }
 
@@ -207,6 +207,9 @@ pub enum PoolTransactionReject {
 
     /// Verification failed
     Verification(String),
+
+    /// Transaction expired
+    Expiry(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -222,6 +225,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{}", reject)),
             Reject::Resolve(_) => Self::Resolve(format!("{}", reject)),
             Reject::Verification(_) => Self::Verification(format!("{}", reject)),
+            Reject::Expiry(_) => Self::Expiry(format!("{}", reject)),
         }
     }
 }

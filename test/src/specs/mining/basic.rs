@@ -22,7 +22,7 @@ impl Spec for MiningBasic {
         let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
 
-        mine(&node, 1);
+        mine(node, 1);
         let block1 = node.get_tip_block();
 
         assert_eq!(
@@ -31,7 +31,7 @@ impl Spec for MiningBasic {
         );
 
         // skip (proposal_window.closest - 1) block
-        mine(&node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         let block3 = node.get_tip_block();
 
         assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());

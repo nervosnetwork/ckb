@@ -60,7 +60,7 @@ impl Setup {
         let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
         config.set_bin_name(bin_name);
         #[cfg(feature = "with_sentry")]
-        let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
+        let is_sentry_enabled = is_daemon(subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),

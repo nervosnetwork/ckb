@@ -44,7 +44,7 @@ pub(crate) fn check_tx_fee(
     tx_size: usize,
 ) -> Result<Capacity, Reject> {
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
-        .transaction_fee(&rtx)
+        .transaction_fee(rtx)
         .map_err(|err| Reject::Malformed(format!("Transaction fee calculate overflow: {}", err)))?;
     let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
     // reject txs which fee lower than min fee rate
@@ -84,13 +84,13 @@ pub(crate) fn verify_rtx(
     if let Some(ref cached) = cache_entry {
         match cached {
             CacheEntry::Completed(completed) => {
-                TimeRelativeTransactionVerifier::new(&rtx, consensus, snapshot, tx_env)
+                TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot, tx_env)
                     .verify()
                     .map(|_| *completed)
                     .map_err(Reject::Verification)
             }
             CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
-                &rtx,
+                rtx,
                 consensus,
                 &snapshot.as_data_provider(),
                 tx_env,
@@ -100,14 +100,9 @@ pub(crate) fn verify_rtx(
         }
     } else {
         block_in_place(|| {
-            ContextualTransactionVerifier::new(
-                &rtx,
-                consensus,
-                &snapshot.as_data_provider(),
-                tx_env,
-            )
-            .verify(max_tx_verify_cycles, false)
-            .map_err(Reject::Verification)
+            ContextualTransactionVerifier::new(rtx, consensus, &snapshot.as_data_provider(), tx_env)
+                .verify(max_tx_verify_cycles, false)
+                .map_err(Reject::Verification)
         })
     }
 }
@@ -152,7 +147,7 @@ pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
 
     let rfc_0032 = snapshot.consensus().hardfork_switch.rfc_0032();
 
-    if rfc_0032 == 0 && rfc_0032 == EpochNumber::MAX {
+    if rfc_0032 == 0 || rfc_0032 == EpochNumber::MAX {
         return true;
     }
 

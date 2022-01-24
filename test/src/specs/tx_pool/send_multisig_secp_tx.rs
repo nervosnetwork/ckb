@@ -76,9 +76,9 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         let witness_len = witness.as_slice().len() as u64;
         let message = {
             let mut hasher = new_blake2b();
-            hasher.update(&tx_hash.as_slice());
+            hasher.update(tx_hash.as_slice());
             hasher.update(&witness_len.to_le_bytes());
-            hasher.update(&witness.as_slice());
+            hasher.update(witness.as_slice());
             let mut buf = [0u8; 32];
             hasher.finalize(&mut buf);
             H256::from(buf)
@@ -129,7 +129,7 @@ fn gen_multi_sign_script(keys: &[Privkey], threshold: u8, require_first_n: u8) -
         .collect::<Vec<_>>();
     let mut script = vec![0u8, require_first_n, threshold, pubkeys.len() as u8];
     pubkeys.iter().for_each(|pubkey| {
-        script.extend_from_slice(&blake160(&pubkey.serialize()).as_bytes());
+        script.extend_from_slice(blake160(&pubkey.serialize()).as_bytes());
     });
     script.into()
 }

@@ -14,6 +14,7 @@ use crate::util::{
     verify_rtx,
 };
 use ckb_app_config::BlockAssemblerConfig;
+use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -23,15 +24,11 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{
-            get_related_dep_out_points, OverlayCellChecker, ResolveOptions, ResolvedTransaction,
-            TransactionsChecker,
-        },
-        hardfork::HardForkSwitch,
+        cell::{OverlayCellChecker, ResolveOptions, ResolvedTransaction, TransactionsChecker},
         BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{Byte32, Bytes, CellbaseWitness, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, Bytes, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
 use ckb_util::LinkedHashSet;
@@ -43,7 +40,6 @@ use ckb_verification::{
 use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
-use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::Duration;
@@ -521,7 +517,7 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                check_tx_cycle_limit(&tx_pool, verified.cycles)?;
+                check_tx_cycle_limit(tx_pool, verified.cycles)?;
 
                 // if snapshot changed by context switch
                 // we need redo time_relative verify
@@ -535,11 +531,11 @@ impl TxPoolService {
                     );
 
                     // destructuring assignments are not currently supported
-                    status = check_rtx(&tx_pool, &snapshot, &entry.rtx)?;
+                    status = check_rtx(tx_pool, snapshot, &entry.rtx)?;
 
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    time_relative_verify(&snapshot, &entry.rtx, &tx_env)?;
+                    time_relative_verify(snapshot, &entry.rtx, &tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -593,13 +589,13 @@ impl TxPoolService {
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
-                check_tx_size_limit(&tx_pool, tx_size)?;
+                check_tx_size_limit(tx_pool, tx_size)?;
 
-                check_txid_collision(&tx_pool, &tx)?;
+                check_txid_collision(tx_pool, tx)?;
 
-                let (rtx, status) = resolve_tx(&tx_pool, &snapshot, tx.clone())?;
+                let (rtx, status) = resolve_tx(tx_pool, snapshot, tx.clone())?;
 
-                let fee = check_tx_fee(&tx_pool, &snapshot, &rtx, tx_size)?;
+                let fee = check_tx_fee(tx_pool, snapshot, &rtx, tx_size)?;
 
                 Ok((tip_hash, rtx, status, fee, tx_size))
             })
@@ -745,14 +741,14 @@ impl TxPoolService {
                 }
                 Err(reject) => {
                     debug!("after_process {} reject: {} ", tx_hash, reject);
-                    if is_missing_input(&reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
                             self.ban_malformed(peer, format!("reject {}", reject));
                         }
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
-                            self.put_recent_reject(&tx_hash, &reject).await;
+                            self.put_recent_reject(&tx_hash, reject).await;
                         }
                         self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
                     }
@@ -778,7 +774,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
-                            self.put_recent_reject(&tx_hash, &reject).await;
+                            self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
                 }
@@ -820,8 +816,12 @@ impl TxPoolService {
         while let Some(previous) = orphan_queue.pop_front() {
             if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
+                    debug!(
+                        "process_orphan {} add to chunk,  find previous from {}",
+                        tx.hash(),
+                        orphan.tx.hash()
+                    );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    orphan_queue.push_back(orphan.tx.clone());
                     self.chunk
                         .write()
                         .await
@@ -846,18 +846,34 @@ impl TxPoolService {
                                 with_vm_2021,
                                 tx_hash: orphan.tx.hash(),
                             });
+                            debug!(
+                                "process_orphan {} success, find previous from {}",
+                                tx.hash(),
+                                orphan.tx.hash()
+                            );
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             orphan_queue.push_back(orphan.tx);
                         }
                         Err(reject) => {
+                            debug!(
+                                "process_orphan {} reject {}, find previous from {}",
+                                tx.hash(),
+                                reject,
+                                orphan.tx.hash()
+                            );
                             if !is_missing_input(&reject) {
                                 self.send_result_to_relayer(TxVerificationResult::Reject {
                                     tx_hash: orphan.tx.hash(),
                                 });
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                            }
-                            if reject.is_malformed_tx() {
-                                self.ban_malformed(orphan.peer, format!("reject {}", reject));
+
+                                if reject.is_malformed_tx() {
+                                    self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                                }
+                                if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
+                                {
+                                    self.put_recent_reject(&orphan.tx.hash(), &reject).await;
+                                }
                             }
                             break;
                         }
@@ -1086,15 +1102,13 @@ impl TxPoolService {
         detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) {
+        let mine_mode = self.block_assembler.is_some();
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
-        let hardfork_switch = snapshot.consensus().hardfork_switch();
-        let hardfork_during_detach =
-            check_if_hardfork_during_blocks(&hardfork_switch, &detached_blocks);
-        let hardfork_during_attach =
-            check_if_hardfork_during_blocks(&hardfork_switch, &attached_blocks);
 
         let new_tip_after_delay = after_delay_window(&snapshot);
+        let is_in_delay_window = self.is_in_delay_window(&snapshot);
+
         let epoch_of_next_block = snapshot
             .tip_header()
             .epoch()
@@ -1113,74 +1127,83 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let fetched_cache = if hardfork_during_detach || hardfork_during_attach {
-            // If the hardfork was happened, don't use the cache.
+        let fetched_cache = if is_in_delay_window {
+            // If in delay_window, don't use the cache.
             HashMap::new()
         } else {
             self.fetch_txs_verify_cache(retain.iter()).await
         };
 
-        {
-            // If there are any transactions requires re-process, return them.
-            //
-            // At present, there is only one situation:
-            // - If the hardfork was happened, then re-process all transactions.
-            let txs_opt = {
-                // This closure is used to limit the lifetime of mutable tx_pool.
-                let mut tx_pool = self.tx_pool.write().await;
+        // If there are any transactions requires re-process, return them.
+        //
+        // At present, there is only one situation:
+        // - If the hardfork was happened, then re-process all transactions.
+        let txs_opt = {
+            // This closure is used to limit the lifetime of mutable tx_pool.
+            let mut tx_pool = self.tx_pool.write().await;
 
-                let txs_opt = if hardfork_during_detach || hardfork_during_attach {
-                    // The tx_pool is locked, remove all caches if has any hardfork.
-                    {
-                        self.txs_verify_cache.write().await.clear();
-                    }
-                    {
-                        self.chunk.write().await.clear();
-                    }
-
-                    Some(tx_pool.drain_all_transactions())
-                } else {
-                    None
-                };
-
-                _update_tx_pool_for_reorg(
-                    &mut tx_pool,
-                    &attached,
-                    &detached_headers,
-                    detached_proposal_id,
-                    snapshot,
-                    &self.callbacks,
-                );
-
-                // Updates network fork switch if required.
-                //
-                // This operation should be ahead of any transaction which is processed with new
-                // hardfork features.
-                if !self.network.load_ckb2021()
-                    && self
-                        .consensus
-                        .hardfork_switch
-                        .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+            let txs_opt = if is_in_delay_window {
                 {
-                    self.network.init_ckb2021()
+                    self.chunk.write().await.clear();
                 }
 
-                self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
-
-                txs_opt
+                Some(tx_pool.drain_all_transactions())
+            } else {
+                None
             };
 
-            if let Some(txs) = txs_opt {
-                self.try_process_txs(txs).await;
+            _update_tx_pool_for_reorg(
+                &mut tx_pool,
+                &attached,
+                &detached_headers,
+                detached_proposal_id,
+                snapshot,
+                &self.callbacks,
+                mine_mode,
+            );
+
+            // Updates network fork switch if required.
+            //
+            // This operation should be ahead of any transaction which is processed with new
+            // hardfork features.
+            if !self.network.load_ckb2021()
+                && self
+                    .consensus
+                    .hardfork_switch
+                    .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+            {
+                self.network.init_ckb2021()
+            }
+
+            // notice: readd_detached_tx don't update cache
+            self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
+
+            txs_opt
+        };
+
+        if let Some(txs) = txs_opt {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                for tx in txs {
+                    delay.insert(tx.proposal_short_id(), tx);
+                }
             }
         }
 
         {
             let delay_txs = if !self.after_delay() && new_tip_after_delay {
+                let limit = MAX_BLOCK_PROPOSALS_LIMIT as usize;
+                let mut txs = Vec::with_capacity(limit);
                 let mut delay = self.delay.write().await;
-                let txs = delay.values().cloned().collect::<Vec<_>>();
-                delay.clear();
-                self.set_after_delay_true();
+                let keys: Vec<_> = { delay.keys().take(limit).cloned().collect() };
+                for k in keys {
+                    if let Some(v) = delay.remove(&k) {
+                        txs.push(v);
+                    }
+                }
+                if delay.is_empty() {
+                    self.set_after_delay_true();
+                }
                 Some(txs)
             } else {
                 None
@@ -1223,7 +1246,9 @@ impl TxPoolService {
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
-                            debug!("readd_detached_tx submit_entry error {}", e);
+                            error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
+                        } else {
+                            debug!("readd_detached_tx submit_entry {}", tx_hash);
                         }
                     }
                 }
@@ -1242,7 +1267,7 @@ impl TxPoolService {
         let mut count = 0usize;
         for tx in txs {
             let tx_hash = tx.hash();
-            if let Some((Err(err), _)) = self._process_tx(tx, None).await {
+            if let Err(err) = self.process_tx(tx, None).await {
                 error!("failed to process {:#x}, error: {:?}", tx_hash, err);
                 count += 1;
             }
@@ -1346,6 +1371,7 @@ fn _submit_entry(
     match status {
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone()) {
+                debug!("submit_entry pending {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1353,6 +1379,7 @@ fn _submit_entry(
         }
         TxStatus::Gap => {
             if tx_pool.add_gap(entry.clone()) {
+                debug!("submit_entry gap {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1360,6 +1387,7 @@ fn _submit_entry(
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
+                debug!("submit_entry proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1376,109 +1404,71 @@ fn _update_tx_pool_for_reorg(
     detached_proposal_id: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
+    mine_mode: bool,
 ) {
     tx_pool.snapshot = Arc::clone(&snapshot);
 
-    let txs_iter = attached.iter().map(|tx| {
-        let get_cell_data = |out_point: &OutPoint| {
-            snapshot
-                .get_cell_data(out_point)
-                .map(|(data, _data_hash)| data)
-        };
-        let related_out_points =
-            get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
-        (tx, related_out_points)
-    });
-    // NOTE: `remove_expired` will try to re-put the given expired/detached proposals into
+    // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
     // pending-pool if they can be found within txpool. As for a transaction
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(txs_iter, callbacks, detached_headers);
-    tx_pool.remove_expired(detached_proposal_id.iter());
+    tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter());
 
-    let mut entries = Vec::new();
-    let mut gaps = Vec::new();
-
+    // mine mode:
     // pending ---> gap ----> proposed
     // try move gap to proposed
+    if mine_mode {
+        let mut entries = Vec::new();
+        let mut gaps = Vec::new();
 
-    tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
+        tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push(tx_entry.clone());
+                true
+            } else {
+                false
+            }
+        });
+
+        tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
+            if snapshot.proposals().contains_proposed(id) {
+                entries.push(tx_entry.clone());
+                true
+            } else if snapshot.proposals().contains_gap(id) {
+                gaps.push(tx_entry.clone());
+                true
+            } else {
+                false
+            }
+        });
+
+        for entry in entries {
+            debug!("tx move to proposed {}", entry.transaction().hash());
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
+            let tx_hash = entry.transaction().hash();
+            if let Err(e) = tx_pool.proposed_rtx(cached, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            } else {
+                callbacks.call_proposed(tx_pool, &entry, false);
+            }
         }
-    });
 
-    tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
-        if snapshot.proposals().contains_proposed(id) {
-            entries.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else if snapshot.proposals().contains_gap(id) {
-            gaps.push((
-                Some(CacheEntry::completed(tx_entry.cycles, tx_entry.fee)),
-                tx_entry.clone(),
-            ));
-            true
-        } else {
-            false
-        }
-    });
-
-    for (cycles, entry) in entries {
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.proposed_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
-        } else {
-            callbacks.call_proposed(tx_pool, &entry, false);
-        }
-    }
-
-    for (cycles, entry) in gaps {
-        debug!("tx proposed, add to gap {}", entry.transaction().hash());
-        let tx_hash = entry.transaction().hash();
-        if let Err(e) = tx_pool.gap_rtx(cycles, entry.size, entry.rtx.clone()) {
-            debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
-            callbacks.call_reject(tx_pool, &entry, e.clone());
+        for entry in gaps {
+            debug!("tx move to gap {}", entry.transaction().hash());
+            let tx_hash = entry.transaction().hash();
+            let cached = CacheEntry::completed(entry.cycles, entry.fee);
+            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.rtx.clone()) {
+                debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+                callbacks.call_reject(tx_pool, &entry, e.clone());
+            }
         }
     }
-}
 
-// # Notice
-//
-// This method assumes that the inputs blocks are sorted.
-fn check_if_hardfork_during_blocks(
-    hardfork_switch: &HardForkSwitch,
-    blocks: &VecDeque<BlockView>,
-) -> bool {
-    if blocks.is_empty() {
-        false
-    } else {
-        // This method assumes that the hardfork epochs are sorted and unique.
-        let hardfork_epochs = hardfork_switch.script_result_changed_at();
-        if hardfork_epochs.is_empty() {
-            false
-        } else {
-            let epoch_first = blocks.front().unwrap().epoch().number();
-            let epoch_next = blocks
-                .back()
-                .unwrap()
-                .epoch()
-                .minimum_epoch_number_after_n_blocks(1);
-            hardfork_epochs
-                .into_iter()
-                .any(|hardfork_epoch| epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next)
-        }
-    }
+    // remove expired transaction from pending
+    tx_pool.remove_expired(callbacks);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {

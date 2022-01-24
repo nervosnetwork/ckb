@@ -1150,7 +1150,7 @@ fn load_code_to_stack_then_reuse_case1_load_and_write() {
     let rtx = create_rtx_to_load_code_to_stack_then_reuse(script_version, 0b111, 40960);
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert!(result.is_err());
-    let vm_error = VmError::InvalidPermission;
+    let vm_error = VmError::MemWriteOnExecutablePage;
     let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
     assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
 }

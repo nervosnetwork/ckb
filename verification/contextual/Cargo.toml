@@ -1,34 +1,34 @@
 [package]
 name = "ckb-verification-contextual"
-version = "0.101.3"
+version = "0.101.4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 description = "The CKB verification contextual"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../../util/types", version = "= 0.101.3" }
-ckb-store = { path = "../../store", version = "= 0.101.3" }
+ckb-types = { path = "../../util/types", version = "= 0.101.4" }
+ckb-store = { path = "../../store", version = "= 0.101.4" }
 faketime = "0.2.0"
 rayon = "1.0"
-ckb-traits = { path = "../../traits", version = "= 0.101.3" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.101.3" }
-ckb-dao = { path = "../../util/dao", version = "= 0.101.3" }
-ckb-dao-utils = { path = "../../util/dao/utils", version = "= 0.101.3" }
-ckb-logger = {path = "../../util/logger", version = "= 0.101.3"}
-ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.101.3" }
-ckb-error = { path = "../../error", version = "= 0.101.3" }
+ckb-traits = { path = "../../traits", version = "= 0.101.4" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.101.4" }
+ckb-dao = { path = "../../util/dao", version = "= 0.101.4" }
+ckb-dao-utils = { path = "../../util/dao/utils", version = "= 0.101.4" }
+ckb-logger = {path = "../../util/logger", version = "= 0.101.4"}
+ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.101.4" }
+ckb-error = { path = "../../error", version = "= 0.101.4" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
-ckb-async-runtime = { path = "../../util/runtime", version = "= 0.101.3" }
-ckb-verification-traits = { path = "../traits", version = "= 0.101.3" }
-ckb-verification = { path = "..", version = "= 0.101.3" }
-ckb-metrics = { path = "../../util/metrics", version = "= 0.101.3" }
+ckb-async-runtime = { path = "../../util/runtime", version = "= 0.101.4" }
+ckb-verification-traits = { path = "../traits", version = "= 0.101.4" }
+ckb-verification = { path = "..", version = "= 0.101.4" }
+ckb-metrics = { path = "../../util/metrics", version = "= 0.101.4" }
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.101.3" }
-ckb-shared = { path = "../../shared", version = "= 0.101.3" }
-ckb-launcher = { path = "../../util/launcher", version = "= 0.101.3" }
-ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.101.3" }
+ckb-chain = { path = "../../chain", version = "= 0.101.4" }
+ckb-shared = { path = "../../shared", version = "= 0.101.4" }
+ckb-launcher = { path = "../../util/launcher", version = "= 0.101.4" }
+ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.101.4" }
 rand = "0.7"

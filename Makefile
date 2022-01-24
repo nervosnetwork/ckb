@@ -73,7 +73,7 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh --release -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
 integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integration tests and genearte coverage report.

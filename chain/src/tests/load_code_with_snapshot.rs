@@ -183,7 +183,7 @@ fn test_load_code_with_snapshot() {
                         "{\"type\":\"Verification\",\
                         \"description\":\"Verification failed Script(TransactionScriptError \
                         { source: Inputs[0].Lock, cause: \
-                        VM Internal Error: InvalidPermission })\"}"
+                        VM Internal Error: MemWriteOnExecutablePage })\"}"
                             .to_string(),
                     );
                     assert_eq!(status.reason, reason);

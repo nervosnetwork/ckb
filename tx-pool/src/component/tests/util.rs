@@ -5,7 +5,7 @@ use ckb_types::{
     prelude::*,
 };
 
-pub(crate) const DEFAULT_MAX_ANCESTORS_SIZE: usize = 25;
+pub(crate) const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 pub(crate) const MOCK_CYCLES: Cycle = 0;
 pub(crate) const MOCK_FEE: Capacity = Capacity::zero();
 pub(crate) const MOCK_SIZE: usize = 0;

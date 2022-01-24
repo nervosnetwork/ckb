@@ -7,7 +7,6 @@ use ckb_types::packed::Byte32;
 use indicatif::ProgressBar;
 use rand::thread_rng;
 use rand_distr::{self as dist, Distribution as _};
-use std::convert::TryFrom;
 use std::thread;
 use std::time::Duration;
 

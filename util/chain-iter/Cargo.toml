@@ -1,9 +1,9 @@
 [package]
 name = "ckb-chain-iter"
-version = "0.101.3"
+version = "0.101.4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 description = "TODO(doc): @quake crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -11,5 +11,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.101.3" }
-ckb-store = { path = "../../store", version = "= 0.101.3" }
+ckb-types = { path = "../types", version = "= 0.101.4" }
+ckb-store = { path = "../../store", version = "= 0.101.4" }

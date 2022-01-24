@@ -96,8 +96,8 @@ fn test_log_to_stdout_only() {
         let ckb_config = app_config
             .into_ckb()
             .unwrap_or_else(|err| std::panic::panic_any(err));
-        assert_eq!(ckb_config.logger.log_to_file, false);
-        assert_eq!(ckb_config.logger.log_to_stdout, true);
+        assert!(!ckb_config.logger.log_to_file);
+        assert!(ckb_config.logger.log_to_stdout);
     }
     {
         Resource::bundled_miner_config()
@@ -108,8 +108,8 @@ fn test_log_to_stdout_only() {
         let miner_config = app_config
             .into_miner()
             .unwrap_or_else(|err| std::panic::panic_any(err));
-        assert_eq!(miner_config.logger.log_to_file, false);
-        assert_eq!(miner_config.logger.log_to_stdout, true);
+        assert!(!miner_config.logger.log_to_file);
+        assert!(miner_config.logger.log_to_stdout);
     }
 }
 

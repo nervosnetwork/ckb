@@ -49,3 +49,39 @@ pub use tokio;
 
 /// Protocol version used by network protocol open
 pub type ProtocolVersion = String;
+
+/// Observe listen port occupancy
+pub async fn observe_listen_port_occupancy(
+    _addrs: &[multiaddr::MultiAddr],
+) -> Result<(), std::io::Error> {
+    #[cfg(target_os = "linux")]
+    {
+        use p2p::utils::dns::DnsResolver;
+        use std::net::{SocketAddr, TcpListener};
+
+        for raw_addr in _addrs {
+            let ip_addr: Option<SocketAddr> = match DnsResolver::new(raw_addr.clone()) {
+                Some(dns) => dns
+                    .await
+                    .ok()
+                    .as_ref()
+                    .map(multiaddr_to_socketaddr)
+                    .flatten(),
+                None => multiaddr_to_socketaddr(raw_addr),
+            };
+
+            if let Some(addr) = ip_addr {
+                if let Err(e) = TcpListener::bind(addr) {
+                    ckb_logger::error!(
+                        "addr {} can't use on your machines by error: {}, please check",
+                        raw_addr,
+                        e
+                    );
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

@@ -1,18 +1,18 @@
 [package]
 name = "ckb-notify"
-version = "0.101.3"
+version = "0.101.4"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "TODO(doc): @quake crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.101.3" }
-ckb-app-config  = { path = "../util/app-config", version = "= 0.101.3" }
-ckb-types = { path = "../util/types", version = "= 0.101.3" }
-ckb-channel = { path = "../util/channel", version = "= 0.101.3" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.101.3" }
+ckb-logger = { path = "../util/logger", version = "= 0.101.4" }
+ckb-app-config  = { path = "../util/app-config", version = "= 0.101.4" }
+ckb-types = { path = "../util/types", version = "= 0.101.4" }
+ckb-channel = { path = "../util/channel", version = "= 0.101.4" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.101.4" }
 
 [dev-dependencies]

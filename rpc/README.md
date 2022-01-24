@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.56.1.
 
 
 ## Table of Contents
@@ -188,6 +188,7 @@ This RPC returns `null` on success.
 
 Request
 
+
 ```
 {
   "jsonrpc": "2.0",
@@ -209,7 +210,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -223,6 +226,7 @@ Response
   "id": 42
 }
 ```
+
 
 ### Module Chain
 
@@ -274,6 +278,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -285,7 +290,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -346,7 +353,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -355,6 +364,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_block_by_number`
 * `get_block_by_number(block_number, verbosity)`
@@ -390,6 +400,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -401,7 +412,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -462,7 +475,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -471,6 +486,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_header`
 * `get_header(block_hash, verbosity)`
@@ -500,6 +516,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -511,7 +528,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -534,7 +553,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -543,6 +564,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_header_by_number`
 * `get_header_by_number(block_number, verbosity)`
@@ -576,6 +598,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -587,7 +610,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -610,7 +635,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -619,6 +646,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_transaction`
 * `get_transaction(tx_hash, verbosity)`
@@ -652,6 +680,7 @@ When verbosity is 2: if tx_status.status is pending, proposed, or committed, the
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -663,7 +692,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -719,6 +750,7 @@ Response
 }
 ```
 
+
 #### Method `get_block_hash`
 * `get_block_hash(block_number)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
@@ -740,6 +772,7 @@ Because of [chain reorganization](#chain-reorganization), the PRC may return nul
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -751,7 +784,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -760,6 +795,7 @@ Response
   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
+
 
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
@@ -784,6 +820,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -793,7 +830,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -816,7 +855,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -825,6 +866,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_live_cell`
 * `get_live_cell(out_point, with_data)`
@@ -852,6 +894,7 @@ If the cell is live and `with_data` is set to `false`, the field `cell.data` is 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -867,7 +910,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -894,6 +939,7 @@ Response
 }
 ```
 
+
 #### Method `get_tip_block_number`
 * `get_tip_block_number()`
 * result: [`BlockNumber`](#type-blocknumber)
@@ -906,6 +952,7 @@ Because of [chain reorganization](#chain-reorganization), the returned block num
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -915,7 +962,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -924,6 +973,7 @@ Response
   "result": "0x400"
 }
 ```
+
 
 #### Method `get_current_epoch`
 * `get_current_epoch()`
@@ -937,6 +987,7 @@ Pay attention that like blocks with the specific block number may change because
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -946,7 +997,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -960,6 +1013,7 @@ Response
   }
 }
 ```
+
 
 #### Method `get_epoch_by_number`
 * `get_epoch_by_number(epoch_number)`
@@ -982,6 +1036,7 @@ Because of [chain reorganization](#chain-reorganization), for the same `epoch_nu
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -993,7 +1048,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1007,6 +1064,7 @@ Response
   }
 }
 ```
+
 
 #### Method `get_block_economic_state`
 * `get_block_economic_state(block_hash)`
@@ -1035,6 +1093,7 @@ If the block with the hash `block_hash` is in the [canonical chain](#canonical-c
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1046,7 +1105,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1069,6 +1130,7 @@ Response
 }
 ```
 
+
 #### Method `get_transaction_proof`
 * `get_transaction_proof(tx_hashes, block_hash)`
     * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
@@ -1087,6 +1149,7 @@ Returns a Merkle proof that transactions are included in a block.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1098,7 +1161,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1115,6 +1180,7 @@ Response
 }
 ```
 
+
 #### Method `verify_transaction_proof`
 * `verify_transaction_proof(tx_proof)`
     * `tx_proof`: [`TransactionProof`](#type-transactionproof)
@@ -1129,6 +1195,7 @@ Verifies that a proof points to transactions in a block, returning the transacti
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -1148,7 +1215,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1159,6 +1228,7 @@ Response
   ]
 }
 ```
+
 
 #### Method `get_fork_block`
 * `get_fork_block(block_hash, verbosity)`
@@ -1188,6 +1258,7 @@ When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1199,7 +1270,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1260,7 +1333,9 @@ Response
 }
 ```
 
+
 The response looks like below when `verbosity` is 0.
+
 
 ```
 {
@@ -1269,6 +1344,7 @@ The response looks like below when `verbosity` is 0.
   "result": "0x..."
 }
 ```
+
 
 #### Method `get_consensus`
 * `get_consensus()`
@@ -1284,6 +1360,7 @@ If any hardfork feature has `epoch=null`, it means the feature will never be act
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1293,7 +1370,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1344,6 +1423,7 @@ Response
 }
 ```
 
+
 #### Method `get_block_median_time`
 * `get_block_median_time(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
@@ -1365,6 +1445,7 @@ Note that the given block is included in the median time. The included block num
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1376,7 +1457,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1385,6 +1468,7 @@ Response
   "result": "0x5cd2b105"
 }
 ```
+
 
 ### Module Experiment
 
@@ -1414,6 +1498,7 @@ It is used to debug transaction scripts and query how many cycles the scripts co
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -1464,7 +1549,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1476,6 +1563,7 @@ Response
 }
 ```
 
+
 #### Method `calculate_dao_maximum_withdraw`
 * `calculate_dao_maximum_withdraw(out_point, kind)`
     * `out_point`: [`OutPoint`](#type-outpoint)
@@ -1486,13 +1574,13 @@ Calculates the maximum withdrawal one can get, given a referenced DAO cell, and 
 
 ##### Params
 
-*   `out_point` - Reference to the DAO cell, the depositing transaction's output.
+*   `out_point` - Reference to the DAO cell, the depositing transaction’s output.
 
 *   `kind` - Two kinds of dao withdrawal amount calculation option.
 
-option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the [canonical chain](#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction's output, assuming the output of phase 1 transaction is the same as the depositing transaction's output.
+option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the [canonical chain](#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction’s output, assuming the output of phase 1 transaction is the same as the depositing transaction’s output.
 
-option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction's output.
+option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction’s output.
 
 ##### Returns
 
@@ -1510,6 +1598,7 @@ In CKB, scripts cannot get the information about in which block the transaction 
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1525,7 +1614,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1534,6 +1625,7 @@ Response
   "result": "0x4a8b4e8a4"
 }
 ```
+
 
 ### Module Miner
 
@@ -1564,6 +1656,7 @@ Miners can assemble the new block from the template. The RPC is designed to allo
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1577,7 +1670,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1657,6 +1752,7 @@ Response
 }
 ```
 
+
 #### Method `submit_block`
 * `submit_block(work_id, block)`
     * `work_id`: `string`
@@ -1674,6 +1770,7 @@ Submit new block to the network.
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -1736,7 +1833,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1745,6 +1844,7 @@ Response
   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
+
 
 ### Module Net
 
@@ -1762,6 +1862,7 @@ The local node means the node itself which is serving the RPC.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1771,7 +1872,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1812,15 +1915,17 @@ Response
 }
 ```
 
+
 #### Method `get_peers`
 * `get_peers()`
 * result: `Array<` [`RemoteNode`](#type-remotenode) `>`
 
-Returns the connected peers' information.
+Returns the connected peers’ information.
 
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -1831,7 +1936,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1958,6 +2065,7 @@ Response
 }
 ```
 
+
 #### Method `get_banned_addresses`
 * `get_banned_addresses()`
 * result: `Array<` [`BannedAddr`](#type-bannedaddr) `>`
@@ -1968,6 +2076,7 @@ Returns all banned IPs/Subnets.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -1977,7 +2086,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -1994,6 +2105,7 @@ Response
 }
 ```
 
+
 #### Method `clear_banned_addresses`
 * `clear_banned_addresses()`
 * result: `null`
@@ -2004,6 +2116,7 @@ Clears all banned IPs/Subnets.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2013,7 +2126,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2022,6 +2137,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `set_ban`
 * `set_ban(address, command, ban_time, absolute, reason)`
@@ -2037,9 +2153,9 @@ Inserts or deletes an IP/Subnet from the banned list
 ##### Params
 
 *   `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:
-    *   "192.168.0.2" bans a single IP
+    *   “192.168.0.2” bans a single IP
 
-    *   "192.168.0.0/24" bans IP from "192.168.0.0" to "192.168.0.255".
+    *   “192.168.0.0/24” bans IP from “192.168.0.0” to “192.168.0.255”.
 
 
 *   `command` - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list.
@@ -2062,6 +2178,7 @@ Inserts or deletes an IP/Subnet from the banned list
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2077,7 +2194,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2086,6 +2205,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `sync_state`
 * `sync_state()`
@@ -2097,6 +2217,7 @@ Returns chain synchronization state of this node.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2106,7 +2227,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2125,6 +2248,7 @@ Response
 }
 ```
 
+
 #### Method `set_network_active`
 * `set_network_active(state)`
     * `state`: `boolean`
@@ -2140,6 +2264,7 @@ Disable/enable all p2p network activity
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2151,7 +2276,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2160,6 +2287,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `add_node`
 * `add_node(peer_id, address)`
@@ -2177,12 +2305,15 @@ Attempts to add a node to the peers list and try connecting to it.
 
 The full P2P address is usually displayed as `address/peer_id`, for example in the log
 
+
 ```
 2020-09-16 15:31:35.191 +08:00 NetworkRuntime INFO ckb_network::network
   Listen on address: /ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS
 ```
 
+
 And in RPC `local_node_info`:
+
 
 ```
 {
@@ -2195,6 +2326,7 @@ And in RPC `local_node_info`:
 }
 ```
 
+
 In both of these examples,
 
 *   `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`,
@@ -2204,6 +2336,7 @@ In both of these examples,
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -2217,7 +2350,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2226,6 +2361,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `remove_node`
 * `remove_node(peer_id)`
@@ -2238,11 +2374,12 @@ Attempts to remove a node from the peers list and try disconnecting from it.
 
 *   `peer_id` - The peer id of the node.
 
-This is the last part of a full P2P address. For example, in address "/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS", the `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
+This is the last part of a full P2P address. For example, in address “/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS”, the `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
 
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -2255,7 +2392,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2264,6 +2403,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `ping_peers`
 * `ping_peers()`
@@ -2275,6 +2415,7 @@ Requests that a ping is sent to all connected peers, to measure ping time.
 
 Requests
 
+
 ```
 {
   "id": 42,
@@ -2284,7 +2425,9 @@ Requests
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2293,6 +2436,7 @@ Response
   "result": null
 }
 ```
+
 
 ### Module Pool
 
@@ -2310,11 +2454,11 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 
 *   `transaction` - The transaction.
 
-*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
+*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is “well_known_scripts_only”).
 
 ##### Errors
 
-*   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+*   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to “passthrough”.
 
 *   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-poolrejectedtransactionbyilltransactionchecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
 
@@ -2333,6 +2477,7 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 ##### Examples
 
 Request
+
 
 ```
 {
@@ -2384,7 +2529,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2393,6 +2540,7 @@ Response
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
 }
 ```
+
 
 #### Method `remove_transaction`
 * `remove_transaction(tx_hash)`
@@ -2413,6 +2561,7 @@ If the transaction exists, return true; otherwise, return false.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2424,7 +2573,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2433,6 +2584,7 @@ Response
   "result": true
 }
 ```
+
 
 #### Method `tx_pool_info`
 * `tx_pool_info()`
@@ -2444,6 +2596,7 @@ Returns the transaction pool information.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2453,7 +2606,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2473,6 +2628,7 @@ Response
 }
 ```
 
+
 #### Method `clear_tx_pool`
 * `clear_tx_pool()`
 * result: `null`
@@ -2483,6 +2639,7 @@ Removes all transactions from the transaction pool.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2492,7 +2649,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2501,6 +2660,7 @@ Response
   "result": null
 }
 ```
+
 
 #### Method `get_raw_tx_pool`
 * `get_raw_tx_pool(verbose)`
@@ -2517,6 +2677,7 @@ Returns all transaction ids in tx pool as a json array of string transaction ids
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2526,7 +2687,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2550,6 +2713,7 @@ Response
 }
 ```
 
+
 #### Method `tx_pool_ready`
 * `tx_pool_ready()`
 * result: `boolean`
@@ -2560,6 +2724,7 @@ Returns whether tx-pool service is started, ready for request.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2569,7 +2734,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2578,6 +2745,7 @@ Response
   "result": true
 }
 ```
+
 
 ### Module Stats
 
@@ -2593,6 +2761,7 @@ Returns statistics about the chain.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2602,7 +2771,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2626,6 +2797,7 @@ Response
 }
 ```
 
+
 ### Module Subscription
 
 RPC Module Subscription that CKB node will push new messages to subscribers.
@@ -2635,6 +2807,7 @@ RPC subscriptions require a full duplex connection. CKB offers such connections 
 #### Examples
 
 TCP RPC subscription:
+
 
 ```
 telnet localhost 18114
@@ -2649,7 +2822,9 @@ telnet localhost 18114
 < {"jsonrpc":"2.0","result":true,"id":2}
 ```
 
+
 WebSocket RPC subscription:
+
 
 ```
 let socket = new WebSocket("ws://localhost:28114")
@@ -2662,6 +2837,7 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_
 
 socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
 ```
+
 
 #### Method `subscribe`
 * `subscribe(topic)`
@@ -2680,6 +2856,7 @@ This RPC returns the subscription ID as the result. CKB node will push messages 
 
 Example push message:
 
+
 ```
 {
   "jsonrpc": "2.0",
@@ -2691,17 +2868,18 @@ Example push message:
 }
 ```
 
+
 ##### Topics
 
 ###### `new_tip_header`
 
-Whenever there's a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
+Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
 
 The type of the `params.result` in the push message is [`HeaderView`](#type-headerview).
 
 ###### `new_tip_block`
 
-Whenever there's a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
+Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
 
 The type of the `params.result` in the push message is [`BlockView`](#type-blockview).
 
@@ -2733,6 +2911,7 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2744,7 +2923,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2753,6 +2934,7 @@ Response
   "result": "0x2a"
 }
 ```
+
 
 #### Method `unsubscribe`
 * `unsubscribe(id)`
@@ -2769,6 +2951,7 @@ Unsubscribes from a subscribed topic.
 
 Request
 
+
 ```
 {
   "id": 42,
@@ -2780,7 +2963,9 @@ Request
 }
 ```
 
+
 Response
+
 
 ```
 {
@@ -2789,6 +2974,7 @@ Response
   "result": true
 }
 ```
+
 
 
 ## RPC Errors
@@ -2904,9 +3090,11 @@ This is a fatal error usually caused by the underlying database used by CKB. Ple
 
 The fee rate is calculated as:
 
+
 ```
 fee / (1000 * tx_serialization_size_in_block_in_bytes)
 ```
+
 
 ### Error `PoolRejectedTransactionByMaxAncestorsCountLimit`
 
@@ -2927,6 +3115,10 @@ Pool rejects a large package of chained transactions to avoid certain kinds of D
 (-1108): The transaction is rejected because it does not make sense in the context.
 
 For example, a cellbase transaction is not allowed in `send_transaction` RPC.
+
+### Error `TransactionExpired`
+
+(-1109): The transaction is expired from tx-pool after `expiry_hours`.
 
 
 ## RPC Types
@@ -3021,7 +3213,7 @@ A banned P2P address.
 
 *   `address`: `string` - The P2P address.
 
-    Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
+    Example: “/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS”
 
 *   `ban_until`: [`Timestamp`](#type-timestamp) - The address is banned until this time.
 
@@ -3165,7 +3357,7 @@ Miners optional pick transactions and then assemble the final block.
 
 *   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
 
-    This field is optional. It's a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
+    This field is optional. It’s a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
 
 
 ### Type `BlockView`
@@ -3191,10 +3383,17 @@ Fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
 
 #### Example
 
+
 ```
 0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000
 ```
 
+
+#### Fields
+
+`Byte32` is a JSON object with the following fields.
+
+*   `0`: https://doc.rust-lang.org/1.56.1/std/primitive.array.html - Creates Bytes from the array.
 
 
 ### Type `Capacity`
@@ -3352,7 +3551,7 @@ The fields of an output cell except the cell data.
 
 *   `type_`: [`Script`](#type-script) `|` `null` - The optional type script.
 
-    The JSON field name is "type".
+    The JSON field name is “type”.
 
 
 ### Type `CellWithStatus`
@@ -3403,7 +3602,7 @@ The JSON view of a cell with its status information.
 
 *   `status`: `string` - Status of the cell.
 
-    Allowed values: "live", "dead", "unknown".
+    Allowed values: “live”, “dead”, “unknown”.
 
     *   `live` - The transaction creating this cell is in the chain, and there are no transactions found in the chain that uses this cell as an input.
 
@@ -3441,9 +3640,9 @@ Chain information.
 
     Examples:
 
-    *   "ckb" - Lina the mainnet.
+    *   “ckb” - Lina the mainnet.
 
-    *   "ckb_testnet" - Aggron the testnet.
+    *   “ckb_testnet” - Aggron the testnet.
 
 *   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks, including the tip block.
 
@@ -3506,7 +3705,7 @@ Consensus defines various parameters that influence chain consensus
 
 *   `tx_version`: [`Version`](#type-version) - The tx version number supported
 
-*   `type_id_code_hash`: [`H256`](#type-h256) - The "TYPE_ID" in hex
+*   `type_id_code_hash`: [`H256`](#type-h256) - The “TYPE_ID” in hex
 
 *   `max_block_proposals_limit`: [`Uint64`](#type-uint64) - The Limit to the number of proposals per block
 
@@ -3535,15 +3734,15 @@ An enum to represent the two kinds of dao withdrawal amount calculation option. 
 
 ### Type `DepType`
 
-The dep cell type. Allowed values: "code" and "dep_group".
+The dep cell type. Allowed values: “code” and “dep_group”.
 
 `DepType` is equivalent to `"code" | "dep_group"`.
 
-*   Type "code".
+*   Type “code”.
 
     Use the cell itself as the dep cell.
 
-*   Type "dep_group".
+*   Type “dep_group”.
 
     The cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.
 
@@ -3582,11 +3781,13 @@ The lower 56 bits of the epoch field are split into 3 parts (listed in the order
 
 *   The lowest 24 bits represent the current epoch number.
 
-Assume there's a block, which number is 11555 and in epoch 50. The epoch 50 starts from block 11000 and have 1000 blocks. The epoch field for this particular block will then be 1,099,520,939,130,930, which is calculated in the following way:
+Assume there’s a block, which number is 11555 and in epoch 50. The epoch 50 starts from block 11000 and have 1000 blocks. The epoch field for this particular block will then be 1,099,520,939,130,930, which is calculated in the following way:
+
 
 ```
 50 | ((11555 - 11000) << 24) | (1000 << 40)
 ```
+
 
 ### Type `EpochView`
 
@@ -3630,6 +3831,11 @@ The name comes from the number of bits in the data.
 
 In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
+#### Fields
+
+`H256` is a JSON object with the following fields.
+
+*   `0`: https://doc.rust-lang.org/1.56.1/std/primitive.array.html - Converts `Self` to a byte slice.
 
 
 ### Type `HardForkFeature`
@@ -3748,11 +3954,11 @@ Variable-length binary encoded as a 0x-prefixed hex string in JSON.
 
 |  JSON | Binary |
 | --- |--- |
-|  "0x" | Empty binary |
-|  "0x00" | Single byte 0 |
-|  "0x636b62" | 3 bytes, UTF-8 encoding of ckb |
-|  "00" | Invalid, 0x is required |
-|  "0x0" | Invalid, each byte requires 2 digits |
+|  “0x” | Empty binary |
+|  “0x00” | Single byte 0 |
+|  “0x636b62” | 3 bytes, UTF-8 encoding of ckb |
+|  “00” | Invalid, 0x is required |
+|  “0x0” | Invalid, each byte requires 2 digits |
 
 
 
@@ -3805,7 +4011,7 @@ The information of the node itself.
 
 *   `version`: `string` - CKB node version.
 
-    Example: "version": "0.34.0 (f37f598 2020-07-17)"
+    Example: “version”: “0.34.0 (f37f598 2020-07-17)”
 
 *   `node_id`: `string` - The unique node ID derived from the p2p private key.
 
@@ -3891,7 +4097,7 @@ Node P2P address and score.
 
     This is the same address used in the whitelist in ckb.toml.
 
-    Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
+    Example: “/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS”
 
 *   `score`: [`Uint64`](#type-uint64) - Address score.
 
@@ -3928,8 +4134,8 @@ Transaction output validators that prevent common mistakes.
 
 `OutputsValidator` is equivalent to `"passthrough" | "well_known_scripts_only"`.
 
-*   "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
-*   "well_known_scripts_only": restricts the lock script and type script usage, see more information on https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator
+*   “passthrough”: the default validator, bypass output checking, thus allow any kind of transaction outputs.
+*   “well_known_scripts_only”: restricts the lock script and type script usage, see more information on [https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator](https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator)
 
 
 ### Type `PeerSyncState`
@@ -3942,7 +4148,7 @@ The chain synchronization state between the local node and a remote node.
 
 *   `best_known_header_hash`: [`Byte32`](#type-byte32) `|` `null` - Best known header hash of remote peer.
 
-    This is the observed tip of the remote node's canonical chain.
+    This is the observed tip of the remote node’s canonical chain.
 
 *   `best_known_header_number`: [`Uint64`](#type-uint64) `|` `null` - Best known header number of remote peer
 
@@ -3990,7 +4196,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -4003,6 +4209,7 @@ Different reject types:
 *   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
+*   `Expiry`: Transaction expired
 
 
 ### Type `ProposalShortId`
@@ -4011,21 +4218,22 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 
 #### Example
 
+
 ```
 0xa0ef4eb5f4ceeb08a4c8
 ```
 
 
-
 ### Type `ProposalWindow`
 
-Two protocol parameters `closest` and `farthest` define the closest and farthest on-chain distance between a transaction's proposal and commitment.
+Two protocol parameters `closest` and `farthest` define the closest and farthest on-chain distance between a transaction’s proposal and commitment.
 
 A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
 
 *   it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 
 *   it is in the commitment zone of the main chain block with height h_c ;
+
 
 ```
   ProposalWindow { closest: 2, farthest: 10 }
@@ -4037,6 +4245,7 @@ A non-cellbase transaction is committed at height h_c if all of the following co
                               \
                             commit
 ```
+
 
 #### Fields
 
@@ -4213,15 +4422,15 @@ Describes the lock script and type script for a cell.
 
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
-Allowed kinds: "data", "type" and "data1".
+Allowed kinds: “data”, “type” and “data1”.
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
 `ScriptHashType` is equivalent to `"data" | "type" | "data1"`.
 
-*   Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
-*   Type "type" matches script code via cell type script hash.
-*   Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
+*   Type “data” matches script code via cell data hash, and run the script code in v0 CKB VM.
+*   Type “type” matches script code via cell type script hash.
+*   Type “data” matches script code via cell data hash, and run the script code in v1 CKB VM.
 
 
 ### Type `SerializedBlock`
@@ -4238,11 +4447,11 @@ Status for transaction
 
 `Status` is equivalent to `"pending" | "proposed" | "committed" | "unknown" | "rejected"`.
 
-*   Status "pending". The transaction is in the pool, and not proposed yet.
-*   Status "proposed". The transaction is in the pool and has been proposed.
-*   Status "committed". The transaction has been committed to the canonical chain.
-*   Status "unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
-*   Status "rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
+*   Status “pending”. The transaction is in the pool, and not proposed yet.
+*   Status “proposed”. The transaction is in the pool and has been proposed.
+*   Status “committed”. The transaction has been committed to the canonical chain.
+*   Status “unknown”. The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
+*   Status “rejected”. The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
 
 
 ### Type `SyncState`
@@ -4275,11 +4484,11 @@ The overall chain synchronization state of this local node.
 
 *   `inflight_blocks_count`: [`Uint64`](#type-uint64) - Count of downloading blocks.
 
-*   `fast_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+*   `fast_time`: [`Uint64`](#type-uint64) - The download scheduler’s time analysis data, the fast is the 1/3 of the cut-off point, unit ms
 
-*   `normal_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+*   `normal_time`: [`Uint64`](#type-uint64) - The download scheduler’s time analysis data, the normal is the 4/5 of the cut-off point, unit ms
 
-*   `low_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+*   `low_time`: [`Uint64`](#type-uint64) - The download scheduler’s time analysis data, the low is the 9/10 of the cut-off point, unit ms
 
 
 ### Type `Timestamp`
@@ -4341,9 +4550,9 @@ Merkle proof for transactions in a block.
 
 *   `block_hash`: [`H256`](#type-h256) - Block hash
 
-*   `witnesses_root`: [`H256`](#type-h256) - Merkle root of all transactions' witness hash
+*   `witnesses_root`: [`H256`](#type-h256) - Merkle root of all transactions’ witness hash
 
-*   `proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions' hash
+*   `proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions’ hash
 
 
 ### Type `TransactionTemplate`
@@ -4546,7 +4755,7 @@ Transaction status and the block hash if it is committed.
 
 `TxStatus` is a JSON object with the following fields.
 
-*   `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
+*   `status`: [`Status`](#type-status) - The transaction status, allowed values: “pending”, “proposed” “committed” “unknown” and “rejected”.
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
 
@@ -4565,10 +4774,10 @@ The  128-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON
 
 |  JSON | Decimal Value |
 | --- |--- |
-|  "0x0" | 0 |
-|  "0x10" | 16 |
-|  "10" | Invalid, 0x is required |
-|  "0x01" | Invalid, redundant leading 0 |
+|  “0x0” | 0 |
+|  “0x10” | 16 |
+|  “10” | Invalid, 0x is required |
+|  “0x01” | Invalid, redundant leading 0 |
 
 ### Type `Uint32`
 
@@ -4578,10 +4787,10 @@ The  32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
 
 |  JSON | Decimal Value |
 | --- |--- |
-|  "0x0" | 0 |
-|  "0x10" | 16 |
-|  "10" | Invalid, 0x is required |
-|  "0x01" | Invalid, redundant leading 0 |
+|  “0x0” | 0 |
+|  “0x10” | 16 |
+|  “10” | Invalid, 0x is required |
+|  “0x01” | Invalid, redundant leading 0 |
 
 ### Type `Uint64`
 
@@ -4591,10 +4800,10 @@ The  64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
 
 |  JSON | Decimal Value |
 | --- |--- |
-|  "0x0" | 0 |
-|  "0x10" | 16 |
-|  "10" | Invalid, 0x is required |
-|  "0x01" | Invalid, redundant leading 0 |
+|  “0x0” | 0 |
+|  “0x10” | 16 |
+|  “10” | Invalid, 0x is required |
+|  “0x01” | Invalid, redundant leading 0 |
 
 ### Type `UncleBlock`
 
@@ -4608,7 +4817,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 *   B2 block number is larger than B1;
 
-*   B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+*   B1’s parent is either B2’s ancestor or an uncle embedded in B2 or any of B2’s ancestors.
 
 *   B2 is the first block in its chain to refer to B1.
 
@@ -4633,7 +4842,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 *   B2 block number is larger than B1;
 
-*   B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+*   B1’s parent is either B2’s ancestor or an uncle embedded in B2 or any of B2’s ancestors.
 
 *   B2 is the first block in its chain to refer to B1.
 

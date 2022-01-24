@@ -20,7 +20,6 @@ use ckb_types::{
 };
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 #[cfg(not(feature = "ci"))]
 const SIZE: usize = 500;
@@ -127,7 +126,7 @@ fn bench(c: &mut Criterion) {
             |(shared, _)| {
                 let mut i = 100;
                 let snapshot: &Snapshot = &shared.snapshot();
-                let txs = gen_txs_from_genesis(&shared.consensus().genesis_block());
+                let txs = gen_txs_from_genesis(shared.consensus().genesis_block());
 
                 while i > 0 {
                     let mut seen_inputs = HashSet::new();
@@ -153,7 +152,7 @@ fn bench(c: &mut Criterion) {
                 |(shared, _)| {
                     let mut i = 1;
                     let snapshot: &Snapshot = &shared.snapshot();
-                    let txs = gen_txs_from_genesis(&shared.consensus().genesis_block());
+                    let txs = gen_txs_from_genesis(shared.consensus().genesis_block());
 
                     let mut seen_inputs = HashSet::new();
                     let rtxs: Vec<_> = txs

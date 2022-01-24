@@ -4,7 +4,6 @@ use crate::component::tests::util::{
 use crate::component::{entry::TxEntry, pending::PendingQueue};
 use ckb_types::{h256, packed::Byte32, prelude::*};
 use std::collections::HashSet;
-use std::iter::FromIterator;
 
 #[test]
 fn test_basic() {
@@ -22,6 +21,9 @@ fn test_basic() {
     assert!(queue.contains_key(&tx1.proposal_short_id()));
     assert!(queue.contains_key(&tx2.proposal_short_id()));
 
+    assert_eq!(queue.inputs_len(), 4);
+    assert_eq!(queue.outputs_len(), 4);
+
     assert_eq!(queue.get(&tx1.proposal_short_id()).unwrap(), &entry1);
     assert_eq!(queue.get_tx(&tx2.proposal_short_id()).unwrap(), &tx2);
 
@@ -29,6 +31,8 @@ fn test_basic() {
     assert!(queue.inner.is_empty());
     assert!(queue.deps.is_empty());
     assert!(queue.inputs.is_empty());
+    assert!(queue.header_deps.is_empty());
+    assert!(queue.outputs.is_empty());
     assert_eq!(txs, vec![tx1, tx2]);
 }
 
@@ -72,6 +76,29 @@ fn test_resolve_conflict() {
 }
 
 #[test]
+fn test_resolve_conflict_descendants() {
+    let mut queue = PendingQueue::new();
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 1);
+    let tx3 = build_tx(vec![(&tx1.hash(), 0)], 2);
+    let tx4 = build_tx(vec![(&tx3.hash(), 0)], 1);
+
+    let tx2 = build_tx(vec![(&tx1.hash(), 0)], 1);
+
+    let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    let entry3 = TxEntry::dummy_resolve(tx3, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    let entry4 = TxEntry::dummy_resolve(tx4, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    assert!(queue.add_entry(entry1));
+    assert!(queue.add_entry(entry3.clone()));
+    assert!(queue.add_entry(entry4.clone()));
+
+    let conflicts = queue.resolve_conflict(&tx2);
+    assert_eq!(
+        conflicts.into_iter().map(|i| i.0).collect::<HashSet<_>>(),
+        HashSet::from_iter(vec![entry3, entry4])
+    );
+}
+
+#[test]
 fn test_resolve_conflict_header_dep() {
     let mut queue = PendingQueue::new();
 
@@ -81,9 +108,16 @@ fn test_resolve_conflict_header_dep() {
         vec![header.clone()],
         1,
     );
+    let tx1 = build_tx(vec![(&tx.hash(), 0)], 1);
 
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     assert!(queue.add_entry(entry.clone()));
+    assert!(queue.add_entry(entry1.clone()));
+
+    assert_eq!(queue.inputs_len(), 3);
+    assert_eq!(queue.header_deps_len(), 1);
+    assert_eq!(queue.outputs_len(), 2);
 
     let mut headers = HashSet::new();
     headers.insert(header);
@@ -91,12 +125,12 @@ fn test_resolve_conflict_header_dep() {
     let conflicts = queue.resolve_conflict_header_dep(&headers);
     assert_eq!(
         conflicts.into_iter().map(|i| i.0).collect::<HashSet<_>>(),
-        HashSet::from_iter(vec![entry])
+        HashSet::from_iter(vec![entry, entry1])
     );
 }
 
 #[test]
-fn test_remove_committed_tx() {
+fn test_remove_entry() {
     let mut queue = PendingQueue::new();
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let header: Byte32 = h256!("0x1").pack();
@@ -107,12 +141,9 @@ fn test_remove_committed_tx() {
     assert!(queue.add_entry(entry1.clone()));
     assert!(queue.add_entry(entry2.clone()));
 
-    let related_dep1: Vec<_> = entry1.related_dep_out_points().cloned().collect();
-    let related_dep2: Vec<_> = entry2.related_dep_out_points().cloned().collect();
-
-    let removed = queue.remove_committed_tx(&tx1, &related_dep1);
+    let removed = queue.remove_entry(&tx1.proposal_short_id());
     assert_eq!(removed, Some(entry1));
-    let removed = queue.remove_committed_tx(&tx2, &related_dep2);
+    let removed = queue.remove_entry(&tx2.proposal_short_id());
     assert_eq!(removed, Some(entry2));
     assert!(queue.inner.is_empty());
     assert!(queue.deps.is_empty());
@@ -166,6 +197,10 @@ fn test_fill_proposals() {
     assert!(queue.add_entry(entry1));
     assert!(queue.add_entry(entry2));
     assert!(queue.add_entry(entry3));
+
+    assert_eq!(queue.inputs_len(), 5);
+    assert_eq!(queue.deps_len(), 1);
+    assert_eq!(queue.outputs_len(), 7);
 
     let id1 = tx1.proposal_short_id();
     let id2 = tx2.proposal_short_id();

@@ -1,9 +1,9 @@
 [package]
 name = "ckb-logger"
-version = "0.101.3"
+version = "0.101.4"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 description = "CKB logging facade."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"

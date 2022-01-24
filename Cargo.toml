@@ -1,21 +1,21 @@
 [package]
 name = "ckb"
-version = "0.101.3"
+version = "0.101.4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-resolver = "2"
+rust-version = "1.56.1"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.101.3" }
+ckb-build-info = { path = "util/build-info", version = "= 0.101.4" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.101.3" }
-ckb-bin = { path = "ckb-bin", version = "= 0.101.3" }
+ckb-build-info = { path = "util/build-info", version = "= 0.101.4" }
+ckb-bin = { path = "ckb-bin", version = "= 0.101.4" }
 
 [dev-dependencies]
 

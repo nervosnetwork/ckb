@@ -14,7 +14,6 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 #[cfg(test)]
 mod tests;
@@ -101,7 +100,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         // in the cellbase of current block.
         let current_block_epoch = self
             .consensus
-            .next_epoch_ext(&parent, self.data_loader)
+            .next_epoch_ext(parent, self.data_loader)
             .ok_or(DaoError::InvalidHeader)?
             .epoch();
         let current_block_number = parent.number() + 1;
@@ -168,7 +167,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         rtx.resolved_inputs
             .iter()
             .try_fold(Capacity::zero(), |capacities, cell_meta| {
-                let current_capacity = modified_occupied_capacity(&cell_meta, &self.consensus);
+                let current_capacity = modified_occupied_capacity(cell_meta, self.consensus);
                 current_capacity.and_then(|c| capacities.safe_add(c))
             })
             .map_err(Into::into)
@@ -211,7 +210,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
                                 == self.consensus.dao_type_hash().expect("No dao system cell")
                     };
                     let is_withdrawing_input =
-                        |cell_meta: &CellMeta| match self.data_loader.load_cell_data(&cell_meta) {
+                        |cell_meta: &CellMeta| match self.data_loader.load_cell_data(cell_meta) {
                             Some(data) => data.len() == 8 && LittleEndian::read_u64(&data) > 0,
                             None => false,
                         };
@@ -220,13 +219,13 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
                         .to_opt()
                         .map(is_dao_type_script)
                         .unwrap_or(false)
-                        && is_withdrawing_input(&cell_meta)
+                        && is_withdrawing_input(cell_meta)
                     {
                         let withdrawing_header_hash = cell_meta
                             .transaction_info
                             .as_ref()
                             .map(|info| &info.block_hash)
-                            .filter(|hash| header_deps.contains(&hash))
+                            .filter(|hash| header_deps.contains(hash))
                             .ok_or(DaoError::InvalidOutPoint)?;
                         let deposit_header_hash = rtx
                             .transaction
@@ -259,10 +258,10 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
                                     .ok_or(DaoError::InvalidOutPoint)
                             })?;
                         self.calculate_maximum_withdraw(
-                            &output,
+                            output,
                             Capacity::bytes(cell_meta.data_bytes as usize)?,
-                            &deposit_header_hash,
-                            &withdrawing_header_hash,
+                            deposit_header_hash,
+                            withdrawing_header_hash,
                         )
                     } else {
                         Ok(output.capacity().unpack())

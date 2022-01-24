@@ -38,7 +38,7 @@ impl RecentReject {
         let db = DBWithTTL::open_cf(path, cf_names.clone(), ttl)?;
         let estimate_keys_num = cf_names
             .iter()
-            .map(|cf| db.estimate_num_keys_cf(&cf))
+            .map(|cf| db.estimate_num_keys_cf(cf))
             .collect::<Result<Vec<_>, _>>()?;
 
         let total_keys_num = estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum();

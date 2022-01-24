@@ -2,7 +2,6 @@ use ckb_metrics::metrics;
 use fail::fail_point;
 use lru::LruCache;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
-use std::convert::TryInto;
 use std::fs::{self, File};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::io::{Read, Write};

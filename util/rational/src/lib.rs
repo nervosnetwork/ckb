@@ -168,7 +168,7 @@ impl Mul<&U256> for &RationalU256 {
     type Output = RationalU256;
     #[inline]
     fn mul(self, rhs: &U256) -> RationalU256 {
-        let gcd = self.denom.gcd(&rhs);
+        let gcd = self.denom.gcd(rhs);
         RationalU256::new_raw(&self.numer * (rhs.div(&gcd)), (&self.denom).div(gcd))
     }
 }
@@ -225,7 +225,7 @@ impl Div<RationalU256> for &RationalU256 {
 
     #[inline]
     fn div(self, rhs: RationalU256) -> RationalU256 {
-        (&self).div(&rhs)
+        self.div(&rhs)
     }
 }
 
@@ -244,7 +244,7 @@ impl Div<&U256> for &RationalU256 {
 
     #[inline]
     fn div(self, rhs: &U256) -> RationalU256 {
-        let gcd = self.numer.gcd(&rhs);
+        let gcd = self.numer.gcd(rhs);
         RationalU256::new_raw(&self.numer / &gcd, &self.denom * (rhs / gcd))
     }
 }
@@ -386,7 +386,7 @@ impl Sub<RationalU256> for &RationalU256 {
     type Output = RationalU256;
     #[inline]
     fn sub(self, rhs: RationalU256) -> RationalU256 {
-        (&self).sub(&rhs)
+        self.sub(&rhs)
     }
 }
 

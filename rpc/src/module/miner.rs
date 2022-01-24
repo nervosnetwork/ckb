@@ -236,15 +236,9 @@ impl MinerRpc for MinerRpcImpl {
         proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate> {
-        let bytes_limit = match bytes_limit {
-            Some(b) => Some(b.into()),
-            None => None,
-        };
+        let bytes_limit = bytes_limit.map(|b| b.into());
 
-        let proposals_limit = match proposals_limit {
-            Some(b) => Some(b.into()),
-            None => None,
-        };
+        let proposals_limit = proposals_limit.map(|b| b.into());
 
         self.shared
             .get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into))

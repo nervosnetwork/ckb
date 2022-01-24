@@ -1601,7 +1601,7 @@ impl ChainRpc for ChainRpcImpl {
                         .collect(),
                 );
 
-                CBMT::retrieve_leaves(&block.tx_hashes(), &merkle_proof)
+                CBMT::retrieve_leaves(block.tx_hashes(), &merkle_proof)
                     .and_then(|tx_hashes| {
                         merkle_proof
                             .root(&tx_hashes)

@@ -155,7 +155,7 @@ impl Migrations {
 
     /// Initial db version
     pub fn init_db_version(&self, db: &RocksDB) -> Result<(), Error> {
-        let db_version = self.get_migration_version(&db)?;
+        let db_version = self.get_migration_version(db)?;
         if db_version.is_none() {
             if let Some(m) = self.migrations.values().last() {
                 info!("Init database version {}", m.version());

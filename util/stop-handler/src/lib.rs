@@ -74,8 +74,8 @@ impl<T> Clone for Ref<T> {
     #[inline]
     fn clone(&self) -> Ref<T> {
         match self {
-            Self::Arc(arc) => Self::Arc(Arc::clone(&arc)),
-            Self::Weak(weak) => Self::Weak(Weak::clone(&weak)),
+            Self::Arc(arc) => Self::Arc(Arc::clone(arc)),
+            Self::Weak(weak) => Self::Weak(Weak::clone(weak)),
         }
     }
 }
@@ -83,8 +83,8 @@ impl<T> Clone for Ref<T> {
 impl<T> Ref<T> {
     fn downgrade(&self) -> Ref<T> {
         match self {
-            Self::Arc(arc) => Self::Weak(Arc::downgrade(&arc)),
-            Self::Weak(weak) => Self::Weak(Weak::clone(&weak)),
+            Self::Arc(arc) => Self::Weak(Arc::downgrade(arc)),
+            Self::Weak(weak) => Self::Weak(Weak::clone(weak)),
         }
     }
 }

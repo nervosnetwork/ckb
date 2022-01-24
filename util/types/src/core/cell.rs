@@ -14,7 +14,6 @@ use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
-use std::convert::TryInto;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 

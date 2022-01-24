@@ -160,7 +160,7 @@ impl ChainDB {
             txs_fees: vec![],
         };
 
-        attach_block_cell(&db_txn, &genesis)?;
+        attach_block_cell(&db_txn, genesis)?;
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
@@ -168,7 +168,7 @@ impl ChainDB {
         db_txn.insert_tip_header(&genesis.header())?;
         db_txn.insert_current_epoch_ext(epoch)?;
         db_txn.insert_block_epoch_index(&genesis_hash, &last_block_hash_in_previous_epoch)?;
-        db_txn.insert_epoch_ext(&last_block_hash_in_previous_epoch, &epoch)?;
+        db_txn.insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch)?;
         db_txn.attach_block(genesis)?;
         db_txn.commit()?;
         Ok(())

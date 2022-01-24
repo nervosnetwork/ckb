@@ -1,16 +1,16 @@
 [package]
 name = "ckb-wasm-test"
-version = "0.101.3"
+version = "0.101.4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2018"
+edition = "2021"
 description = "Testsuite to ensure some crates work with diffent features."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.101.3" }
-ckb-script = { path = "../script", version = "= 0.101.3", default-features = false, features = [] }
+ckb-types = { path = "../util/types", version = "= 0.101.4" }
+ckb-script = { path = "../script", version = "= 0.101.4", default-features = false, features = [] }
 
 # Prevent this from interfering with workspaces
 [workspace]

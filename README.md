@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.101.3-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Version](https://img.shields.io/badge/version-0.101.4-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/t/where-to-discuss-ckb-and-how-to-ask-for-support/6024)
 [![Discord](https://img.shields.io/badge/chat-on%20Discord-7289DA.svg)](https://discord.gg/dBPuQ3qnXS)
 
@@ -51,11 +51,6 @@ The `master` branch is regularly built and tested. It is considered already prod
 ## How to Contribute
 
 The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md). To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
-
-
-## Minimum Supported Rust Version policy (MSRV)
-
-The crate `ckb`'s minimum supported rustc version is 1.51.0.
 
 ---
 

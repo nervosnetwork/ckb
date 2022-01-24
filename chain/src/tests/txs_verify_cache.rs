@@ -20,7 +20,7 @@ use ckb_verification_traits::Switch;
 use faketime::unix_time_as_millis;
 use lazy_static::lazy_static;
 
-use std::{convert::TryInto as _, fs::File, io::Read as _, path::Path, sync::Arc};
+use std::{fs::File, io::Read as _, path::Path, sync::Arc};
 
 use crate::{
     chain::{ChainController, ChainService},

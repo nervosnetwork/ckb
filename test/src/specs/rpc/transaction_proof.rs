@@ -7,11 +7,11 @@ pub struct RpcTransactionProof;
 impl Spec for RpcTransactionProof {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
-        mine(&node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
+        mine(node0, DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
         let tx_hash = node0.generate_transaction().unpack();
         let tx_hashes = vec![tx_hash];
-        mine(&node0, 3);
+        mine(node0, 3);
         let proof = node0
             .rpc_client()
             .inner()

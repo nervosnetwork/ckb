@@ -5,22 +5,13 @@ fn create_transaction(
     outputs_data: &[&[u8]],
     cell_deps: &[&packed::CellDep],
 ) -> packed::Transaction {
-    let outputs = outputs
-        .iter()
-        .map(|d| d.to_owned().to_owned())
-        .collect::<Vec<packed::CellOutput>>();
-    let outputs_data = outputs_data
-        .iter()
-        .map(|d| d.to_owned().to_owned().pack())
-        .collect::<Vec<packed::Bytes>>();
-    let cell_deps = cell_deps
-        .iter()
-        .map(|d| d.to_owned().to_owned())
-        .collect::<Vec<packed::CellDep>>();
+    let outputs_iter = outputs.iter().map(|d| d.to_owned().to_owned());
+    let outputs_data_iter = outputs_data.iter().map(|d| d.to_owned().to_owned().pack());
+    let cell_deps_iter = cell_deps.iter().map(|d| d.to_owned().to_owned());
     let raw = packed::RawTransaction::new_builder()
-        .outputs(outputs.into_iter().pack())
-        .outputs_data(outputs_data.into_iter().pack())
-        .cell_deps(cell_deps.into_iter().pack())
+        .outputs(outputs_iter.pack())
+        .outputs_data(outputs_data_iter.pack())
+        .cell_deps(cell_deps_iter.pack())
         .build();
     packed::Transaction::new_builder().raw(raw).build()
 }

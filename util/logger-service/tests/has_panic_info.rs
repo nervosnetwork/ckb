@@ -33,12 +33,12 @@ fn has_panic_info() {
     assert!(utils::has_line_in_log_file(
         &log_file,
         Level::Error,
-        &panic_line_content_2
+        panic_line_content_2
     ));
 
     assert!(utils::has_line_in_log_file(
         &log_file,
         Level::Error,
-        &line_content
+        line_content
     ));
 }

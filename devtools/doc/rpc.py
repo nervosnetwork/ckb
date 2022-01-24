@@ -38,7 +38,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.51.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.56.1.
 
 """
 
@@ -46,6 +46,7 @@ PENDING_TYPES = set()
 
 TYMETHOD_DOT = 'tymethod.'
 HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
+RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.56.1'
 
 NAME_PREFIX_SELF = '(&self, '
 
@@ -247,35 +248,56 @@ class RPCVar():
                 self.ty = None
                 return
 
-            if self.ty == 'https://doc.rust-lang.org/nightly/std/primitive.unit.html':
+            if self.ty ==  RUST_DOC_PREFIX + '/std/primitive.unit.html' :
                 self.ty = '`null`'
-            if self.ty == 'https://doc.rust-lang.org/nightly/std/primitive.bool.html':
+            if self.ty == RUST_DOC_PREFIX + '/std/primitive.bool.html':
                 self.ty = '`boolean`'
-            if self.ty == 'https://doc.rust-lang.org/nightly/alloc/string/struct.String.html':
+            if self.ty == RUST_DOC_PREFIX + '/alloc/string/struct.String.html':
                 self.ty = '`string`'
-            elif self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
+            elif self.ty == RUST_DOC_PREFIX + '/core/option/enum.Option.html':
                 self.require_children(1)
-            elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
+            elif self.ty ==  RUST_DOC_PREFIX + '/alloc/vec/struct.Vec.html':
                 self.require_children(1)
-            elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+            elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
                 self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                 self.require_children(2)
-            elif self.ty.startswith('../') and '/struct.' in self.ty:
-                PENDING_TYPES.add(self.ty)
-                type_name = self.ty.split('/struct.')[1][:-5]
-                self.ty = '[`{}`](#type-{})'.format(type_name,
-                                                    type_name.lower())
-            elif self.ty.startswith('../') and '/type.' in self.ty:
-                PENDING_TYPES.add(self.ty)
-                type_name = self.ty.split('/type.')[1][:-5]
-                self.ty = '[`{}`](#type-{})'.format(type_name,
-                                                    type_name.lower())
-            elif self.ty.startswith('../') and '/enum.' in self.ty:
-                PENDING_TYPES.add(self.ty)
-                type_name = self.ty.split('/enum.')[1][:-5]
-                self.ty = '[`{}`](#type-{})'.format(type_name,
-                                                    type_name.lower())
+            elif self.ty.startswith('../'):
+                if '/struct.' in self.ty:
+                    PENDING_TYPES.add(self.ty)
+                    type_name = self.ty.split('/struct.')[1][:-5]
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+                elif '/type.' in self.ty:
+                    PENDING_TYPES.add(self.ty)
+                    type_name = self.ty.split('/type.')[1][:-5]
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+                elif '/enum.' in self.ty:
+                    PENDING_TYPES.add(self.ty)
+                    type_name = self.ty.split('/enum.')[1][:-5]
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+
+            # after 1.56 rustdoc change relative link
+            # now relative link do not start with '../'
+            elif 'title' in attrs_dict and 'ckb_jsonrpc_types::' in attrs_dict['title']:
+                if ('class', 'struct') in attrs and attrs_dict['title'].startswith('struct') and self.ty.startswith('struct.'):
+                    type_name = self.ty.split('struct.')[1][:-5]
+                    PENDING_TYPES.add('ckb_jsonrpc_types/' + self.ty)
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+                elif ('class', 'type') in attrs and attrs_dict['title'].startswith('type') and self.ty.startswith('type.'):
+                    type_name = self.ty.split('type.')[1][:-5]
+                    PENDING_TYPES.add('ckb_jsonrpc_types/' + self.ty)
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+                elif ('class', 'enum') in attrs and attrs_dict['title'].startswith('enum') and self.ty.startswith('enum.'):
+                    type_name = self.ty.split('enum.')[1][:-5]
+                    PENDING_TYPES.add('ckb_jsonrpc_types/' + self.ty)
+                    self.ty = '[`{}`](#type-{})'.format(type_name,
+                                                        type_name.lower())
+
         else:
             if self.completed_children >= len(self.children):
                 print(">>> {} {}[{}] => {} {} {}".format(
@@ -283,11 +305,11 @@ class RPCVar():
             self.children[self.completed_children].handle_starttag(tag, attrs)
             if self.children[self.completed_children].completed():
                 if self.completed():
-                    if self.ty == 'https://doc.rust-lang.org/nightly/core/option/enum.Option.html':
+                    if self.ty == RUST_DOC_PREFIX + '/core/option/enum.Option.html':
                         self.ty = '{} `|` `null`'.format(self.children[0].ty)
-                    elif self.ty == 'https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html':
+                    elif self.ty == RUST_DOC_PREFIX + '/alloc/vec/struct.Vec.html':
                         self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
-                    elif self.ty == 'https://doc.rust-lang.org/nightly/std/collections/hash/map/struct.HashMap.html':
+                    elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
                         self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(
                             self.children[0].ty, self.children[1].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
@@ -394,7 +416,7 @@ class RPCModule(HTMLParser):
             if self.doc_parser is None and tag == 'div' and attrs == [("class", "docblock")]:
                 self.active_parser = self.doc_parser = MarkdownParser(
                     title_level=3)
-            elif tag == 'h3' and ('class', 'method') in attrs:
+            elif tag == 'div' and ('class', 'method has-srclink') in attrs:
                 id = dict(attrs)['id']
                 if id.startswith(TYMETHOD_DOT):
                     self.active_parser = RPCMethod(id[len(TYMETHOD_DOT):])
@@ -488,7 +510,7 @@ class EnumSchema(HTMLParser):
         if self.next_variant is None:
             if tag == 'div':
                 attrs_dict = dict(attrs)
-                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.'):
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
                     self.next_variant = camel_to_snake(
                         attrs_dict['id'].split('.')[1])
         elif self.variant_parser is None:
@@ -499,13 +521,14 @@ class EnumSchema(HTMLParser):
             self.variant_parser.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
-        if self.variant_parser is not None:
+        if self.next_variant is not None and self.variant_parser is not None:
             self.variant_parser.handle_endtag(tag)
             if self.variant_parser.completed():
                 if self.next_variant not in [v[0] for v in self.variants]:
                     self.variants.append((self.next_variant, self.variant_parser))
+                    self.variant_parser = None
                 self.next_variant = None
-                self.variant_parser = None
+
 
     def handle_data(self, data):
         if self.variant_parser is not None:
@@ -616,7 +639,7 @@ class RPCType(HTMLParser):
 
         if '/enum.' in path and self.name != 'RawTxPool':
             self.schema = EnumSchema(self.name)
-        elif '/struct.' in path:
+        elif '/struct.' in path and self.name != 'ProposalShortId':
             self.schema = StructSchema(self.name)
         else:
             self.schema = None

@@ -17,6 +17,7 @@ use ckb_types::{
             resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
             ResolveOptions, ResolvedTransaction,
         },
+        hardfork::HardForkSwitch,
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
@@ -168,6 +169,41 @@ impl ForkChanges {
             blk.header().number()
         })
     }
+
+    pub fn during_hardfork(&self, hardfork_switch: &HardForkSwitch) -> bool {
+        let hardfork_during_detach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.detached_blocks);
+        let hardfork_during_attach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.attached_blocks);
+
+        hardfork_during_detach || hardfork_during_attach
+    }
+
+    fn check_if_hardfork_during_blocks(
+        &self,
+        hardfork_switch: &HardForkSwitch,
+        blocks: &VecDeque<BlockView>,
+    ) -> bool {
+        if blocks.is_empty() {
+            false
+        } else {
+            // This method assumes that the input blocks are sorted and unique.
+            let hardfork_epochs = hardfork_switch.script_result_changed_at();
+            if hardfork_epochs.is_empty() {
+                false
+            } else {
+                let epoch_first = blocks.front().unwrap().epoch().number();
+                let epoch_next = blocks
+                    .back()
+                    .unwrap()
+                    .epoch()
+                    .minimum_epoch_number_after_n_blocks(1);
+                hardfork_epochs.into_iter().any(|hardfork_epoch| {
+                    epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next
+                })
+            }
+        }
+    }
 }
 
 pub(crate) struct GlobalIndex {
@@ -295,7 +331,7 @@ impl ChainService {
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
 
         for blk in fork.attached_blocks() {
-            db_txn.delete_block(&blk)?;
+            db_txn.delete_block(blk)?;
         }
         db_txn.commit()?;
 
@@ -340,13 +376,13 @@ impl ChainService {
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
         let consensus = self.shared.consensus();
-        BlockVerifier::new(consensus).verify(&block).map_err(|e| {
+        BlockVerifier::new(consensus).verify(block).map_err(|e| {
             debug!("[process_block] BlockVerifier error {:?}", e);
             e
         })?;
 
         NonContextualBlockTxsVerifier::new(consensus)
-            .verify(&block)
+            .verify(block)
             .map_err(|e| {
                 debug!(
                     "[process_block] NonContextualBlockTxsVerifier error {:?}",
@@ -535,7 +571,7 @@ impl ChainService {
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
 
-        self.reload_proposal_table(&fork);
+        self.reload_proposal_table(fork);
     }
 
     // if rollback happen, go back check whether need reload proposal_table from block
@@ -711,6 +747,16 @@ impl ChainService {
         switch: Switch,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
+        let consensus = self.shared.consensus();
+        let hardfork_switch = consensus.hardfork_switch();
+        let during_hardfork = fork.during_hardfork(hardfork_switch);
+        let async_handle = self.shared.tx_pool_controller().handle();
+
+        if during_hardfork {
+            async_handle.block_on(async {
+                txs_verify_cache.write().await.clear();
+            });
+        }
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
@@ -718,8 +764,7 @@ impl ChainService {
             attach_block_cell(txn, b)?;
         }
 
-        let verify_context = VerifyContext::new(txn, self.shared.consensus());
-        let async_handle = self.shared.tx_pool_controller().handle();
+        let verify_context = VerifyContext::new(txn, consensus);
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -771,7 +816,7 @@ impl ChainService {
                                 &resolved,
                                 b,
                                 Arc::clone(&txs_verify_cache),
-                                &async_handle,
+                                async_handle,
                                 switch,
                             ) {
                                 Ok((cycles, cache_entries)) => {

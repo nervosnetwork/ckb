@@ -285,7 +285,7 @@ impl<'a> DryRunner<'a> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_submit(&tip_header);
+        let tx_env = TxVerifyEnv::new_submit(tip_header);
         let resolve_opts = {
             let proposal_window = consensus.tx_proposal_window();
             let epoch_number = tx_env.epoch_number(proposal_window);

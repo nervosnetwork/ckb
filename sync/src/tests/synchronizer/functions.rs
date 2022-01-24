@@ -42,7 +42,7 @@ use crate::{
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
     let mut builder = SharedBuilder::with_temp_db();
 
-    let consensus = consensus.unwrap_or_else(Default::default);
+    let consensus = consensus.unwrap_or_default();
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
@@ -530,7 +530,7 @@ fn test_sync_process() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(&shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header());
 
     for i in 1..=num {
         let j = if i > 192 { i + 1 } else { i };
@@ -765,14 +765,11 @@ fn test_chain_sync_timeout() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 still in sync state
-        assert_eq!(
-            peers
-                .state
-                .get(&sync_protected_peer)
-                .unwrap()
-                .sync_started(),
-            true
-        );
+        assert!(peers
+            .state
+            .get(&sync_protected_peer)
+            .unwrap()
+            .sync_started(),);
         assert_eq!(
             synchronizer
                 .shared()
@@ -864,14 +861,11 @@ fn test_chain_sync_timeout() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
-        assert_eq!(
-            peers
-                .state
-                .get(&sync_protected_peer)
-                .unwrap()
-                .sync_started(),
-            false
-        );
+        assert!(!peers
+            .state
+            .get(&sync_protected_peer)
+            .unwrap()
+            .sync_started(),);
         assert_eq!(
             synchronizer
                 .shared()
@@ -961,14 +955,11 @@ fn test_n_sync_started() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
-        assert_eq!(
-            peers
-                .state
-                .get(&sync_protected_peer)
-                .unwrap()
-                .sync_started(),
-            false
-        );
+        assert!(!peers
+            .state
+            .get(&sync_protected_peer)
+            .unwrap()
+            .sync_started(),);
         assert_eq!(
             synchronizer
                 .shared()
