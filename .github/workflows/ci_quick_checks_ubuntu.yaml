@@ -54,6 +54,9 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - run: |
+        echo "START_TIME=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
+        echo "CKB_COMMIT_ID=$(git describe --dirty --always --match _EXCLUDE__ --abbrev=7)" >> $GITHUB_ENV
+        echo "CKB_COMMIT_TIME=$(git log -1 --date=iso "--pretty=format:%cd" | cut -d ' ' -f 1,2)" >> $GITHUB_ENV
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
         else
@@ -61,5 +64,28 @@ jobs:
           exit 0
         fi
       shell: bash
+    - name: Set test state when success
+      if: ${{ success() }}
+      run: |
+         echo "GITHUB_RUN_STATE=0" >> $GITHUB_ENV
+    - name: Set test state when test failed.
+      if: ${{ failure() }}
+      run: |
+         echo "GITHUB_RUN_STATE=1" >> $GITHUB_ENV
+    - name: insert data to DB
+      if: ${{ always() && github.repository_owner == 'nervosnetwork'}}
+      run: |
+        if [[ ! -z "${{ env.PGHOST }}" ]];then
+          end_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)
+          echo $end_time
+          psql -c "INSERT INTO ci (github_run_name,github_run_id,github_run_state,start_time,end_time,github_branch,github_trigger_event,github_repo_owner,github_pr_number,github_commit_id,github_commit_time,github_action_run_os,github_run_link)  \
+             VALUES ('$GITHUB_WORKFLOW','$GITHUB_RUN_ID','${{ env.GITHUB_RUN_STATE }}','${{ env.START_TIME }}','$end_time','${{ github.ref_name }}','${{github.event_name }}','${{ github.repository_owner }}','${{github.event.number}}','${{ env.CKB_COMMIT_ID }}','${{ env.CKB_COMMIT_TIME}}','ubuntu','https://github.com/${{ github.repository }}actions/runs/${{ github.run_id }}');"
+        fi
+      env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: ckbtest
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
