@@ -109,13 +109,12 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
 
     // Start network services
-    let dir = tempfile::tempdir()
-        .expect("create tempdir failed")
-        .path()
-        .to_path_buf();
+    let temp_dir = tempfile::tempdir().expect("create tempdir failed");
+
+    let temp_path = temp_dir.path().to_path_buf();
     let network_controller = {
         let network_config = NetworkConfig {
-            path: dir,
+            path: temp_path,
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,
@@ -266,6 +265,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         rpc_server,
         rpc_uri,
         rpc_client,
+        _tmp_dir: temp_dir,
     };
 
     suite.send_example_transaction();
