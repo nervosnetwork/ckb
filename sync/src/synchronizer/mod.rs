@@ -251,7 +251,6 @@ impl Synchronizer {
                 }
             }
             packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
-            _ => StatusCode::ProtocolMessageIsMalformed.with_context("unexpected sync message"),
         }
     }
 
