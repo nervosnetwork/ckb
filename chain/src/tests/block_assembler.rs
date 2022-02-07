@@ -766,6 +766,13 @@ fn test_blank_template() {
         blocks.push(block);
     }
 
+    let tx_pool = shared.tx_pool_controller();
+    let mut tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+    // // wait tx-pool sync with chain
+    while tx_pool_info.tip_number != 4 {
+        tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+    }
+
     let tx0 = &blocks[0].transactions()[0];
     let tx1 = build_tx(tx0, &[0], 2);
     let tx2 = build_tx(&tx1, &[0], 2);
@@ -777,7 +784,6 @@ fn test_blank_template() {
     let tx2_2 = build_tx(&tx2_1, &[0], 2);
     let tx2_3 = build_tx(&tx2_2, &[0], 2);
 
-    let tx_pool = shared.tx_pool_controller();
     let entries = vec![
         TxEntry::dummy_resolve(tx1, 0, Capacity::shannons(100), 100),
         TxEntry::dummy_resolve(tx2, 0, Capacity::shannons(100), 100),
