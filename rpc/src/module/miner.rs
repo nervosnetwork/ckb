@@ -266,12 +266,6 @@ impl MinerRpc for MinerRpcImpl {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
 
-        // Reject block extension for public chain: mainnet and testnet.
-        if block.extension().is_some() && consensus.is_public_chain() {
-            let err = "the block extension should be null";
-            return Err(RPCError::custom_with_error(RPCError::Invalid, err));
-        }
-
         // Verify header
         HeaderVerifier::new(snapshot, consensus)
             .verify(&header)
