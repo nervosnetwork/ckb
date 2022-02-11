@@ -16,7 +16,9 @@ use ckb_types::{
         cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder,
         HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
     },
-    packed::{Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder},
+    packed::{
+        self, Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
+    },
     prelude::*,
     utilities::difficulty_to_compact,
     U256,
@@ -34,9 +36,9 @@ use std::{
 };
 
 use crate::{
-    synchronizer::{BlockFetcher, BlockProcess, HeadersProcess, Synchronizer},
+    synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
     types::{HeaderView, HeadersSyncController, IBDState, PeerState},
-    Status, SyncShared,
+    Status, StatusCode, SyncShared,
 };
 
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
@@ -501,7 +503,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {}
     // Other methods
     fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
+        ProtocolId::new(1)
     }
 }
 
@@ -1103,6 +1105,43 @@ fn test_fix_last_common_header() {
             case, last_common, best_known, expected, actual,
         );
     }
+}
+
+#[test]
+fn get_blocks_process() {
+    let consensus = Consensus::default();
+    let (chain_controller, shared, synchronizer) = start_chain(Some(consensus));
+
+    let num = 2;
+    for i in 1..num {
+        insert_block(&chain_controller, &shared, u128::from(i), i);
+    }
+
+    let genesis_hash = shared.consensus().genesis_hash();
+    let message_with_genesis = packed::GetBlocks::new_builder()
+        .block_hashes(vec![genesis_hash].pack())
+        .build();
+
+    let nc = mock_network_context(1);
+    let peer: PeerIndex = 1.into();
+    let process = GetBlocksProcess::new(message_with_genesis.as_reader(), &synchronizer, peer, &nc);
+    assert_eq!(
+        process.execute(),
+        StatusCode::RequestGenesis.with_context("Request genesis block")
+    );
+
+    let hash = shared.snapshot().get_block_hash(1).unwrap();
+    let message_with_dup = packed::GetBlocks::new_builder()
+        .block_hashes(vec![hash.clone(), hash].pack())
+        .build();
+
+    let nc = mock_network_context(1);
+    let peer: PeerIndex = 1.into();
+    let process = GetBlocksProcess::new(message_with_dup.as_reader(), &synchronizer, peer, &nc);
+    assert_eq!(
+        process.execute(),
+        StatusCode::RequestDuplicate.with_context("Request duplicate block")
+    );
 }
 
 #[test]

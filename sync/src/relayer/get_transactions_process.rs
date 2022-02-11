@@ -4,6 +4,7 @@ use crate::{attempt, Status, StatusCode};
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub struct GetTransactionsProcess<'a> {
@@ -29,13 +30,12 @@ impl<'a> GetTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        let message_len = self.message.tx_hashes().len();
         {
-            let get_transactions = self.message;
-            if get_transactions.tx_hashes().len() > MAX_RELAY_TXS_NUM_PER_BATCH {
+            if message_len > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
-                    get_transactions.tx_hashes().len(),
-                    MAX_RELAY_TXS_NUM_PER_BATCH,
+                    message_len, MAX_RELAY_TXS_NUM_PER_BATCH,
                 ));
             }
         }
@@ -52,12 +52,16 @@ impl<'a> GetTransactionsProcess<'a> {
         let transactions: Vec<_> = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();
 
-            let fetch_txs_with_cycles = tx_pool.fetch_txs_with_cycles(
-                tx_hashes
-                    .iter()
-                    .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity()))
-                    .collect(),
-            );
+            let tx_hashes_set: HashSet<_> = tx_hashes
+                .iter()
+                .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity()))
+                .collect();
+
+            if message_len != tx_hashes_set.len() {
+                return StatusCode::RequestDuplicate.with_context("Request duplicate transaction");
+            }
+
+            let fetch_txs_with_cycles = tx_pool.fetch_txs_with_cycles(tx_hashes_set);
 
             if let Err(e) = fetch_txs_with_cycles {
                 debug_target!(

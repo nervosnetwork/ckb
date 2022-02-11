@@ -97,8 +97,8 @@ pub(crate) enum Message {
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
-    FetchTxs(Request<Vec<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(Request<Vec<ProposalShortId>, FetchTxsWithCyclesResult>),
+    FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
+    FetchTxsWithCycles(Request<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     FetchTxRPC(Request<Byte32, Option<(bool, TransactionView)>>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
@@ -394,7 +394,7 @@ impl TxPoolController {
     /// Return txs for network
     pub fn fetch_txs(
         &self,
-        short_ids: Vec<ProposalShortId>,
+        short_ids: HashSet<ProposalShortId>,
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
@@ -412,7 +412,7 @@ impl TxPoolController {
     /// Return txs with cycles
     pub fn fetch_txs_with_cycles(
         &self,
-        short_ids: Vec<ProposalShortId>,
+        short_ids: HashSet<ProposalShortId>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
         let (responder, response) = oneshot::channel();
         let request = Request::call(short_ids, responder);
