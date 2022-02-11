@@ -33,7 +33,7 @@ serde_json = "1.0"
 bloom-filters = "0.1"
 ckb-spawn = { path = "../util/spawn", version = "= 0.102.0-pre" }
 
-p2p = { version="=0.4.0-alpha.2", package="tentacle", features = ["upnp", "parking_lot"] }
+p2p = { version="=0.4.0-alpha.3", package="tentacle", features = ["upnp", "parking_lot"] }
 
 [features]
 with_sentry = ["sentry"]

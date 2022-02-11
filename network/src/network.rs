@@ -874,6 +874,7 @@ impl<T: ExitHandler> NetworkService<T> {
             .forever(true)
             .max_connection_number(1024)
             .set_send_buffer_size(config.max_send_buffer())
+            .set_channel_size(config.channel_size())
             .timeout(Duration::from_secs(5));
 
         #[cfg(target_os = "linux")]
