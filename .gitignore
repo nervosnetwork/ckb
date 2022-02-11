@@ -40,6 +40,7 @@ tags
 # runtime folder
 /ckb.toml
 /ckb-miner.toml
+/default.db-options
 /data
 /specs
 /ckb-dev
