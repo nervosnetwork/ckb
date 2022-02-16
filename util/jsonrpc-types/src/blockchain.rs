@@ -1310,6 +1310,10 @@ pub struct Consensus {
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
     pub hardfork_features: Vec<HardForkFeature>,
+    /// The MMR activated number.
+    ///
+    /// The block number of the last block which doesn't records MMR root hash.
+    pub mmr_activated_number: BlockNumber,
 }
 
 /// The information about one hardfork feature.

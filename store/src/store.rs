@@ -4,8 +4,9 @@ use ckb_db::iter::{DBIter, Direction, IteratorMode};
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
-    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -532,6 +533,16 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             reader.data().to_entity()
         })
+    }
+
+    /// Gets a header digest.
+    fn get_header_digest(&'a self, position_u64: u64) -> Option<packed::HeaderDigest> {
+        let position: packed::Uint64 = position_u64.pack();
+        self.get(COLUMN_CHAIN_ROOT_MMR, position.as_slice())
+            .map(|slice| {
+                let reader = packed::HeaderDigestReader::from_slice_should_be_ok(slice.as_ref());
+                reader.to_entity()
+            })
     }
 }
 
