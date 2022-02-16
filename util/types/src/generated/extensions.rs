@@ -2201,6 +2201,188 @@ impl<'t: 'r, 'r> ::core::iter::ExactSizeIterator for OutPointVecReaderIterator<'
     }
 }
 #[derive(Clone)]
+pub struct HeaderDigest(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for HeaderDigest {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for HeaderDigest {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for HeaderDigest {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, ", {}: {}", "blocks_count", self.blocks_count())?;
+        write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for HeaderDigest {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        HeaderDigest::new_unchecked(v.into())
+    }
+}
+impl HeaderDigest {
+    pub const TOTAL_SIZE: usize = 72;
+    pub const FIELD_SIZES: [usize; 3] = [32, 8, 32];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn hash(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(0..32))
+    }
+    pub fn blocks_count(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(32..40))
+    }
+    pub fn total_difficulty(&self) -> Uint256 {
+        Uint256::new_unchecked(self.0.slice(40..72))
+    }
+    pub fn as_reader<'r>(&'r self) -> HeaderDigestReader<'r> {
+        HeaderDigestReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for HeaderDigest {
+    type Builder = HeaderDigestBuilder;
+    const NAME: &'static str = "HeaderDigest";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        HeaderDigest(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        HeaderDigestReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        HeaderDigestReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .hash(self.hash())
+            .blocks_count(self.blocks_count())
+            .total_difficulty(self.total_difficulty())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct HeaderDigestReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for HeaderDigestReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for HeaderDigestReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for HeaderDigestReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, ", {}: {}", "blocks_count", self.blocks_count())?;
+        write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
+        write!(f, " }}")
+    }
+}
+impl<'r> HeaderDigestReader<'r> {
+    pub const TOTAL_SIZE: usize = 72;
+    pub const FIELD_SIZES: [usize; 3] = [32, 8, 32];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn hash(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[0..32])
+    }
+    pub fn blocks_count(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[32..40])
+    }
+    pub fn total_difficulty(&self) -> Uint256Reader<'r> {
+        Uint256Reader::new_unchecked(&self.as_slice()[40..72])
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for HeaderDigestReader<'r> {
+    type Entity = HeaderDigest;
+    const NAME: &'static str = "HeaderDigestReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        HeaderDigestReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len != Self::TOTAL_SIZE {
+            return ve!(Self, TotalSizeNotMatch, Self::TOTAL_SIZE, slice_len);
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct HeaderDigestBuilder {
+    pub(crate) hash: Byte32,
+    pub(crate) blocks_count: Uint64,
+    pub(crate) total_difficulty: Uint256,
+}
+impl HeaderDigestBuilder {
+    pub const TOTAL_SIZE: usize = 72;
+    pub const FIELD_SIZES: [usize; 3] = [32, 8, 32];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn hash(mut self, v: Byte32) -> Self {
+        self.hash = v;
+        self
+    }
+    pub fn blocks_count(mut self, v: Uint64) -> Self {
+        self.blocks_count = v;
+        self
+    }
+    pub fn total_difficulty(mut self, v: Uint256) -> Self {
+        self.total_difficulty = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for HeaderDigestBuilder {
+    type Entity = HeaderDigest;
+    const NAME: &'static str = "HeaderDigestBuilder";
+    fn expected_length(&self) -> usize {
+        Self::TOTAL_SIZE
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        writer.write_all(self.hash.as_slice())?;
+        writer.write_all(self.blocks_count.as_slice())?;
+        writer.write_all(self.total_difficulty.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        HeaderDigest::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct HeaderView(molecule::bytes::Bytes);
 impl ::core::fmt::LowerHex for HeaderView {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {

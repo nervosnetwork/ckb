@@ -41,6 +41,9 @@ pub enum InternalErrorKind {
     /// VM internal error
     VM,
 
+    /// MMR internal error
+    MMR,
+
     /// Unknown system error
     System,
 

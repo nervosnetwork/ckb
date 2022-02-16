@@ -22,6 +22,14 @@ option CellOutputOpt (CellOutput);
 vector HeaderVec <Header>;
 vector OutPointVec <OutPoint>;
 
+/* Types for Light Client */
+
+struct HeaderDigest {
+    hash:               Byte32,
+    blocks_count:       Uint64,
+    total_difficulty:   Uint256,
+}
+
 /* Types for Storage */
 
 struct HeaderView {
