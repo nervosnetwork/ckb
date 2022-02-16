@@ -511,6 +511,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-metrics",
  "ckb-network",
  "ckb-proposal-table",
@@ -820,6 +821,15 @@ dependencies = [
  "once_cell",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
+]
+
+[[package]]
+name = "ckb-merkle-mountain-range"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "530710c310c455ced794feaa13f284c4c5d40ae5d82875392a83da7c5f84a8db"
+dependencies = [
+ "cfg-if 0.1.10",
 ]
 
 [[package]]
@@ -1173,6 +1183,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-proposal-table",
  "ckb-store",
  "ckb-traits",
@@ -1203,6 +1214,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
@@ -1303,6 +1315,7 @@ dependencies = [
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-reward-calculator",
  "ckb-snapshot",
@@ -1333,6 +1346,7 @@ dependencies = [
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
+ "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
  "ckb-rational",
  "derive_more",
