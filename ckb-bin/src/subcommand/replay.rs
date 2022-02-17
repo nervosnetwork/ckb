@@ -74,7 +74,7 @@ fn profile(shared: Shared, mut chain: ChainService, from: Option<u64>, to: Optio
     println!("start profiling, re-process blocks {}..{}:", from, to);
     let now = std::time::Instant::now();
     let tx_count = process_range_block(&shared, &mut chain, from..=to);
-    let duration = now.elapsed();
+    let duration = std::time::Instant::now().saturating_duration_since(now);
     println!(
         "end profiling, duration {:?} txs {} tps {}",
         duration,

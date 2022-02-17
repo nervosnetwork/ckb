@@ -73,7 +73,7 @@ impl PingHandler {
         let now = Instant::now();
         self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(id) {
-                peer.ping_rtt = Some(now.duration_since(last_ping));
+                peer.ping_rtt = Some(now.saturating_duration_since(last_ping));
                 peer.last_ping_protocol_message_received_at = Some(now);
             }
         });
@@ -115,7 +115,7 @@ impl PingHandler {
 }
 
 fn nonce(t: &Instant, start_time: Instant) -> u32 {
-    t.duration_since(start_time).as_secs() as u32
+    t.saturating_duration_since(start_time).as_secs() as u32
 }
 
 /// PingStatus of a peer
@@ -136,7 +136,7 @@ impl PingStatus {
 
     /// Time duration since we last send ping.
     fn elapsed(&self) -> Duration {
-        self.last_ping_sent_at.elapsed()
+        Instant::now().saturating_duration_since(self.last_ping_sent_at)
     }
 }
 

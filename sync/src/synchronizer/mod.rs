@@ -750,7 +750,7 @@ impl CKBProtocolHandler for Synchronizer {
             "process message={}, peer={}, cost={:?}",
             msg.item_name(),
             peer_index,
-            start_time.elapsed(),
+            Instant::now().saturating_duration_since(start_time),
         );
     }
 
@@ -829,7 +829,7 @@ impl CKBProtocolHandler for Synchronizer {
             trace!(
                 "finished notify token={} cost={:?}",
                 token,
-                start_time.elapsed()
+                Instant::now().saturating_duration_since(start_time)
             );
         } else if token == NO_PEER_CHECK_TOKEN {
             debug!("no peers connected");
