@@ -438,7 +438,6 @@ fn collect_rpc_examples() -> io::Result<HashSet<RpcTestExample>> {
         let path = module_file?.path();
         if path.extension().unwrap_or_default() == "rs"
             && path.file_stem().unwrap_or_default() != "mod"
-            && path.file_stem().unwrap_or_default() != "test"
             && path.file_stem().unwrap_or_default() != "debug"
         {
             collect_rpc_examples_in_file(&mut examples, path)?;
@@ -447,6 +446,7 @@ fn collect_rpc_examples() -> io::Result<HashSet<RpcTestExample>> {
 
     Ok(examples)
 }
+
 struct RpcTestExample {
     request: RpcTestRequest,
     response: RpcTestResponse,
@@ -585,6 +585,10 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
             response.result["pending"][example_tx_hash.as_str()]["timestamp"] =
                 example.response.result["pending"][example_tx_hash.as_str()]["timestamp"].clone()
         }
+        "generate_block_with_template" => replace_rpc_response::<H256>(example, response),
+        "generate_block" => replace_rpc_response::<H256>(example, response),
+        "process_block_without_verify" => replace_rpc_response::<H256>(example, response),
+        "notify_transaction" => replace_rpc_response::<H256>(example, response),
         _ => {}
     }
 }
@@ -601,6 +605,11 @@ fn before_rpc_example(_suite: &RpcTestSuite, example: &mut RpcTestExample) -> bo
                 "get_transaction(id=42) must query the example tx"
             );
         }
+        ("generate_block", 42) => return false,
+        ("generate_block_with_template", 42) => return false,
+        ("process_block_without_verify", 42) => return false,
+        ("notify_transaction", 42) => return false,
+        ("truncate", 42) => return false,
         _ => return true,
     }
 
