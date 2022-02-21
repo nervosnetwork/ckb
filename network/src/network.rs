@@ -343,7 +343,7 @@ impl NetworkState {
                 peer_id,
                 addr
             );
-            if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
+            if Instant::now().saturating_duration_since(*dial_started) > DIAL_HANG_TIMEOUT {
                 #[cfg(feature = "with_sentry")]
                 with_scope(
                     |scope| scope.set_fingerprint(Some(&["ckb-network", "dialing-timeout"])),
@@ -1285,7 +1285,7 @@ impl NetworkController {
                     return Ok(());
                 }
                 Err(SendErrorKind::WouldBlock) => {
-                    if now.elapsed() > P2P_SEND_TIMEOUT {
+                    if Instant::now().saturating_duration_since(now) > P2P_SEND_TIMEOUT {
                         warn!("broadcast message to {} timeout", proto_id);
                         return Err(SendErrorKind::WouldBlock);
                     }

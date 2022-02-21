@@ -96,7 +96,7 @@ impl Worker for EaglesongSimple {
                     self.solve(pow_hash, work, rng());
                     state_update_counter += 1;
 
-                    let elapsed = start.elapsed();
+                    let elapsed = Instant::now().saturating_duration_since(start);
                     if elapsed.as_millis() > STATE_UPDATE_DURATION_MILLIS {
                         let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
                             + u64::from(elapsed.subsec_nanos()))

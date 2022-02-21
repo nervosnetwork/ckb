@@ -83,7 +83,7 @@ impl ProtocolTypeCheckerService {
             let now = Instant::now();
             for (session_id, peer) in reg.peers() {
                 // skip just connected peers
-                if now.duration_since(peer.connected_time) < TIMEOUT {
+                if now.saturating_duration_since(peer.connected_time) < TIMEOUT {
                     continue;
                 }
 

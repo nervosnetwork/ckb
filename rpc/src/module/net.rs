@@ -602,7 +602,10 @@ impl NetRpc for NetRpcImpl {
                         .map(|peer_id| peer_id.to_base58())
                         .unwrap_or_default(),
                     addresses: node_addresses,
-                    connected_duration: (peer.connected_time.elapsed().as_millis() as u64).into(),
+                    connected_duration: (std::time::Instant::now()
+                        .saturating_duration_since(peer.connected_time)
+                        .as_millis() as u64)
+                        .into(),
                     last_ping_duration: peer
                         .ping_rtt
                         .map(|duration| (duration.as_millis() as u64).into()),
