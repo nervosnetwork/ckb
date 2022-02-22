@@ -150,20 +150,21 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         chain: ChainController,
     ) -> Self {
-        // IntegrationTest only on Dummy PoW chain
-        assert_eq!(
-            shared.consensus().pow,
-            Pow::Dummy,
-            "Only run integration test on Dummy PoW chain"
-        );
-
         let rpc_methods = IntegrationTestRpcImpl {
-            shared,
+            shared: shared.clone(),
             network_controller,
             chain,
         }
         .to_delegate();
+
         if self.config.integration_test_enable() {
+            // IntegrationTest only on Dummy PoW chain
+            assert_eq!(
+                shared.consensus().pow,
+                Pow::Dummy,
+                "Only run integration test on Dummy PoW chain"
+            );
+
             self.add_methods(rpc_methods);
         } else {
             self.update_disabled_methods("IntegrationTest", rpc_methods);
