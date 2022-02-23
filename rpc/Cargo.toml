@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.102.0-pre"
+version = "0.101.5"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,20 +9,20 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain-spec = { path = "../spec", version = "= 0.102.0-pre" }
-ckb-types = { path = "../util/types", version = "= 0.102.0-pre" }
-ckb-network = { path = "../network", version = "= 0.102.0-pre" }
-ckb-notify = { path = "../notify", version = "= 0.102.0-pre" }
-ckb-shared = { path = "../shared", version = "= 0.102.0-pre" }
-ckb-store = { path = "../store", version = "= 0.102.0-pre" }
-ckb-sync = { path = "../sync", version = "= 0.102.0-pre" }
-ckb-chain = { path = "../chain", version = "= 0.102.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.102.0-pre"}
-ckb-channel = { path = "../util/channel", version = "= 0.102.0-pre" }
-ckb-logger-service = { path = "../util/logger-service", version = "= 0.102.0-pre"}
-ckb-network-alert = { path = "../util/network-alert", version = "= 0.102.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.102.0-pre" }
-ckb-constant = { path = "../util/constant", version = "= 0.102.0-pre" }
+ckb-chain-spec = { path = "../spec", version = "= 0.101.5" }
+ckb-types = { path = "../util/types", version = "= 0.101.5" }
+ckb-network = { path = "../network", version = "= 0.101.5" }
+ckb-notify = { path = "../notify", version = "= 0.101.5" }
+ckb-shared = { path = "../shared", version = "= 0.101.5" }
+ckb-store = { path = "../store", version = "= 0.101.5" }
+ckb-sync = { path = "../sync", version = "= 0.101.5" }
+ckb-chain = { path = "../chain", version = "= 0.101.5" }
+ckb-logger = { path = "../util/logger", version = "= 0.101.5"}
+ckb-channel = { path = "../util/channel", version = "= 0.101.5" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.101.5"}
+ckb-network-alert = { path = "../util/network-alert", version = "= 0.101.5" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.101.5" }
+ckb-constant = { path = "../util/constant", version = "= 0.101.5" }
 jsonrpc-core = "18.0"
 jsonrpc-derive = "18.0"
 jsonrpc-http-server = "18.0"
@@ -32,25 +32,25 @@ jsonrpc-server-utils = "18.0"
 jsonrpc-pubsub = "18.0"
 serde_json = "1.0"
 num_cpus = "1.10"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.102.0-pre" }
-ckb-verification = { path = "../verification", version = "= 0.102.0-pre" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.102.0-pre" }
-ckb-traits = { path = "../traits", version = "= 0.102.0-pre" }
-ckb-util = { path = "../util", version = "= 0.102.0-pre" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.101.5" }
+ckb-verification = { path = "../verification", version = "= 0.101.5" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.101.5" }
+ckb-traits = { path = "../traits", version = "= 0.101.5" }
+ckb-util = { path = "../util", version = "= 0.101.5" }
 faketime = "0.2.0"
-ckb-dao = { path = "../util/dao", version = "= 0.102.0-pre" }
-ckb-error = { path = "../error", version = "= 0.102.0-pre" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.102.0-pre" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.102.0-pre" }
-ckb-script = { path = "../script", version = "= 0.102.0-pre" }
-ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.102.0-pre" }
-ckb-pow = { path = "../pow", version = "= 0.102.0-pre" }
+ckb-dao = { path = "../util/dao", version = "= 0.101.5" }
+ckb-error = { path = "../error", version = "= 0.101.5" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.101.5" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.101.5" }
+ckb-script = { path = "../script", version = "= 0.101.5" }
+ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.101.5" }
+ckb-pow = { path = "../pow", version = "= 0.101.5" }
 
 [dev-dependencies]
 reqwest = { version = "0.11.4", features = ["blocking", "json"] }
 serde = { version = "1.0", features = ["derive"] }
-ckb-launcher = { path = "../util/launcher", version = "= 0.102.0-pre" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.102.0-pre" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.101.5" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.101.5" }
 tempfile = "3.0"
 pretty_assertions = "0.6.1"
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.102.0-pre" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.101.5" }
