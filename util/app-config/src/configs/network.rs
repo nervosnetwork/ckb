@@ -9,6 +9,9 @@ use std::path::PathBuf;
 // Max data size in send buffer: 24MB (a little larger than max frame length)
 const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
+// Tentacle inner bound channel size, default 128
+const DEFAULT_CHANNEL_SIZE: usize = 128;
+
 /// Network config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -82,6 +85,8 @@ pub struct Config {
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
+    /// Tentacle inner channel_size.
+    pub channel_size: Option<usize>,
 }
 
 /// Chain synchronization config options.
@@ -252,6 +257,11 @@ impl Config {
     /// Gets maximum send buffer size.
     pub fn max_send_buffer(&self) -> usize {
         self.max_send_buffer.unwrap_or(DEFAULT_SEND_BUFFER)
+    }
+
+    /// Gets maximum send buffer size.
+    pub fn channel_size(&self) -> usize {
+        self.channel_size.unwrap_or(DEFAULT_CHANNEL_SIZE)
     }
 
     /// Reads the secret key from secret key file.

@@ -94,7 +94,7 @@ impl SessionState {
     pub(crate) fn check_timer(&mut self, now: Instant, interval: Duration) -> Option<&Multiaddr> {
         if self
             .last_announce
-            .map(|time| now - time > interval)
+            .map(|time| now.saturating_duration_since(time) > interval)
             .unwrap_or(true)
         {
             self.last_announce = Some(now);

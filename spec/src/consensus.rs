@@ -474,15 +474,15 @@ pub struct Consensus {
     pub genesis_hash: Byte32,
     /// The dao type hash
     ///
-    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#nervos-dao)
+    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
     pub dao_type_hash: Option<Byte32>,
     /// The secp256k1_blake160_sighash_all_type_hash
     ///
-    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1blake160)
+    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1blake160)
     pub secp256k1_blake160_sighash_all_type_hash: Option<Byte32>,
     /// The secp256k1_blake160_multisig_all_type_hash
     ///
-    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1multisig)
+    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1multisig)
     pub secp256k1_blake160_multisig_all_type_hash: Option<Byte32>,
     /// The initial primary_epoch_reward
     ///
@@ -580,21 +580,21 @@ impl Consensus {
 
     /// The dao type hash
     ///
-    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#nervos-dao)
+    /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
     pub fn dao_type_hash(&self) -> Option<Byte32> {
         self.dao_type_hash.clone()
     }
 
     /// The secp256k1_blake160_sighash_all_type_hash
     ///
-    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1blake160)
+    /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1blake160)
     pub fn secp256k1_blake160_sighash_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_sighash_all_type_hash.clone()
     }
 
     /// The secp256k1_blake160_multisig_all_type_hash
     ///
-    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-system-script-list/0024-ckb-system-script-list.md#secp256k1multisig)
+    /// [SECP256K1/multisig](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1multisig)
     pub fn secp256k1_blake160_multisig_all_type_hash(&self) -> Option<Byte32> {
         self.secp256k1_blake160_multisig_all_type_hash.clone()
     }

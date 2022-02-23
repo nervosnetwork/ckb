@@ -73,18 +73,9 @@ impl<T: Uint> JsonUintVisitor<T> {
             )));
         }
 
-        let number = T::from_str_radix(&value[2..], 16)
+        T::from_str_radix(&value[2..], 16)
             .map(JsonUint)
-            .map_err(|e| Error::custom(format!("Invalid {} {}: {}", T::NAME, value, e)))?;
-        if number.to_string() != value {
-            return Err(Error::custom(format!(
-                "Invalid {} {}: only digits and lowercase are allowed",
-                T::NAME,
-                value,
-            )));
-        }
-
-        Ok(number)
+            .map_err(|e| Error::custom(format!("Invalid {} {}: {}", T::NAME, value, e)))
     }
 }
 
@@ -240,14 +231,7 @@ mod tests {
                     let cases = vec![r#""0xFF""#, r#""0xfF""#];
                     for s in cases {
                         let ret: Result<$name, _> = serde_json::from_str(s);
-                        assert!(ret.is_err(), ret);
-
-                        let err = ret.unwrap_err();
-                        assert!(
-                            err.to_string()
-                                .contains("only digits and lowercase are allowed"),
-                            err,
-                        );
+                        assert!(ret.is_ok());
                     }
                 }
 

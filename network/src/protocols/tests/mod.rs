@@ -255,7 +255,7 @@ where
 {
     let start = Instant::now();
     let timeout = Duration::new(secs, 0);
-    while Instant::now().duration_since(start) <= timeout {
+    while Instant::now().saturating_duration_since(start) <= timeout {
         if f() {
             return true;
         }

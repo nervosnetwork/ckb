@@ -72,6 +72,7 @@ struct RpcTestSuite {
     shared: Shared,
     chain_controller: ChainController,
     rpc_server: RpcServer,
+    _tmp_dir: tempfile::TempDir,
 }
 
 impl RpcTestSuite {
@@ -157,13 +158,12 @@ fn setup() -> RpcTestSuite {
         ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
 
     // Start network services
-    let dir = tempfile::tempdir()
-        .expect("create tempdir failed")
-        .path()
-        .to_path_buf();
+    let tmp_dir = tempfile::tempdir().expect("create tempdir failed");
+
+    let tmp_path = tmp_dir.path().to_path_buf();
     let network_controller = {
         let network_config = NetworkConfig {
-            path: dir,
+            path: tmp_path,
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,
@@ -241,5 +241,6 @@ fn setup() -> RpcTestSuite {
         rpc_server,
         rpc_uri,
         rpc_client,
+        _tmp_dir: tmp_dir,
     }
 }

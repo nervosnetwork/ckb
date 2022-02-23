@@ -11,6 +11,7 @@ use ckb_app_config::RpcConfig;
 use ckb_chain::chain::ChainController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
+use ckb_pow::Pow;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::{core::FeeRate, packed::Script};
@@ -150,12 +151,20 @@ impl<'a> ServiceBuilder<'a> {
         chain: ChainController,
     ) -> Self {
         let rpc_methods = IntegrationTestRpcImpl {
-            shared,
+            shared: shared.clone(),
             network_controller,
             chain,
         }
         .to_delegate();
+
         if self.config.integration_test_enable() {
+            // IntegrationTest only on Dummy PoW chain
+            assert_eq!(
+                shared.consensus().pow,
+                Pow::Dummy,
+                "Only run integration test on Dummy PoW chain"
+            );
+
             self.add_methods(rpc_methods);
         } else {
             self.update_disabled_methods("IntegrationTest", rpc_methods);

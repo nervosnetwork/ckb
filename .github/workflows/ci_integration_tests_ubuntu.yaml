@@ -22,6 +22,16 @@ env:
 jobs:
   prologue:
     name: prologue
+    if: |
+       github.event_name != 'push' ||
+       ( github.event_name == 'push' &&
+        ( github.ref == 'refs/heads/master' ||
+          github.ref == 'refs/heads/trying' ||
+          github.ref == 'refs/heads/staging' ||
+          (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]') ||
+          startsWith(github.ref, 'refs/heads/rc/')
+        )
+       ) || (github.repository_owner != 'nervosnetwork')
     runs-on: ubuntu-20.04
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
@@ -55,9 +65,11 @@ jobs:
           exit 0
         fi
       shell: bash
-    - uses: actions/upload-artifact@v2
+    - name: upload log files
+      if: always()
+      uses: actions/upload-artifact@v2
       with:
-        name: Integration Logs (${{ runner.os }}, ${{ matrix.os }})
-        path: ${{ github.workspace }}/integration.log
+        name: ${{ runner.os }}_integration.log
+        path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}

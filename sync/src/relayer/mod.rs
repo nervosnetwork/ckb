@@ -801,7 +801,7 @@ impl CKBProtocolHandler for Relayer {
             "process message={}, peer={}, cost={:?}",
             msg.item_name(),
             peer_index,
-            start_time.elapsed(),
+            Instant::now().saturating_duration_since(start_time),
         );
     }
 
@@ -884,7 +884,7 @@ impl CKBProtocolHandler for Relayer {
             crate::LOG_TARGET_RELAY,
             "finished notify token={} cost={:?}",
             token,
-            start_time.elapsed()
+            Instant::now().saturating_duration_since(start_time)
         );
     }
 }
