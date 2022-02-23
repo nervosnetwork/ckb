@@ -1,3 +1,15 @@
+# [v0.101.5](https://github.com/nervosnetwork/ckb/compare/v0.101.4...v0.101.5) (2022-02-23)
+
+### Features
+
+* #3281: Case-insensitive hex (@zhangsoledad)
+
+    Previously, uppercase hex format have been unintentionally forbiden.
+
+* #3303: Update default mainnet bootnodes (@doitian)
+
+    Add bootnodes from different areas and different cloud providers to make the list more diverse.
+
 # [v0.101.4](https://github.com/nervosnetwork/ckb/compare/v0.101.3...v0.101.4) (2022-01-18)
 
 ### Features
