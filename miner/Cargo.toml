@@ -27,7 +27,7 @@ lru = "0.7.1"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.102.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.102.0-pre" }
 indicatif = "0.16"
-console = "0.13.0"
+console = ">=0.9.1, <1.0.0"
 eaglesong = "0.1"
 base64 = "0.13.0"
 jsonrpc-core = "18.0"
