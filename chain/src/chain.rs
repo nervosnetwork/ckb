@@ -3,7 +3,10 @@
 
 use ckb_channel::{self as channel, select, Sender};
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_logger::Level::Trace;
+use ckb_logger::{
+    self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
+};
 use ckb_metrics::{metrics, Timer};
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
@@ -821,7 +824,7 @@ impl ChainService {
                             ) {
                                 Ok((cycles, cache_entries)) => {
                                     let txs_fees =
-                                        cache_entries.into_iter().map(|entry| entry.fee).collect();
+                                        cache_entries.iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
                                     let mut mut_ext = ext.clone();
@@ -838,6 +841,20 @@ impl ChainService {
                                             cycles,
                                             self.shared.consensus().max_block_cycles()
                                         );
+
+                                        // log tx verification result for monitor node
+                                        if log_enabled_target!("ckb_tx_monitor", Trace) {
+                                            for (rtx, cycles) in
+                                                resolved.iter().zip(cache_entries.iter()).skip(1)
+                                            {
+                                                trace_target!(
+                                                    "ckb_tx_monitor",
+                                                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
+                                                    rtx.transaction.hash(),
+                                                    cycles.cycles
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                                 Err(err) => {
