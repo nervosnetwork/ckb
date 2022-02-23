@@ -172,6 +172,47 @@ table IndexTransaction {
 }
 vector IndexTransactionVec <IndexTransaction>;
 
+/* Types for Network/BlockFilter */
+
+union BlockFilterMessage {
+    GetBlockFilters,
+    BlockFilters,
+    GetBlockFilterHashes,
+    BlockFilterHashes,
+    GetBlockFilterCheckPoints,
+    BlockFilterCheckPoints,
+}
+
+struct GetBlockFilters {
+    start_number:   Uint64,
+}
+
+table BlockFilters {
+    start_number:   Uint64,
+    block_hashes:   Byte32Vec,
+    filters:        BytesVec,
+}
+
+struct GetBlockFilterHashes {
+    start_number:   Uint64,
+}
+
+table BlockFilterHashes {
+    start_number:               Uint64,
+    parent_block_filter_hash:   Byte32,
+    block_filter_hashes:        Byte32Vec,
+}
+
+struct GetBlockFilterCheckPoints {
+    start_number:   Uint64,
+}
+
+table BlockFilterCheckPoints {
+    start_number:           Uint64,
+    block_filter_hashes:    Byte32Vec,
+}
+
+
 /* Types for Network/Sync */
 
 union SyncMessage {
