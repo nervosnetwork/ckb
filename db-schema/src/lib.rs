@@ -40,6 +40,8 @@ pub const COLUMN_CELL_DATA_HASH: Col = "14";
 pub const COLUMN_BLOCK_EXTENSION: Col = "15";
 /// Column store chain root MMR data
 pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
+/// Column store filter data for client-side filtering
+pub const COLUMN_BLOCK_FILTER: Col = "17";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
 pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";

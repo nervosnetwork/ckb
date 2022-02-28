@@ -5,7 +5,7 @@ use ckb_db::{
     DBVector, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
+    Col, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
     COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX,
     COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
@@ -358,6 +358,18 @@ impl StoreTransaction {
     pub fn delete_header_digest(&self, position_u64: u64) -> Result<(), Error> {
         let position: packed::Uint64 = position_u64.pack();
         self.delete(COLUMN_CHAIN_ROOT_MMR, position.as_slice())
+    }
+
+    pub fn insert_block_filter(
+        &self,
+        block_hash: &packed::Byte32,
+        filter_data: &packed::Bytes,
+    ) -> Result<(), Error> {
+        self.insert_raw(
+            COLUMN_BLOCK_FILTER,
+            block_hash.as_slice(),
+            filter_data.as_slice(),
+        )
     }
 }
 
