@@ -6,6 +6,7 @@ use crate::migrate::Migrate;
 use ckb_app_config::ExitCode;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_background_runtime, Handle};
+use ckb_block_filter::filter::BlockFilter;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_channel::Receiver;
@@ -355,6 +356,11 @@ impl SharedBuilder {
         );
 
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
+
+        if store_config.block_filter_enable {
+            // start block filter service
+            BlockFilter::new(store.clone()).start(&notify_controller);
+        }
 
         let ibd_finished = Arc::new(AtomicBool::new(false));
         let shared = Shared::new(
