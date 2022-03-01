@@ -172,9 +172,11 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         parent_tx_hash = tx.hash();
     }
 
-    // 130 txs will be added to proposal list, block template updating is async, 1 second sleeping is enough even on poor CI server
-    for _ in 0..2 {
-        sleep(Duration::from_secs(1));
+    suite.wait_block_template_array_ge("proposals", 130);
+
+    // 130 txs will be added to proposal list
+    while store.get_tip_header().unwrap().number() != (tip.number() + 2) {
+        sleep(Duration::from_millis(400));
         suite.rpc(&RpcTestRequest {
             id: 42,
             jsonrpc: "2.0".to_string(),
@@ -184,13 +186,15 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
     }
 
     // the default value of pool config `max_ancestors_count` is 125, only 125 txs will be added to committed list of the block template
-    sleep(Duration::from_secs(1));
+    suite.wait_block_template_array_ge("transactions", 1);
+
     let response = suite.rpc(&RpcTestRequest {
         id: 42,
         jsonrpc: "2.0".to_string(),
         method: "get_block_template".to_string(),
         params: vec![],
     });
+
     assert_eq!(
         125,
         response.result["transactions"].as_array().unwrap().len()

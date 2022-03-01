@@ -1,6 +1,6 @@
 //! Tx-pool background service
 
-use crate::block_assembler::BlockAssembler;
+use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::chunk_process::Command;
 use crate::component::{chunk::ChunkQueue, entry::TxEntry, orphan::OrphanPool};
@@ -27,6 +27,7 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashMap;
+use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -34,11 +35,14 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
+pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
+pub(crate) const BLOCK_ASSEMBLER_INTERVAL: Duration = Duration::from_millis(800);
 
 pub(crate) struct Request<A, R> {
     pub responder: oneshot::Sender<R>,
@@ -65,13 +69,7 @@ impl<A> Notify<A> {
 }
 
 pub(crate) type BlockTemplateResult = Result<BlockTemplate, AnyError>;
-type BlockTemplateArgs = (
-    Option<u64>,
-    Option<u64>,
-    Option<Version>,
-    Arc<Snapshot>,
-    Option<BlockAssemblerConfig>,
-);
+type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
@@ -104,11 +102,20 @@ pub(crate) enum Message {
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
-    PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     ClearPool(Request<Arc<Snapshot>, ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
+
+    // test
+    PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub(crate) enum BlockAssemblerMessage {
+    NewPending,
+    NewProposed,
+    NewUncle,
 }
 
 /// Controller to the tx-pool service.
@@ -157,37 +164,9 @@ impl TxPoolController {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-        snapshot: Arc<Snapshot>,
-    ) -> Result<BlockTemplateResult, AnyError> {
-        self.get_block_template_with_block_assembler_config(
-            bytes_limit,
-            proposals_limit,
-            max_version,
-            snapshot,
-            None,
-        )
-    }
-
-    /// Generate and return block_template with block_assembler_config
-    pub fn get_block_template_with_block_assembler_config(
-        &self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-        snapshot: Arc<Snapshot>,
-        block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<BlockTemplateResult, AnyError> {
         let (responder, response) = oneshot::channel();
-        let request = Request::call(
-            (
-                bytes_limit,
-                proposals_limit,
-                max_version,
-                snapshot,
-                block_assembler_config,
-            ),
-            responder,
-        );
+        let request = Request::call((bytes_limit, proposals_limit, max_version), responder);
         self.sender
             .try_send(Message::BlockTemplate(request))
             .map_err(|e| {
@@ -275,21 +254,6 @@ impl TxPoolController {
         let request = Request::call((tx, declared_cycles, peer), responder);
         self.sender
             .try_send(Message::SubmitRemoteTx(request))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e
-            })?;
-        block_in_place(|| response.recv())
-            .map_err(handle_recv_error)
-            .map_err(Into::into)
-    }
-
-    /// Plug tx-pool entry to tx-pool, skip verification. only for test
-    pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
-        let (responder, response) = oneshot::channel();
-        let request = Request::call((entries, target), responder);
-        self.sender
-            .try_send(Message::PlugEntry(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -525,6 +489,21 @@ impl TxPoolController {
         }
         Ok(())
     }
+
+    /// Plug tx-pool entry to tx-pool, skip verification. only for test
+    pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call((entries, target), responder);
+        self.sender
+            .try_send(Message::PlugEntry(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
 }
 
 /// A builder used to create TxPoolService.
@@ -543,6 +522,10 @@ pub struct TxPoolServiceBuilder {
     pub(crate) chunk_rx: ckb_channel::Receiver<Command>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) started: Arc<AtomicBool>,
+    pub(crate) block_assembler_channel: (
+        mpsc::Sender<BlockAssemblerMessage>,
+        mpsc::Receiver<BlockAssemblerMessage>,
+    ),
 }
 
 impl TxPoolServiceBuilder {
@@ -556,6 +539,7 @@ impl TxPoolServiceBuilder {
         tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
         let (chunk_tx, chunk_rx) = ckb_channel::bounded(12);
@@ -582,11 +566,13 @@ impl TxPoolServiceBuilder {
             started: Arc::clone(&started),
         };
 
+        let block_assembler =
+            block_assembler_config.map(|config| BlockAssembler::new(config, Arc::clone(&snapshot)));
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
             tx_pool_controller: controller.clone(),
             snapshot,
-            block_assembler: block_assembler_config.map(BlockAssembler::new),
+            block_assembler,
             txs_verify_cache,
             callbacks: Callbacks::new(),
             receiver,
@@ -597,6 +583,7 @@ impl TxPoolServiceBuilder {
             chunk_rx,
             chunk,
             started,
+            block_assembler_channel,
         };
 
         (builder, controller)
@@ -624,15 +611,10 @@ impl TxPoolServiceBuilder {
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
-        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
         let consensus = self.snapshot.cloned_consensus();
 
         let after_delay_window = after_delay_window(&self.snapshot);
-        let tx_pool = TxPool::new(
-            self.tx_pool_config,
-            self.snapshot,
-            Arc::clone(&last_txs_updated_at),
-        );
+        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
 
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
@@ -643,6 +625,7 @@ impl TxPoolServiceBuilder {
             }
         };
 
+        let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
@@ -653,10 +636,10 @@ impl TxPoolServiceBuilder {
             txs_verify_cache: self.txs_verify_cache,
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
+            block_assembler_sender,
             chunk: self.chunk,
             network,
             consensus,
-            last_txs_updated_at,
         };
 
         let mut chunk_process = crate::chunk_process::TxChunkProcess::new(
@@ -686,7 +669,31 @@ impl TxPoolServiceBuilder {
             }
         });
 
+        let process_service = service.clone();
+        let mut signal_receiver = self.signal_receiver.clone();
+        self.handle.spawn(async move {
+            let mut interval = tokio::time::interval(BLOCK_ASSEMBLER_INTERVAL);
+            let mut queue = LinkedHashSet::new();
+            loop {
+                tokio::select! {
+                    Some(message) = block_assembler_receiver.recv() => {
+                        queue.insert(message);
+                    },
+                    _ = interval.tick() => {
+                        for message in &queue {
+                            let service_clone = process_service.clone();
+                            block_assembler::process(service_clone, &message).await;
+                        }
+                        queue.clear();
+                    }
+                    _ = signal_receiver.changed() => break,
+                    else => break,
+                }
+            }
+        });
+
         let mut signal_receiver = self.signal_receiver;
+        let handle_clone = self.handle.clone();
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -694,15 +701,24 @@ impl TxPoolServiceBuilder {
                         let Notify {
                             arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
                         } = message;
-                        let service_clone = service.clone();
-                        service_clone
+                        let snapshot_clone = Arc::clone(&snapshot);
+                        let attached_blocks_clone = attached_blocks.clone();
+                        service.update_block_assembler_before_tx_pool_reorg(
+                            attached_blocks_clone,
+                            snapshot_clone
+                        ).await;
+
+                        let snapshot_clone = Arc::clone(&snapshot);
+                        service
                         .update_tx_pool_for_reorg(
                             detached_blocks,
                             attached_blocks,
                             detached_proposal_id,
-                            snapshot,
+                            snapshot_clone,
                         )
-                        .await
+                        .await;
+
+                        service.update_block_assembler_after_tx_pool_reorg().await;
                     },
                     _ = signal_receiver.changed() => break,
                     else => break,
@@ -724,13 +740,13 @@ pub(crate) struct TxPoolService {
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-    pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
     pub(crate) after_delay: Arc<AtomicBool>,
+    pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
 }
 
 /// tx verification result
@@ -762,17 +778,9 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::BlockTemplate(Request {
             responder,
-            arguments: (bytes_limit, proposals_limit, max_version, snapshot, block_assembler_config),
+            arguments: (_bytes_limit, _proposals_limit, _max_version),
         }) => {
-            let block_template_result = service
-                .get_block_template(
-                    bytes_limit,
-                    proposals_limit,
-                    max_version,
-                    snapshot,
-                    block_assembler_config,
-                )
-                .await;
+            let block_template_result = service.get_block_template().await;
             if let Err(e) = responder.send(block_template_result) {
                 error!("responder send block_template_result failed {:?}", e);
             };
@@ -943,36 +951,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
         }
         Message::NewUncle(Notify { arguments: uncle }) => {
-            if service.block_assembler.is_some() {
-                let block_assembler = service.block_assembler.clone().unwrap();
-                block_assembler.candidate_uncles.lock().await.insert(uncle);
-                block_assembler
-                    .last_uncles_updated_at
-                    .store(unix_time_as_millis(), Ordering::SeqCst);
-            }
-        }
-        Message::PlugEntry(Request {
-            responder,
-            arguments: (entries, target),
-        }) => {
-            let mut tx_pool = service.tx_pool.write().await;
-            match target {
-                PlugTarget::Pending => {
-                    for entry in entries {
-                        tx_pool.add_pending(entry);
-                    }
-                }
-                PlugTarget::Proposed => {
-                    for entry in entries {
-                        if let Err(err) = tx_pool.add_proposed(entry) {
-                            error!("plug entry error {}", err);
-                        }
-                    }
-                }
-            };
-            if let Err(e) = responder.send(()) {
-                error!("responder send plug_entry failed {:?}", e);
-            };
+            service.receive_candidate_uncle(uncle).await;
         }
         Message::ClearPool(Request {
             responder,
@@ -1003,6 +982,16 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send save_pool failed {:?}", e)
             };
         }
+        Message::PlugEntry(Request {
+            responder,
+            arguments: (entries, target),
+        }) => {
+            service.plug_entry(entries, target).await;
+
+            if let Err(e) = responder.send(()) {
+                error!("responder send plug_entry failed {:?}", e);
+            };
+        }
     }
 }
 
@@ -1020,7 +1009,7 @@ impl TxPoolService {
             orphan_size: orphan.len(),
             total_tx_size: tx_pool.total_tx_size,
             total_tx_cycles: tx_pool.total_tx_cycles,
-            last_txs_updated_at: tx_pool.get_last_txs_updated_at(),
+            last_txs_updated_at: 0,
         }
     }
 
@@ -1030,5 +1019,94 @@ impl TxPoolService {
 
     pub fn set_after_delay_true(&self) {
         self.after_delay.store(true, Ordering::Relaxed);
+    }
+
+    pub fn should_notify_block_assembler(&self) -> bool {
+        self.block_assembler.is_some()
+    }
+
+    pub async fn receive_candidate_uncle(&self, uncle: UncleBlockView) {
+        if let Some(ref block_assembler) = self.block_assembler {
+            {
+                block_assembler.candidate_uncles.lock().await.insert(uncle);
+            }
+            if let Err(_) = self
+                .block_assembler_sender
+                .send(BlockAssemblerMessage::NewUncle)
+                .await
+            {
+                error!("block_assembler receiver dropped");
+            }
+        }
+    }
+
+    pub async fn update_block_assembler_before_tx_pool_reorg(
+        &self,
+        detached_blocks: VecDeque<BlockView>,
+        snapshot: Arc<Snapshot>,
+    ) {
+        if let Some(ref block_assembler) = self.block_assembler {
+            {
+                let mut candidate_uncles = block_assembler.candidate_uncles.lock().await;
+                for detached_block in detached_blocks {
+                    candidate_uncles.insert(detached_block.as_uncle());
+                }
+            }
+
+            if let Err(e) = block_assembler.update_blank(snapshot).await {
+                error!("block_assembler update_blank error {}", e);
+            }
+        }
+    }
+
+    pub async fn update_block_assembler_after_tx_pool_reorg(&self) {
+        if let Some(ref block_assembler) = self.block_assembler {
+            if let Err(e) = block_assembler.update_full(&self.tx_pool).await {
+                error!("block_assembler update failed {:?}", e);
+            }
+        }
+    }
+
+    pub async fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) {
+        {
+            let mut tx_pool = self.tx_pool.write().await;
+            match target {
+                PlugTarget::Pending => {
+                    for entry in entries {
+                        tx_pool.add_pending(entry);
+                    }
+                }
+                PlugTarget::Proposed => {
+                    for entry in entries {
+                        if let Err(err) = tx_pool.add_proposed(entry) {
+                            error!("plug entry error {}", err);
+                        }
+                    }
+                }
+            };
+        }
+
+        if self.should_notify_block_assembler() {
+            match target {
+                PlugTarget::Pending => {
+                    if let Err(_) = self
+                        .block_assembler_sender
+                        .send(BlockAssemblerMessage::NewPending)
+                        .await
+                    {
+                        error!("block_assembler receiver dropped");
+                    }
+                }
+                PlugTarget::Proposed => {
+                    if let Err(_) = self
+                        .block_assembler_sender
+                        .send(BlockAssemblerMessage::NewProposed)
+                        .await
+                    {
+                        error!("block_assembler receiver dropped");
+                    }
+                }
+            };
+        }
     }
 }

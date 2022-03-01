@@ -72,3 +72,15 @@ impl<'r> packed::BlockReader<'r> {
     }
 }
 impl_serialized_size_for_entity!(Block, serialized_size_without_uncle_proposals);
+
+impl packed::UncleBlock {
+    pub fn serialized_size_in_block() -> usize {
+        packed::Header::TOTAL_SIZE + 5 * molecule::NUMBER_SIZE
+    }
+}
+
+impl packed::ProposalShortId {
+    pub fn serialized_size() -> usize {
+        10
+    }
+}

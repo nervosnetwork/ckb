@@ -55,6 +55,12 @@ impl From<packed::Bytes> for JsonBytes {
     }
 }
 
+impl<'a> From<&'a packed::Bytes> for JsonBytes {
+    fn from(input: &'a packed::Bytes) -> Self {
+        JsonBytes::from_bytes(input.raw_data())
+    }
+}
+
 impl From<JsonBytes> for packed::Bytes {
     fn from(input: JsonBytes) -> Self {
         input.0.pack()

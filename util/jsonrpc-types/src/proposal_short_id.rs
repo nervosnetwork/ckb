@@ -30,6 +30,12 @@ impl From<packed::ProposalShortId> for ProposalShortId {
     }
 }
 
+impl<'a> From<&'a packed::ProposalShortId> for ProposalShortId {
+    fn from(core: &'a packed::ProposalShortId) -> ProposalShortId {
+        ProposalShortId::new(core.unpack())
+    }
+}
+
 impl From<ProposalShortId> for packed::ProposalShortId {
     fn from(json: ProposalShortId) -> Self {
         json.into_inner().pack()

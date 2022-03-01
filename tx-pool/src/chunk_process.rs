@@ -292,6 +292,9 @@ impl TxChunkProcess {
         );
         try_or_return_with_snapshot!(ret, snapshot);
 
+        self.handle
+            .block_on(self.service.notify_block_assembler(status));
+
         self.handle.block_on(self.service.after_process(
             tx,
             remote,

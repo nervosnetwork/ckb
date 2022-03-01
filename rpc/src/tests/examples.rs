@@ -27,12 +27,14 @@ use ckb_types::{
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::cmp;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::{read_dir, File};
 use std::hash;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{thread::sleep, time::Duration};
 
 use super::{RpcTestRequest, RpcTestResponse, RpcTestSuite};
 
@@ -137,6 +139,11 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     pack.take_tx_pool_builder()
         .start(network_controller.clone());
 
+    let tx_pool = shared.tx_pool_controller();
+    while !tx_pool.service_started() {
+        sleep(Duration::from_millis(400));
+    }
+
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
 
@@ -152,23 +159,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         parent.tx_hashes()[0].unpack(),
         "Expect the last cellbase tx hash matches the constant, which is used later in an example tx."
     );
-
-    // insert a fork block for rpc `get_fork_block` test
-    {
-        let fork_block = parent
-            .as_advanced_builder()
-            .header(
-                parent
-                    .header()
-                    .as_advanced_builder()
-                    .timestamp((parent.header().timestamp() + 1).pack())
-                    .build(),
-            )
-            .build();
-        chain_controller
-            .process_block(Arc::new(fork_block))
-            .expect("processing new block should be ok");
-    }
 
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
@@ -261,12 +251,31 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     let suite = RpcTestSuite {
         shared,
-        chain_controller,
+        chain_controller: chain_controller.clone(),
         rpc_server,
         rpc_uri,
         rpc_client,
         _tmp_dir: temp_dir,
     };
+
+    suite.wait_block_template_number(height + 1);
+
+    // insert a fork block for rpc `get_fork_block` test
+    {
+        let fork_block = parent
+            .as_advanced_builder()
+            .header(
+                parent
+                    .header()
+                    .as_advanced_builder()
+                    .timestamp((parent.header().timestamp() + 1).pack())
+                    .build(),
+            )
+            .build();
+        chain_controller
+            .process_block(Arc::new(fork_block))
+            .expect("processing new block should be ok");
+    }
 
     suite.send_example_transaction();
 
@@ -306,7 +315,7 @@ fn find_rpc_method(line: &str) -> Option<&str> {
 }
 
 fn collect_code_block(
-    collected: &mut HashSet<RpcTestExample>,
+    collected: &mut BTreeSet<RpcTestExample>,
     request: &mut Option<RpcTestRequest>,
     code_block: String,
 ) -> io::Result<()> {
@@ -358,7 +367,7 @@ fn collect_code_block(
 }
 
 fn collect_rpc_examples_in_file(
-    collected: &mut HashSet<RpcTestExample>,
+    collected: &mut BTreeSet<RpcTestExample>,
     path: PathBuf,
 ) -> io::Result<()> {
     let reader = io::BufReader::new(File::open(&path)?);
@@ -427,12 +436,12 @@ fn collect_rpc_examples_in_file(
 }
 
 // Use HashSet to randomize the order
-fn collect_rpc_examples() -> io::Result<HashSet<RpcTestExample>> {
+fn collect_rpc_examples() -> io::Result<BTreeSet<RpcTestExample>> {
     let mut modules_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     modules_dir.push("src");
     modules_dir.push("module");
 
-    let mut examples = HashSet::new();
+    let mut examples = BTreeSet::new();
 
     for module_file in read_dir(modules_dir)? {
         let path = module_file?.path();
@@ -447,6 +456,7 @@ fn collect_rpc_examples() -> io::Result<HashSet<RpcTestExample>> {
     Ok(examples)
 }
 
+#[derive(Debug, Clone)]
 struct RpcTestExample {
     request: RpcTestRequest,
     response: RpcTestResponse,
@@ -466,6 +476,18 @@ impl PartialEq for RpcTestExample {
 }
 
 impl Eq for RpcTestExample {}
+
+impl Ord for RpcTestExample {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.request.cmp(&other.request)
+    }
+}
+
+impl PartialOrd for RpcTestExample {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl RpcTestExample {
     fn search(method: String, id: usize) -> Self {
@@ -501,6 +523,10 @@ impl RpcTestSuite {
             method: "send_transaction".to_string(),
             params: vec![json!(example_tx), json!("passthrough")],
         });
+    }
+
+    fn wait_block_template_update(&self) {
+        self.wait_block_template_array_ge("uncles", 1)
     }
 
     fn run_example(&self, example: &RpcTestExample) {
@@ -571,7 +597,8 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "unsubscribe" => replace_rpc_response::<bool>(example, response),
         "send_transaction" => replace_rpc_response::<H256>(example, response),
         "get_block_template" => {
-            response.result["current_time"] = example.response.result["current_time"].clone()
+            response.result["current_time"] = example.response.result["current_time"].clone();
+            response.result["work_id"] = example.response.result["work_id"].clone();
         }
         "tx_pool_info" => {
             response.result["last_txs_updated_at"] =
@@ -596,7 +623,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
 // Sets up RPC example test.
 //
 // Returns false to skip the example.
-fn before_rpc_example(_suite: &RpcTestSuite, example: &mut RpcTestExample) -> bool {
+fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> bool {
     match (example.request.method.as_str(), example.request.id) {
         ("get_transaction", 42) => {
             assert_eq!(
@@ -610,6 +637,7 @@ fn before_rpc_example(_suite: &RpcTestSuite, example: &mut RpcTestExample) -> bo
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,
         ("truncate", 42) => return false,
+        ("get_block_template", 42) => suite.wait_block_template_update(),
         _ => return true,
     }
 

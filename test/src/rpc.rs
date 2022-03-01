@@ -253,7 +253,7 @@ impl RpcClient {
 
     pub fn generate_block(&self) -> Byte32 {
         self.inner()
-            .generate_block(None, None)
+            .generate_block()
             .expect("rpc call generate_block")
             .pack()
     }
@@ -344,7 +344,7 @@ jsonrpc!(pub struct Inner {
     pub fn remove_node(&self, peer_id: String) -> ();
     pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
     pub fn truncate(&self, target_tip_hash: H256) -> ();
-    pub fn generate_block(&self, block_assembler_script: Option<Script>, block_assembler_message: Option<JsonBytes>) -> H256;
+    pub fn generate_block(&self) -> H256;
     pub fn generate_block_with_template(&self, block_template: BlockTemplate) -> H256;
 
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;

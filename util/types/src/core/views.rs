@@ -544,6 +544,10 @@ impl UncleBlockView {
     pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.data().as_reader().calc_proposals_hash()
     }
+
+    pub fn serialized_size_in_block() -> usize {
+        packed::UncleBlock::serialized_size_in_block()
+    }
 }
 
 impl UncleBlockVecView {
