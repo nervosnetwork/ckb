@@ -196,7 +196,7 @@ fn create_cellbase(
                 .build(),
         )
         .output_data(Default::default())
-        .witness(Default::default())
+        .witness(packed::Script::default().into_witness())
         .build()
 }
 

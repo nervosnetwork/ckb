@@ -18,7 +18,7 @@ use ckb_types::{
             ResolveOptions, ResolvedTransaction,
         },
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
-        Cycle, TransactionView,
+        Cycle, TransactionView, UncleBlockView,
     },
     packed::{Byte32, ProposalShortId},
 };
@@ -44,8 +44,6 @@ pub struct TxPool {
     pub(crate) proposed: ProposedPool,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
-    /// last txs updated timestamp, used by getblocktemplate
-    pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     // sum of all tx_pool tx's virtual sizes.
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
@@ -92,11 +90,7 @@ pub struct TxPoolInfo {
 
 impl TxPool {
     /// Create new TxPool
-    pub fn new(
-        config: TxPoolConfig,
-        snapshot: Arc<Snapshot>,
-        last_txs_updated_at: Arc<AtomicU64>,
-    ) -> TxPool {
+    pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
         let recent_reject = build_recent_reject(&config);
         let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
         TxPool {
@@ -104,7 +98,6 @@ impl TxPool {
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
-            last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
             config,
@@ -170,7 +163,7 @@ impl TxPool {
         trace!("add_pending {}", entry.transaction().hash());
         let inserted = self.pending.add_entry(entry);
         if inserted {
-            self.touch_last_txs_updated_at();
+            // self.touch_last_txs_updated_at();
         }
         inserted
     }
@@ -186,21 +179,21 @@ impl TxPool {
         trace!("add_proposed {}", entry.transaction().hash());
         self.proposed.add_entry(entry).map(|inserted| {
             if inserted {
-                self.touch_last_txs_updated_at();
+                // self.touch_last_txs_updated_at();
             }
             inserted
         })
     }
 
-    pub(crate) fn touch_last_txs_updated_at(&self) {
-        self.last_txs_updated_at
-            .store(unix_time_as_millis(), Ordering::SeqCst);
-    }
+    // pub(crate) fn touch_last_txs_updated_at(&self) {
+    //     self.last_txs_updated_at
+    //         .store(unix_time_as_millis(), Ordering::SeqCst);
+    // }
 
     /// Get last txs in tx-pool update timestamp
-    pub fn get_last_txs_updated_at(&self) -> u64 {
-        self.last_txs_updated_at.load(Ordering::SeqCst)
-    }
+    // pub fn get_last_txs_updated_at(&self) -> u64 {
+    //     self.last_txs_updated_at.load(Ordering::SeqCst)
+    // }
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
@@ -608,19 +601,51 @@ impl TxPool {
         txs.append(&mut self.pending.drain());
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
-        self.touch_last_txs_updated_at();
+        // self.touch_last_txs_updated_at();
         txs
     }
 
-    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>, last_txs_updated_at: Arc<AtomicU64>) {
+    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>) {
         self.pending = PendingQueue::new();
         self.gap = PendingQueue::new();
         self.proposed = ProposedPool::new(self.config.max_ancestors_count);
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-        self.last_txs_updated_at = last_txs_updated_at;
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
+    }
+
+    pub(crate) fn package_proposals(
+        &self,
+        proposals_limit: u64,
+        uncles: &[UncleBlockView],
+    ) -> HashSet<ProposalShortId> {
+        let uncle_proposals = uncles
+            .iter()
+            .flat_map(|u| u.data().proposals().into_iter())
+            .collect();
+        self.get_proposals(proposals_limit as usize, &uncle_proposals)
+    }
+
+    pub(crate) fn package_txs(
+        &self,
+        max_block_cycles: Cycle,
+        txs_size_limit: usize,
+    ) -> (Vec<TxEntry>, usize, Cycle) {
+        let (entries, size, cycles) =
+            CommitTxsScanner::new(self.proposed()).txs_to_commit(txs_size_limit, max_block_cycles);
+
+        if !entries.is_empty() {
+            ckb_logger::info!(
+                "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
+                entries.len(),
+                size,
+                txs_size_limit,
+                cycles,
+                max_block_cycles
+            );
+        }
+        (entries, size, cycles)
     }
 }
 

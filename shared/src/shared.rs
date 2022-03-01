@@ -365,12 +365,10 @@ impl Shared {
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> Result<Result<BlockTemplate, AnyError>, AnyError> {
-        let snapshot = Arc::clone(&self.snapshot());
         self.tx_pool_controller().get_block_template(
             bytes_limit,
             proposals_limit,
             max_version.map(Into::into),
-            snapshot,
         )
     }
 }

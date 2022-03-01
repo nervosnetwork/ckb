@@ -23,18 +23,30 @@ use ckb_types::{
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashSet, fmt, sync::Arc};
+use std::{cmp, collections::HashSet, fmt, sync::Arc};
 
 mod error;
 mod examples;
 mod module;
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq, Default)]
 struct RpcTestRequest {
     pub id: usize,
     pub jsonrpc: String,
     pub method: String,
     pub params: Vec<Value>,
+}
+
+impl Ord for RpcTestRequest {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.method.cmp(&other.method)
+    }
+}
+
+impl PartialOrd for RpcTestRequest {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl fmt::Display for RpcTestRequest {
@@ -90,6 +102,58 @@ impl RpcTestSuite {
             })
             .json::<RpcTestResponse>()
             .expect("Deserialize RpcTestRequest")
+    }
+
+    fn wait_block_template_number(&self, target: u64) {
+        use ckb_jsonrpc_types::Uint64;
+        use std::{thread::sleep, time::Duration};
+
+        let mut response = self.rpc(&RpcTestRequest {
+            id: 42,
+            jsonrpc: "2.0".to_string(),
+            method: "get_block_template".to_string(),
+            params: vec![],
+        });
+
+        loop {
+            let number: Uint64 = serde_json::from_value(response.result["number"].clone()).unwrap();
+            if number.value() < target {
+                sleep(Duration::from_millis(400));
+                response = self.rpc(&RpcTestRequest {
+                    id: 42,
+                    jsonrpc: "2.0".to_string(),
+                    method: "get_block_template".to_string(),
+                    params: vec![],
+                });
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn wait_block_template_array_ge(&self, field: &str, size: usize) {
+        use std::{thread::sleep, time::Duration};
+
+        let mut response = self.rpc(&RpcTestRequest {
+            id: 42,
+            jsonrpc: "2.0".to_string(),
+            method: "get_block_template".to_string(),
+            params: vec![],
+        });
+
+        loop {
+            if response.result[field].as_array().unwrap().len() < size {
+                sleep(Duration::from_millis(400));
+                response = self.rpc(&RpcTestRequest {
+                    id: 42,
+                    jsonrpc: "2.0".to_string(),
+                    method: "get_block_template".to_string(),
+                    params: vec![],
+                });
+            } else {
+                break;
+            }
+        }
     }
 }
 

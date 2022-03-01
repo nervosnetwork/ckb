@@ -22,6 +22,9 @@ pub enum BlockAssemblerError {
     /// BlockAssembler is disabled
     #[error("Disabled")]
     Disabled,
+    /// BlockAssembler calculate overflow
+    #[error("Overflow")]
+    Overflow,
 }
 
 impl_error_conversion_with_kind!(

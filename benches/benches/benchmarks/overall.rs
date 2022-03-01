@@ -186,10 +186,20 @@ fn bench(c: &mut Criterion) {
                                     tx_pool.submit_local_tx(tx).unwrap().expect("submit_tx");
                                 }
                             }
-                            let block_template = tx_pool
-                                .get_block_template(None, None, None, Arc::clone(&snapshot))
+
+                            let mut block_template = tx_pool
+                                .get_block_template(None, None, None)
                                 .unwrap()
                                 .expect("get_block_template");
+
+                            while !(block_template.number == (snapshot.tip_number() + 1).into()
+                                && block_template.proposals.len() > 0)
+                            {
+                                block_template = tx_pool
+                                    .get_block_template(None, None, None)
+                                    .unwrap()
+                                    .expect("get_block_template");
+                            }
                             let raw_block: Block = block_template.into();
                             let raw_header = raw_block.header().raw();
                             let header = Header::new_builder()
