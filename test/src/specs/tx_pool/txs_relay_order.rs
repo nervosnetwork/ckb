@@ -16,8 +16,8 @@ impl Spec for TxsRelayOrder {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        connect_all(nodes);
         out_ibd_mode(nodes);
+        connect_all(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];

@@ -1,5 +1,6 @@
 use super::new_alert_config;
 use crate::node::connect_all;
+use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_app_config::{CKBAppConfig, NetworkAlertConfig, RpcModule};
@@ -33,6 +34,7 @@ impl Spec for AlertPropagation {
     //    2. cancel previous alert via node0; all nodes should receive the alert;
     //    3. resend the first alert, all nodes should ignore the alert.
     fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
         connect_all(nodes);
 
         let node0 = &nodes[0];

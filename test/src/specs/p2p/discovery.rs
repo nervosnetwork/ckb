@@ -1,3 +1,4 @@
+use crate::util::mining::out_ibd_mode;
 use crate::utils::wait_until;
 use crate::{Node, Spec};
 
@@ -7,6 +8,7 @@ impl Spec for Discovery {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
         for i in 0..nodes.len() - 1 {
             nodes[i].connect(&nodes[i + 1]);
         }
