@@ -1,6 +1,6 @@
 [package]
 name = "ckb-store"
-version = "0.101.5"
+version = "0.101.6"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,16 +9,16 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.101.5" }
-ckb-db = { path = "../db", version = "= 0.101.5" }
-ckb-chain-spec = { path = "../spec", version = "= 0.101.5" }
+ckb-types = { path = "../util/types", version = "= 0.101.6" }
+ckb-db = { path = "../db", version = "= 0.101.6" }
+ckb-chain-spec = { path = "../spec", version = "= 0.101.6" }
 lru = "0.7.1"
-ckb-traits = { path = "../traits", version = "= 0.101.5" }
-ckb-util = { path = "../util", version = "= 0.101.5" }
-ckb-error = { path = "../error", version = "= 0.101.5" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.101.5" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.101.5" }
-ckb-freezer = { path = "../freezer", version = "= 0.101.5" }
+ckb-traits = { path = "../traits", version = "= 0.101.6" }
+ckb-util = { path = "../util", version = "= 0.101.6" }
+ckb-error = { path = "../error", version = "= 0.101.6" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.101.6" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.101.6" }
+ckb-freezer = { path = "../freezer", version = "= 0.101.6" }
 
 [dev-dependencies]
 tempfile = "3.0"
