@@ -171,6 +171,10 @@ union SyncMessage {
     SendHeaders,
     GetBlocks,
     SendBlock,
+    SetFilter,
+    AddFilter,
+    ClearFilter,
+    FilteredBlock,
     InIBD,
 }
 
@@ -189,6 +193,25 @@ table SendHeaders {
 
 table SendBlock {
     block:                  Block,
+}
+
+table SetFilter {
+    hash_seed:              Uint32,
+    filter:                 Bytes,
+    num_hashes:             byte,
+}
+
+table AddFilter {
+    filter:                 Bytes,
+}
+
+table ClearFilter {
+}
+
+table FilteredBlock {
+    header:                 Header,
+    transactions:           TransactionVec,
+    proof:                  MerkleProof,
 }
 
 table MerkleProof {
