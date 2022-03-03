@@ -181,7 +181,7 @@ where
         }
     }
 
-    /// Clears the map of all key-value pairs.
+    /// Clears the set of all value.
     pub fn clear(&mut self) {
         self.map.clear();
     }

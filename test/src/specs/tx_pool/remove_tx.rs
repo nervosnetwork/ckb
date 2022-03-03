@@ -1,11 +1,7 @@
 use ckb_network::SupportProtocols;
 
 use crate::{
-    util::{
-        check,
-        mining::{mine, mine_until_out_bootstrap_period},
-        transaction::relay_tx,
-    },
+    util::{check, transaction::relay_tx},
     utils::wait_until,
     Net, Node, Spec,
 };
@@ -19,7 +15,7 @@ impl Spec for RemoveTx {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let mut net = Net::new(
             self.name(),
@@ -99,7 +95,8 @@ impl Spec for RemoveTx {
             assert!(check::is_transaction_pending(node0, &tx));
             node0.assert_tx_pool_statics(tx_size, tx_cycles);
 
-            mine(node0, 2);
+            let proposed = node0.mine_with_blocking(|template| template.proposals.len() != 1);
+            node0.mine_with_blocking(|template| template.number.value() != (proposed + 1));
             let result = wait_until(5, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 0 && tx_pool_info.proposed.value() == 1

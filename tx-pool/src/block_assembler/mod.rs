@@ -10,17 +10,17 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_dao::DaoCalculator;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
-    BlockTemplate as JsonBlockTemplate, CellbaseTemplate, Timestamp, TransactionTemplate, Uint32,
-    Uint64, UncleTemplate,
+    BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
+        cell::{OverlayCellChecker, ResolveOptions, TransactionsChecker},
         BlockNumber, Capacity, Cycle, EpochExt, EpochNumberWithFraction, ScriptHashType,
         TransactionBuilder, TransactionView, UncleBlockView, Version,
     },
@@ -29,23 +29,16 @@ use ckb_types::{
         Transaction,
     },
     prelude::*,
-    H256,
 };
+use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+use std::{cmp, iter};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::block_in_place;
-
-use ckb_types::core::cell::OverlayCellChecker;
-use ckb_types::core::cell::ResolveOptions;
-use ckb_types::core::cell::TransactionsChecker;
-
-use ckb_dao::DaoCalculator;
-use faketime::unix_time_as_millis;
-use std::{cmp, iter};
 
 use crate::TxPool;
 pub(crate) use process::process;
@@ -102,7 +95,7 @@ impl BlockAssembler {
             .transactions(vec![])
             .proposals(vec![])
             .cellbase(cellbase)
-            .work_id(work_id.fetch_add(1, Ordering::SeqCst).into())
+            .work_id(work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
         let template = builder.build();
@@ -129,7 +122,7 @@ impl BlockAssembler {
         }
     }
 
-    pub async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<(), AnyError> {
+    pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<(), AnyError> {
         let mut current = self.current.lock().await;
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
@@ -143,7 +136,7 @@ impl BlockAssembler {
                 return Ok(());
             }
             let proposals =
-                tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), &uncles);
+                tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), uncles);
 
             let basic_size = Self::basic_block_size(
                 current_template.cellbase.data(),
@@ -176,18 +169,30 @@ impl BlockAssembler {
         builder
             .set_proposals(Vec::from_iter(proposals))
             .set_transactions(txs)
-            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst).into())
-            .current_time(cmp::max(unix_time_as_millis(), current.template.current_time).into())
+            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+            .current_time(cmp::max(
+                unix_time_as_millis(),
+                current.template.current_time,
+            ))
             .dao(dao);
+
         current.template = builder.build();
         current.size.txs = txs_size;
         current.size.total = total_size;
         current.size.proposals = proposals_size;
 
+        ckb_logger::trace!(
+            "[BlockAssembler] update_full {} uncles-{} proposals-{} txs-{}",
+            current.template.number,
+            current.template.uncles.len(),
+            current.template.proposals.len(),
+            current.template.transactions.len(),
+        );
+
         Ok(())
     }
 
-    pub async fn update_blank(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
+    pub(crate) async fn update_blank(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let current_epoch = consensus
@@ -211,10 +216,18 @@ impl BlockAssembler {
             .proposals(vec![])
             .cellbase(cellbase)
             .uncles(uncles)
-            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst).into())
+            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
         let template = builder.build();
+
+        ckb_logger::trace!(
+            "[BlockAssembler] update_blank {} uncles-{} proposals-{} txs-{}",
+            template.number,
+            template.uncles.len(),
+            template.proposals.len(),
+            template.transactions.len(),
+        );
 
         let size = TemplateSize {
             txs: 0,
@@ -234,7 +247,7 @@ impl BlockAssembler {
         Ok(())
     }
 
-    pub async fn update_uncles(&self) {
+    pub(crate) async fn update_uncles(&self) {
         let mut current = self.current.lock().await;
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
@@ -254,19 +267,29 @@ impl BlockAssembler {
                     let mut builder = BlockTemplateBuilder::from_template(&current.template);
                     builder
                         .set_uncles(uncles)
-                        .work_id(self.work_id.fetch_add(1, Ordering::SeqCst).into())
-                        .current_time(
-                            cmp::max(unix_time_as_millis(), current.template.current_time).into(),
-                        );
+                        .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+                        .current_time(cmp::max(
+                            unix_time_as_millis(),
+                            current.template.current_time,
+                        ));
                     current.template = builder.build();
                     current.size.uncles = new_uncle_size;
                     current.size.total = new_total_size;
+
+                    ckb_logger::trace!(
+                        "[BlockAssembler] update_uncles-{} epoch-{} uncles-{} proposals-{} txs-{}",
+                        current.template.number,
+                        current.template.epoch.number(),
+                        current.template.uncles.len(),
+                        current.template.proposals.len(),
+                        current.template.transactions.len(),
+                    );
                 }
             }
         }
     }
 
-    pub async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
+    pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
         let mut current = self.current.lock().await;
         let consensus = current.snapshot.consensus();
         let uncles = &current.template.uncles;
@@ -275,7 +298,7 @@ impl BlockAssembler {
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
                 return;
             }
-            tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), &uncles)
+            tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), uncles)
         };
 
         let new_proposals_size = proposals.len() * ProposalShortId::serialized_size();
@@ -286,17 +309,27 @@ impl BlockAssembler {
             let mut builder = BlockTemplateBuilder::from_template(&current.template);
             builder
                 .set_proposals(Vec::from_iter(proposals))
-                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst).into())
-                .current_time(
-                    cmp::max(unix_time_as_millis(), current.template.current_time).into(),
-                );
+                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+                .current_time(cmp::max(
+                    unix_time_as_millis(),
+                    current.template.current_time,
+                ));
             current.template = builder.build();
             current.size.proposals = new_proposals_size;
             current.size.total = new_total_size;
+
+            trace!(
+                "[BlockAssembler] update_proposals-{} epoch-{} uncles-{} proposals-{} txs-{}",
+                current.template.number,
+                current.template.epoch.number(),
+                current.template.uncles.len(),
+                current.template.proposals.len(),
+                current.template.transactions.len(),
+            );
         }
     }
 
-    pub async fn update_transactions(&self, tx_pool: &RwLock<TxPool>) {
+    pub(crate) async fn update_transactions(&self, tx_pool: &RwLock<TxPool>) {
         let mut current = self.current.lock().await;
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
@@ -338,21 +371,33 @@ impl BlockAssembler {
             let mut builder = BlockTemplateBuilder::from_template(&current.template);
             builder
                 .set_transactions(txs)
-                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst).into())
-                .current_time(cmp::max(unix_time_as_millis(), current.template.current_time).into())
+                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+                .current_time(cmp::max(
+                    unix_time_as_millis(),
+                    current.template.current_time,
+                ))
                 .dao(dao);
             current.template = builder.build();
             current.size.txs = new_txs_size;
             current.size.total = new_total_size;
+
+            trace!(
+                "[BlockAssembler] update_transactions-{} epoch-{} uncles-{} proposals-{} txs-{}",
+                current.template.number,
+                current.template.epoch.number(),
+                current.template.uncles.len(),
+                current.template.proposals.len(),
+                current.template.transactions.len(),
+            );
         }
     }
 
-    pub async fn get_current(&self) -> JsonBlockTemplate {
+    pub(crate) async fn get_current(&self) -> JsonBlockTemplate {
         let current = self.current.lock().await;
         (&current.template).into()
     }
 
-    pub fn build_cellbase_witness(config: &BlockAssemblerConfig) -> CellbaseWitness {
+    pub(crate) fn build_cellbase_witness(config: &BlockAssemblerConfig) -> CellbaseWitness {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
@@ -384,7 +429,7 @@ impl BlockAssembler {
     /// Miner specify own lock in cellbase witness.
     /// The cellbase have only one output,
     /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
-    pub fn build_cellbase(
+    pub(crate) fn build_cellbase(
         config: &BlockAssemblerConfig,
         snapshot: &Snapshot,
     ) -> Result<TransactionView, AnyError> {
@@ -420,32 +465,13 @@ impl BlockAssembler {
         Ok(tx)
     }
 
-    pub async fn prepare_uncles(
+    pub(crate) async fn prepare_uncles(
         &self,
         snapshot: &Snapshot,
         current_epoch: &EpochExt,
     ) -> Vec<UncleBlockView> {
         let mut guard = self.candidate_uncles.lock().await;
         guard.prepare_uncles(snapshot, current_epoch)
-    }
-
-    pub(crate) fn transform_params(
-        consensus: &Consensus,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-    ) -> (u64, u64, Version) {
-        let bytes_limit = bytes_limit
-            .min(Some(consensus.max_block_bytes()))
-            .unwrap_or_else(|| consensus.max_block_bytes());
-        let proposals_limit = proposals_limit
-            .min(Some(consensus.max_block_proposals_limit()))
-            .unwrap_or_else(|| consensus.max_block_proposals_limit());
-        let version = max_version
-            .min(Some(consensus.block_version()))
-            .unwrap_or_else(|| consensus.block_version());
-
-        (bytes_limit, proposals_limit, version)
     }
 
     pub(crate) fn basic_block_size<'a>(
@@ -489,7 +515,7 @@ impl BlockAssembler {
         let mut seen_inputs = HashSet::new();
         let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
 
-        let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
+        let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase, 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
         let resolve_opts = {
@@ -537,25 +563,25 @@ impl BlockAssembler {
 }
 
 #[derive(Clone)]
-pub struct BlockTemplate {
-    pub version: Version,
-    pub compact_target: u32,
-    pub number: BlockNumber,
-    pub epoch: EpochNumberWithFraction,
-    pub parent_hash: Byte32,
-    pub cycles_limit: Cycle,
-    pub bytes_limit: u64,
-    pub uncles_count_limit: u8,
+pub(crate) struct BlockTemplate {
+    pub(crate) version: Version,
+    pub(crate) compact_target: u32,
+    pub(crate) number: BlockNumber,
+    pub(crate) epoch: EpochNumberWithFraction,
+    pub(crate) parent_hash: Byte32,
+    pub(crate) cycles_limit: Cycle,
+    pub(crate) bytes_limit: u64,
+    pub(crate) uncles_count_limit: u8,
 
     // option
-    pub uncles: Vec<UncleBlockView>,
-    pub transactions: Vec<TxEntry>,
-    pub proposals: Vec<ProposalShortId>,
-    pub cellbase: TransactionView,
-    pub work_id: u64,
-    pub dao: Byte32,
-    pub current_time: u64,
-    pub extension: Option<Bytes>,
+    pub(crate) uncles: Vec<UncleBlockView>,
+    pub(crate) transactions: Vec<TxEntry>,
+    pub(crate) proposals: Vec<ProposalShortId>,
+    pub(crate) cellbase: TransactionView,
+    pub(crate) work_id: u64,
+    pub(crate) dao: Byte32,
+    pub(crate) current_time: u64,
+    pub(crate) extension: Option<Bytes>,
 }
 
 impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {
@@ -586,29 +612,29 @@ impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {
 }
 
 #[derive(Clone)]
-pub struct BlockTemplateBuilder {
-    pub version: Version,
-    pub compact_target: u32,
-    pub number: BlockNumber,
-    pub epoch: EpochNumberWithFraction,
-    pub parent_hash: Byte32,
-    pub cycles_limit: Cycle,
-    pub bytes_limit: u64,
-    pub uncles_count_limit: u8,
+pub(crate) struct BlockTemplateBuilder {
+    pub(crate) version: Version,
+    pub(crate) compact_target: u32,
+    pub(crate) number: BlockNumber,
+    pub(crate) epoch: EpochNumberWithFraction,
+    pub(crate) parent_hash: Byte32,
+    pub(crate) cycles_limit: Cycle,
+    pub(crate) bytes_limit: u64,
+    pub(crate) uncles_count_limit: u8,
 
     // option
-    pub uncles: Vec<UncleBlockView>,
-    pub transactions: Vec<TxEntry>,
-    pub proposals: Vec<ProposalShortId>,
-    pub cellbase: Option<TransactionView>,
-    pub work_id: Option<u64>,
-    pub dao: Option<Byte32>,
-    pub current_time: Option<u64>,
-    pub extension: Option<Bytes>,
+    pub(crate) uncles: Vec<UncleBlockView>,
+    pub(crate) transactions: Vec<TxEntry>,
+    pub(crate) proposals: Vec<ProposalShortId>,
+    pub(crate) cellbase: Option<TransactionView>,
+    pub(crate) work_id: Option<u64>,
+    pub(crate) dao: Option<Byte32>,
+    pub(crate) current_time: Option<u64>,
+    pub(crate) extension: Option<Bytes>,
 }
 
 impl BlockTemplateBuilder {
-    pub fn new(snapshot: &Snapshot, current_epoch: &EpochExt) -> Self {
+    pub(crate) fn new(snapshot: &Snapshot, current_epoch: &EpochExt) -> Self {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let tip_hash = tip_header.hash();
@@ -620,15 +646,15 @@ impl BlockTemplateBuilder {
         let uncles_count_limit = consensus.max_uncles_num() as u8;
 
         Self {
-            version: version.into(),
+            version,
             compact_target: current_epoch.compact_target(),
 
-            number: candidate_number.into(),
+            number: candidate_number,
             epoch: current_epoch.number_with_fraction(candidate_number),
             parent_hash: tip_hash,
-            cycles_limit: cycles_limit,
+            cycles_limit,
             bytes_limit: max_block_bytes,
-            uncles_count_limit: uncles_count_limit,
+            uncles_count_limit,
             // option
             uncles: vec![],
             transactions: vec![],
@@ -641,7 +667,7 @@ impl BlockTemplateBuilder {
         }
     }
 
-    pub fn from_template(template: &BlockTemplate) -> Self {
+    pub(crate) fn from_template(template: &BlockTemplate) -> Self {
         Self {
             version: template.version,
             compact_target: template.compact_target,
@@ -663,62 +689,69 @@ impl BlockTemplateBuilder {
         }
     }
 
-    pub fn uncles(&mut self, uncles: impl IntoIterator<Item = UncleBlockView>) -> &mut Self {
+    pub(crate) fn uncles(&mut self, uncles: impl IntoIterator<Item = UncleBlockView>) -> &mut Self {
         self.uncles.extend(uncles);
         self
     }
 
-    pub fn set_uncles(&mut self, uncles: Vec<UncleBlockView>) -> &mut Self {
+    pub(crate) fn set_uncles(&mut self, uncles: Vec<UncleBlockView>) -> &mut Self {
         self.uncles = uncles;
         self
     }
 
-    pub fn transactions(&mut self, transactions: impl IntoIterator<Item = TxEntry>) -> &mut Self {
+    pub(crate) fn transactions(
+        &mut self,
+        transactions: impl IntoIterator<Item = TxEntry>,
+    ) -> &mut Self {
         self.transactions.extend(transactions);
         self
     }
 
-    pub fn set_transactions(&mut self, transactions: Vec<TxEntry>) -> &mut Self {
+    pub(crate) fn set_transactions(&mut self, transactions: Vec<TxEntry>) -> &mut Self {
         self.transactions = transactions;
         self
     }
 
-    pub fn proposals(&mut self, proposals: impl IntoIterator<Item = ProposalShortId>) -> &mut Self {
+    pub(crate) fn proposals(
+        &mut self,
+        proposals: impl IntoIterator<Item = ProposalShortId>,
+    ) -> &mut Self {
         self.proposals.extend(proposals);
         self
     }
 
-    pub fn set_proposals(&mut self, proposals: Vec<ProposalShortId>) -> &mut Self {
+    pub(crate) fn set_proposals(&mut self, proposals: Vec<ProposalShortId>) -> &mut Self {
         self.proposals = proposals;
         self
     }
 
-    pub fn cellbase(&mut self, cellbase: TransactionView) -> &mut Self {
+    pub(crate) fn cellbase(&mut self, cellbase: TransactionView) -> &mut Self {
         self.cellbase = Some(cellbase);
         self
     }
 
-    pub fn work_id(&mut self, work_id: u64) -> &mut Self {
+    pub(crate) fn work_id(&mut self, work_id: u64) -> &mut Self {
         self.work_id = Some(work_id);
         self
     }
 
-    pub fn dao(&mut self, dao: Byte32) -> &mut Self {
+    pub(crate) fn dao(&mut self, dao: Byte32) -> &mut Self {
         self.dao = Some(dao);
         self
     }
 
-    pub fn current_time(&mut self, current_time: u64) -> &mut Self {
+    pub(crate) fn current_time(&mut self, current_time: u64) -> &mut Self {
         self.current_time = Some(current_time);
         self
     }
 
-    pub fn extension(&mut self, extension: Bytes) -> &mut Self {
+    #[allow(dead_code)]
+    pub(crate) fn extension(&mut self, extension: Bytes) -> &mut Self {
         self.extension = Some(extension);
         self
     }
 
-    pub fn build(self) -> BlockTemplate {
+    pub(crate) fn build(self) -> BlockTemplate {
         assert!(self.cellbase.is_some(), "cellbase must be set");
         assert!(self.work_id.is_some(), "work_id must be set");
         assert!(self.current_time.is_some(), "current_time must be set");

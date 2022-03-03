@@ -1,7 +1,4 @@
-use crate::{
-    util::mining::{mine, mine_until_epoch},
-    Node, Spec,
-};
+use crate::{Node, Spec};
 
 const GENESIS_EPOCH_LENGTH: u64 = 20;
 const CKB2021_START_EPOCH: u64 = 2;
@@ -19,8 +16,7 @@ impl Spec for DelayTxs {
         let proposal_window = node.consensus().tx_proposal_window();
         let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
 
-        mine_until_epoch(
-            node,
+        node.mine_until_epoch(
             ckb2019_last_epoch,
             epoch_length - proposal_window.farthest(),
             epoch_length,
@@ -37,12 +33,12 @@ impl Spec for DelayTxs {
             let ret = node.rpc_client().get_transaction(tx.hash());
             assert!(ret.is_none(), "tx should be delayed");
 
-            mine(node, 1);
+            node.mine(1);
         }
         // tx should be processed after delay_windows
         // but in order to avoid asynchronous non-determinism
         // we check in next block.
-        mine(node, 1);
+        node.mine(1);
         node.wait_for_tx_pool();
         node.assert_tx_pool_size(delay_windows, 0);
     }

@@ -1,9 +1,6 @@
 use crate::{
     node::waiting_for_sync,
-    util::{
-        check::{assert_epoch_should_be, assert_submit_block_fail, assert_submit_block_ok},
-        mining::{mine, mine_until_epoch, mine_until_out_bootstrap_period},
-    },
+    util::check::{assert_epoch_should_be, assert_submit_block_fail, assert_submit_block_ok},
     utils::wait_until,
 };
 use crate::{Node, Spec};
@@ -26,7 +23,7 @@ impl Spec for CheckBlockExtension {
             let node = &nodes[0];
             let epoch_length = GENESIS_EPOCH_LENGTH;
 
-            mine_until_out_bootstrap_period(node);
+            node.mine_until_out_bootstrap_period();
 
             assert_epoch_should_be(node, 1, 2, epoch_length);
             {
@@ -48,7 +45,7 @@ impl Spec for CheckBlockExtension {
             }
             assert_epoch_should_be(node, 1, 3, epoch_length);
 
-            mine_until_epoch(node, 1, epoch_length - 2, epoch_length);
+            node.mine_until_epoch(1, epoch_length - 2, epoch_length);
             {
                 info!("CKB v2019, empty extension field is failed (boundary)");
                 test_extension_via_size(node, Some(0), Err(ERROR_UNKNOWN_FIELDS));
@@ -92,7 +89,7 @@ impl Spec for CheckBlockExtension {
             }
             assert_epoch_should_be(node, 2, 5, epoch_length);
 
-            mine_until_epoch(node, 4, 0, epoch_length);
+            node.mine_until_epoch(4, 0, epoch_length);
             {
                 info!("CKB v2021, empty extension field is failed");
                 test_extension_via_size(node, Some(0), Err(ERROR_EMPTY_EXT));
@@ -156,7 +153,7 @@ impl Spec for CheckBlockExtension {
             });
             assert!(ret, "node2 should get same tip header with node0");
 
-            mine(node2, 5);
+            node2.mine(5);
 
             info!("test sync blocks");
             waiting_for_sync(nodes);
@@ -184,5 +181,6 @@ fn test_extension_via_size(node: &Node, size: Option<usize>, result: Result<(), 
         assert_submit_block_fail(node, &block, errmsg);
     } else {
         assert_submit_block_ok(node, &block);
+        node.new_block_with_blocking(|template| template.number.value() != (block.number() + 1));
     }
 }

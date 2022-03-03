@@ -1771,9 +1771,7 @@ Response
 
 
 #### Method `generate_block`
-* `generate_block(block_assembler_script, block_assembler_message)`
-    * `block_assembler_script`: [`Script`](#type-script) `|` `null`
-    * `block_assembler_message`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* `generate_block()`
 * result: [`H256`](#type-h256)
 
 Generate block with block_assembler_config, process the block(with verification)
@@ -1800,9 +1798,7 @@ Request
   "id": 42,
   "jsonrpc": "2.0",
   "method": "generate_block",
-  "params": [
-    null, null
-  ]
+  "params": []
 }
 ```
 

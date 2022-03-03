@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_types::packed;
 use std::thread::sleep;
@@ -13,14 +12,14 @@ impl Spec for InboundMinedDuringSync {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine(node0, 1);
-        mine(node1, 1);
+        node0.mine(1);
+        node1.mine(1);
 
         // node0 is outbound
         // node1 is inbound
         node0.connect(node1);
 
-        mine(node0, 2000);
+        node0.mine(2000);
         let template = node1.rpc_client().get_block_template(None, None, None);
         let block = packed::Block::from(template).into_view();
         node1.submit_block(&block);
@@ -71,14 +70,14 @@ impl Spec for OutboundMinedDuringSync {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine(node0, 1);
-        mine(node1, 1);
+        node0.mine(1);
+        node1.mine(1);
 
         // node0 is outbound
         // node1 is inbound
         node1.connect(node0);
 
-        mine(node0, 2000);
+        node0.mine(2000);
         let template = node1.rpc_client().get_block_template(None, None, None);
         let block = packed::Block::from(template).into_view();
         node1.submit_block(&block);
@@ -130,14 +129,14 @@ impl Spec for InboundSync {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine(node0, 1);
-        mine(node1, 1);
+        node0.mine(1);
+        node1.mine(1);
 
         // node0 is outbound
         // node1 is inbound
         node0.connect(node1);
 
-        mine(node0, 2000);
+        node0.mine(2000);
 
         let last_check_time = Instant::now();
         let mut last_logging_time = Instant::now();
@@ -184,14 +183,14 @@ impl Spec for OutboundSync {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine(node0, 1);
-        mine(node1, 1);
+        node0.mine(1);
+        node1.mine(1);
 
         // node0 is outbound
         // node1 is inbound
         node1.connect(node0);
 
-        mine(node0, 2000);
+        node0.mine(2000);
 
         let last_check_time = Instant::now();
         let mut last_logging_time = Instant::now();

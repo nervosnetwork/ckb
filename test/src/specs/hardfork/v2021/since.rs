@@ -1,9 +1,6 @@
-use crate::util::{
-    check::{self, assert_epoch_should_be},
-    mining::{mine, mine_until_epoch, mine_until_out_bootstrap_period},
-};
+use crate::util::check::{self, assert_epoch_should_be};
 use crate::utils::{
-    assert_send_transaction_fail, since_from_absolute_epoch_number,
+    assert_send_transaction_fail, assert_send_transaction_ok, since_from_absolute_epoch_number,
     since_from_relative_epoch_number,
 };
 use crate::{Node, Spec};
@@ -25,7 +22,7 @@ impl Spec for CheckAbsoluteEpochSince {
         let node = &nodes[0];
         let epoch_length = GENESIS_EPOCH_LENGTH;
 
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         assert_epoch_should_be(node, 1, 2, epoch_length);
         {
@@ -36,22 +33,19 @@ impl Spec for CheckAbsoluteEpochSince {
         {
             info!("CKB v2019, since absolute epoch ok");
             let tx = create_tx_since_absolute_epoch(node, 1, 2);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
         {
             info!("CKB v2019, since absolute epoch ok (index=length=0)");
             let tx = create_tx_since_absolute_epoch_with_length(node, 1, 0, 0);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
         {
             info!("CKB v2019, since absolute epoch ok (index>length=0)");
             let tx = create_tx_since_absolute_epoch_with_length(node, 1, 1, 0);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
-        mine_until_epoch(node, 1, epoch_length - 2, epoch_length);
+        node.mine_until_epoch(1, epoch_length - 2, epoch_length);
         {
             info!("CKB v2019, since absolute epoch failed (boundary)");
             let tx = create_tx_since_absolute_epoch(node, 1, epoch_length - 1);
@@ -60,16 +54,15 @@ impl Spec for CheckAbsoluteEpochSince {
         {
             info!("CKB v2019, since absolute epoch ok (boundary)");
             let tx = create_tx_since_absolute_epoch(node, 1, epoch_length - 2);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
-        mine(node, 1);
+        node.mine(1);
         {
             info!("CKB v2019, since absolute epoch failed (boundary, malformed)");
             let tx = create_tx_since_absolute_epoch(node, 0, (epoch_length - 1) + epoch_length);
             assert_send_transaction_fail(node, &tx, ERROR_INVALID_SINCE);
         }
-        mine(node, 1);
+        node.mine(1);
         assert_epoch_should_be(node, 2, 0, epoch_length);
         {
             info!("CKB v2021, since absolute epoch failed (boundary, malformed)");
@@ -89,10 +82,9 @@ impl Spec for CheckAbsoluteEpochSince {
         {
             info!("CKB v2021, since absolute epoch ok (boundary, index=length=0)");
             let tx = create_tx_since_absolute_epoch_with_length(node, 2, 0, 0);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
-        mine_until_epoch(node, 3, 0, epoch_length);
+        node.mine_until_epoch(3, 0, epoch_length);
         {
             info!("CKB v2021, since absolute epoch failed (malformed)");
             let tx = create_tx_since_absolute_epoch(node, 0, epoch_length * 3);
@@ -116,15 +108,13 @@ impl Spec for CheckAbsoluteEpochSince {
         {
             info!("CKB v2021, since absolute epoch failed (index=length=0)");
             let tx = create_tx_since_absolute_epoch_with_length(node, 3, 0, 0);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
-        mine(node, 1);
+        node.mine(1);
         {
             info!("CKB v2021, since absolute epoch ok");
             let tx = create_tx_since_absolute_epoch(node, 3, 1);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
     }
 
@@ -145,60 +135,55 @@ impl Spec for CheckRelativeEpochSince {
         let node = &nodes[0];
         let epoch_length = GENESIS_EPOCH_LENGTH;
 
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         assert_epoch_should_be(node, 1, 2, epoch_length);
-        mine_until_epoch(node, 1, epoch_length - 4, epoch_length);
+        node.mine_until_epoch(1, epoch_length - 4, epoch_length);
         {
             info!("CKB v2019, since relative epoch failed");
             let tx = create_tx_since_relative_epoch(node, 1, 0);
-            mine(node, epoch_length - 1);
+            node.mine(epoch_length - 1);
             assert_send_transaction_fail(node, &tx, ERROR_IMMATURE);
-            mine(node, 1);
+            node.mine(1);
             info!("CKB v2019, since relative epoch ok");
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
         assert_epoch_should_be(node, 2, epoch_length - 4, epoch_length);
         {
             info!("CKB v2019, since relative epoch failed (malformed)");
             let tx = create_tx_since_relative_epoch(node, 0, epoch_length);
-            mine(node, epoch_length - 1);
+            node.mine(epoch_length - 1);
             assert_send_transaction_fail(node, &tx, ERROR_IMMATURE);
-            mine(node, 1);
+            node.mine(1);
             info!("CKB v2019, since relative epoch ok (malformed)");
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx);
         }
         assert_epoch_should_be(node, 3, epoch_length - 4, epoch_length);
         {
             info!("CKB v2019, since relative epoch ok (index=length=0)");
             let tx = create_tx_since_relative_epoch_with_length(node, 1, 0, 0);
-            mine(node, epoch_length);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            node.mine(epoch_length);
+            assert_send_transaction_ok(node, &tx);
         }
         {
             info!("CKB v2019, since relative epoch ok (index>length=0)");
             let tx = create_tx_since_relative_epoch_with_length(node, 1, 1, 0);
-            mine(node, epoch_length);
-            let res = node.rpc_client().send_transaction_result(tx.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            node.mine(epoch_length);
+            assert_send_transaction_ok(node, &tx);
         }
         assert_epoch_should_be(node, 5, epoch_length - 4, epoch_length);
         {
             let tx1 = create_tx_since_relative_epoch(node, 0, epoch_length);
-            mine(node, 1);
+            node.mine(1);
             let tx2 = create_tx_since_relative_epoch(node, 0, epoch_length);
             let tx3 = create_tx_since_relative_epoch_with_length(node, 1, 1, 0);
-            mine(node, epoch_length - 2);
+            node.mine(epoch_length - 2);
 
             info!("CKB v2019, since relative epoch failed (boundary, malformed)");
             assert_send_transaction_fail(node, &tx1, ERROR_IMMATURE);
-            mine(node, 1);
+            node.mine(1);
             info!("CKB v2019, since relative epoch ok (boundary, malformed)");
-            let res = node.rpc_client().send_transaction_result(tx1.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx1);
 
             info!("CKB v2019, since relative epoch failed (boundary, malformed)");
             assert_send_transaction_fail(node, &tx2, ERROR_IMMATURE);
@@ -206,7 +191,7 @@ impl Spec for CheckRelativeEpochSince {
             info!("CKB v2019, since relative epoch failed (boundary, index>length=0)");
             assert_send_transaction_fail(node, &tx3, ERROR_IMMATURE);
 
-            mine(node, 1);
+            let proposed = node.mine_with_blocking(|template| template.proposals.is_empty());
 
             info!("CKB v2019, since relative epoch failed (boundary, malformed)");
             assert_send_transaction_fail(node, &tx2, ERROR_INVALID_SINCE);
@@ -217,18 +202,18 @@ impl Spec for CheckRelativeEpochSince {
             info!("CKB v2019, since relative epoch transaction will be committed (boundary, malformed)");
             assert_epoch_should_be(node, 6, epoch_length - 3, epoch_length);
             assert!(check::is_transaction_pending(node, &tx1));
-            mine(node, 1);
+            node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
             assert!(check::is_transaction_proposed(node, &tx1));
-            mine(node, 1);
+            node.mine_with_blocking(|template| template.transactions.is_empty());
             assert!(check::is_transaction_committed(node, &tx1));
             assert_epoch_should_be(node, 6, epoch_length - 1, epoch_length);
         }
         {
             info!("CKB v2021, since relative epoch failed (malformed)");
             let tx = create_tx_since_relative_epoch(node, 0, epoch_length);
-            mine(node, epoch_length - 1);
+            node.mine(epoch_length - 1);
             assert_send_transaction_fail(node, &tx, ERROR_INVALID_SINCE);
-            mine(node, 1);
+            node.mine(1);
             info!("CKB v2021, since relative epoch failed (malformed)");
             assert_send_transaction_fail(node, &tx, ERROR_INVALID_SINCE);
         }
@@ -236,14 +221,13 @@ impl Spec for CheckRelativeEpochSince {
             let tx1 = create_tx_since_relative_epoch_with_length(node, 1, 1, 0);
             let tx2 = create_tx_since_relative_epoch_with_length(node, 1, 0, 0);
 
-            mine(node, epoch_length);
+            node.mine(epoch_length);
 
             info!("CKB v2021, since relative epoch failed (index>length=0)");
             assert_send_transaction_fail(node, &tx1, ERROR_INVALID_SINCE);
 
             info!("CKB v2021, since relative epoch ok (index=length=0)");
-            let res = node.rpc_client().send_transaction_result(tx2.data().into());
-            assert!(res.is_ok(), "result: {:?}", res.unwrap_err());
+            assert_send_transaction_ok(node, &tx2);
         }
     }
 

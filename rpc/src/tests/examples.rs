@@ -28,7 +28,7 @@ use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::cmp;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fs::{read_dir, File};
 use std::hash;
 use std::io::{self, BufRead};
@@ -526,7 +526,7 @@ impl RpcTestSuite {
     }
 
     fn wait_block_template_update(&self) {
-        self.wait_block_template_array_ge("uncles", 1)
+        self.wait_block_template_array_ge("proposals", 1)
     }
 
     fn run_example(&self, example: &RpcTestExample) {

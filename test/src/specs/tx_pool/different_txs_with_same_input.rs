@@ -1,4 +1,3 @@
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
@@ -14,7 +13,8 @@ impl Spec for DifferentTxsWithSameInput {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
+        node0.new_block_with_blocking(|template| template.number.value() != 13);
         let tx_hash_0 = node0.generate_transaction();
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
@@ -31,12 +31,9 @@ impl Spec for DifferentTxsWithSameInput {
         node0.rpc_client().send_transaction(tx1.data().into());
         node0.rpc_client().send_transaction(tx2.data().into());
 
-        mine(node0, 1);
-        mine(node0, 1);
-        mine(node0, 1);
-
-        // tx pool statics should reset
-        node0.assert_tx_pool_statics(0, 0);
+        node0.mine_with_blocking(|template| template.proposals.len() != 3);
+        node0.mine_with_blocking(|template| template.number.value() != 14);
+        node0.mine_with_blocking(|template| template.transactions.len() != 2);
 
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block

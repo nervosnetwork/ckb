@@ -1,7 +1,4 @@
-use crate::util::{
-    mining::{mine_until_out_bootstrap_period, out_ibd_mode},
-    transaction::relay_tx,
-};
+use crate::util::{mining::out_ibd_mode, transaction::relay_tx};
 use crate::utils::{sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -15,7 +12,7 @@ impl Spec for DeclaredWrongCycles {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let mut net = Net::new(
             self.name(),
@@ -43,7 +40,7 @@ impl Spec for DeclaredWrongCyclesChunk {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let mut net = Net::new(
             self.name(),
@@ -78,7 +75,7 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let node2 = &nodes[2];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         out_ibd_mode(nodes);
 
         let mut net = Net::new(

@@ -23,13 +23,9 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
-use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::collections::HashSet;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
@@ -161,11 +157,7 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        let inserted = self.pending.add_entry(entry);
-        if inserted {
-            // self.touch_last_txs_updated_at();
-        }
-        inserted
+        self.pending.add_entry(entry)
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
@@ -177,23 +169,8 @@ impl TxPool {
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
-        self.proposed.add_entry(entry).map(|inserted| {
-            if inserted {
-                // self.touch_last_txs_updated_at();
-            }
-            inserted
-        })
+        self.proposed.add_entry(entry)
     }
-
-    // pub(crate) fn touch_last_txs_updated_at(&self) {
-    //     self.last_txs_updated_at
-    //         .store(unix_time_as_millis(), Ordering::SeqCst);
-    // }
-
-    /// Get last txs in tx-pool update timestamp
-    // pub fn get_last_txs_updated_at(&self) -> u64 {
-    //     self.last_txs_updated_at.load(Ordering::SeqCst)
-    // }
 
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {

@@ -6,8 +6,8 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
-    LocalNode, OutPoint, RawTxPool, RemoteNode, Script, Timestamp, Transaction, TransactionProof,
+    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, LocalNode,
+    OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction, TransactionProof,
     TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{

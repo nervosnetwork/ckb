@@ -1,6 +1,5 @@
 use ckb_jsonrpc_types::{AsEpochNumberWithFraction, ChainInfo};
 
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 
 pub struct RpcGetBlockchainInfo;
@@ -42,7 +41,7 @@ impl Spec for RpcGetBlockchainInfo {
         check_median_time(genesis_blockchain_info, node0);
 
         // mine 1 block, and get block chain info
-        mine(node0, 1);
+        node0.mine(1);
         let blockchain_info = node0.rpc_client().get_blockchain_info();
         // IBD exit
         assert!(
@@ -73,7 +72,7 @@ impl Spec for RpcGetBlockchainInfo {
         check_median_time(blockchain_info, node0);
 
         // mine 1 block to make tip_block_number is even
-        mine(node0, 1);
+        node0.mine(1);
         let blockchain_info = node0.rpc_client().get_blockchain_info();
         assert_eq!(
             2,
@@ -85,7 +84,7 @@ impl Spec for RpcGetBlockchainInfo {
         check_median_time(blockchain_info, node0);
 
         // mine epoch_length blocks to make epoch number change
-        mine(node0, epoch_length);
+        node0.mine(epoch_length);
         let blockchain_info = node0.rpc_client().get_blockchain_info();
         assert_eq!(
             1,
