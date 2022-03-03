@@ -545,6 +545,7 @@ impl UncleBlockView {
         self.data().as_reader().calc_proposals_hash()
     }
 
+    /// Calculates the serialized size of a UncleBlock in Block.
     pub fn serialized_size_in_block() -> usize {
         packed::UncleBlock::serialized_size_in_block()
     }

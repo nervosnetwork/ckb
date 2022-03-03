@@ -342,6 +342,12 @@ fn refresh_txs_verify_cache_after_hardfork() {
             .internal_process_block(Arc::new(block.clone()), Switch::ONLY_SCRIPT)
             .expect("process block");
         parent_header = block.header().to_owned();
+
+        let mut tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+        while tx_pool_info.tip_hash != block.hash() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+        }
     }
 
     // at last of the test, the script should be ran with vm1

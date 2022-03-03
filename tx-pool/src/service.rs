@@ -29,10 +29,9 @@ use ckb_types::{
 use ckb_util::LinkedHashMap;
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
-use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Duration;
@@ -109,13 +108,14 @@ pub(crate) enum Message {
 
     // test
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+    PackageTxs(Request<Option<u64>, Vec<TxEntry>>),
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub(crate) enum BlockAssemblerMessage {
-    NewPending,
-    NewProposed,
-    NewUncle,
+    Pending,
+    Proposed,
+    Uncle,
 }
 
 /// Controller to the tx-pool service.
@@ -502,6 +502,21 @@ impl TxPoolController {
             .map_err(handle_recv_error)
             .map_err(Into::into)
     }
+
+    /// Package txs with specified bytes_limit. for test
+    pub fn package_txs(&self, bytes_limit: Option<u64>) -> Result<Vec<TxEntry>, AnyError> {
+        let (responder, response) = oneshot::channel();
+        let request = Request::call(bytes_limit, responder);
+        self.sender
+            .try_send(Message::PackageTxs(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
+    }
 }
 
 /// A builder used to create TxPoolService.
@@ -674,7 +689,7 @@ impl TxPoolServiceBuilder {
                     _ = interval.tick() => {
                         for message in &queue {
                             let service_clone = process_service.clone();
-                            block_assembler::process(service_clone, &message).await;
+                            block_assembler::process(service_clone, message).await;
                         }
                         queue.clear();
                     }
@@ -685,7 +700,6 @@ impl TxPoolServiceBuilder {
         });
 
         let mut signal_receiver = self.signal_receiver;
-        let handle_clone = self.handle.clone();
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -694,9 +708,9 @@ impl TxPoolServiceBuilder {
                             arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
                         } = message;
                         let snapshot_clone = Arc::clone(&snapshot);
-                        let attached_blocks_clone = attached_blocks.clone();
+                        let detached_blocks_clone = detached_blocks.clone();
                         service.update_block_assembler_before_tx_pool_reorg(
-                            attached_blocks_clone,
+                            detached_blocks_clone,
                             snapshot_clone
                         ).await;
 
@@ -984,6 +998,21 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send plug_entry failed {:?}", e);
             };
         }
+        Message::PackageTxs(Request {
+            responder,
+            arguments: bytes_limit,
+        }) => {
+            let max_block_cycles = service.consensus.max_block_cycles();
+            let max_block_bytes = service.consensus.max_block_bytes();
+            let tx_pool = service.tx_pool.read().await;
+            let (txs, _size, _cycles) = tx_pool.package_txs(
+                max_block_cycles,
+                bytes_limit.unwrap_or(max_block_bytes) as usize,
+            );
+            if let Err(e) = responder.send(txs) {
+                error!("responder send plug_entry failed {:?}", e);
+            };
+        }
     }
 }
 
@@ -1022,10 +1051,11 @@ impl TxPoolService {
             {
                 block_assembler.candidate_uncles.lock().await.insert(uncle);
             }
-            if let Err(_) = self
+            if self
                 .block_assembler_sender
-                .send(BlockAssemblerMessage::NewUncle)
+                .send(BlockAssemblerMessage::Uncle)
                 .await
+                .is_err()
             {
                 error!("block_assembler receiver dropped");
             }
@@ -1081,19 +1111,21 @@ impl TxPoolService {
         if self.should_notify_block_assembler() {
             match target {
                 PlugTarget::Pending => {
-                    if let Err(_) = self
+                    if self
                         .block_assembler_sender
-                        .send(BlockAssemblerMessage::NewPending)
+                        .send(BlockAssemblerMessage::Pending)
                         .await
+                        .is_err()
                     {
                         error!("block_assembler receiver dropped");
                     }
                 }
                 PlugTarget::Proposed => {
-                    if let Err(_) = self
+                    if self
                         .block_assembler_sender
-                        .send(BlockAssemblerMessage::NewProposed)
+                        .send(BlockAssemblerMessage::Proposed)
                         .await
+                        .is_err()
                     {
                         error!("block_assembler receiver dropped");
                     }

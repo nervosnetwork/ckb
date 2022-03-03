@@ -1,8 +1,5 @@
 use crate::{
-    util::{
-        check::{assert_epoch_should_less_than, is_transaction_committed},
-        mining::{mine, mine_until_bool, mine_until_epoch, mine_until_out_bootstrap_period},
-    },
+    util::check::{assert_epoch_should_less_than, is_transaction_committed},
     utils::assert_send_transaction_fail,
     Node, Spec,
 };
@@ -39,7 +36,7 @@ impl Spec for ImmatureHeaderDeps {
         let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
         let maturity_blocks = CELLBASE_MATURITY * GENESIS_EPOCH_LENGTH;
 
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         info!("Create enough input cells for tests.");
         let runner = ImmatureHeaderDepsTestRunner::new(node);
@@ -48,7 +45,7 @@ impl Spec for ImmatureHeaderDeps {
             .into_iter();
 
         info!("Wait to let the input cells to be mature.");
-        mine(node, maturity_blocks);
+        node.mine(maturity_blocks);
 
         {
             let tx = runner.create_tx_with_tip_header_as_dep(&mut inputs);
@@ -60,7 +57,7 @@ impl Spec for ImmatureHeaderDeps {
                 );
                 runner.test_send(&tx, res);
             }
-            mine(node, maturity_blocks - 1);
+            node.mine(maturity_blocks - 1);
             {
                 let res = ExpectedResult::ImmatureHeader;
                 info!(
@@ -69,7 +66,7 @@ impl Spec for ImmatureHeaderDeps {
                 );
                 runner.test_send(&tx, res);
             }
-            mine(node, 1);
+            node.mine(1);
             {
                 let res = ExpectedResult::ShouldBePassed;
                 info!(
@@ -80,7 +77,7 @@ impl Spec for ImmatureHeaderDeps {
             }
         }
         assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
+        node.mine_until_epoch(ckb2019_last_epoch, epoch_length - 4, epoch_length);
         {
             let tx = runner.create_tx_with_tip_header_as_dep(&mut inputs);
             {
@@ -91,7 +88,7 @@ impl Spec for ImmatureHeaderDeps {
                 );
                 runner.test_send(&tx, res);
             }
-            mine(node, 1);
+            node.mine(1);
             {
                 let res = ExpectedResult::ShouldBePassed;
                 info!(
@@ -101,7 +98,7 @@ impl Spec for ImmatureHeaderDeps {
                 runner.test_send(&tx, res);
             }
         }
-        mine_until_epoch(node, ckb2019_last_epoch + 2, 0, epoch_length);
+        node.mine_until_epoch(ckb2019_last_epoch + 2, 0, epoch_length);
         {
             let tx = runner.create_tx_with_tip_header_as_dep(&mut inputs);
             let res = ExpectedResult::ShouldBePassed;
@@ -154,7 +151,7 @@ impl<'a> ImmatureHeaderDepsTestRunner<'a> {
 
     fn mine_cellbases_as_inputs(&self, count: u64) -> Vec<packed::CellInput> {
         let start_block_number = self.node.get_tip_block_number() + 1;
-        mine(self.node, count);
+        self.node.mine(count);
         (0..count)
             .into_iter()
             .map(|i| {
@@ -198,6 +195,7 @@ impl<'a> ImmatureHeaderDepsTestRunner<'a> {
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
         debug!(">>> submit: transaction {:#x}.", tx.hash());
         self.node.submit_transaction(tx);
-        mine_until_bool(self.node, || is_transaction_committed(self.node, tx));
+        self.node
+            .mine_until_bool(|| is_transaction_committed(self.node, tx));
     }
 }

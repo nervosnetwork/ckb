@@ -1,4 +1,3 @@
-use crate::util::mining::mine_until_bool;
 use crate::Node;
 use ckb_types::core::cell::{CellMeta, CellMetaBuilder};
 use ckb_types::core::{BlockView, TransactionInfo};
@@ -11,7 +10,7 @@ pub fn gen_spendable(node: &Node, count: usize) -> Vec<CellMeta> {
     let farthest = node.consensus().tx_proposal_window().farthest();
     let out_bootstrap_period = farthest + 2;
     let predicate = || node.get_tip_block_number() >= out_bootstrap_period + count as u64 - 1;
-    mine_until_bool(node, predicate);
+    node.mine_until_bool(predicate);
     get_spendable(node)
 }
 

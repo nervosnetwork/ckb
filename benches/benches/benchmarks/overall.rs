@@ -192,9 +192,7 @@ fn bench(c: &mut Criterion) {
                                 .unwrap()
                                 .expect("get_block_template");
 
-                            while !(block_template.number == (snapshot.tip_number() + 1).into()
-                                && block_template.proposals.len() > 0)
-                            {
+                            while block_template.number != (snapshot.tip_number() + 1).into() {
                                 block_template = tx_pool
                                     .get_block_template(None, None, None)
                                     .unwrap()

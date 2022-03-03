@@ -1,5 +1,5 @@
 use crate::util::cell::{gen_spendable, get_spendable};
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transactions_with_rand_data;
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -26,7 +26,7 @@ impl Spec for ProposalRespondSizelimit {
 
             proposal_ids.push(transaction.proposal_short_id());
 
-            mine(node0, 3);
+            node0.mine_until_transactions_confirm();
 
             // spend all new cell
             cells = get_spendable(node0);

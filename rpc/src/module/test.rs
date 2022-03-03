@@ -1,10 +1,7 @@
 use crate::error::RPCError;
-use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, JsonBytes, Script, Transaction,
-};
+use ckb_jsonrpc_types::{AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -163,9 +160,7 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "generate_block",
-    ///   "params": [
-    ///     null, null
-    ///   ]
+    ///   "params": []
     /// }
     /// ```
     ///

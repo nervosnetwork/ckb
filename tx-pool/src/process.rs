@@ -34,7 +34,7 @@ use ckb_verification::{
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::block_in_place;
 
@@ -58,11 +58,6 @@ pub enum TxStatus {
 pub(crate) enum ProcessResult {
     Suspended,
     Completed(Completed),
-}
-
-enum PackageTxs {
-    Ready(HashSet<ProposalShortId>, Vec<TxEntry>, u64),
-    NotReady,
 }
 
 impl TxStatus {
@@ -146,19 +141,21 @@ impl TxPoolService {
         if self.should_notify_block_assembler() {
             match status {
                 TxStatus::Fresh => {
-                    if let Err(_) = self
+                    if self
                         .block_assembler_sender
-                        .send(BlockAssemblerMessage::NewPending)
+                        .send(BlockAssemblerMessage::Pending)
                         .await
+                        .is_err()
                     {
                         error!("block_assembler receiver dropped");
                     }
                 }
                 TxStatus::Proposed => {
-                    if let Err(_) = self
+                    if self
                         .block_assembler_sender
-                        .send(BlockAssemblerMessage::NewProposed)
+                        .send(BlockAssemblerMessage::Proposed)
                         .await
+                        .is_err()
                     {
                         error!("block_assembler receiver dropped");
                     }
@@ -915,8 +912,16 @@ impl TxPoolService {
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
-        let mut tx_pool = self.tx_pool.write().await;
-        tx_pool.clear(new_snapshot);
+        {
+            let mut tx_pool = self.tx_pool.write().await;
+            tx_pool.clear(Arc::clone(&new_snapshot));
+        }
+        // reset block_assembler
+        if let Some(ref block_assembler) = self.block_assembler {
+            if let Err(e) = block_assembler.update_blank(new_snapshot).await {
+                error!("block_assembler update_blank error {}", e);
+            }
+        }
     }
 
     pub(crate) async fn save_pool(&mut self) {

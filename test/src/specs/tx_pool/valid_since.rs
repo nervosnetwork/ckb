@@ -1,7 +1,4 @@
-use crate::util::{
-    check,
-    mining::{mine, mine_until_out_bootstrap_period},
-};
+use crate::util::check;
 use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp,
@@ -34,7 +31,7 @@ impl Spec for ValidSince {
 
 impl ValidSince {
     pub fn test_since_relative_block_number(&self, node: &Node) {
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
         let started_tip_number = node.get_tip_block_number();
         let relative: BlockNumber = 10;
         let since = since_from_relative_block_number(relative);
@@ -50,7 +47,7 @@ impl ValidSince {
                 &transaction,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(node, 1);
+            node.mine(1);
         }
 
         // Success to send transaction after cellbase immaturity and since immaturity
@@ -65,7 +62,7 @@ impl ValidSince {
     }
 
     pub fn test_since_absolute_block_number(&self, node: &Node) {
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
         let absolute: BlockNumber = node.rpc_client().get_tip_block_number() + 10;
         let since = since_from_absolute_block_number(absolute);
         let transaction = {
@@ -81,7 +78,7 @@ impl ValidSince {
                 &transaction,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(node, 1);
+            node.mine(1);
         }
 
         // Success to send transaction after cellbase immaturity and since immaturity
@@ -97,13 +94,13 @@ impl ValidSince {
 
     pub fn test_since_relative_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
-        mine(node, 1);
+        node.mine(1);
         let cellbase = node.get_tip_block().transactions()[0].clone();
         sleep(Duration::from_secs(2));
 
-        mine(node, median_time_block_count);
+        node.mine(median_time_block_count);
 
         // Calculate the current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
@@ -146,10 +143,10 @@ impl ValidSince {
 
     pub fn test_since_absolute_median_time(&self, node: &Node) {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
         let cellbase = node.get_tip_block().transactions()[0].clone();
 
-        mine(node, median_time_block_count);
+        node.mine(median_time_block_count);
 
         // Calculate current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
@@ -192,7 +189,7 @@ impl ValidSince {
 
     #[allow(clippy::identity_op)]
     pub fn test_since_and_proposal(&self, node: &Node) {
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         // test relative block number since
         info!("Use tip block cellbase as tx input with a relative block number since");
@@ -208,7 +205,7 @@ impl ValidSince {
                 &tx,
                 "TransactionFailedToVerify: Verification failed Transaction(Immature(",
             );
-            mine(node, 1);
+            node.mine(1);
         });
 
         info!(
@@ -223,10 +220,11 @@ impl ValidSince {
             "Tx will be added to proposed pool in N + {} block",
             relative_blocks
         );
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        let proposed = node.mine_with_blocking(|template| template.proposals.len() != 1);
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
         node.assert_tx_pool_size(0, 1);
 
-        mine(node, 1);
+        node.mine_with_blocking(|template| template.transactions.len() != 1);
         node.assert_tx_pool_size(0, 0);
 
         // test absolute block number since
@@ -243,7 +241,7 @@ impl ValidSince {
         (tip_number..absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is Immature in block {}", i);
             assert_send_transaction_fail(node, &tx, "Not mature cause of since condition");
-            mine(node, 1);
+            node.mine(1);
         });
 
         info!(
@@ -258,9 +256,10 @@ impl ValidSince {
             "Tx will be added to proposed pool in {} block",
             absolute_block
         );
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        let proposed = node.mine_with_blocking(|template| template.proposals.len() != 1);
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
         node.assert_tx_pool_size(0, 1);
-        mine(node, 1);
+        node.mine_with_blocking(|template| template.transactions.len() != 1);
         node.assert_tx_pool_size(0, 0);
     }
 
@@ -273,15 +272,15 @@ impl ValidSince {
         node.assert_tx_pool_size(1, 0);
         assert!(check::is_transaction_pending(node, transaction));
         // Gap
-        mine(node, 1);
+        let proposed = node.mine_with_blocking(|template| template.proposals.len() != 1);
         node.assert_tx_pool_size(1, 0);
         assert!(check::is_transaction_pending(node, transaction));
         // Proposed
-        mine(node, 1);
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
         node.assert_tx_pool_size(0, 1);
         assert!(check::is_transaction_proposed(node, transaction));
         // Committed
-        mine(node, 1);
+        node.mine_with_blocking(|template| template.transactions.len() != 1);
         node.assert_tx_pool_size(0, 0);
         assert!(check::is_transaction_committed(node, transaction));
 

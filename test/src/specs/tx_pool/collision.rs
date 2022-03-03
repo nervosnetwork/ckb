@@ -1,6 +1,5 @@
-use crate::util::{
-    check::{is_transaction_committed, is_transaction_pending, is_transaction_unknown},
-    mining::mine,
+use crate::util::check::{
+    is_transaction_committed, is_transaction_pending, is_transaction_unknown,
 };
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
@@ -20,10 +19,7 @@ impl Spec for TransactionHashCollisionDifferentWitnessHashes {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         let start_issue = window.farthest() + 2;
-        mine(
-            node,
-            start_issue.saturating_sub(node.get_tip_block_number()),
-        );
+        node.mine(start_issue.saturating_sub(node.get_tip_block_number()));
 
         let (tx1, tx2) = cousin_txs_with_same_hash_different_witness_hash(node);
 
@@ -46,10 +42,7 @@ impl Spec for DuplicatedTransaction {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
         let start_issue = window.farthest() + 2;
-        mine(
-            node,
-            start_issue.saturating_sub(node.get_tip_block_number()),
-        );
+        node.mine(start_issue.saturating_sub(node.get_tip_block_number()));
 
         let tx1 = node.new_transaction_spend_tip_cellbase();
 
@@ -70,7 +63,7 @@ impl Spec for ConflictInPending {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
@@ -82,7 +75,7 @@ impl Spec for ConflictInPending {
         });
 
         node.submit_block(&commit(node, &[&txa]));
-        mine(node, window.farthest());
+        node.mine(window.farthest());
     }
 }
 
@@ -92,7 +85,7 @@ impl Spec for ConflictInGap {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
@@ -107,7 +100,7 @@ impl Spec for ConflictInGap {
         assert_eq!(&[txa], &block.transactions()[1..]);
 
         node.submit_block(&block);
-        mine(node, window.farthest());
+        node.mine(window.farthest());
     }
 }
 
@@ -117,14 +110,14 @@ impl Spec for ConflictInProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
         node.submit_transaction(&txb);
 
         node.submit_block(&propose(node, &[&txa, &txb]));
-        mine(node, window.farthest());
+        node.mine(window.farthest());
     }
 }
 
@@ -134,11 +127,11 @@ impl Spec for SubmitConflict {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        mine(node, window.farthest());
+        node.mine_until_transactions_confirm();
         assert!(is_transaction_committed(node, &txa));
         assert_send_transaction_fail(
             node,
@@ -154,7 +147,7 @@ impl Spec for RemoveConflictFromPending {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         let (txa, txb) =
             conflict_transactions_with_capacity(node, Bytes::new(), capacity_bytes!(1000));

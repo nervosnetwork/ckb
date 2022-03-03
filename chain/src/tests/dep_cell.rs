@@ -277,7 +277,7 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     // proposal txs
     {
-        while !(Into::<u64>::into(block_template.number) == 1) {
+        while Into::<u64>::into(block_template.number) != 1 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -300,7 +300,7 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     // skip gap
     {
-        while !(Into::<u64>::into(block_template.number) == 2) {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -416,7 +416,7 @@ fn test_package_txs_with_deps2() {
 
     // proposal txs
     {
-        while !(Into::<u64>::into(block_template.number) == 1) {
+        while Into::<u64>::into(block_template.number) != 1 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -439,7 +439,7 @@ fn test_package_txs_with_deps2() {
 
     // skip gap
     {
-        while !(Into::<u64>::into(block_template.number) == 2) {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -566,7 +566,7 @@ fn test_package_txs_with_deps_priority() {
 
     // skip gap
     {
-        while !(Into::<u64>::into(block_template.number) == 2) {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()

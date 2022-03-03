@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_jsonrpc_types::JsonBytes;
@@ -18,7 +17,7 @@ impl Spec for BootstrapCellbase {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
 
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.1 + 1);
+        node.mine(DEFAULT_TX_PROPOSAL_WINDOW.1 + 1);
 
         let miner = packed::Script::new_builder()
             .args(Bytes::from(vec![2, 1]).pack())
@@ -40,7 +39,7 @@ impl Spec for BootstrapCellbase {
             );
         });
 
-        mine(node, 1);
+        node.mine(1);
         let blk = node.get_tip_block();
         assert!(
             blk.transactions()[0].is_cellbase()

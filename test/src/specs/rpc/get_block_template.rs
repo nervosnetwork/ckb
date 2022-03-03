@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::AsEpochNumberWithFraction;
 use ckb_types::prelude::*;
@@ -62,7 +61,7 @@ impl Spec for RpcGetBlockTemplate {
         );
 
         // mine until met last block of this epoch
-        mine(node0, epoch_length - 1);
+        node0.mine(epoch_length - 1);
         let block_template = node0.rpc_client().get_block_template(None, None, None);
         let next_block_number = node0.get_tip_block_number() + 1;
         assert_eq!(
@@ -85,30 +84,6 @@ impl Spec for RpcGetBlockTemplate {
             block_template.epoch.epoch_index(),
             "Next block epoch index should be 0, but got {}",
             block_template.epoch.epoch_index()
-        );
-
-        // get block template with arguments
-        // proposal limit arg will be tested in other cases
-        let test_bytes_limit = default_bytes_limit >> 1;
-        let test_version = 42;
-        let block_template =
-            node0
-                .rpc_client()
-                .get_block_template(Some(test_bytes_limit), None, Some(test_version));
-        assert_eq!(
-            test_bytes_limit,
-            block_template.bytes_limit.value(),
-            "Bytes limit should be {}, but got {}",
-            test_bytes_limit,
-            block_template.bytes_limit.value()
-        );
-        // block version should be the minium between version from consensus and arguments
-        assert_eq!(
-            default_block_version.min(test_version),
-            block_template.version.value(),
-            "Block version should be {}, but got {}",
-            default_block_version.min(test_version),
-            block_template.version.value(),
         );
     }
 }
