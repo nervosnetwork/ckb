@@ -167,6 +167,7 @@ fn start_chain(consensus: Consensus, lock_script: &packed::Script) -> (ChainCont
         message: Default::default(),
         use_binary_version_as_message_prefix: true,
         binary_version: "TEST".to_string(),
+        update_interval_millis: 800,
     };
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)

@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 
 // The default values are set in the legacy version.
@@ -57,10 +57,35 @@ pub struct BlockAssemblerConfig {
     /// A field to store the block miner client version, non-configurable options.
     #[serde(skip)]
     pub binary_version: String,
+    /// A field to control update interval millis
+    #[serde(
+        default = "default_update_interval_millis",
+        deserialize_with = "de_interval_millis"
+    )]
+    pub update_interval_millis: u64,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
     true
+}
+
+const fn default_update_interval_millis() -> u64 {
+    800
+}
+
+fn de_interval_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = u64::deserialize(deserializer)?;
+    if v == 0 {
+        return Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Unsigned(0),
+            &"interval can't be zero",
+        ));
+    }
+
+    Ok(v)
 }
 
 impl TxPoolConfig {
