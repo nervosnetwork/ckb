@@ -36,6 +36,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         message: Default::default(),
         use_binary_version_as_message_prefix: true,
         binary_version: "TEST".to_string(),
+        update_interval_millis: 800,
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))

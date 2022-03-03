@@ -41,7 +41,6 @@ use tokio::task::block_in_place;
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
-pub(crate) const BLOCK_ASSEMBLER_INTERVAL: Duration = Duration::from_millis(800);
 
 pub(crate) struct Request<A, R> {
     pub responder: oneshot::Sender<R>,
@@ -685,27 +684,30 @@ impl TxPoolServiceBuilder {
         });
 
         let process_service = service.clone();
-        let mut signal_receiver = self.signal_receiver.clone();
-        self.handle.spawn(async move {
-            let mut interval = tokio::time::interval(BLOCK_ASSEMBLER_INTERVAL);
-            let mut queue = LinkedHashSet::new();
-            loop {
-                tokio::select! {
-                    Some(message) = block_assembler_receiver.recv() => {
-                        queue.insert(message);
-                    },
-                    _ = interval.tick() => {
-                        for message in &queue {
-                            let service_clone = process_service.clone();
-                            block_assembler::process(service_clone, message).await;
+        if let Some(ref block_assembler) = service.block_assembler {
+            let mut signal_receiver = self.signal_receiver.clone();
+            let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
+            self.handle.spawn(async move {
+                let mut interval = tokio::time::interval(interval);
+                let mut queue = LinkedHashSet::new();
+                loop {
+                    tokio::select! {
+                        Some(message) = block_assembler_receiver.recv() => {
+                            queue.insert(message);
+                        },
+                        _ = interval.tick() => {
+                            for message in &queue {
+                                let service_clone = process_service.clone();
+                                block_assembler::process(service_clone, message).await;
+                            }
+                            queue.clear();
                         }
-                        queue.clear();
+                        _ = signal_receiver.changed() => break,
+                        else => break,
                     }
-                    _ = signal_receiver.changed() => break,
-                    else => break,
                 }
-            }
-        });
+            });
+        }
 
         let mut signal_receiver = self.signal_receiver;
         self.handle.spawn(async move {

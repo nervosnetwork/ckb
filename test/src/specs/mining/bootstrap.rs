@@ -63,6 +63,7 @@ impl Spec for BootstrapCellbase {
             message: Default::default(),
             use_binary_version_as_message_prefix: false,
             binary_version: "TEST".to_string(),
+            update_interval_millis: 40,
         });
     }
 }
