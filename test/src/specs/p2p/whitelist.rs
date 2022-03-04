@@ -1,4 +1,4 @@
-use crate::util::mining::mine;
+use crate::util::mining::{mine, out_ibd_mode};
 use crate::utils::{sleep, wait_until};
 use crate::{Node, Spec};
 
@@ -21,6 +21,7 @@ impl Spec for WhitelistOnSessionLimit {
     fn run(&self, nodes: &mut Vec<Node>) {
         info!("Running whitelist on session limit");
 
+        out_ibd_mode(nodes);
         // with no whitelist
         let node4 = nodes.pop().unwrap();
         let node3 = nodes.pop().unwrap();
