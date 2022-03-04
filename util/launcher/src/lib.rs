@@ -17,6 +17,7 @@ use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_network::{
     observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, NetworkController,
@@ -282,6 +283,15 @@ impl Launcher {
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Time,
                 Box::new(net_timer),
+                Arc::clone(&network_state),
+            ));
+        }
+
+        if support_protocols.contains(&SupportProtocol::LightClient) {
+            let light_client = LightClientProtocol::new(Arc::clone(&sync_shared));
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::LightClient,
+                Box::new(light_client),
                 Arc::clone(&network_state),
             ));
         }

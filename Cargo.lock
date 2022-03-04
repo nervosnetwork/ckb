@@ -741,6 +741,7 @@ dependencies = [
  "ckb-error",
  "ckb-freezer",
  "ckb-jsonrpc-types",
+ "ckb-light-client-protocol-server",
  "ckb-logger",
  "ckb-migration-template",
  "ckb-network",
@@ -774,6 +775,18 @@ dependencies = [
  "cc",
  "glob 0.2.11",
  "libc",
+]
+
+[[package]]
+name = "ckb-light-client-protocol-server"
+version = "0.104.0-pre"
+dependencies = [
+ "ckb-logger",
+ "ckb-merkle-mountain-range",
+ "ckb-network",
+ "ckb-shared",
+ "ckb-sync",
+ "ckb-types",
 ]
 
 [[package]]
