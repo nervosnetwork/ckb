@@ -62,13 +62,14 @@
 //! - [Peter Todd, Merkle mountain range.](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md).
 
 use ckb_hash::new_blake2b;
-use ckb_merkle_mountain_range::{Error, Merge, MMR};
+use ckb_merkle_mountain_range::{Error, Merge, MerkleProof, MMR};
 
 use crate::{core, packed, prelude::*, U256};
 
 pub struct MergeHeaderDigest;
 
 pub type ChainRootMMR<S> = MMR<packed::HeaderDigest, MergeHeaderDigest, S>;
+pub type MMRProof = MerkleProof<packed::HeaderDigest, MergeHeaderDigest>;
 
 impl core::BlockView {
     pub fn digest(&self) -> packed::HeaderDigest {

@@ -230,6 +230,49 @@ table MerkleProof {
 table InIBD {
 }
 
+/* Types for Network/LightClient */
+
+vector HeaderDigestVec <HeaderDigest>;
+
+table BlockProof {
+    mmr_size:               Uint64,
+    items:                  HeaderDigestVec,
+}
+
+union LightClientMessage {
+    GetChainInfo,
+    SendChainInfo,
+    GetLastHeader,
+    SendLastHeader,
+    GetBlockProof,
+    SendBlockProof,
+}
+
+table GetChainInfo {
+}
+
+table SendChainInfo {
+    mmr_activated_number:       Uint64,
+}
+
+table GetLastHeader {
+}
+
+table SendLastHeader {
+    header:                     Header,
+}
+
+table GetBlockProof {
+    last_hash:                  Byte32,
+    numbers:                    Uint64Vec,
+}
+
+table SendBlockProof {
+    root:                       HeaderDigest,
+    proof:                      BlockProof,
+    headers:                    HeaderVec,
+}
+
 /* Types for Network/Others */
 
 table Time {

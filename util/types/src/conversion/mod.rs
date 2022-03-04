@@ -8,6 +8,7 @@
 mod utilities;
 
 mod blockchain;
+mod mmr;
 mod network;
 mod primitive;
 mod storage;
