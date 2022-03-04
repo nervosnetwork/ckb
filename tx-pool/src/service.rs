@@ -3,10 +3,9 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
-use crate::component::{chunk::ChunkQueue, entry::TxEntry, orphan::OrphanPool};
+use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
-use crate::process::PlugTarget;
 use crate::util::after_delay_window;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
@@ -38,6 +37,9 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
+
+#[cfg(feature = "internal")]
+use crate::{component::entry::TxEntry, process::PlugTarget};
 
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
@@ -106,7 +108,9 @@ pub(crate) enum Message {
     SavePool(Request<(), ()>),
 
     // test
+    #[cfg(feature = "internal")]
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+    #[cfg(feature = "internal")]
     PackageTxs(Request<Option<u64>, Vec<TxEntry>>),
 }
 
@@ -488,6 +492,7 @@ impl TxPoolController {
     }
 
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
+    #[cfg(feature = "internal")]
     pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
         let (responder, response) = oneshot::channel();
         let request = Request::call((entries, target), responder);
@@ -503,6 +508,7 @@ impl TxPoolController {
     }
 
     /// Package txs with specified bytes_limit. for test
+    #[cfg(feature = "internal")]
     pub fn package_txs(&self, bytes_limit: Option<u64>) -> Result<Vec<TxEntry>, AnyError> {
         let (responder, response) = oneshot::channel();
         let request = Request::call(bytes_limit, responder);
@@ -990,6 +996,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send save_pool failed {:?}", e)
             };
         }
+        #[cfg(feature = "internal")]
         Message::PlugEntry(Request {
             responder,
             arguments: (entries, target),
@@ -1000,6 +1007,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send plug_entry failed {:?}", e);
             };
         }
+        #[cfg(feature = "internal")]
         Message::PackageTxs(Request {
             responder,
             arguments: bytes_limit,
@@ -1091,6 +1099,7 @@ impl TxPoolService {
         }
     }
 
+    #[cfg(feature = "internal")]
     pub async fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) {
         {
             let mut tx_pool = self.tx_pool.write().await;
