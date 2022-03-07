@@ -22,6 +22,7 @@ pub use configs::*;
 pub use exit_code::ExitCode;
 #[cfg(feature = "with_sentry")]
 pub use sentry_config::SentryConfig;
+pub use url::Url;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;

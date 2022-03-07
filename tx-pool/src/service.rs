@@ -706,6 +706,11 @@ impl TxPoolServiceBuilder {
                                 let service_clone = process_service.clone();
                                 block_assembler::process(service_clone, message).await;
                             }
+                            if !queue.is_empty() {
+                                if let Some(ref block_assembler) = process_service.block_assembler {
+                                    block_assembler.notify().await;
+                                }
+                            }
                             queue.clear();
                         }
                         _ = signal_receiver.changed() => break,
@@ -1096,6 +1101,7 @@ impl TxPoolService {
             if let Err(e) = block_assembler.update_blank(snapshot).await {
                 error!("block_assembler update_blank error {}", e);
             }
+            block_assembler.notify().await;
         }
     }
 
@@ -1104,6 +1110,7 @@ impl TxPoolService {
             if let Err(e) = block_assembler.update_full(&self.tx_pool).await {
                 error!("block_assembler update failed {:?}", e);
             }
+            block_assembler.notify().await;
         }
     }
 

@@ -79,5 +79,6 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         use_binary_version_as_message_prefix: false,
         binary_version: "TEST".to_string(),
         update_interval_millis: 40,
+        notify: vec![],
     }
 }

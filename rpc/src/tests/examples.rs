@@ -105,6 +105,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             use_binary_version_as_message_prefix: true,
             binary_version: "TEST".to_string(),
             update_interval_millis: 800,
+            notify: vec![],
         }))
         .build()
         .unwrap();

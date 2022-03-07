@@ -31,6 +31,7 @@ use ckb_types::{
     prelude::*,
 };
 use faketime::unix_time_as_millis;
+use hyper::{client::HttpConnector, Body, Client, Method, Request};
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -66,6 +67,7 @@ pub struct BlockAssembler {
     pub(crate) work_id: Arc<AtomicU64>,
     pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
     pub(crate) current: Arc<Mutex<CurrentTemplate>>,
+    pub(crate) poster: Arc<Client<HttpConnector, Body>>,
 }
 
 impl BlockAssembler {
@@ -119,6 +121,7 @@ impl BlockAssembler {
             work_id: Arc::new(work_id),
             candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
             current: Arc::new(Mutex::new(current)),
+            poster: Arc::new(Client::new()),
         }
     }
 
@@ -559,6 +562,25 @@ impl BlockAssembler {
             .dao_field_with_current_epoch(&rtxs, tip_header, current_epoch)?;
 
         Ok(dao)
+    }
+
+    pub(crate) async fn notify(&self) {
+        let template = self.get_current().await;
+        if let Ok(body) = serde_json::to_string(&template) {
+            for url in &self.config.notify {
+                if let Ok(req) = Request::builder()
+                    .method(Method::POST)
+                    .uri(url.as_ref())
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.clone()))
+                {
+                    let client = Arc::clone(&self.poster);
+                    tokio::spawn(async move {
+                        let _resp = client.request(req).await;
+                    });
+                }
+            }
+        }
     }
 }
 

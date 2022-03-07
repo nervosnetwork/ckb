@@ -3,6 +3,7 @@ use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
+use url::Url;
 
 // The default values are set in the legacy version.
 /// Transaction pool configuration
@@ -63,6 +64,9 @@ pub struct BlockAssemblerConfig {
         deserialize_with = "de_interval_millis"
     )]
     pub update_interval_millis: u64,
+    /// Notify url
+    #[serde(default)]
+    pub notify: Vec<Url>,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
