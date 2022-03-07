@@ -4,6 +4,7 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_launcher::SharedBuilder;
+use ckb_logger_service::Logger;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
@@ -72,6 +73,9 @@ fn profile(shared: Shared, mut chain: ChainService, from: Option<u64>, to: Optio
     let to = to
         .map(|v| std::cmp::min(v, tip_number))
         .unwrap_or(tip_number);
+    // disable Info messages will improve performance
+    let _ = Logger::update_main_logger(Some("Error".to_owned()), Some(true), Some(true), None);
+
     process_range_block(&shared, &mut chain, 1..from);
     println!("start profiling, re-process blocks {}..{}:", from, to);
     let now = std::time::Instant::now();
