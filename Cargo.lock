@@ -413,6 +413,7 @@ dependencies = [
  "tentacle-multiaddr",
  "tentacle-secio",
  "toml",
+ "url",
 ]
 
 [[package]]
@@ -1312,6 +1313,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "faketime",
+ "hyper",
  "lru",
  "rand 0.8.5",
  "sentry",
