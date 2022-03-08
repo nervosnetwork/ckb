@@ -28,31 +28,36 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
     let (bin_name, app_matches) = cli::get_bin_name_and_matches(&version);
-    match app_matches.subcommand() {
-        (cli::CMD_INIT, Some(matches)) => {
-            return subcommand::init(Setup::init(matches)?);
-        }
-        (cli::CMD_LIST_HASHES, Some(matches)) => {
-            return subcommand::list_hashes(Setup::root_dir_from_matches(matches)?, matches);
-        }
-        (cli::CMD_PEERID, Some(matches)) => match matches.subcommand() {
-            (cli::CMD_GEN_SECRET, Some(matches)) => return Setup::gen(matches),
-            (cli::CMD_FROM_SECRET, Some(matches)) => {
-                return subcommand::peer_id(Setup::peer_id(matches)?);
+    if let Some((cli, matches)) = app_matches.subcommand() {
+        match cli {
+            cli::CMD_INIT => {
+                return subcommand::init(Setup::init(matches)?);
+            }
+            cli::CMD_LIST_HASHES => {
+                return subcommand::list_hashes(Setup::root_dir_from_matches(matches)?, matches);
+            }
+            cli::CMD_PEERID => {
+                if let Some((cli, matches)) = matches.subcommand() {
+                    match cli {
+                        cli::CMD_GEN_SECRET => return Setup::gen(matches),
+                        cli::CMD_FROM_SECRET => {
+                            return subcommand::peer_id(Setup::peer_id(matches)?)
+                        }
+                        _ => {}
+                    }
+                }
             }
             _ => {}
-        },
-        _ => {
-            // continue
         }
     }
 
-    let (cmd, matches) = app_matches.subcommand();
-    let matches = matches.expect("SubcommandRequiredElseHelp");
+    let (cmd, matches) = app_matches
+        .subcommand()
+        .expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
     let (handle, mut rt_stop) = new_global_runtime();
-    let setup = Setup::from_matches(bin_name, &app_matches)?;
+    let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();

@@ -26,7 +26,7 @@ pub use sentry_config::SentryConfig;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_types::{u256, H256, U256};
-use clap::{value_t, ArgMatches, ErrorKind};
+use clap::{ArgMatches, ErrorKind};
 use std::{path::PathBuf, str::FromStr};
 
 // 500_000 total difficulty
@@ -47,15 +47,11 @@ pub struct Setup {
 
 impl Setup {
     /// Boots the ckb process by parsing the command line arguments and loading the config file.
-    pub fn from_matches(bin_name: String, matches: &ArgMatches<'_>) -> Result<Setup, ExitCode> {
-        let subcommand_name = match matches.subcommand_name() {
-            Some(subcommand_name) => subcommand_name,
-            None => {
-                eprintln!("expect a subcommand");
-                return Err(ExitCode::Cli);
-            }
-        };
-
+    pub fn from_matches(
+        bin_name: String,
+        subcommand_name: &str,
+        matches: &ArgMatches,
+    ) -> Result<Setup, ExitCode> {
         let root_dir = Self::root_dir_from_matches(matches)?;
         let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
         config.set_bin_name(bin_name);
@@ -71,7 +67,7 @@ impl Setup {
     }
 
     /// Executes `ckb run`.
-    pub fn run(self, matches: &ArgMatches<'_>) -> Result<RunArgs, ExitCode> {
+    pub fn run(self, matches: &ArgMatches) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
         let mut config = self.config.into_ckb()?;
@@ -104,7 +100,7 @@ impl Setup {
     }
 
     /// `migrate` subcommand has one `flags` arg, trigger this arg with "--check"
-    pub fn migrate(self, matches: &ArgMatches<'_>) -> Result<MigrateArgs, ExitCode> {
+    pub fn migrate(self, matches: &ArgMatches) -> Result<MigrateArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
         let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
@@ -119,21 +115,21 @@ impl Setup {
     }
 
     /// `db-repair` subcommand
-    pub fn db_repair(self, _matches: &ArgMatches<'_>) -> Result<RepairArgs, ExitCode> {
+    pub fn db_repair(self, _matches: &ArgMatches) -> Result<RepairArgs, ExitCode> {
         let config = self.config.into_ckb()?;
 
         Ok(RepairArgs { config })
     }
 
     /// Executes `ckb miner`.
-    pub fn miner(self, matches: &ArgMatches<'_>) -> Result<MinerArgs, ExitCode> {
+    pub fn miner(self, matches: &ArgMatches) -> Result<MinerArgs, ExitCode> {
         let spec = self.chain_spec()?;
         let memory_tracker = self.config.memory_tracker().to_owned();
         let config = self.config.into_miner()?;
         let pow_engine = spec.pow_engine();
-        let limit = match value_t!(matches, cli::ARG_LIMIT, u128) {
+        let limit = match matches.value_of_t(cli::ARG_LIMIT) {
             Ok(l) => l,
-            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => 0,
+            Err(ref e) if e.kind() == ErrorKind::ArgumentNotFound => 0,
             Err(e) => {
                 return Err(e.into());
             }
@@ -148,10 +144,10 @@ impl Setup {
     }
 
     /// Executes `ckb replay`.
-    pub fn replay(self, matches: &ArgMatches<'_>) -> Result<ReplayArgs, ExitCode> {
+    pub fn replay(self, matches: &ArgMatches) -> Result<ReplayArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let tmp_target = value_t!(matches, cli::ARG_TMP_TARGET, PathBuf)?;
+        let tmp_target = matches.value_of_t(cli::ARG_TMP_TARGET)?;
         let profile = if matches.is_present(cli::ARG_PROFILE) {
             let from = option_value_t!(matches, cli::ARG_FROM, u64)?;
             let to = option_value_t!(matches, cli::ARG_TO, u64)?;
@@ -172,7 +168,7 @@ impl Setup {
     }
 
     /// Executes `ckb stats`.
-    pub fn stats(self, matches: &ArgMatches<'_>) -> Result<StatsArgs, ExitCode> {
+    pub fn stats(self, matches: &ArgMatches) -> Result<StatsArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
 
@@ -188,10 +184,10 @@ impl Setup {
     }
 
     /// Executes `ckb import`.
-    pub fn import(self, matches: &ArgMatches<'_>) -> Result<ImportArgs, ExitCode> {
+    pub fn import(self, matches: &ArgMatches) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let source = value_t!(matches.value_of(cli::ARG_SOURCE), PathBuf)?;
+        let source = matches.value_of_t(cli::ARG_SOURCE)?;
 
         Ok(ImportArgs {
             config,
@@ -201,10 +197,10 @@ impl Setup {
     }
 
     /// Executes `ckb export`.
-    pub fn export(self, matches: &ArgMatches<'_>) -> Result<ExportArgs, ExitCode> {
+    pub fn export(self, matches: &ArgMatches) -> Result<ExportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let target = value_t!(matches.value_of(cli::ARG_TARGET), PathBuf)?;
+        let target = matches.value_of_t(cli::ARG_TARGET)?;
 
         Ok(ExportArgs {
             config,
@@ -214,7 +210,7 @@ impl Setup {
     }
 
     /// Executes `ckb init`.
-    pub fn init(matches: &ArgMatches<'_>) -> Result<InitArgs, ExitCode> {
+    pub fn init(matches: &ArgMatches) -> Result<InitArgs, ExitCode> {
         if matches.is_present("list-specs") {
             eprintln!(
                 "Deprecated: Option `--list-specs` is deprecated, use `--list-chains` instead"
@@ -287,7 +283,7 @@ impl Setup {
     }
 
     /// Executes `ckb reset-data`.
-    pub fn reset_data(self, matches: &ArgMatches<'_>) -> Result<ResetDataArgs, ExitCode> {
+    pub fn reset_data(self, matches: &ArgMatches) -> Result<ResetDataArgs, ExitCode> {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
         let db_path = config.db.path;
@@ -323,7 +319,7 @@ impl Setup {
     }
 
     /// Resolves the root directory for ckb from the command line arguments.
-    pub fn root_dir_from_matches(matches: &ArgMatches<'_>) -> Result<PathBuf, ExitCode> {
+    pub fn root_dir_from_matches(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
         let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
             Some(arg_config_dir) => PathBuf::from(arg_config_dir),
             None => ::std::env::current_dir()?,
@@ -376,7 +372,7 @@ impl Setup {
     }
 
     /// Gets the network peer id by reading the network secret key.
-    pub fn peer_id(matches: &ArgMatches<'_>) -> Result<PeerIDArgs, ExitCode> {
+    pub fn peer_id(matches: &ArgMatches) -> Result<PeerIDArgs, ExitCode> {
         let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
         match read_secret_key(path.into()) {
             Ok(Some(key)) => Ok(PeerIDArgs {
@@ -388,7 +384,7 @@ impl Setup {
     }
 
     /// Generates the network secret key.
-    pub fn gen(matches: &ArgMatches<'_>) -> Result<(), ExitCode> {
+    pub fn gen(matches: &ArgMatches) -> Result<(), ExitCode> {
         let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
         configs::write_secret_to_file(&configs::generate_random_key(), path.into())
             .map_err(|_| ExitCode::IO)
@@ -404,9 +400,9 @@ macro_rules! option_value_t {
         option_value_t!($m.value_of($v), $t)
     };
     ($m:ident.value_of($v:expr), $t:ty) => {
-        match value_t!($m.value_of($v), $t) {
+        match $m.value_of_t($v) {
             Ok(from) => Ok(Some(from)),
-            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => Ok(None),
+            Err(ref e) if e.kind() == ErrorKind::ArgumentNotFound => Ok(None),
             Err(e) => Err(e),
         }
     };

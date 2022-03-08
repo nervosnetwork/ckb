@@ -1,9 +1,10 @@
 //! CKB command line arguments parser.
 use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
-use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
+use clap::{Arg, ArgGroup, ArgMatches, Command};
 
-pub(crate) const BIN_NAME: &str = "ckb";
+/// binary file name(ckb)
+pub const BIN_NAME: &str = "ckb";
 
 /// Subcommand `run`.
 pub const CMD_RUN: &str = "run";
@@ -114,15 +115,17 @@ pub const ARG_MIGRATE_CHECK: &str = "check";
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
 
-pub(crate) fn basic_app<'b>() -> App<'static, 'b> {
-    App::new(BIN_NAME)
+/// return root clap Command
+pub fn basic_app<'help>() -> Command<'help> {
+    Command::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand_required(true)
+        .arg_required_else_help(true)
         .arg(
-            Arg::with_name(ARG_CONFIG_DIR)
+            Arg::new(ARG_CONFIG_DIR)
                 .global(true)
-                .short("C")
+                .short('C')
                 .value_name("path")
                 .takes_value(true)
                 .help(
@@ -146,7 +149,7 @@ pub(crate) fn basic_app<'b>() -> App<'static, 'b> {
 /// Parse the command line arguments by supplying the version information.
 ///
 /// The version is used to generate the help message and output for `--version`.
-pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches<'static>) {
+pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches) {
     let bin_name = std::env::args()
         .next()
         .unwrap_or_else(|| BIN_NAME.to_owned());
@@ -157,24 +160,24 @@ pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches<'stati
     (bin_name, matches)
 }
 
-fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN)
+fn run<'help>() -> Command<'help> {
+    Command::new(CMD_RUN)
         .about("Runs ckb node")
         .arg(
-            Arg::with_name(ARG_BA_ADVANCED)
+            Arg::new(ARG_BA_ADVANCED)
                 .long(ARG_BA_ADVANCED)
                 .help("Allows any block assembler code hash and args"),
         )
         .arg(
-            Arg::with_name(ARG_SKIP_CHAIN_SPEC_CHECK)
+            Arg::new(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .long(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .help("Skips checking the chain spec with the hash stored in the database"),
         ).arg(
-            Arg::with_name(ARG_OVERWRITE_CHAIN_SPEC)
+            Arg::new(ARG_OVERWRITE_CHAIN_SPEC)
                 .long(ARG_OVERWRITE_CHAIN_SPEC)
                 .help("Overwrites the chain spec in the database with the present configured chain spec")
         ).arg(
-        Arg::with_name(ARG_ASSUME_VALID_TARGET)
+        Arg::new(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)
             .takes_value(true)
             .validator(is_hex)
@@ -190,210 +193,194 @@ fn run() -> App<'static, 'static> {
     )
 }
 
-fn miner() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MINER)
-        .about("Runs ckb miner")
-        .arg(
-            Arg::with_name(ARG_LIMIT)
-                .short("l")
-                .long(ARG_LIMIT)
-                .takes_value(true)
-                .help(
-                    "Exit after how many nonces found; \
+fn miner<'help>() -> Command<'help> {
+    Command::new(CMD_MINER).about("Runs ckb miner").arg(
+        Arg::new(ARG_LIMIT)
+            .short('l')
+            .long(ARG_LIMIT)
+            .takes_value(true)
+            .help(
+                "Exit after how many nonces found; \
             0 means the miner will never exit. [default: 0]",
-                ),
-        )
+            ),
+    )
 }
 
-fn reset_data() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RESET_DATA)
+fn reset_data<'help>() -> Command<'help> {
+    Command::new(CMD_RESET_DATA)
         .about(
             "Truncate the database directory\n\
              Example:\n\
              ckb reset-data --force --database",
         )
         .arg(
-            Arg::with_name(ARG_FORCE)
-                .short("f")
+            Arg::new(ARG_FORCE)
+                .short('f')
                 .long(ARG_FORCE)
                 .help("Delete data without interactive prompt"),
         )
         .arg(
-            Arg::with_name(ARG_ALL)
+            Arg::new(ARG_ALL)
                 .long(ARG_ALL)
                 .help("Delete the whole data directory"),
         )
         .arg(
-            Arg::with_name(ARG_DATABASE)
+            Arg::new(ARG_DATABASE)
                 .long(ARG_DATABASE)
                 .help("Delete only `data/db`"),
         )
         .arg(
-            Arg::with_name(ARG_NETWORK)
+            Arg::new(ARG_NETWORK)
                 .long(ARG_NETWORK)
                 .help("Delete both peer store and secret key"),
         )
         .arg(
-            Arg::with_name(ARG_NETWORK_PEER_STORE)
+            Arg::new(ARG_NETWORK_PEER_STORE)
                 .long(ARG_NETWORK_PEER_STORE)
                 .help("Delete only `data/network/peer_store`"),
         )
         .arg(
-            Arg::with_name(ARG_NETWORK_SECRET_KEY)
+            Arg::new(ARG_NETWORK_SECRET_KEY)
                 .long(ARG_NETWORK_SECRET_KEY)
                 .help("Delete only `data/network/secret_key`"),
         )
         .arg(
-            Arg::with_name(ARG_LOGS)
+            Arg::new(ARG_LOGS)
                 .long(ARG_LOGS)
                 .help("Delete only `data/logs`"),
         )
 }
 
-pub(crate) fn stats() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_STATS)
+pub(crate) fn stats<'help>() -> Command<'help> {
+    Command::new(CMD_STATS)
         .about(
             "Statics chain information\n\
              Example:\n\
              ckb -C <dir> stats --from 1 --to 500",
         )
         .arg(
-            Arg::with_name(ARG_FROM)
+            Arg::new(ARG_FROM)
                 .long(ARG_FROM)
                 .takes_value(true)
                 .help("Specifies from block number."),
         )
         .arg(
-            Arg::with_name(ARG_TO)
+            Arg::new(ARG_TO)
                 .long(ARG_TO)
                 .takes_value(true)
                 .help("Specifies to block number."),
         )
 }
 
-fn replay() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_REPLAY)
+fn replay<'help>() -> Command<'help> {
+    Command::new(CMD_REPLAY)
         .about("replay ckb process block")
-        .help("
+        .override_help("
             --tmp-target <tmp> --profile 1 10,\n
             --tmp-target <tmp> --sanity-check,\n
         ")
-        .arg(Arg::with_name(ARG_TMP_TARGET).long(ARG_TMP_TARGET).takes_value(true).required(true).help(
+        .arg(Arg::new(ARG_TMP_TARGET).long(ARG_TMP_TARGET).takes_value(true).required(true).help(
             "Specifies a target path, prof command make a temporary directory inside of target and the directory will be automatically deleted when finished",
         ))
-        .arg(Arg::with_name(ARG_PROFILE).long(ARG_PROFILE).help(
+        .arg(Arg::new(ARG_PROFILE).long(ARG_PROFILE).help(
             "Enable profile",
         ))
         .arg(
-            Arg::with_name(ARG_FROM)
+            Arg::new(ARG_FROM)
               .help("Specifies profile from block number."),
         )
         .arg(
-            Arg::with_name(ARG_TO)
+            Arg::new(ARG_TO)
               .help("Specifies profile to block number."),
         )
         .arg(
-            Arg::with_name(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).help("Enable sanity check")
+            Arg::new(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).help("Enable sanity check")
         )
         .arg(
-            Arg::with_name(ARG_FULL_VERIFICATION).long(ARG_FULL_VERIFICATION).help("Enable sanity check")
+            Arg::new(ARG_FULL_VERIFICATION).long(ARG_FULL_VERIFICATION).help("Enable sanity check")
         )
         .group(
-            ArgGroup::with_name("mode")
+            ArgGroup::new("mode")
                 .args(&[ARG_PROFILE, ARG_SANITY_CHECK])
                 .required(true)
         )
 }
 
-fn export() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_EXPORT)
-        .about("Exports ckb data")
-        .arg(
-            Arg::with_name(ARG_TARGET)
-                .short("t")
-                .long(ARG_TARGET)
-                .value_name("path")
-                .required(true)
-                .index(1)
-                .help("Specifies the export target path."),
-        )
+fn export<'help>() -> Command<'help> {
+    Command::new(CMD_EXPORT).about("Exports ckb data").arg(
+        Arg::new(ARG_TARGET)
+            .short('t')
+            .long(ARG_TARGET)
+            .value_name("path")
+            .required(true)
+            .help("Specifies the export target path."),
+    )
 }
 
-fn import() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_IMPORT)
-        .about("Imports ckb data")
-        .arg(
-            Arg::with_name(ARG_SOURCE)
-                .short("s")
-                .long(ARG_SOURCE)
-                .value_name("path")
-                .required(true)
-                .index(1)
-                .help("Specifies the exported data path."),
-        )
+fn import<'help>() -> Command<'help> {
+    Command::new(CMD_IMPORT).about("Imports ckb data").arg(
+        Arg::new(ARG_SOURCE)
+            .index(1)
+            .value_name("path")
+            .required(true)
+            .help("Specifies the exported data path."),
+    )
 }
 
-fn migrate() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MIGRATE)
+fn migrate<'help>() -> Command<'help> {
+    Command::new(CMD_MIGRATE)
         .about("Runs ckb migration")
-        .arg(
-            Arg::with_name(ARG_MIGRATE_CHECK)
-                .long(ARG_MIGRATE_CHECK)
-                .help(
-                    "Perform database version check without migrating, \
+        .arg(Arg::new(ARG_MIGRATE_CHECK).long(ARG_MIGRATE_CHECK).help(
+            "Perform database version check without migrating, \
                     if migration is in need ExitCode(0) is returned，\
                     otherwise ExitCode(64) is returned",
-                ),
-        )
+        ))
         .arg(
-            Arg::with_name(ARG_FORCE)
+            Arg::new(ARG_FORCE)
                 .long(ARG_FORCE)
                 .conflicts_with(ARG_MIGRATE_CHECK)
                 .help("Do migration without interactive prompt"),
         )
 }
 
-fn db_repair() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_DB_REPAIR).about("Try repair ckb database")
+fn db_repair<'help>() -> Command<'help> {
+    Command::new(CMD_DB_REPAIR).about("Try repair ckb database")
 }
 
-fn list_hashes() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_LIST_HASHES)
+fn list_hashes<'help>() -> Command<'help> {
+    Command::new(CMD_LIST_HASHES)
         .about("Lists well known hashes")
         .arg(
-            Arg::with_name(ARG_BUNDLED)
-                .short("b")
-                .long(ARG_BUNDLED)
-                .help(
-                    "Lists hashes of the bundled chain specs instead of the current effective one.",
-                ),
+            Arg::new(ARG_BUNDLED).short('b').long(ARG_BUNDLED).help(
+                "Lists hashes of the bundled chain specs instead of the current effective one.",
+            ),
         )
 }
 
-fn init() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_INIT)
+fn init<'help>() -> Command<'help> {
+    Command::new(CMD_INIT)
         .about("Creates a CKB directory or re-initializes an existing one")
         .arg(
-            Arg::with_name(ARG_INTERACTIVE)
-                .short("i")
+            Arg::new(ARG_INTERACTIVE)
+                .short('i')
                 .long(ARG_INTERACTIVE)
                 .help("Interactive mode"),
         )
         .arg(
-            Arg::with_name(ARG_LIST_CHAINS)
-                .short("l")
+            Arg::new(ARG_LIST_CHAINS)
+                .short('l')
                 .long(ARG_LIST_CHAINS)
                 .help("Lists available options for --chain"),
         )
         .arg(
-            Arg::with_name(ARG_CHAIN)
-                .short("c")
+            Arg::new(ARG_CHAIN)
+                .short('c')
                 .long(ARG_CHAIN)
                 .default_value(DEFAULT_SPEC)
                 .help("Initializes CKB directory for <chain>"),
         )
         .arg(
-            Arg::with_name(ARG_IMPORT_SPEC)
+            Arg::new(ARG_IMPORT_SPEC)
                 .long(ARG_IMPORT_SPEC)
                 .takes_value(true)
                 .help(
@@ -402,32 +389,32 @@ fn init() -> App<'static, 'static> {
                 ),
         )
         .arg(
-            Arg::with_name(ARG_LOG_TO)
+            Arg::new(ARG_LOG_TO)
                 .long(ARG_LOG_TO)
                 .possible_values(&["file", "stdout", "both"])
                 .default_value("both")
                 .help("Configures where the logs should print"),
         )
         .arg(
-            Arg::with_name(ARG_FORCE)
-                .short("f")
+            Arg::new(ARG_FORCE)
+                .short('f')
                 .long(ARG_FORCE)
                 .help("Forces overwriting existing files"),
         )
         .arg(
-            Arg::with_name(ARG_RPC_PORT)
+            Arg::new(ARG_RPC_PORT)
                 .long(ARG_RPC_PORT)
                 .default_value(DEFAULT_RPC_PORT)
                 .help("Replaces CKB RPC port in the created config file"),
         )
         .arg(
-            Arg::with_name(ARG_P2P_PORT)
+            Arg::new(ARG_P2P_PORT)
                 .long(ARG_P2P_PORT)
                 .default_value(DEFAULT_P2P_PORT)
                 .help("Replaces CKB P2P port in the created config file"),
         )
         .arg(
-            Arg::with_name(ARG_BA_CODE_HASH)
+            Arg::new(ARG_BA_CODE_HASH)
                 .long(ARG_BA_CODE_HASH)
                 .value_name("code_hash")
                 .validator(is_hex)
@@ -438,16 +425,16 @@ fn init() -> App<'static, 'static> {
                 ),
         )
         .arg(
-            Arg::with_name(ARG_BA_ARG)
+            Arg::new(ARG_BA_ARG)
                 .long(ARG_BA_ARG)
                 .value_name("arg")
                 .validator(is_hex)
-                .multiple(true)
+                .multiple_occurrences(true)
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
         )
         .arg(
-            Arg::with_name(ARG_BA_HASH_TYPE)
+            Arg::new(ARG_BA_HASH_TYPE)
                 .long(ARG_BA_HASH_TYPE)
                 .value_name("hash_type")
                 .takes_value(true)
@@ -456,33 +443,29 @@ fn init() -> App<'static, 'static> {
                 .help("Sets hash type in [block_assembler]"),
         )
         .group(
-            ArgGroup::with_name(GROUP_BA)
+            ArgGroup::new(GROUP_BA)
                 .args(&[ARG_BA_CODE_HASH, ARG_BA_ARG])
                 .multiple(true),
         )
         .arg(
-            Arg::with_name(ARG_BA_MESSAGE)
+            Arg::new(ARG_BA_MESSAGE)
                 .long(ARG_BA_MESSAGE)
                 .value_name("message")
                 .validator(is_hex)
                 .requires(GROUP_BA)
                 .help("Sets message in [block_assembler]"),
         )
+        .arg(Arg::new("export-specs").long("export-specs").hide(true))
+        .arg(Arg::new("list-specs").long("list-specs").hide(true))
         .arg(
-            Arg::with_name("export-specs")
-                .long("export-specs")
-                .hidden(true),
-        )
-        .arg(Arg::with_name("list-specs").long("list-specs").hidden(true))
-        .arg(
-            Arg::with_name("spec")
-                .short("s")
+            Arg::new("spec")
+                .short('s')
                 .long("spec")
                 .takes_value(true)
-                .hidden(true),
+                .hide(true),
         )
         .arg(
-            Arg::with_name(ARG_GENESIS_MESSAGE)
+            Arg::new(ARG_GENESIS_MESSAGE)
                 .long(ARG_GENESIS_MESSAGE)
                 .value_name(ARG_GENESIS_MESSAGE)
                 .takes_value(true)
@@ -494,14 +477,15 @@ fn init() -> App<'static, 'static> {
         )
 }
 
-fn peer_id() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_PEERID)
+fn peer_id<'help>() -> Command<'help> {
+    Command::new(CMD_PEERID)
         .about("About peer id, base on Secp256k1")
+        .subcommand_required(true)
         .subcommand(
-            SubCommand::with_name(CMD_FROM_SECRET)
+            Command::new(CMD_FROM_SECRET)
                 .about("Generate peer id from secret file")
                 .arg(
-                    Arg::with_name(ARG_SECRET_PATH)
+                    Arg::new(ARG_SECRET_PATH)
                         .takes_value(true)
                         .long(ARG_SECRET_PATH)
                         .required(true)
@@ -509,10 +493,10 @@ fn peer_id() -> App<'static, 'static> {
                 ),
         )
         .subcommand(
-            SubCommand::with_name(CMD_GEN_SECRET)
+            Command::new(CMD_GEN_SECRET)
                 .about("Generate random key to file")
                 .arg(
-                    Arg::with_name(ARG_SECRET_PATH)
+                    Arg::new(ARG_SECRET_PATH)
                         .long(ARG_SECRET_PATH)
                         .required(true)
                         .takes_value(true)
@@ -521,7 +505,7 @@ fn peer_id() -> App<'static, 'static> {
         )
 }
 
-fn is_hex(hex: String) -> Result<(), String> {
+fn is_hex(hex: &str) -> Result<(), String> {
     let tmp = hex.as_bytes();
     if tmp.len() < 2 {
         Err("Must be a 0x-prefixed hexadecimal string".to_string())
