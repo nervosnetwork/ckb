@@ -66,6 +66,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         binary_version: "BENCH".to_string(),
         update_interval_millis: 800,
         notify: vec![],
+        notify_scripts: vec![],
     }
 }
 

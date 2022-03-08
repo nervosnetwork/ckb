@@ -38,6 +38,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         binary_version: "TEST".to_string(),
         update_interval_millis: 800,
         notify: vec![],
+        notify_scripts: vec![],
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))

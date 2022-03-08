@@ -67,6 +67,9 @@ pub struct BlockAssemblerConfig {
     /// Notify url
     #[serde(default)]
     pub notify: Vec<Url>,
+    /// Notify scripts
+    #[serde(default)]
+    pub notify_scripts: Vec<String>,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
