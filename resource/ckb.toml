@@ -184,5 +184,7 @@ block_uncles_cache_size    = 30
 # # CKB will prepend the binary version to message, to identify the block miner client. (default true, false to disable it)
 # use_binary_version_as_message_prefix = true
 # #
-# # block assembler will notify new block template to specified endpoints when update
+# # Block assembler will notify new block template through http post to specified endpoints when update
 # notify = ["http://127.0.0.1:8888"]
+# # Or you may want use more flexible scripts, block template as arg.
+# notify_scripts = ["{cmd} {blocktemplate}"]

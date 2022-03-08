@@ -15,6 +15,7 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
+use ckb_logger::{debug, error, trace};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -38,6 +39,7 @@ use std::sync::{
     Arc,
 };
 use std::{cmp, iter};
+use tokio::process::Command;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::block_in_place;
 
@@ -184,7 +186,7 @@ impl BlockAssembler {
         current.size.total = total_size;
         current.size.proposals = proposals_size;
 
-        ckb_logger::trace!(
+        trace!(
             "[BlockAssembler] update_full {} uncles-{} proposals-{} txs-{}",
             current.template.number,
             current.template.uncles.len(),
@@ -224,7 +226,7 @@ impl BlockAssembler {
             .dao(dao);
         let template = builder.build();
 
-        ckb_logger::trace!(
+        trace!(
             "[BlockAssembler] update_blank {} uncles-{} proposals-{} txs-{}",
             template.number,
             template.uncles.len(),
@@ -279,7 +281,7 @@ impl BlockAssembler {
                     current.size.uncles = new_uncle_size;
                     current.size.total = new_total_size;
 
-                    ckb_logger::trace!(
+                    trace!(
                         "[BlockAssembler] update_uncles-{} epoch-{} uncles-{} proposals-{} txs-{}",
                         current.template.number,
                         current.template.epoch.number(),
@@ -539,7 +541,7 @@ impl BlockAssembler {
                         snapshot,
                         resolve_opts,
                     ) {
-                        ckb_logger::error!(
+                        error!(
                             "resolve transactions when build block template, \
                              tip_number: {}, tip_hash: {}, error: {:?}",
                             tip_header.number(),
@@ -566,19 +568,37 @@ impl BlockAssembler {
 
     pub(crate) async fn notify(&self) {
         let template = self.get_current().await;
-        if let Ok(body) = serde_json::to_string(&template) {
+        if let Ok(template_json) = serde_json::to_string(&template) {
             for url in &self.config.notify {
                 if let Ok(req) = Request::builder()
                     .method(Method::POST)
                     .uri(url.as_ref())
                     .header("content-type", "application/json")
-                    .body(Body::from(body.clone()))
+                    .body(Body::from(template_json.to_owned()))
                 {
                     let client = Arc::clone(&self.poster);
                     tokio::spawn(async move {
                         let _resp = client.request(req).await;
                     });
                 }
+            }
+
+            for script in &self.config.notify_scripts {
+                let script = script.to_owned();
+                let template_json = template_json.to_owned();
+                tokio::spawn(async move {
+                    // Errors
+                    // This future will return an error if the child process cannot be spawned
+                    // or if there is an error while awaiting its status.
+
+                    // On Unix platforms this method will fail with std::io::ErrorKind::WouldBlock
+                    // if the system process limit is reached
+                    // (which includes other applications running on the system).
+                    match Command::new(&script).arg(template_json).status().await {
+                        Ok(status) => debug!("the command exited with: {}", status),
+                        Err(e) => error!("the script {} failed to spawn {}", script, e),
+                    }
+                });
             }
         }
     }

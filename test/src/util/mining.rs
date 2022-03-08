@@ -96,7 +96,7 @@ impl Node {
             template = self.rpc_client().get_block_template(None, None, None);
             count += 1;
 
-            if count > 200 {
+            if count > 300 {
                 panic!("mine_with_blocking timeout");
             }
         }
