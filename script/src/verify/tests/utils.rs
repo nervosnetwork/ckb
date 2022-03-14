@@ -41,11 +41,15 @@ fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
 }
 
 pub(crate) fn open_cell_always_success() -> File {
-    File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/always_success")).unwrap()
+    open_cell_file("testdata/always_success")
 }
 
 pub(crate) fn open_cell_always_failure() -> File {
-    File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/always_failure")).unwrap()
+    open_cell_file("testdata/always_failure")
+}
+
+pub(crate) fn open_cell_file(path_str: &str) -> File {
+    File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join(path_str)).unwrap()
 }
 
 pub(crate) fn load_cell_from_path(path_str: &str) -> (CellMeta, Byte32) {
