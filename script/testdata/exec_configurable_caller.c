@@ -154,7 +154,10 @@ int main (int argc, char *argv[]) {
         to_hex(place_str,     bytes_seg.ptr+1+8*5, 8);
         to_hex(bounds_str,    bytes_seg.ptr+1+8*6, 8);
         to_hex(code_hash_str, bytes_seg.ptr+1+8*7, 32);
-        syscall(2043, index, source, place, bounds, argc_new, argv_new);
+        int ret = syscall(2043, index, source, place, bounds, argc_new, argv_new);
+        if (ret != CKB_SUCCESS) {
+            return ret;
+        }
     }
 
     try_pause();

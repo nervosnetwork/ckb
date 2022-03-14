@@ -9,6 +9,7 @@ use ckb_types::{
 use ckb_vm::Error as VmError;
 
 use super::SCRIPT_VERSION;
+use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::{
     type_id::TYPE_ID_CYCLES,
     verify::{tests::utils::*, *},
@@ -1099,8 +1100,18 @@ fn load_code_with_snapshot_more_times() {
 
 #[derive(Clone, Copy)]
 enum ExecFrom {
-    Witness,
-    CellData,
+    TxInputWitness,
+    GroupInputWitness,
+    TxOutputWitness,
+    GroupOutputWitness,
+    TxCellDep,
+    TxInputCell,
+    TxOutputCell,
+    GroupInputCell,
+    GroupOutputCell,
+    OutOfBound(u64, u64, u64, u64),
+    Slice(u64),
+    OutOfSlice(u64),
 }
 
 // Args:
@@ -1116,7 +1127,7 @@ fn test_exec(
     number: u64,
     expected: u64,
     exec_from: ExecFrom,
-    expected_result: Result<usize, ()>,
+    expected_result: Result<usize, String>,
 ) {
     let script_version = SCRIPT_VERSION;
 
@@ -1125,8 +1136,18 @@ fn test_exec(
     let args: packed::Bytes = {
         // The args for invoke exec.
         let (index, source, place, bounds): (u64, u64, u64, u64) = match exec_from {
-            ExecFrom::Witness => (0, 1, 1, 0),
-            ExecFrom::CellData => (1, 3, 0, 0),
+            ExecFrom::TxInputWitness => (0, 1, 1, 0),
+            ExecFrom::TxOutputWitness => (0, 2, 1, 0),
+            ExecFrom::GroupInputWitness => (0, SOURCE_GROUP_FLAG | 1, 1, 0),
+            ExecFrom::GroupOutputWitness => (0, SOURCE_GROUP_FLAG | 2, 1, 0),
+            ExecFrom::TxCellDep => (1, 3, 0, 0),
+            ExecFrom::TxInputCell => (1, 1, 0, 0),
+            ExecFrom::TxOutputCell => (0, 2, 0, 0),
+            ExecFrom::GroupInputCell => (0, SOURCE_GROUP_FLAG | 1, 0, 0),
+            ExecFrom::GroupOutputCell => (0, SOURCE_GROUP_FLAG | 2, 0, 0),
+            ExecFrom::OutOfBound(index, source, place, bounds) => (index, source, place, bounds),
+            ExecFrom::Slice(bounds) => (0, 1, 1, bounds),
+            ExecFrom::OutOfSlice(bounds) => (0, 1, 1, bounds),
         };
         // Load data as code at last exec.
         let data_hash = dyn_lib_data_hash.raw_data();
@@ -1150,6 +1171,9 @@ fn test_exec(
         let (exec_callee_cell, _exec_callee_data_hash) =
             load_cell_from_path("testdata/exec_configurable_callee");
 
+        let (always_success_cell, always_success_cell_data, always_success_script) =
+            always_success_cell();
+
         let exec_caller_script = Script::new_builder()
             .hash_type(script_version.data_hash_type().into())
             .code_hash(exec_caller_data_hash)
@@ -1157,27 +1181,127 @@ fn test_exec(
             .build();
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(100).pack())
-            .lock(exec_caller_script)
+            .lock(exec_caller_script.clone())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
-
-        let transaction = match exec_from {
-            ExecFrom::Witness => {
+        let (transaction, resolved_inputs) = match exec_from {
+            ExecFrom::TxOutputWitness
+            | ExecFrom::TxInputWitness
+            | ExecFrom::GroupInputWitness
+            | ExecFrom::OutOfSlice(..) => {
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
-                TransactionBuilder::default()
+                let tx = TransactionBuilder::default()
                     .input(input)
                     .set_witnesses(vec![exec_callee_cell_data.pack()])
-                    .build()
+                    .build();
+                (tx, vec![create_dummy_cell(output)])
             }
-            ExecFrom::CellData => TransactionBuilder::default().input(input).build(),
+            ExecFrom::Slice(bounds) => {
+                let offset = (bounds >> 32) as usize;
+                let mut data = vec![0; offset];
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                data.extend(exec_callee_cell_data);
+
+                let tx = TransactionBuilder::default()
+                    .input(input)
+                    .set_witnesses(vec![data.pack()])
+                    .build();
+                (tx, vec![create_dummy_cell(output)])
+            }
+            ExecFrom::TxCellDep => {
+                let tx = TransactionBuilder::default().input(input).build();
+                (tx, vec![create_dummy_cell(output)])
+            }
+            ExecFrom::GroupOutputWitness => {
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let output = CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .type_(Some(exec_caller_script).pack())
+                    .build();
+                let tx = TransactionBuilder::default()
+                    .output(output)
+                    .set_witnesses(vec![exec_callee_cell_data.pack()])
+                    .build();
+                (tx, vec![])
+            }
+            ExecFrom::TxInputCell => {
+                let callee_output = CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(always_success_script.clone())
+                    .build();
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let callee_cell =
+                    CellMetaBuilder::from_cell_output(callee_output, exec_callee_cell_data.clone())
+                        .build();
+                let tx = TransactionBuilder::default().input(input).build();
+
+                (tx, vec![create_dummy_cell(output), callee_cell])
+            }
+            ExecFrom::GroupInputCell => {
+                let caller_output = CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .lock(exec_caller_script)
+                    .type_(Some(always_success_script.clone()).pack())
+                    .build();
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let caller_cell =
+                    CellMetaBuilder::from_cell_output(caller_output, exec_callee_cell_data.clone())
+                        .build();
+                let tx = TransactionBuilder::default().input(input).build();
+
+                (tx, vec![caller_cell])
+            }
+            ExecFrom::TxOutputCell => {
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let callee_output = CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .lock(always_success_script.clone())
+                    .build();
+                let tx = TransactionBuilder::default()
+                    .input(input)
+                    .output(callee_output)
+                    .output_data(exec_callee_cell_data.pack())
+                    .build();
+                (tx, vec![create_dummy_cell(output)])
+            }
+            ExecFrom::GroupOutputCell => {
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let callee_output = CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .type_(Some(exec_caller_script).pack())
+                    .build();
+                let tx = TransactionBuilder::default()
+                    .output(callee_output)
+                    .output_data(exec_callee_cell_data.pack())
+                    .build();
+                (tx, vec![])
+            }
+            ExecFrom::OutOfBound(..) => {
+                let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+                let tx = TransactionBuilder::default()
+                    .set_witnesses(vec![exec_callee_cell_data.pack()])
+                    .build();
+                (tx, vec![create_dummy_cell(output)])
+            }
         };
 
-        let dummy_cell = create_dummy_cell(output);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point)
+        .build();
 
         ResolvedTransaction {
             transaction,
-            resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell, dyn_lib_cell],
-            resolved_inputs: vec![dummy_cell],
+            resolved_cell_deps: vec![
+                exec_caller_cell,
+                exec_callee_cell,
+                dyn_lib_cell,
+                resolved_always_success_cell,
+            ],
+            resolved_inputs,
             resolved_dep_groups: vec![],
         }
     };
@@ -1198,120 +1322,285 @@ fn test_exec(
             assert_eq!(cycles, cycles_once);
             assert_eq!(chunks_count, expected_chunks_count);
         }
-        Err(_) => {
+        Err(e) => {
             assert!(result.is_err());
+            if script_version < ScriptVersion::V1 {
+                return;
+            }
+            let err_string = format!("{}", result.unwrap_err());
+            assert!(err_string.contains(&e), "{}", err_string);
         }
     }
 }
 
 #[test]
 fn exec_from_cell_data_1times_no_load() {
-    let from = ExecFrom::CellData;
-    let res = Ok(2);
-    test_exec(0b0000, 1, 2, 1, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(2);
+        test_exec(0b0000, 1, 2, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_100times_no_load() {
-    let from = ExecFrom::CellData;
-    let res = Ok(101);
-    test_exec(0b0000, 100, 101, 1, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(101);
+        test_exec(0b0000, 100, 101, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_1times_and_load_before() {
-    let from = ExecFrom::CellData;
-    let res = Ok(5);
-    test_exec(0b0001, 1, 1, 1, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(5);
+        test_exec(0b0001, 1, 1, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_100times_and_load_before() {
-    let from = ExecFrom::CellData;
-    let res = Ok(104);
-    test_exec(0b0001, 100, 51, 2, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(104);
+        test_exec(0b0001, 100, 51, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_1times_and_load_after() {
-    let from = ExecFrom::CellData;
-    let res = Ok(4);
-    test_exec(0b0100, 1, 2, 2, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(4);
+        test_exec(0b0100, 1, 2, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_100times_and_load_after() {
-    let from = ExecFrom::CellData;
-    let res = Ok(103);
-    test_exec(0b0100, 100, 101, 2, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(103);
+        test_exec(0b0100, 100, 101, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_1times_and_load_both_and_write() {
-    let from = ExecFrom::CellData;
-    let res = Ok(7);
-    test_exec(0b0111, 1, 1, 2, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(7);
+        test_exec(0b0111, 1, 1, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_cell_data_100times_and_load_both_and_write() {
-    let from = ExecFrom::CellData;
-    let res = Ok(106);
-    test_exec(0b0111, 100, 51, 4, from, res);
+    for from in &[
+        ExecFrom::TxCellDep,
+        ExecFrom::TxInputCell,
+        ExecFrom::TxOutputCell,
+        ExecFrom::GroupInputCell,
+        ExecFrom::GroupOutputCell,
+    ] {
+        let res = Ok(106);
+        test_exec(0b0111, 100, 51, 4, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_1times_no_load() {
-    let from = ExecFrom::Witness;
-    let res = Ok(2);
-    test_exec(0b0000, 1, 2, 1, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(2);
+        test_exec(0b0000, 1, 2, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_100times_no_load() {
-    let from = ExecFrom::Witness;
-    let res = Ok(101);
-    test_exec(0b0000, 100, 101, 1, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(101);
+        test_exec(0b0000, 100, 101, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_1times_and_load_before() {
-    let from = ExecFrom::Witness;
-    let res = Ok(5);
-    test_exec(0b0001, 1, 1, 1, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(5);
+        test_exec(0b0001, 1, 1, 1, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_100times_and_load_before() {
-    let from = ExecFrom::Witness;
-    let res = Ok(104);
-    test_exec(0b0001, 100, 51, 2, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(104);
+        test_exec(0b0001, 100, 51, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_1times_and_load_after() {
-    let from = ExecFrom::Witness;
-    let res = Ok(4);
-    test_exec(0b0100, 1, 2, 2, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(4);
+        test_exec(0b0100, 1, 2, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_100times_and_load_after() {
-    let from = ExecFrom::Witness;
-    let res = Ok(103);
-    test_exec(0b0100, 100, 101, 2, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(103);
+        test_exec(0b0100, 100, 101, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_1times_and_load_both_and_write() {
-    let from = ExecFrom::Witness;
-    let res = Ok(7);
-    test_exec(0b0111, 1, 1, 2, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(7);
+        test_exec(0b0111, 1, 1, 2, *from, res);
+    }
 }
 
 #[test]
 fn exec_from_witness_100times_and_load_both_and_write() {
-    let from = ExecFrom::Witness;
-    let res = Ok(106);
-    test_exec(0b0111, 100, 51, 4, from, res);
+    for from in &[
+        ExecFrom::TxInputWitness,
+        ExecFrom::TxOutputWitness,
+        ExecFrom::GroupInputWitness,
+        ExecFrom::GroupOutputWitness,
+    ] {
+        let res = Ok(106);
+        test_exec(0b0111, 100, 51, 4, *from, res);
+    }
+}
+
+#[test]
+fn exec_from_witness_source_out_bound() {
+    for from in &[
+        ExecFrom::OutOfBound(0, 3, 1, 0),
+        ExecFrom::OutOfBound(0, 4, 1, 0),
+        ExecFrom::OutOfBound(0, SOURCE_GROUP_FLAG | 3, 0, 0),
+        ExecFrom::OutOfBound(0, SOURCE_GROUP_FLAG | 4, 0, 0),
+    ] {
+        let res = Err("error code 1".to_string());
+        test_exec(0b0000, 1, 2, 1, *from, res);
+    }
+}
+
+#[test]
+fn exec_from_cell_data_source_out_bound() {
+    for from in &[
+        ExecFrom::OutOfBound(1, 4, 0, 0),
+        ExecFrom::OutOfBound(1, SOURCE_GROUP_FLAG | 3, 0, 0),
+        ExecFrom::OutOfBound(1, SOURCE_GROUP_FLAG | 4, 0, 0),
+    ] {
+        let res = Err("error code 1".to_string());
+        test_exec(0b0000, 1, 2, 1, *from, res);
+    }
+}
+
+#[test]
+fn exec_from_witness_place_error() {
+    let from = ExecFrom::OutOfBound(0, 1, 3, 0);
+    let res = Err("Place parse_from_u64".to_string());
+    test_exec(0b0000, 1, 2, 1, from, res);
+}
+
+#[test]
+fn exec_slice() {
+    let (exec_callee_cell, _exec_callee_data_hash) =
+        load_cell_from_path("testdata/exec_configurable_callee");
+    let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
+    let length = exec_callee_cell_data.len() as u64;
+
+    let from = ExecFrom::OutOfSlice(length);
+    let res = Ok(2);
+    test_exec(0b0000, 1, 2, 1, from, res);
+
+    let from = ExecFrom::OutOfSlice(length + 1);
+    let res = Err("error code 3".to_string());
+    test_exec(0b0000, 1, 2, 1, from, res);
+
+    let from = ExecFrom::OutOfSlice(((length - 1) << 32) | 1);
+    let res = Err("MemWriteOnExecutablePage".to_string());
+    test_exec(0b0000, 1, 2, 1, from, res);
+
+    let from = ExecFrom::Slice((10 << 32) | length);
+    let res = Ok(2);
+    test_exec(0b0000, 1, 2, 1, from, res);
 }

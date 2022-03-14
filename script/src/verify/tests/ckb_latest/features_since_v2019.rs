@@ -1181,3 +1181,74 @@ fn load_code_to_stack_then_reuse_case4_load_but_not_write() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert!(result.is_ok());
 }
+
+#[test]
+fn check_debugger() {
+    let script_version = SCRIPT_VERSION;
+
+    let mut file = open_cell_file("testdata/debugger");
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+
+    let input = CellInput::new(OutPoint::null(), 0);
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(always_success_script.clone())
+        .build();
+    let dummy_cell = create_dummy_cell(output);
+    let always_success_cell = CellMetaBuilder::from_cell_output(
+        always_success_cell.clone(),
+        always_success_cell_data.to_owned(),
+    )
+    .transaction_info(default_transaction_info())
+    .build();
+
+    let script = Script::new_builder()
+        .code_hash(blake2b_256(&buffer).pack())
+        .hash_type(ScriptHashType::Data.into())
+        .build();
+    let output_data = Bytes::default();
+    let output = CellOutputBuilder::default()
+        .lock(
+            Script::new_builder()
+                .hash_type(ScriptHashType::Data.into())
+                .build(),
+        )
+        .type_(Some(script).pack())
+        .build();
+
+    let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
+    let cell_dep = CellDep::new_builder()
+        .out_point(dep_out_point.clone())
+        .build();
+    let dep_cell = {
+        let data = Bytes::from(buffer);
+        let output = CellOutputBuilder::default()
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .build();
+        CellMetaBuilder::from_cell_output(output, data)
+            .transaction_info(default_transaction_info())
+            .out_point(dep_out_point)
+            .build()
+    };
+
+    let transaction = TransactionBuilder::default()
+        .input(input)
+        .output(output)
+        .output_data(output_data.pack())
+        .cell_dep(cell_dep)
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![dep_cell, always_success_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert!(result.is_ok(), "result {:?}", result);
+}
