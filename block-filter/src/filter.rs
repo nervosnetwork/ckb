@@ -40,28 +40,63 @@ impl BlockFilter {
 
     /// build block filter data to the latest block
     fn build_filter_data(&self) {
-        // TODO update the built block number to the META column family
-        let mut header = self.db.get_tip_header().expect("tip stored");
-        while self.db.get_block_filter(&header.hash()).is_none() {
-            self.build_filter_data_for_block(&header);
-            if header.is_genesis() {
-                break;
-            } else {
-                header = self
-                    .db
-                    .get_block_header(&header.parent_hash())
-                    .expect("parent header stored");
+        let snapshot = self.db.get_snapshot();
+        let tip_header = snapshot.get_tip_header().expect("tip stored");
+        let start_number = match snapshot.get_latest_built_filter_data_block_hash() {
+            Some(block_hash) => {
+                debug!("Latest built block hash {:#x}", block_hash);
+                if snapshot.is_main_chain(&block_hash) {
+                    let header = snapshot
+                        .get_block_header(&block_hash)
+                        .expect("header stored");
+                    debug!(
+                        "Latest built block is main chain, start from {}",
+                        header.number() + 1
+                    );
+                    header.number() + 1
+                } else {
+                    // find fork chain number
+                    let mut header = snapshot
+                        .get_block_header(&block_hash)
+                        .expect("header stored");
+                    while !snapshot.is_main_chain(&header.parent_hash()) {
+                        header = snapshot
+                            .get_block_header(&header.parent_hash())
+                            .expect("parent header stored");
+                    }
+                    debug!(
+                        "Latest built filter data block is fork chain, start from {}",
+                        header.number()
+                    );
+                    header.number()
+                }
             }
+            None => 0,
+        };
+
+        for block_number in start_number..=tip_header.number() {
+            let block_hash = snapshot.get_block_hash(block_number).expect("index stored");
+            let header = snapshot
+                .get_block_header(&block_hash)
+                .expect("header stored");
+            self.build_filter_data_for_block(&header);
         }
     }
 
     fn build_filter_data_for_block(&self, header: &HeaderView) {
         debug!(
-            "Start building filter data for block: {}, hash: {}",
+            "Start building filter data for block: {}, hash: {:#x}",
             header.number(),
             header.hash()
         );
         let db = &self.db;
+        if db.get_block_filter(&header.hash()).is_some() {
+            debug!(
+                "Filter data for block {:#x} already exist, skip build",
+                header.hash()
+            );
+            return;
+        }
         let mut filter_writer = std::io::Cursor::new(Vec::new());
         let mut filter = build_gcs_filter(&mut filter_writer);
         let transcations = db.get_block_body(&header.hash());
@@ -94,10 +129,12 @@ impl BlockFilter {
             .finish()
             .expect("flush to memory writer should be OK");
         let filter_data = filter_writer.into_inner();
-        db.begin_transaction()
+        let db_transaction = db.begin_transaction();
+        db_transaction
             .insert_block_filter(&header.hash(), &filter_data.pack())
             .expect("insert_block_filter should be ok");
-        debug!("Inserted filter data for block: {}, hash: {}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);
+        db_transaction.commit().expect("commit should be ok");
+        debug!("Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);
     }
 }
 
