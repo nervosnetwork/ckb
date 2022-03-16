@@ -47,7 +47,8 @@ ALL_BINS := jalr_zero \
             load_code_to_stack_then_reuse \
             load_is_even_into_global \
             load_is_even_with_snapshot \
-            load_arithmetic
+            load_arithmetic \
+            debugger
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 

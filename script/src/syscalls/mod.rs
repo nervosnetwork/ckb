@@ -163,7 +163,7 @@ impl SourceEntry {
     }
 }
 
-const SOURCE_GROUP_FLAG: u64 = 0x0100_0000_0000_0000;
+pub(crate) const SOURCE_GROUP_FLAG: u64 = 0x0100_0000_0000_0000;
 const SOURCE_GROUP_MASK: u64 = 0xFF00_0000_0000_0000;
 const SOURCE_ENTRY_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
 
@@ -189,6 +189,22 @@ impl Source {
             Ok(Source::Group(entry))
         } else {
             Ok(Source::Transaction(entry))
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+enum Place {
+    CellData,
+    Witness,
+}
+
+impl Place {
+    fn parse_from_u64(i: u64) -> Result<Place, Error> {
+        match i {
+            0 => Ok(Place::CellData),
+            1 => Ok(Place::Witness),
+            _ => Err(Error::External(format!("Place parse_from_u64 {}", i))),
         }
     }
 }
