@@ -247,6 +247,7 @@ impl ServiceProtocol for CKBHandler {
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+        // This judgment will be removed in the first release after hardfork
         if self
             .network_state
             .ckb2021
@@ -254,6 +255,10 @@ impl ServiceProtocol for CKBHandler {
             && version != "2"
             && context.proto_id != SupportProtocols::Relay.protocol_id()
         {
+            debug!(
+                "session {}, protocol {} with version {}, not 2, so disconnect it",
+                context.session.id, context.proto_id, version
+            );
             let id = context.session.id;
             let _ignore = context.disconnect(id);
             return;
