@@ -453,9 +453,19 @@ impl ChainSpec {
 
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
         if let Some(parent) = resource.parent() {
-            for r in spec.genesis.system_cells.iter_mut() {
-                r.file.absolutize(parent)
-            }
+            spec.genesis
+                .system_cells
+                .iter_mut()
+                .for_each(|system_cell| system_cell.file.absolutize(parent));
+            spec.genesis
+                .dep_groups
+                .iter_mut()
+                .for_each(|dep_group_resource| {
+                    dep_group_resource
+                        .files
+                        .iter_mut()
+                        .for_each(|resource| resource.absolutize(parent))
+                });
         }
         // leverage serialize for sanitizing
         spec.hash = packed::Byte32::new(blake2b_256(&toml::to_vec(&spec)?));
