@@ -1,35 +1,35 @@
-use clap::{App, AppSettings};
+use clap::Command;
 
 use crate::cli::*;
 
 #[test]
 fn stats_args() {
-    let app = App::new("stats_args_test")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
+    let app = Command::new("stats_args_test")
+        .arg_required_else_help(true)
         .subcommand(stats());
 
-    let stats = app.clone().get_matches_from_safe(vec!["", CMD_STATS]);
+    let stats = app.clone().try_get_matches_from(vec!["", CMD_STATS]);
     assert!(stats.is_ok());
 
     let stats = app
         .clone()
-        .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10"]);
+        .try_get_matches_from(vec!["", CMD_STATS, "--from", "10"]);
     assert!(stats.is_ok());
 
     let stats = app
         .clone()
-        .get_matches_from_safe(vec!["", CMD_STATS, "--to", "100"]);
+        .try_get_matches_from(vec!["", CMD_STATS, "--to", "100"]);
     assert!(stats.is_ok());
 
     let stats = app
         .clone()
-        .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
+        .try_get_matches_from(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
     assert!(stats.is_ok());
 }
 
 #[test]
 fn ba_message_requires_ba_arg_or_ba_code_hash() {
-    let ok_ba_arg = basic_app().get_matches_from_safe(&[
+    let ok_ba_arg = basic_app().try_get_matches_from(&[
         BIN_NAME,
         "init",
         "--ba-message",
@@ -37,7 +37,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
         "--ba-arg",
         "0x00",
     ]);
-    let ok_ba_code_hash = basic_app().get_matches_from_safe(&[
+    let ok_ba_code_hash = basic_app().try_get_matches_from(&[
         BIN_NAME,
         "init",
         "--ba-message",
@@ -45,7 +45,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
         "--ba-code-hash",
         "0x00",
     ]);
-    let err = basic_app().get_matches_from_safe(&[BIN_NAME, "init", "--ba-message", "0x00"]);
+    let err = basic_app().try_get_matches_from(&[BIN_NAME, "init", "--ba-message", "0x00"]);
 
     assert!(
         ok_ba_arg.is_ok(),
@@ -63,17 +63,17 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
     );
 
     let err = err.err().unwrap();
-    assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind);
+    assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind());
     assert!(err
-        .message
+        .to_string()
         .contains("The following required arguments were not provided"));
-    assert!(err.message.contains("--ba-arg"));
-    assert!(err.message.contains("--ba-code-hash"));
+    assert!(err.to_string().contains("--ba-arg"));
+    assert!(err.to_string().contains("--ba-code-hash"));
 }
 
 #[test]
 fn ba_arg_and_ba_code_hash() {
-    let ok_matches = basic_app().get_matches_from_safe(&[
+    let ok_matches = basic_app().try_get_matches_from(&[
         BIN_NAME,
         "init",
         "--ba-code-hash",
@@ -91,9 +91,9 @@ fn ba_arg_and_ba_code_hash() {
 #[test]
 fn ba_advanced() {
     let matches = basic_app()
-        .get_matches_from_safe(&[BIN_NAME, "run", "--ba-advanced"])
+        .try_get_matches_from(&[BIN_NAME, "run", "--ba-advanced"])
         .unwrap();
-    let sub_matches = matches.subcommand().1.unwrap();
+    let sub_matches = matches.subcommand().unwrap().1;
 
     assert_eq!(1, sub_matches.occurrences_of(ARG_BA_ADVANCED));
 }
