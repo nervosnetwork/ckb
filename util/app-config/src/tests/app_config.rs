@@ -1,6 +1,7 @@
 use ckb_resource::{Resource, TemplateContext};
 
-use crate::{app_config::*, cli};
+use crate::app_config::*;
+use crate::{CMD_MINER, CMD_RUN};
 
 fn mkdir() -> tempfile::TempDir {
     tempfile::Builder::new()
@@ -38,7 +39,7 @@ fn test_export_dev_config_files() {
         Resource::bundled_ckb_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let ckb_config = app_config
             .into_ckb()
@@ -59,7 +60,7 @@ fn test_export_dev_config_files() {
         Resource::bundled_miner_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let miner_config = app_config
             .into_miner()
@@ -91,7 +92,7 @@ fn test_log_to_stdout_only() {
         Resource::bundled_ckb_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let ckb_config = app_config
             .into_ckb()
@@ -103,7 +104,7 @@ fn test_log_to_stdout_only() {
         Resource::bundled_miner_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let miner_config = app_config
             .into_miner()
@@ -131,7 +132,7 @@ fn test_export_testnet_config_files() {
         Resource::bundled_ckb_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let ckb_config = app_config
             .into_ckb()
@@ -152,7 +153,7 @@ fn test_export_testnet_config_files() {
         Resource::bundled_miner_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let miner_config = app_config
             .into_miner()
@@ -184,7 +185,7 @@ fn test_export_integration_config_files() {
         Resource::bundled_ckb_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let ckb_config = app_config
             .into_ckb()
@@ -203,7 +204,7 @@ fn test_export_integration_config_files() {
         Resource::bundled_miner_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let miner_config = app_config
             .into_miner()
@@ -235,7 +236,7 @@ fn test_export_dev_config_files_assembly() {
         Resource::bundled_ckb_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let ckb_config = app_config
             .into_ckb()
@@ -256,7 +257,7 @@ fn test_export_dev_config_files_assembly() {
         Resource::bundled_miner_config()
             .export(&context, dir.path())
             .expect("export config files");
-        let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+        let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
             .unwrap_or_else(|err| std::panic::panic_any(err));
         let miner_config = app_config
             .into_miner()

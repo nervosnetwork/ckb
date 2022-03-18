@@ -1,29 +1,15 @@
-use clap::Command;
-
-use crate::cli::*;
+use crate::{basic_app, BIN_NAME};
 
 #[test]
 fn stats_args() {
-    let app = Command::new("stats_args_test")
-        .arg_required_else_help(true)
-        .subcommand(stats());
-
-    let stats = app.clone().try_get_matches_from(vec!["", CMD_STATS]);
+    let stats = basic_app().try_get_matches_from(&[BIN_NAME, "stats", "--from", "10"]);
     assert!(stats.is_ok());
 
-    let stats = app
-        .clone()
-        .try_get_matches_from(vec!["", CMD_STATS, "--from", "10"]);
+    let stats = basic_app().try_get_matches_from(vec![BIN_NAME, "stats", "--to", "100"]);
     assert!(stats.is_ok());
 
-    let stats = app
-        .clone()
-        .try_get_matches_from(vec!["", CMD_STATS, "--to", "100"]);
-    assert!(stats.is_ok());
-
-    let stats = app
-        .clone()
-        .try_get_matches_from(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
+    let stats =
+        basic_app().try_get_matches_from(vec![BIN_NAME, "stats", "--from", "10", "--to", "100"]);
     assert!(stats.is_ok());
 }
 
@@ -87,7 +73,7 @@ fn ba_advanced() {
         .unwrap();
     let sub_matches = matches.subcommand().unwrap().1;
 
-    assert_eq!(1, sub_matches.occurrences_of(ARG_BA_ADVANCED));
+    assert_eq!(1, sub_matches.occurrences_of("ba-advanced"));
 }
 
 #[test]

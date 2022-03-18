@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Read};
 
 use crate::helper::prompt;
-use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
+use ckb_app_config::{AppConfig, ExitCode, InitArgs, CMD_INIT};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
@@ -207,7 +207,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     println!("create {}", DB_OPTIONS_FILE_NAME);
     Resource::bundled_db_options().export(&context, &args.root_dir)?;
 
-    let genesis_hash = AppConfig::load_for_subcommand(args.root_dir, cli::CMD_INIT)?
+    let genesis_hash = AppConfig::load_for_subcommand(args.root_dir, CMD_INIT)?
         .chain_spec()?
         .build_genesis()
         .map_err(|err| {
