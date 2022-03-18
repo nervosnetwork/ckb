@@ -1,4 +1,23 @@
 //! CKB command line arguments and config options.
+use std::{path::PathBuf, str::FromStr};
+
+use clap::{Args, Parser, Subcommand};
+
+pub use app_config::{
+    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
+};
+pub use args::{
+    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
+    ResetDataArgs, RunArgs, StatsArgs,
+};
+use ckb_chain_spec::{consensus::Consensus, ChainSpec};
+use ckb_jsonrpc_types::ScriptHashType;
+use ckb_types::{u256, H256, U256};
+pub use configs::*;
+pub use exit_code::ExitCode;
+#[cfg(feature = "with_sentry")]
+pub use sentry_config::SentryConfig;
+
 mod app_config;
 mod args;
 pub mod cli;
@@ -11,26 +30,370 @@ mod sentry_config;
 #[cfg(test)]
 mod tests;
 
-pub use app_config::{
-    AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
-};
-pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
-    ResetDataArgs, RunArgs, StatsArgs,
-};
-pub use configs::*;
-pub use exit_code::ExitCode;
-#[cfg(feature = "with_sentry")]
-pub use sentry_config::SentryConfig;
-
-use ckb_chain_spec::{consensus::Consensus, ChainSpec};
-use ckb_jsonrpc_types::ScriptHashType;
-use ckb_types::{u256, H256, U256};
-use clap::{ArgMatches, ErrorKind};
-use std::{path::PathBuf, str::FromStr};
+const CMD_RUN: &str = "run";
+const CMD_MINER: &str = "miner";
+const CMD_EXPORT: &str = "export";
+const CMD_IMPORT: &str = "import";
+const CMD_INIT: &str = "init";
+const CMD_REPLAY: &str = "replay";
+const CMD_STATS: &str = "stats";
+const CMD_LIST_HASHES: &str = "list-hashes";
+const CMD_RESET_DATA: &str = "reset-data";
+const CMD_PEERID: &str = "peer-id";
+const CMD_MIGRATE: &str = "migrate";
+const CMD_DB_REPAIR: &str = "db-repair";
 
 // 500_000 total difficulty
 const MIN_CHAIN_WORK_500K: U256 = u256!("0x3314412053c82802a7");
+
+#[derive(Parser)]
+#[clap(
+    version,
+    author = "Nervos Core Dev <dev@nervos.org>",
+    about = "Nervos CKB - The Common Knowledge Base"
+)]
+/// ckb command line structure for clap parsed
+pub struct CkbCli {
+    #[clap(short = 'C', parse(from_os_str), value_name = "Path", global = true)]
+    /// Runs as if ckb was started in <Path> instead of the current working directory
+    pub config: Option<PathBuf>,
+
+    /// ckb subcommand
+    #[clap(subcommand)]
+    pub sub_command: CKBSubCommand,
+}
+
+#[derive(Subcommand)]
+#[clap()]
+/// ckb subcommand
+pub enum CKBSubCommand {
+    ///run subcommand
+    #[clap(about = "Runs ckb node", long_about = None)]
+    Run(CmdRun),
+    /// miner subcommand
+    #[clap(about = "Runs ckb miner")]
+    Miner(CmdMiner),
+    /// export subcommand
+    #[clap(about = "Exports ckb data")]
+    Export(CmdExport),
+    /// import subcommand
+    #[clap(about = "Imports ckb data")]
+    Import(CmdImport),
+    /// init subcommand
+    #[clap(about = "Creates a CKB directory or re-initializes an existing one")]
+    Init(CmdInit),
+    /// replay subcommand
+    #[clap(about = "Replay ckb process block")]
+    Replay(CmdReplay),
+    /// Stats subcommand
+    #[clap(about = "Statics chain information")]
+    Stats(CmdStats),
+    /// list-hashes subcommand
+    #[clap(about = "Lists well known hashes")]
+    ListHashes(CmdListHashes),
+    /// reset-data subcommand
+    #[clap(about = "Truncate the database directory")]
+    ResetData(CmdResetData),
+    /// peerid subcommand
+    #[clap(subcommand)]
+    PeerId(PeeridSubCommand),
+    /// migrate subcommand
+    #[clap(about = "Runs ckb migration")]
+    Migrate(CmdMigrate),
+    /// db-repair subcommand
+    #[clap(about = "Try repair ckb database")]
+    DbRepair(CmdDbRepair),
+}
+impl ToString for CKBSubCommand {
+    fn to_string(&self) -> String {
+        match self {
+            CKBSubCommand::Run(_) => CMD_RUN.to_owned(),
+            CKBSubCommand::Miner(_) => CMD_MINER.to_owned(),
+            CKBSubCommand::Export(_) => CMD_EXPORT.to_owned(),
+            CKBSubCommand::Import(_) => CMD_IMPORT.to_owned(),
+            CKBSubCommand::Init(_) => CMD_INIT.to_owned(),
+            CKBSubCommand::Replay(_) => CMD_REPLAY.to_owned(),
+            CKBSubCommand::Stats(_) => CMD_STATS.to_owned(),
+            CKBSubCommand::ListHashes(_) => CMD_LIST_HASHES.to_owned(),
+            CKBSubCommand::ResetData(_) => CMD_RESET_DATA.to_owned(),
+            CKBSubCommand::PeerId(_) => CMD_PEERID.to_owned(),
+            CKBSubCommand::Migrate(_) => CMD_MIGRATE.to_owned(),
+            CKBSubCommand::DbRepair(_) => CMD_DB_REPAIR.to_owned(),
+        }
+    }
+}
+
+/// Run subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdRun {
+    #[clap(short, long, validator=is_hash256)]
+    /// This parameter specifies the hash of a block.
+    /// When the height does not reach this block's height, the execution of the script will be disabled,
+    /// that is, skip verifying the script content.
+    /// It should be noted that when this option is enabled, the header is first synchronized to
+    /// the highest currently found. During this period, if the assume valid target is found,
+    /// the download of the block starts; If the assume valid target is not found or it's
+    /// timestamp within 24 hours of the current time, the target will automatically become invalid,
+    /// and the download of the block will be started with verify
+    assume_valid_target: Option<String>,
+
+    #[clap(short, long)]
+    ///Allows any block assembler code hash and args
+    ba_advanced: bool,
+
+    #[clap(short, long)]
+    /// Skips checking the chain spec with the hash stored in the database
+    skip_spec_check: bool,
+
+    #[clap(short, long)]
+    /// Overwrites the chain spec in the database with the present configured chain spec
+    overwrite_spec: bool,
+}
+
+/// miner subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdMiner {
+    #[clap(
+        short,
+        long,
+        help = "Exit after how many nonces found; 0 means the miner will never exit. [default: 0]"
+    )]
+    /// The miner process will exit when there are `limit` nonces (puzzle solutions) found. Set it
+    /// to 0 to loop forever.
+    limit: u128,
+}
+
+/// export subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdExport {
+    #[clap(short, long, value_name = "Path")]
+    /// Specifies the export data path
+    target: PathBuf,
+}
+
+/// import subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdImport {
+    #[clap(short, long, value_name = "Path")]
+    /// Specifies the import data path
+    source: PathBuf,
+}
+
+/// init subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdInit {
+    #[clap(from_global)]
+    config: Option<PathBuf>,
+
+    #[clap(long, long_help = "Sets args in [block_assembler]")]
+    /// Block assembler lock script args
+    ba_arg: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        long_help = "Sets code_hash in [block_assembler] [default: secp256k1 if --ba-arg is present]"
+    )]
+    /// Block assembler lock script code hash
+    ba_code_hash: Option<String>,
+
+    #[clap(
+        long,
+        long_help = "Sets hash type in [block_assembler] [default: type] [possible values: data, type, data1]",
+        default_value = "type", possible_values = ["data", "type", "data1"]
+    )]
+    /// Block assembler lock script hash type
+    ba_hash_type: String,
+
+    #[clap(long, long_help = "Sets message in [block_assembler]")]
+    /// Block assembler cellbase transaction message
+    ba_message: Option<String>,
+
+    #[clap(
+        short,
+        long,
+        long_help = "Initializes CKB directory for <chain> [default: mainnet]",
+        default_value = "mainnet"
+    )]
+    /// The chain name that this node will join
+    chain: String,
+
+    #[clap(short, long)]
+    /// Force file overwriting
+    pub force: bool,
+
+    #[clap(short, long)]
+    /// Specify a string as the genesis message. Only works for dev chains. If no message is
+    /// provided, use current timestamp
+    genesis_message: Option<String>,
+
+    #[clap(short, long)]
+    /// Whether to prompt user inputs interactively.
+    interactive: bool,
+
+    #[clap(short, long)]
+    /// Import the spec file.
+    ///
+    /// When this is set to `-`, the spec file is imported from stdin and the file content must be
+    /// encoded by base64. Otherwise it must be a path to the spec file.
+    ///
+    /// The spec file will be saved into `specs/{CHAIN}.toml`, where `CHAIN` is the chain name.
+    import_spec: Option<String>,
+
+    #[clap(short, long)]
+    /// Asks to list available chains.
+    list_chains: bool,
+
+    #[clap(short, long, default_value = "both")]
+    /// Configures where the logs should print [default: both] [possible values: file, stdout, both]
+    log_to: String,
+
+    #[clap(short, long, default_value = "8115")]
+    /// Replaces CKB P2P port in the created config file [default: 8115]
+    pub p2p_port: u32,
+
+    #[clap(short, long, default_value = "8114")]
+    /// Replaces CKB RPC port in the created config file [default: 8114]
+    pub rpc_port: u32,
+}
+
+/// replay subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdReplay {
+    #[clap(short, long, value_name = "Path")]
+    /// The directory to store the temporary files
+    tmp_target: PathBuf,
+
+    #[clap(long)]
+    /// Enable profile on blocks in the range `[from, ..]`
+    from: Option<u64>,
+    #[clap(long)]
+    /// Enable profile on blocks in the range `[.., to]`
+    to: Option<u64>,
+
+    #[clap(long)]
+    /// Enable sanity check.
+    sanity_check: bool,
+
+    #[clap(long)]
+    /// Enable full verification.
+    full_verification: bool,
+
+    #[clap(long)]
+    /// Enable profile
+    pub profile: bool,
+}
+
+/// Stats subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdStats {
+    #[clap(short, long)]
+    /// Specifies the starting block number. The default is 1
+    pub from: Option<u64>,
+
+    #[clap(short, long)]
+    /// Specifies the ending block number. The default is the tip block in the database
+    pub to: Option<u64>,
+}
+
+/// list-hashes subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdListHashes {
+    #[clap(short, long)]
+    /// Lists hashes of the bundled chain specs instead of the current effective one
+    pub bundled: bool,
+}
+
+/// reset-data subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdResetData {
+    #[clap(short, long)]
+    /// Reset without asking for user confirmation.
+    pub force: bool,
+
+    #[clap(long)]
+    /// Delete the whole data directory
+    pub all: bool,
+
+    #[clap(long)]
+    /// Delete only `data/db`
+    pub database: bool,
+
+    #[clap(long, long_help = "Delete both peer store and secret key")]
+    /// Reset all network data, including the secret key and peer store.
+    pub network: bool,
+
+    #[clap(long, long_help = "Delete only `data/network/peer_store`")]
+    /// Reset network peer store.
+    pub network_peer_store: bool,
+
+    #[clap(long, long_help = "Delete only `data/network/secret_key`")]
+    /// Reset network secret key.
+    pub network_secret_key: bool,
+
+    #[clap(long, long_help = "Delete only `data/logs`")]
+    /// Clean logs directory.
+    pub logs: bool,
+}
+
+/// peer-id subcommand
+#[derive(Subcommand)]
+#[clap(about = "About peer id, base on Secp256k1")]
+pub enum PeeridSubCommand {
+    /// gen subcommand
+    Gen(GenSecret),
+    /// from-sceret subcommand
+    FromSecret(FromSecret),
+}
+
+/// gen subcommand
+#[derive(Args)]
+#[clap(about = "Generate random key to file")]
+pub struct GenSecret {
+    #[clap(long, long_help = "Generate peer id to file path", value_name = "File")]
+    secret_path: PathBuf,
+}
+
+/// from-secret subcommand
+#[derive(Args)]
+#[clap(about = "Generate peer id from secret file")]
+pub struct FromSecret {
+    #[clap(
+        long,
+        long_help = "Generate peer id from secret file path",
+        value_name = "File"
+    )]
+    secret_path: PathBuf,
+}
+
+/// migrate subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdMigrate {
+    #[clap(
+        long,
+        long_help = "Perform database version check without migrating, if migration is in need ExitCode(0) is returned，otherwise ExitCode(64) is returned"
+    )]
+    /// Check whether it is required to do migration instead of really perform the migration.
+    pub check: bool,
+
+    #[clap(long)]
+    /// Do migration without interactive prompt.
+    pub force: bool,
+}
+
+/// db-repair subcommand
+#[derive(Args)]
+#[clap()]
+pub struct CmdDbRepair {}
 
 /// A struct including all the information to start the ckb process.
 pub struct Setup {
@@ -50,9 +413,9 @@ impl Setup {
     pub fn from_matches(
         bin_name: String,
         subcommand_name: &str,
-        matches: &ArgMatches,
+        matches: &CkbCli,
     ) -> Result<Setup, ExitCode> {
-        let root_dir = Self::root_dir_from_matches(matches)?;
+        let root_dir = Self::root_dir_from_matches(&matches.config)?;
         let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
         config.set_bin_name(bin_name);
         #[cfg(feature = "with_sentry")]
@@ -67,7 +430,7 @@ impl Setup {
     }
 
     /// Executes `ckb run`.
-    pub fn run(self, matches: &ArgMatches) -> Result<RunArgs, ExitCode> {
+    pub fn run(self, matches: &CmdRun) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
         let chain_spec_hash = self.chain_spec()?.hash;
         let mut config = self.config.into_ckb()?;
@@ -86,25 +449,26 @@ impl Setup {
             };
 
         config.network.sync.assume_valid_target = matches
-            .value_of(cli::ARG_ASSUME_VALID_TARGET)
+            .assume_valid_target
+            .as_ref()
             .and_then(|s| H256::from_str(&s[2..]).ok());
 
         Ok(RunArgs {
             config,
             consensus,
-            block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
-            skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
-            overwrite_chain_spec: matches.is_present(cli::ARG_OVERWRITE_CHAIN_SPEC),
+            block_assembler_advanced: matches.ba_advanced,
+            skip_chain_spec_check: matches.skip_spec_check,
+            overwrite_chain_spec: matches.overwrite_spec,
             chain_spec_hash,
         })
     }
 
     /// `migrate` subcommand has one `flags` arg, trigger this arg with "--check"
-    pub fn migrate(self, matches: &ArgMatches) -> Result<MigrateArgs, ExitCode> {
+    pub fn migrate(self, matches: &CmdMigrate) -> Result<MigrateArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let check = matches.is_present(cli::ARG_MIGRATE_CHECK);
-        let force = matches.is_present(cli::ARG_FORCE);
+        let check = matches.check;
+        let force = matches.force;
 
         Ok(MigrateArgs {
             config,
@@ -115,48 +479,41 @@ impl Setup {
     }
 
     /// `db-repair` subcommand
-    pub fn db_repair(self, _matches: &ArgMatches) -> Result<RepairArgs, ExitCode> {
+    pub fn db_repair(self, _matches: &CmdDbRepair) -> Result<RepairArgs, ExitCode> {
         let config = self.config.into_ckb()?;
 
         Ok(RepairArgs { config })
     }
 
     /// Executes `ckb miner`.
-    pub fn miner(self, matches: &ArgMatches) -> Result<MinerArgs, ExitCode> {
+    pub fn miner(self, matches: &CmdMiner) -> Result<MinerArgs, ExitCode> {
         let spec = self.chain_spec()?;
         let memory_tracker = self.config.memory_tracker().to_owned();
         let config = self.config.into_miner()?;
         let pow_engine = spec.pow_engine();
-        let limit = match matches.value_of_t(cli::ARG_LIMIT) {
-            Ok(l) => l,
-            Err(ref e) if e.kind() == ErrorKind::ArgumentNotFound => 0,
-            Err(e) => {
-                return Err(e.into());
-            }
-        };
 
         Ok(MinerArgs {
             pow_engine,
             config: config.miner,
             memory_tracker,
-            limit,
+            limit: matches.limit,
         })
     }
 
     /// Executes `ckb replay`.
-    pub fn replay(self, matches: &ArgMatches) -> Result<ReplayArgs, ExitCode> {
+    pub fn replay(self, matches: &CmdReplay) -> Result<ReplayArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let tmp_target = matches.value_of_t(cli::ARG_TMP_TARGET)?;
-        let profile = if matches.is_present(cli::ARG_PROFILE) {
-            let from = option_value_t!(matches, cli::ARG_FROM, u64)?;
-            let to = option_value_t!(matches, cli::ARG_TO, u64)?;
+        let tmp_target = matches.tmp_target.clone();
+        let profile = if matches.profile {
+            let from = matches.from;
+            let to = matches.to;
             Some((from, to))
         } else {
             None
         };
-        let sanity_check = matches.is_present(cli::ARG_SANITY_CHECK);
-        let full_verification = matches.is_present(cli::ARG_FULL_VERIFICATION);
+        let sanity_check = matches.sanity_check;
+        let full_verification = matches.full_verification;
         Ok(ReplayArgs {
             config,
             consensus,
@@ -168,12 +525,12 @@ impl Setup {
     }
 
     /// Executes `ckb stats`.
-    pub fn stats(self, matches: &ArgMatches) -> Result<StatsArgs, ExitCode> {
+    pub fn stats(self, matches: &CmdStats) -> Result<StatsArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
 
-        let from = option_value_t!(matches, cli::ARG_FROM, u64)?;
-        let to = option_value_t!(matches, cli::ARG_TO, u64)?;
+        let from = matches.from;
+        let to = matches.to;
 
         Ok(StatsArgs {
             config,
@@ -184,10 +541,10 @@ impl Setup {
     }
 
     /// Executes `ckb import`.
-    pub fn import(self, matches: &ArgMatches) -> Result<ImportArgs, ExitCode> {
+    pub fn import(self, matches: &CmdImport) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let source = matches.value_of_t(cli::ARG_SOURCE)?;
+        let source = matches.source.clone();
 
         Ok(ImportArgs {
             config,
@@ -197,69 +554,63 @@ impl Setup {
     }
 
     /// Executes `ckb export`.
-    pub fn export(self, matches: &ArgMatches) -> Result<ExportArgs, ExitCode> {
+    pub fn export(self, matches: &CmdExport) -> Result<ExportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let target = matches.value_of_t(cli::ARG_TARGET)?;
 
         Ok(ExportArgs {
             config,
             consensus,
-            target,
+            target: matches.target.clone(),
         })
     }
 
     /// Executes `ckb init`.
-    pub fn init(matches: &ArgMatches) -> Result<InitArgs, ExitCode> {
-        if matches.is_present("list-specs") {
-            eprintln!(
-                "Deprecated: Option `--list-specs` is deprecated, use `--list-chains` instead"
-            );
-        }
-        if matches.is_present("spec") {
-            eprintln!("Deprecated: Option `--spec` is deprecated, use `--chain` instead");
-        }
-        if matches.is_present("export-specs") {
-            eprintln!("Deprecated: Option `--export-specs` is deprecated");
-        }
+    pub fn init(matches: &CmdInit) -> Result<InitArgs, ExitCode> {
+        // if matches.is_present("list-specs") {
+        //     eprintln!(
+        //         "Deprecated: Option `--list-specs` is deprecated, use `--list-chains` instead"
+        //     );
+        // }
+        // if matches.is_present("spec") {
+        //     eprintln!("Deprecated: Option `--spec` is deprecated, use `--chain` instead");
+        // }
+        // if matches.is_present("export-specs") {
+        //     eprintln!("Deprecated: Option `--export-specs` is deprecated");
+        // }
 
-        let root_dir = Self::root_dir_from_matches(matches)?;
-        let list_chains =
-            matches.is_present(cli::ARG_LIST_CHAINS) || matches.is_present("list-specs");
-        let interactive = matches.is_present(cli::ARG_INTERACTIVE);
-        let force = matches.is_present(cli::ARG_FORCE);
-        let chain = if matches.occurrences_of(cli::ARG_CHAIN) > 0 || !matches.is_present("spec") {
-            matches.value_of(cli::ARG_CHAIN).unwrap().to_string()
-        } else {
-            matches.value_of("spec").unwrap().to_string()
+        let root_dir = Self::root_dir_from_matches(&matches.config)?;
+        let list_chains = matches.list_chains;
+        let interactive = matches.interactive;
+        let force = matches.force;
+
+        // --import-spec override --chain
+        let chain = {
+            if matches.import_spec.is_none() {
+                matches.chain.clone()
+            } else {
+                matches.import_spec.clone().unwrap()
+            }
         };
-        let rpc_port = matches.value_of(cli::ARG_RPC_PORT).unwrap().to_string();
-        let p2p_port = matches.value_of(cli::ARG_P2P_PORT).unwrap().to_string();
-        let (log_to_file, log_to_stdout) = match matches.value_of(cli::ARG_LOG_TO) {
-            Some("file") => (true, false),
-            Some("stdout") => (false, true),
-            Some("both") => (true, true),
+        let rpc_port = matches.rpc_port.to_string();
+        let p2p_port = matches.p2p_port.to_string();
+        let (log_to_file, log_to_stdout) = match matches.log_to.as_str() {
+            "file" => (true, false),
+            "stdout" => (false, true),
+            "both" => (true, true),
             _ => unreachable!(),
         };
 
-        let block_assembler_code_hash = matches.value_of(cli::ARG_BA_CODE_HASH).map(str::to_string);
-        let block_assembler_args: Vec<_> = matches
-            .values_of(cli::ARG_BA_ARG)
-            .unwrap_or_default()
-            .map(str::to_string)
-            .collect();
-        let block_assembler_hash_type = matches
-            .value_of(cli::ARG_BA_HASH_TYPE)
-            .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
-            .unwrap();
-        let block_assembler_message = matches.value_of(cli::ARG_BA_MESSAGE).map(str::to_string);
+        let block_assembler_code_hash = matches.ba_code_hash.clone();
+        let block_assembler_args: Vec<_> = matches.ba_arg.clone().unwrap_or_default();
+        let block_assembler_hash_type =
+            serde_plain::from_str::<ScriptHashType>(&matches.ba_hash_type).unwrap();
+        let block_assembler_message = matches.ba_message.clone();
 
-        let import_spec = matches.value_of(cli::ARG_IMPORT_SPEC).map(str::to_string);
+        let import_spec = matches.import_spec.clone();
 
         let customize_spec = {
-            let genesis_message = matches
-                .value_of(cli::ARG_GENESIS_MESSAGE)
-                .map(str::to_string);
+            let genesis_message = matches.genesis_message.clone();
             args::CustomizeSpec { genesis_message }
         };
 
@@ -283,7 +634,7 @@ impl Setup {
     }
 
     /// Executes `ckb reset-data`.
-    pub fn reset_data(self, matches: &ArgMatches) -> Result<ResetDataArgs, ExitCode> {
+    pub fn reset_data(self, matches: &CmdResetData) -> Result<ResetDataArgs, ExitCode> {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
         let db_path = config.db.path;
@@ -293,13 +644,13 @@ impl Setup {
         let network_secret_key_path = network_config.secret_key_path();
         let logs_dir = Some(config.logger.log_dir);
 
-        let force = matches.is_present(cli::ARG_FORCE);
-        let all = matches.is_present(cli::ARG_ALL);
-        let database = matches.is_present(cli::ARG_DATABASE);
-        let network = matches.is_present(cli::ARG_NETWORK);
-        let network_peer_store = matches.is_present(cli::ARG_NETWORK_PEER_STORE);
-        let network_secret_key = matches.is_present(cli::ARG_NETWORK_SECRET_KEY);
-        let logs = matches.is_present(cli::ARG_LOGS);
+        let force = matches.force;
+        let all = matches.all;
+        let database = matches.database;
+        let network = matches.network;
+        let network_peer_store = matches.network_peer_store;
+        let network_secret_key = matches.network_secret_key;
+        let logs = matches.logs;
 
         Ok(ResetDataArgs {
             force,
@@ -319,8 +670,8 @@ impl Setup {
     }
 
     /// Resolves the root directory for ckb from the command line arguments.
-    pub fn root_dir_from_matches(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
-        let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
+    pub fn root_dir_from_matches(config: &Option<PathBuf>) -> Result<PathBuf, ExitCode> {
+        let config_dir = match config {
             Some(arg_config_dir) => PathBuf::from(arg_config_dir),
             None => ::std::env::current_dir()?,
         };
@@ -372,9 +723,9 @@ impl Setup {
     }
 
     /// Gets the network peer id by reading the network secret key.
-    pub fn peer_id(matches: &ArgMatches) -> Result<PeerIDArgs, ExitCode> {
-        let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
-        match read_secret_key(path.into()) {
+    pub fn peer_id(matches: &FromSecret) -> Result<PeerIDArgs, ExitCode> {
+        let path = matches.secret_path.clone();
+        match read_secret_key(path) {
             Ok(Some(key)) => Ok(PeerIDArgs {
                 peer_id: key.peer_id(),
             }),
@@ -384,9 +735,9 @@ impl Setup {
     }
 
     /// Generates the network secret key.
-    pub fn gen(matches: &ArgMatches) -> Result<(), ExitCode> {
-        let path = matches.value_of(cli::ARG_SECRET_PATH).unwrap();
-        configs::write_secret_to_file(&configs::generate_random_key(), path.into())
+    pub fn gen(matches: &GenSecret) -> Result<(), ExitCode> {
+        let path = matches.secret_path.clone();
+        configs::write_secret_to_file(&configs::generate_random_key(), path)
             .map_err(|_| ExitCode::IO)
     }
 }
@@ -410,7 +761,7 @@ macro_rules! option_value_t {
 
 #[cfg(feature = "with_sentry")]
 fn is_daemon(subcommand_name: &str) -> bool {
-    matches!(subcommand_name, cli::CMD_RUN | cli::CMD_MINER)
+    matches!(subcommand_name, CMD_RUN | CMD_MINER)
 }
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
@@ -418,4 +769,17 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
+}
+
+/// validator to check if Hash256 format
+fn is_hash256(hex: &str) -> Result<(), String> {
+    let tmp = hex.as_bytes();
+    if tmp[..2] == b"0x"[..] {
+        match H256::from_slice(&tmp[2..]) {
+            Ok(_) => Ok(()),
+            _ => Err("input string is not valid H256 format".to_owned()),
+        }
+    } else {
+        Err("Must be a 0x-prefixed hexadecimal string".to_owned())
+    }
 }

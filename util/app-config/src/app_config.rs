@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::CMD_MINER;
 use ckb_chain_spec::ChainSpec;
 pub use ckb_logger_config::Config as LogConfig;
 pub use ckb_metrics_config::Config as MetricsConfig;
@@ -144,23 +145,20 @@ impl AppConfig {
         root_dir: P,
         subcommand_name: &str,
     ) -> Result<AppConfig, ExitCode> {
-        match subcommand_name {
-            cli::CMD_MINER => {
-                let resource = ensure_ckb_dir(Resource::miner_config(root_dir.as_ref()))?;
-                let config = MinerAppConfig::load_from_slice(&resource.get()?)?;
+        if subcommand_name == CMD_MINER {
+            let resource = ensure_ckb_dir(Resource::miner_config(root_dir.as_ref()))?;
+            let config = MinerAppConfig::load_from_slice(&resource.get()?)?;
 
-                Ok(AppConfig::with_miner(
-                    config.derive_options(root_dir.as_ref())?,
-                ))
-            }
-            _ => {
-                let resource = ensure_ckb_dir(Resource::ckb_config(root_dir.as_ref()))?;
-                let config = CKBAppConfig::load_from_slice(&resource.get()?)?;
+            Ok(AppConfig::with_miner(
+                config.derive_options(root_dir.as_ref())?,
+            ))
+        } else {
+            let resource = ensure_ckb_dir(Resource::ckb_config(root_dir.as_ref()))?;
+            let config = CKBAppConfig::load_from_slice(&resource.get()?)?;
 
-                Ok(AppConfig::with_ckb(
-                    config.derive_options(root_dir.as_ref(), subcommand_name)?,
-                ))
-            }
+            Ok(AppConfig::with_ckb(
+                config.derive_options(root_dir.as_ref(), subcommand_name)?,
+            ))
         }
     }
 
