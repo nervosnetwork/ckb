@@ -1262,6 +1262,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-hash",
  "ckb-launcher",
  "ckb-logger",
  "ckb-metrics",
