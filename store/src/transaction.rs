@@ -7,9 +7,9 @@ use ckb_db::{
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
@@ -340,7 +340,6 @@ impl StoreTransaction {
         Ok(())
     }
 
-<<<<<<< HEAD
     /// Inserts a header digest.
     pub fn insert_header_digest(
         &self,
@@ -361,9 +360,7 @@ impl StoreTransaction {
         self.delete(COLUMN_CHAIN_ROOT_MMR, position.as_slice())
     }
 
-=======
     /// insert block filter data
->>>>>>> fix: store latest built block hash
     pub fn insert_block_filter(
         &self,
         block_hash: &packed::Byte32,

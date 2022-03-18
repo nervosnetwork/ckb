@@ -147,6 +147,7 @@ pub enum SupportProtocol {
     Time,
     Alert,
     LightClient,
+    Filter,
 }
 
 #[allow(missing_docs)]
@@ -162,6 +163,7 @@ pub fn default_support_all_protocols() -> Vec<SupportProtocol> {
         SupportProtocol::Time,
         SupportProtocol::Alert,
         SupportProtocol::LightClient,
+        SupportProtocol::Filter,
     ]
 }
 
