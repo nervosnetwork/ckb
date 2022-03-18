@@ -51,6 +51,8 @@ pub enum SupportProtocols {
     Alert,
     /// LightClient: A protocol used for light client.
     LightClient,
+    /// Filter: A protocol used for client side block data filtering.
+    Filter,
 }
 
 impl SupportProtocols {
@@ -67,6 +69,7 @@ impl SupportProtocols {
             SupportProtocols::Time => 102,
             SupportProtocols::Alert => 110,
             SupportProtocols::LightClient => 120,
+            SupportProtocols::Filter => 121,
         }
         .into()
     }
@@ -84,6 +87,7 @@ impl SupportProtocols {
             SupportProtocols::Time => "/ckb/tim",
             SupportProtocols::Alert => "/ckb/alt",
             SupportProtocols::LightClient => "/ckb/lightclient",
+            SupportProtocols::Filter => "/ckb/filter",
         }
         .to_owned()
     }
@@ -104,22 +108,24 @@ impl SupportProtocols {
             SupportProtocols::Alert => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::RelayV2 => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::LightClient => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::Filter => vec![LASTEST_VERSION.to_owned()],
         }
     }
 
     /// Protocol message max length
     pub fn max_frame_length(&self) -> usize {
         match self {
-            SupportProtocols::Ping => 1024,              // 1   KB
-            SupportProtocols::Discovery => 512 * 1024,   // 512 KB
-            SupportProtocols::Identify => 2 * 1024,      // 2   KB
-            SupportProtocols::Feeler => 1024,            // 1   KB
-            SupportProtocols::DisconnectMessage => 1024, // 1   KB
-            SupportProtocols::Sync => 2 * 1024 * 1024,   // 2   MB
-            SupportProtocols::RelayV2 => 4 * 1024 * 1024, // 4   MB
-            SupportProtocols::Time => 1024,              // 1   KB
-            SupportProtocols::Alert => 128 * 1024,       // 128 KB
+            SupportProtocols::Ping => 1024,                   // 1   KB
+            SupportProtocols::Discovery => 512 * 1024,        // 512 KB
+            SupportProtocols::Identify => 2 * 1024,           // 2   KB
+            SupportProtocols::Feeler => 1024,                 // 1   KB
+            SupportProtocols::DisconnectMessage => 1024,      // 1   KB
+            SupportProtocols::Sync => 2 * 1024 * 1024,        // 2   MB
+            SupportProtocols::RelayV2 => 4 * 1024 * 1024,     // 4   MB
+            SupportProtocols::Time => 1024,                   // 1   KB
+            SupportProtocols::Alert => 128 * 1024,            // 128 KB
             SupportProtocols::LightClient => 2 * 1024 * 1024, // 2 MB
+            SupportProtocols::Filter => 2 * 1024 * 1024,      // 2   MB
         }
     }
 
@@ -139,7 +145,8 @@ impl SupportProtocols {
             }
             SupportProtocols::Sync
             | SupportProtocols::RelayV2
-            | SupportProtocols::LightClient => {
+            | SupportProtocols::LightClient
+            | SupportProtocols::Filter => {
                 let mut blocking_recv_flag = BlockingFlag::default();
                 blocking_recv_flag.disable_connected();
                 blocking_recv_flag.disable_disconnected();

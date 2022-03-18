@@ -29,7 +29,7 @@ use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
-use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
@@ -274,6 +274,16 @@ impl Launcher {
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV2,
                 Box::new(relayer),
+                Arc::clone(&network_state),
+            ));
+        }
+
+        if support_protocols.contains(&SupportProtocol::Filter) {
+            let filter = BlockFilter::new(Arc::clone(&sync_shared));
+
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Filter,
+                Box::new(filter),
                 Arc::clone(&network_state),
             ));
         }
