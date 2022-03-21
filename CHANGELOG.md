@@ -1,3 +1,9 @@
+# [v0.101.7](https://github.com/nervosnetwork/ckb/compare/v0.101.6...v0.101.7) (2022-03-21)
+
+### Features
+
+* #3309: Log tx verification result for monitor (@chanhsu001)
+
 # [v0.101.6](https://github.com/nervosnetwork/ckb/compare/v0.101.4...v0.101.6) (2022-03-02)
 
 ### Features
