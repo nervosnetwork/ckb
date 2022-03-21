@@ -180,7 +180,7 @@ fn run<'help>() -> Command<'help> {
         Arg::new(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)
             .takes_value(true)
-            .validator(is_hex)
+            .validator(is_h256)
             .help("This parameter specifies the hash of a block. \
             When the height does not reach this block's height, the execution of the script will be disabled, \
             that is, skip verifying the script content. \
@@ -417,7 +417,7 @@ fn init<'help>() -> Command<'help> {
             Arg::new(ARG_BA_CODE_HASH)
                 .long(ARG_BA_CODE_HASH)
                 .value_name("code_hash")
-                .validator(is_hex)
+                .validator(is_h256)
                 .takes_value(true)
                 .help(
                     "Sets code_hash in [block_assembler] \
@@ -524,5 +524,13 @@ fn is_hex(hex: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err("Must 0x-prefixed hexadecimal string".to_string())
+    }
+}
+
+fn is_h256(hex: &str) -> Result<(), String> {
+    if hex.len() != 66 {
+        Err("Must be 0x-prefixed hexadecimal string and string length is 66".to_owned())
+    } else {
+        is_hex(hex)
     }
 }
