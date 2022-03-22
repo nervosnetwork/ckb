@@ -2,90 +2,94 @@ use crate::component::chunk::Entry;
 use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
-use ckb_async_runtime::Handle;
-use ckb_channel::{select, Receiver};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, HeaderProvider};
-use ckb_types::core::Cycle;
+use ckb_types::{
+    core::{cell::ResolvedTransaction, Cycle},
+    packed::Byte32,
+};
+use ckb_verification::cache::TxVerificationCache;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptVerifier, ScriptVerifyResult,
-    ScriptVerifyState, TimeRelativeTransactionVerifier, TxVerifyEnv,
+    ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionSnapshot, TxVerifyEnv,
 };
 use std::sync::Arc;
+use tokio::sync::watch;
+use tokio::sync::RwLock;
+use tokio::task::block_in_place;
 
 const MIN_STEP_CYCLE: Cycle = 10_000_000;
 
 type Stop = bool;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
-pub(crate) enum ProcessState {
-    Interrupt,
-    Normal,
-}
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub(crate) enum Command {
+pub(crate) enum ChunkCommand {
     Suspend,
-    Continue,
-    Stop,
+    Resume,
 }
 
-pub(crate) struct TxChunkProcess {
+enum State {
+    Stopped,
+    Suspended(Arc<TransactionSnapshot>),
+    Completed(Cycle),
+}
+
+pub(crate) struct ChunkProcess {
     service: TxPoolService,
-    handle: Handle,
-    recv: Receiver<Command>,
-    p_state: ProcessState,
+    recv: watch::Receiver<ChunkCommand>,
+    signal: watch::Receiver<u8>,
+    current_state: ChunkCommand,
 }
 
-impl TxChunkProcess {
-    pub fn new(service: TxPoolService, handle: Handle, recv: Receiver<Command>) -> Self {
-        TxChunkProcess {
+impl ChunkProcess {
+    pub fn new(
+        service: TxPoolService,
+        recv: watch::Receiver<ChunkCommand>,
+        signal: watch::Receiver<u8>,
+    ) -> Self {
+        ChunkProcess {
             service,
-            handle,
             recv,
-            p_state: ProcessState::Normal,
+            signal,
+            current_state: ChunkCommand::Resume,
         }
     }
 
-    pub fn run(&mut self) {
+    pub async fn run(mut self) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_micros(1500));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            select! {
-                recv(self.recv) -> res => {
-                    match res {
-                        Ok(cmd) => match cmd {
-                            Command::Continue => {
-                                self.p_state = ProcessState::Normal;
-                                let stop = self.try_process();
-                                if stop {
-                                    break;
-                                }
-                            }
-                            Command::Suspend => self.p_state = ProcessState::Interrupt,
-                            Command::Stop => break,
-                        },
-                        Err(_) => {
-                            break
-                        },
-                    }
-                }
-                default(std::time::Duration::from_micros(1500)) => {
-                    if matches!(self.p_state, ProcessState::Normal) {
-                        let stop = self.try_process();
+            tokio::select! {
+                _ = self.recv.changed() => {
+                    self.current_state = self.recv.borrow().to_owned();
+                    if matches!(self.current_state, ChunkCommand::Resume) {
+                        let stop = self.try_process().await;
                         if stop {
                             break;
                         }
                     }
-                }
+                },
+                _ = self.signal.changed() => break,
+                _ = interval.tick() => {
+                    if matches!(self.current_state, ChunkCommand::Resume) {
+                        let stop = self.try_process().await;
+                        if stop {
+                            break;
+                        }
+                    }
+                },
+                else => break,
             }
         }
     }
 
-    fn try_process(&mut self) -> Stop {
-        match self.handle.block_on(self.get_front()) {
-            Some(entry) => self.process(entry),
+    async fn try_process(&mut self) -> Stop {
+        match self.get_front().await {
+            Some(entry) => self.process(entry).await,
             None => false,
         }
     }
@@ -99,32 +103,125 @@ impl TxChunkProcess {
         guard.clean_front();
     }
 
-    fn process(&mut self, entry: Entry) -> Stop {
+    async fn process(&mut self, entry: Entry) -> Stop {
         let (ret, snapshot) = self
             .process_inner(entry.clone())
+            .await
             .expect("process_inner can not return None");
-        ret.unwrap_or_else(|e| {
-            self.handle.block_on(self.service.after_process(
-                entry.tx,
-                entry.remote,
-                &snapshot,
-                &Err(e),
-            ));
-            self.handle.block_on(self.remove_front());
-            false
-        })
+
+        match ret {
+            Ok(stop) => stop,
+            Err(e) => {
+                self.service
+                    .after_process(entry.tx, entry.remote, &snapshot, &Err(e))
+                    .await;
+                self.remove_front().await;
+                false
+            }
+        }
     }
 
-    fn process_inner(&mut self, entry: Entry) -> Option<(Result<Stop, Reject>, Arc<Snapshot>)> {
+    fn loop_resume<'a, DL: CellDataProvider + HeaderProvider>(
+        &mut self,
+        rtx: &'a ResolvedTransaction,
+        consensus: &'a Consensus,
+        data_loader: &'a DL,
+        tx_env: &'a TxVerifyEnv,
+        mut init_snap: Option<Arc<TransactionSnapshot>>,
+        max_cycles: Cycle,
+    ) -> Result<State, Reject> {
+        let script_verifier = ScriptVerifier::new(rtx, consensus, data_loader, tx_env);
+        let mut tmp_state: Option<ScriptVerifyState> = None;
+
+        let completed: Cycle = loop {
+            if self.signal.has_changed().unwrap_or(false) {
+                return Ok(State::Stopped);
+            }
+            if self.recv.has_changed().unwrap_or(false) {
+                self.current_state = self.recv.borrow_and_update().to_owned();
+            }
+
+            if matches!(self.current_state, ChunkCommand::Suspend) {
+                let state = tmp_state.take();
+
+                if let Some(state) = state {
+                    let snap = state.try_into().map_err(Reject::Verification)?;
+                    return Ok(State::Suspended(Arc::new(snap)));
+                }
+            }
+
+            let mut last_step = false;
+            let ret = if let Some(ref snap) = init_snap {
+                if snap.current_cycles > max_cycles {
+                    let error =
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, snap.current);
+                    return Err(Reject::Verification(error));
+                }
+
+                let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                last_step = last;
+                let ret = script_verifier.resume_from_snap(snap, limit_cycles);
+                init_snap = None;
+                ret
+            } else if let Some(state) = tmp_state {
+                // once we start loop from state, clean tmp snap.
+                init_snap = None;
+                if state.current_cycles > max_cycles {
+                    let error =
+                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, state.current);
+                    return Err(Reject::Verification(error));
+                }
+
+                // next_limit_cycles
+                // let remain = max_cycles - self.current_cycles;
+                // let next_limit = self.limit_cycles + step_cycles;
+
+                // if next_limit < remain {
+                //     (next_limit, false)
+                // } else {
+                //     (remain, true)
+                // }
+                let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
+                last_step = last;
+
+                block_in_place(|| script_verifier.resume_from_state(state, limit_cycles))
+            } else {
+                block_in_place(|| script_verifier.resumable_verify(MIN_STEP_CYCLE))
+            }
+            .map_err(Reject::Verification)?;
+
+            match ret {
+                ScriptVerifyResult::Completed(cycles) => {
+                    break cycles;
+                }
+                ScriptVerifyResult::Suspended(state) => {
+                    if last_step {
+                        let error = exceeded_maximum_cycles_error(
+                            &script_verifier,
+                            max_cycles,
+                            state.current,
+                        );
+                        return Err(Reject::Verification(error));
+                    }
+                    tmp_state = Some(state);
+                }
+            }
+        };
+
+        Ok(State::Completed(completed))
+    }
+
+    async fn process_inner(
+        &mut self,
+        entry: Entry,
+    ) -> Option<(Result<Stop, Reject>, Arc<Snapshot>)> {
         let Entry { tx, remote } = entry;
         let tx_hash = tx.hash();
 
-        let (ret, snapshot) = self.handle.block_on(self.service.pre_check(&tx));
+        let (ret, snapshot) = self.service.pre_check(&tx).await;
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
-        let cached = self
-            .handle
-            .block_on(self.service.fetch_tx_verify_cache(&tx_hash));
+        let cached = self.service.fetch_tx_verify_cache(&tx_hash).await;
 
         let tip_header = snapshot.tip_header();
         let consensus = snapshot.cloned_consensus();
@@ -147,18 +244,15 @@ impl TxChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) = self.handle.block_on(
-                        self.service
-                            .submit_entry(completed, tip_hash, entry, status),
-                    );
+                    let (ret, submit_snapshot) = self
+                        .service
+                        .submit_entry(completed, tip_hash, entry, status)
+                        .await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
-                    self.handle.block_on(self.service.after_process(
-                        tx,
-                        remote,
-                        &submit_snapshot,
-                        &Ok(completed),
-                    ));
-                    self.handle.block_on(self.remove_front());
+                    self.service
+                        .after_process(tx, remote, &submit_snapshot, &Ok(completed))
+                        .await;
+                    self.remove_front().await;
                     return Some((Ok(false), submit_snapshot));
                 }
                 CacheEntry::Suspended(suspended) => {
@@ -178,8 +272,6 @@ impl TxChunkProcess {
         .verify()
         .map_err(Reject::Verification);
         let fee = try_or_return_with_snapshot!(ret, snapshot);
-        let script_verifier = ScriptVerifier::new(&rtx, &consensus, &data_loader, &tx_env);
-        let mut tmp_state: Option<ScriptVerifyState> = None;
 
         let max_cycles = if let Some((declared_cycle, _peer)) = remote {
             declared_cycle
@@ -187,90 +279,28 @@ impl TxChunkProcess {
             consensus.max_block_cycles()
         };
 
-        let completed: Completed = loop {
-            // Should get here until there is no command, otherwise there maybe have a very large delay
-            while let Ok(cmd) = self.recv.try_recv() {
-                match cmd {
-                    Command::Suspend => {
-                        let state = tmp_state.take();
-                        if let Some(state) = state {
-                            let ret = state.try_into().map_err(Reject::Verification);
-                            let snap = try_or_return_with_snapshot!(ret, snapshot);
-                            let txs_verify_cache = Arc::clone(&self.service.txs_verify_cache);
-                            self.handle.block_on(async move {
-                                let mut guard = txs_verify_cache.write().await;
-                                guard.put(tx_hash, CacheEntry::suspended(Arc::new(snap), fee));
-                            })
-                        }
-                        self.p_state = ProcessState::Interrupt;
-                        return Some((Ok(false), snapshot));
-                    }
-                    Command::Stop => {
-                        return Some((Ok(true), snapshot));
-                    }
-                    Command::Continue => {
-                        self.p_state = ProcessState::Normal;
-                    }
-                }
+        let ret = self.loop_resume(
+            &rtx,
+            &consensus,
+            &data_loader,
+            &tx_env,
+            init_snap,
+            max_cycles,
+        );
+        let state = try_or_return_with_snapshot!(ret, snapshot);
+
+        let completed: Completed = match state {
+            State::Stopped => return Some((Ok(true), snapshot)),
+            State::Suspended(snap) => {
+                update_cache(
+                    Arc::clone(&self.service.txs_verify_cache),
+                    tx_hash,
+                    CacheEntry::suspended(snap, fee),
+                )
+                .await;
+                return Some((Ok(false), snapshot));
             }
-
-            let mut last_step = false;
-            let ret = if let Some(ref snap) = init_snap {
-                if snap.current_cycles > max_cycles {
-                    let error =
-                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, snap.current);
-                    return Some((Err(Reject::Verification(error)), snapshot));
-                }
-
-                let (limit_cycles, last) = snap.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
-                last_step = last;
-                let ret = script_verifier.resume_from_snap(snap, limit_cycles);
-                init_snap = None;
-                ret
-            } else if let Some(state) = tmp_state {
-                // once we start loop from state, clean tmp snap.
-                init_snap = None;
-                if state.current_cycles > max_cycles {
-                    let error =
-                        exceeded_maximum_cycles_error(&script_verifier, max_cycles, state.current);
-                    return Some((Err(Reject::Verification(error)), snapshot));
-                }
-
-                // next_limit_cycles
-                // let remain = max_cycles - self.current_cycles;
-                // let next_limit = self.limit_cycles + step_cycles;
-
-                // if next_limit < remain {
-                //     (next_limit, false)
-                // } else {
-                //     (remain, true)
-                // }
-                let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
-                last_step = last;
-                script_verifier.resume_from_state(state, limit_cycles)
-            } else {
-                script_verifier.resumable_verify(MIN_STEP_CYCLE)
-            }
-            .map_err(Reject::Verification);
-
-            let ret = try_or_return_with_snapshot!(ret, snapshot);
-
-            match ret {
-                ScriptVerifyResult::Completed(cycles) => {
-                    break Completed { cycles, fee };
-                }
-                ScriptVerifyResult::Suspended(state) => {
-                    if last_step {
-                        let error = exceeded_maximum_cycles_error(
-                            &script_verifier,
-                            max_cycles,
-                            state.current,
-                        );
-                        return Some((Err(Reject::Verification(error)), snapshot));
-                    }
-                    tmp_state = Some(state);
-                }
-            }
+            State::Completed(cycles) => Completed { cycles, fee },
         };
 
         if let Some((declared_cycle, _peer)) = remote {
@@ -286,26 +316,24 @@ impl TxChunkProcess {
         }
 
         let entry = TxEntry::new(rtx.clone(), completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self.handle.block_on(
-            self.service
-                .submit_entry(completed, tip_hash, entry, status),
-        );
+        let (ret, submit_snapshot) = self
+            .service
+            .submit_entry(completed, tip_hash, entry, status)
+            .await;
         try_or_return_with_snapshot!(ret, snapshot);
 
-        self.handle.block_on(self.service.after_process(
-            tx,
-            remote,
-            &submit_snapshot,
-            &Ok(completed),
-        ));
+        self.service
+            .after_process(tx, remote, &submit_snapshot, &Ok(completed))
+            .await;
 
-        self.handle.block_on(self.remove_front());
+        self.remove_front().await;
 
-        let txs_verify_cache = Arc::clone(&self.service.txs_verify_cache);
-        self.handle.block_on(async move {
-            let mut guard = txs_verify_cache.write().await;
-            guard.put(tx_hash, CacheEntry::Completed(completed));
-        });
+        update_cache(
+            Arc::clone(&self.service.txs_verify_cache),
+            tx_hash,
+            CacheEntry::Completed(completed),
+        )
+        .await;
 
         Some((Ok(false), submit_snapshot))
     }
@@ -326,4 +354,9 @@ fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider>(
                 .unknown_source()
         })
         .into()
+}
+
+async fn update_cache(cache: Arc<RwLock<TxVerificationCache>>, tx_hash: Byte32, entry: CacheEntry) {
+    let mut guard = cache.write().await;
+    guard.put(tx_hash, entry);
 }
