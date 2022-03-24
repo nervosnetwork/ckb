@@ -36,7 +36,9 @@ impl From<packed::ProposalShortId> for ProposalShortId {
 
 impl<'a> From<&'a packed::ProposalShortId> for ProposalShortId {
     fn from(core: &'a packed::ProposalShortId) -> ProposalShortId {
-        ProposalShortId::new(core.unpack())
+        let mut inner = [0u8; 10];
+        inner.copy_from_slice(core.as_slice());
+        ProposalShortId::new(inner)
     }
 }
 
