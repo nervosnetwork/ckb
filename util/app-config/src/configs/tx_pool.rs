@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use url::Url;
 
@@ -59,10 +59,7 @@ pub struct BlockAssemblerConfig {
     #[serde(skip)]
     pub binary_version: String,
     /// A field to control update interval millis
-    #[serde(
-        default = "default_update_interval_millis",
-        deserialize_with = "de_interval_millis"
-    )]
+    #[serde(default = "default_update_interval_millis")]
     pub update_interval_millis: u64,
     /// Notify url
     #[serde(default)]
@@ -70,6 +67,9 @@ pub struct BlockAssemblerConfig {
     /// Notify scripts
     #[serde(default)]
     pub notify_scripts: Vec<String>,
+    /// Notify timeout
+    #[serde(default = "default_notify_timeout_millis")]
+    pub notify_timeout_millis: u64,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
@@ -80,19 +80,8 @@ const fn default_update_interval_millis() -> u64 {
     800
 }
 
-fn de_interval_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let v = u64::deserialize(deserializer)?;
-    if v == 0 {
-        return Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Unsigned(0),
-            &"interval can't be zero",
-        ));
-    }
-
-    Ok(v)
+const fn default_notify_timeout_millis() -> u64 {
+    800
 }
 
 impl TxPoolConfig {

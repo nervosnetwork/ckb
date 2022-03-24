@@ -119,6 +119,7 @@ pub(crate) enum BlockAssemblerMessage {
     Pending,
     Proposed,
     Uncle,
+    Reset(Arc<Snapshot>),
 }
 
 /// Controller to the tx-pool service.
@@ -685,31 +686,58 @@ impl TxPoolServiceBuilder {
         if let Some(ref block_assembler) = service.block_assembler {
             let mut signal_receiver = self.signal_receiver.clone();
             let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
-            self.handle.spawn(async move {
-                let mut interval = tokio::time::interval(interval);
-                let mut queue = LinkedHashSet::new();
-                loop {
-                    tokio::select! {
-                        Some(message) = block_assembler_receiver.recv() => {
-                            queue.insert(message);
-                        },
-                        _ = interval.tick() => {
-                            for message in &queue {
+            if interval.is_zero() {
+                // block_assembler.update_interval_millis set zero interval should only be used for tests,
+                // external notification will be disabled.
+                ckb_logger::warn!(
+                    "block_assembler.update_interval_millis set zero interval should only be used for tests, \
+                    external notification will be disabled."
+                );
+                self.handle.spawn(async move {
+                    loop {
+                        tokio::select! {
+                            Some(message) = block_assembler_receiver.recv() => {
                                 let service_clone = process_service.clone();
-                                block_assembler::process(service_clone, message).await;
-                            }
-                            if !queue.is_empty() {
-                                if let Some(ref block_assembler) = process_service.block_assembler {
-                                    block_assembler.notify().await;
-                                }
-                            }
-                            queue.clear();
+                                block_assembler::process(service_clone, &message).await;
+                            },
+                            _ = signal_receiver.changed() => break,
+                            else => break,
                         }
-                        _ = signal_receiver.changed() => break,
-                        else => break,
                     }
-                }
-            });
+                });
+            } else {
+                self.handle.spawn(async move {
+                    let mut interval = tokio::time::interval(interval);
+                    let mut queue = LinkedHashSet::new();
+                    loop {
+                        tokio::select! {
+                            Some(message) = block_assembler_receiver.recv() => {
+                                if let BlockAssemblerMessage::Reset(..) = message {
+                                    let service_clone = process_service.clone();
+                                    queue.clear();
+                                    block_assembler::process(service_clone, &message).await;
+                                } else {
+                                    queue.insert(message);
+                                }
+                            },
+                            _ = interval.tick() => {
+                                for message in &queue {
+                                    let service_clone = process_service.clone();
+                                    block_assembler::process(service_clone, message).await;
+                                }
+                                if !queue.is_empty() {
+                                    if let Some(ref block_assembler) = process_service.block_assembler {
+                                        block_assembler.notify().await;
+                                    }
+                                }
+                                queue.clear();
+                            }
+                            _ = signal_receiver.changed() => break,
+                            else => break,
+                        }
+                    }
+                });
+            }
         }
 
         let mut signal_receiver = self.signal_receiver;

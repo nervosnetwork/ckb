@@ -38,10 +38,12 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+use std::time::Duration;
 use std::{cmp, iter};
 use tokio::process::Command;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::block_in_place;
+use tokio::time::timeout;
 
 use crate::TxPool;
 pub(crate) use process::process;
@@ -569,6 +571,7 @@ impl BlockAssembler {
     pub(crate) async fn notify(&self) {
         let template = self.get_current().await;
         if let Ok(template_json) = serde_json::to_string(&template) {
+            let notify_timeout = Duration::from_millis(self.config.notify_timeout_millis);
             for url in &self.config.notify {
                 if let Ok(req) = Request::builder()
                     .method(Method::POST)
@@ -577,8 +580,14 @@ impl BlockAssembler {
                     .body(Body::from(template_json.to_owned()))
                 {
                     let client = Arc::clone(&self.poster);
+                    let url = url.to_owned();
                     tokio::spawn(async move {
-                        let _resp = client.request(req).await;
+                        let _resp =
+                            timeout(notify_timeout, client.request(req))
+                                .await
+                                .map_err(|_| {
+                                    ckb_logger::warn!("block assembler notify {} timed out", url);
+                                });
                     });
                 }
             }
@@ -594,9 +603,17 @@ impl BlockAssembler {
                     // On Unix platforms this method will fail with std::io::ErrorKind::WouldBlock
                     // if the system process limit is reached
                     // (which includes other applications running on the system).
-                    match Command::new(&script).arg(template_json).status().await {
-                        Ok(status) => debug!("the command exited with: {}", status),
-                        Err(e) => error!("the script {} failed to spawn {}", script, e),
+                    match timeout(
+                        notify_timeout,
+                        Command::new(&script).arg(template_json).status(),
+                    )
+                    .await
+                    {
+                        Ok(ret) => match ret {
+                            Ok(status) => debug!("the command exited with: {}", status),
+                            Err(e) => error!("the script {} failed to spawn {}", script, e),
+                        },
+                        Err(_) => ckb_logger::warn!("block assembler notify {} timed out", script),
                     }
                 });
             }

@@ -170,6 +170,7 @@ fn start_chain(consensus: Consensus, lock_script: &packed::Script) -> (ChainCont
         update_interval_millis: 800,
         notify: vec![],
         notify_scripts: vec![],
+        notify_timeout_millis: 800,
     };
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)

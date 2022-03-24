@@ -39,6 +39,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         update_interval_millis: 800,
         notify: vec![],
         notify_scripts: vec![],
+        notify_timeout_millis: 800,
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))
