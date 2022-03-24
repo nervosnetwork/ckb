@@ -20,6 +20,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint},
     U256,
 };
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// An Atomic wrapper for Snapshot
@@ -60,6 +61,26 @@ pub struct Snapshot {
     store: StoreSnapshot,
     proposals: ProposalView,
     consensus: Arc<Consensus>,
+}
+
+impl Hash for Snapshot {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.tip_header, state);
+    }
+}
+
+impl PartialEq for Snapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.tip_header == other.tip_header
+    }
+}
+
+impl Eq for Snapshot {}
+
+impl ::std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "Snapshot {{ tip_hash: {} }}", self.tip_header.hash())
+    }
 }
 
 impl Snapshot {

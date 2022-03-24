@@ -917,10 +917,13 @@ impl TxPoolService {
             tx_pool.clear(Arc::clone(&new_snapshot));
         }
         // reset block_assembler
-        if let Some(ref block_assembler) = self.block_assembler {
-            if let Err(e) = block_assembler.update_blank(new_snapshot).await {
-                error!("block_assembler update_blank error {}", e);
-            }
+        if self
+            .block_assembler_sender
+            .send(BlockAssemblerMessage::Reset(new_snapshot))
+            .await
+            .is_err()
+        {
+            error!("block_assembler receiver dropped");
         }
     }
 

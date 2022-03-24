@@ -218,6 +218,7 @@ fn setup() -> RpcTestSuite {
             update_interval_millis: 800,
             notify: vec![],
             notify_scripts: vec![],
+            notify_timeout_millis: 800,
         }))
         .build()
         .unwrap();

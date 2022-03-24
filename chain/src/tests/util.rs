@@ -130,6 +130,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
         update_interval_millis: 800,
         notify: vec![],
         notify_scripts: vec![],
+        notify_timeout_millis: 800,
     };
 
     let (shared, mut pack) = builder

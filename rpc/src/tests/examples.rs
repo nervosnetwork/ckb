@@ -107,6 +107,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             update_interval_millis: 800,
             notify: vec![],
             notify_scripts: vec![],
+            notify_timeout_millis: 800,
         }))
         .build()
         .unwrap();

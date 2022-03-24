@@ -67,6 +67,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         update_interval_millis: 800,
         notify: vec![],
         notify_scripts: vec![],
+        notify_timeout_millis: 800,
     }
 }
 
