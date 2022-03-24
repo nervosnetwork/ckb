@@ -20,7 +20,7 @@ jobs:
     #
     # * `actions/checkout@v2` inside reusable workflow check-out the current
     # repository but not the reusable workflow belong in.
-    if: ${{ github.owner == 'nervosnetwork' }}
+    if: ${{ github.repository_owner == 'nervosnetwork' }}
     uses: nervosnetwork/ckb-integration-test/.github/workflows/ckb-integration-test.yml@main
     with:
       CKB_GITHUB_REPOSITORY: ${{ github.repository }}
