@@ -16,10 +16,10 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2022-03-22
       - name: overwrite toolchain
         # It's easier to clean than `rustup override`
-        run: echo nightly > rust-toolchain
+        run: echo nightly-2022-03-22 > rust-toolchain
       - name: unit coverage
         run: make cov
       - name: integration cov
