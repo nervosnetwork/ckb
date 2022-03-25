@@ -26,7 +26,11 @@ impl ProposalShortId {
 
 impl From<packed::ProposalShortId> for ProposalShortId {
     fn from(core: packed::ProposalShortId) -> ProposalShortId {
-        ProposalShortId::new(core.unpack())
+        ProposalShortId::new(
+            core.as_slice()
+                .try_into()
+                .expect("checked in packed::ProposalShortId"),
+        )
     }
 }
 

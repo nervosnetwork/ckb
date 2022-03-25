@@ -51,28 +51,12 @@ impl Pack<packed::Byte32> for [u8; 32] {
     }
 }
 
-impl<'r> Unpack<[u8; 32]> for packed::Byte32Reader<'r> {
-    fn unpack(&self) -> [u8; 32] {
-        let ptr = self.as_slice().as_ptr() as *const [u8; 32];
-        unsafe { *ptr }
-    }
-}
-impl_conversion_for_entity_unpack!([u8; 32], Byte32);
-
 impl Pack<packed::ProposalShortId> for [u8; 10] {
     fn pack(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_slice(&self[..])
             .expect("impossible: fail to pack to ProposalShortId")
     }
 }
-
-impl<'r> Unpack<[u8; 10]> for packed::ProposalShortIdReader<'r> {
-    fn unpack(&self) -> [u8; 10] {
-        let ptr = self.as_slice().as_ptr() as *const [u8; 10];
-        unsafe { *ptr }
-    }
-}
-impl_conversion_for_entity_unpack!([u8; 10], ProposalShortId);
 
 impl Pack<packed::Bytes> for Bytes {
     fn pack(&self) -> packed::Bytes {
