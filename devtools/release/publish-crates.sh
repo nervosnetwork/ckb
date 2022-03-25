@@ -4,7 +4,7 @@ set -e
 set -u
 [ -n "${DEBUG:-}" ] && set -x || true
 
-CRATES="$(cat Cargo.toml| sed -n -e '0, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
+CRATES="$(cat Cargo.toml | sed -n -e '0, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
 RUST_VERSION="$(cat rust-toolchain)"
 
 retry_cargo_publish() {
@@ -50,15 +50,15 @@ generate_readme() {
   CRATE_DESCRIPTION="$(sed -n -e '/^description\s*=\s*"""/,/^"""/p' -e 's/description\s*=\s*"\([^"].*\)"$/\1/p' Cargo.toml | grep -v '"""$')"
   CRATE_NAME="$(sed -n -e 's/name\s*=\s*"\([^"].*\)"$/\1/p' Cargo.toml)"
 
-  echo "# $CRATE_NAME" > README.md
-  echo >> README.md
-  echo "This crate is a component of [ckb](https://github.com/nervosnetwork/ckb)." >> README.md
-  echo >> README.md
-  echo "$CRATE_DESCRIPTION" >> README.md
-  echo >> README.md
-  echo '## Minimum Supported Rust Version policy (MSRV)' >> README.md
-  echo >> README.md
-  echo "This crate's minimum supported rustc version is $RUST_VERSION" >> README.md
+  echo "# $CRATE_NAME" >README.md
+  echo >>README.md
+  echo "This crate is a component of [ckb](https://github.com/nervosnetwork/ckb)." >>README.md
+  echo >>README.md
+  echo "$CRATE_DESCRIPTION" >>README.md
+  echo >>README.md
+  echo '## Minimum Supported Rust Version policy (MSRV)' >>README.md
+  echo >>README.md
+  echo "This crate's minimum supported rustc version is $RUST_VERSION" >>README.md
 }
 
 cp -f Cargo.lock Cargo.lock.bak
@@ -72,7 +72,7 @@ fi
 
 for crate_dir in $CRATES; do
   case "$crate_dir" in
-    benches | util/test-chain-utils )
+    benches | util/test-chain-utils)
       # ignore
       ;;
     *)
