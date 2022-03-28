@@ -2,7 +2,7 @@
 
 use crate::block_assembler::BlockAssembler;
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
-use crate::chunk_process::Command;
+use crate::chunk_process::ChunkCommand;
 use crate::component::{chunk::ChunkQueue, entry::TxEntry, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
@@ -118,17 +118,15 @@ pub(crate) enum Message {
 pub struct TxPoolController {
     sender: mpsc::Sender<Message>,
     reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
-    chunk_tx: ckb_channel::Sender<Command>,
+    chunk_tx: Arc<watch::Sender<ChunkCommand>>,
     handle: Handle,
     stop: StopHandler<()>,
-    chunk_stop: StopHandler<Command>,
     started: Arc<AtomicBool>,
 }
 
 impl Drop for TxPoolController {
     fn drop(&mut self) {
         if self.service_started() {
-            self.chunk_stop.try_send(Command::Stop);
             self.stop.try_send(());
         }
     }
@@ -475,7 +473,7 @@ impl TxPoolController {
     /// Sends suspend chunk process cmd
     pub fn suspend_chunk_process(&self) -> Result<(), AnyError> {
         self.chunk_tx
-            .try_send(Command::Suspend)
+            .send(ChunkCommand::Suspend)
             .map_err(handle_send_cmd_error)
             .map_err(Into::into)
     }
@@ -483,7 +481,7 @@ impl TxPoolController {
     /// Sends continue chunk process cmd
     pub fn continue_chunk_process(&self) -> Result<(), AnyError> {
         self.chunk_tx
-            .try_send(Command::Continue)
+            .send(ChunkCommand::Resume)
             .map_err(handle_send_cmd_error)
             .map_err(Into::into)
     }
@@ -540,7 +538,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) signal_receiver: watch::Receiver<u8>,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    pub(crate) chunk_rx: ckb_channel::Receiver<Command>,
+    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) started: Arc<AtomicBool>,
 }
@@ -558,7 +556,7 @@ impl TxPoolServiceBuilder {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
-        let (chunk_tx, chunk_rx) = ckb_channel::bounded(12);
+        let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
@@ -567,17 +565,11 @@ impl TxPoolServiceBuilder {
             None,
             "tx-pool".to_string(),
         );
-        let chunk_stop = StopHandler::new(
-            SignalSender::Crossbeam(chunk_tx.clone()),
-            None,
-            "chunk".to_string(),
-        );
         let controller = TxPoolController {
             sender,
             reorg_sender,
             handle: handle.clone(),
-            chunk_stop,
-            chunk_tx,
+            chunk_tx: Arc::new(chunk_tx),
             stop,
             started: Arc::clone(&started),
         };
@@ -659,14 +651,14 @@ impl TxPoolServiceBuilder {
             last_txs_updated_at,
         };
 
-        let mut chunk_process = crate::chunk_process::TxChunkProcess::new(
+        let signal_receiver = self.signal_receiver.clone();
+        let chunk_process = crate::chunk_process::ChunkProcess::new(
             service.clone(),
-            self.handle.clone(),
             self.chunk_rx,
+            signal_receiver,
         );
 
-        self.handle.spawn_blocking(move || chunk_process.run());
-
+        self.handle.spawn(async move { chunk_process.run().await });
         let mut receiver = self.receiver;
         let mut reorg_receiver = self.reorg_receiver;
         let handle_clone = self.handle.clone();

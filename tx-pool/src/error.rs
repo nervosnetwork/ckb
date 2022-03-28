@@ -6,7 +6,9 @@ use ckb_error::{
     InternalError, InternalErrorKind, OtherError,
 };
 pub use ckb_types::core::tx_pool::Reject;
+use std::fmt;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::watch::error::SendError;
 
 /// The error type for block assemble related
 #[derive(Error, Debug, PartialEq, Clone, Eq)]
@@ -42,6 +44,6 @@ pub(crate) fn handle_recv_error(error: RecvError) -> OtherError {
     OtherError::new(format!("RecvError {}", error))
 }
 
-pub(crate) fn handle_send_cmd_error<T>(error: ckb_channel::TrySendError<T>) -> OtherError {
-    OtherError::new(format!("send command fails: {}", error))
+pub(crate) fn handle_send_cmd_error<T: fmt::Debug>(error: SendError<T>) -> OtherError {
+    OtherError::new(format!("send command fails: {:?}", error))
 }
