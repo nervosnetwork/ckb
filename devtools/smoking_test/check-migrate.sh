@@ -12,9 +12,8 @@ if [ ${EXIT_CODE} == 0 ]; then
   echo "migrate exit code is "${EXIT_CODE}
   if [ ${EXIT_CODE} != 0 ]; then
     echo "migrate faile,please try again"
-    exit ${EXIT_CODE};
+    exit ${EXIT_CODE}
   else
     echo "DB migrate done"
   fi
 fi
-

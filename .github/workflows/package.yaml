@@ -202,7 +202,8 @@ jobs:
     - name: Install Dependencies
       run: |
         Set-ExecutionPolicy RemoteSigned -scope CurrentUser
-        Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
+        .\install-scoop.ps1 -RunAsAdmin
         scoop install llvm yasm
         echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
         echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
