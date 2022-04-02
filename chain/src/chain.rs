@@ -844,8 +844,10 @@ impl ChainService {
 
                                         // log tx verification result for monitor node
                                         if log_enabled_target!("ckb_tx_monitor", Trace) {
+                                            // `cache_entries` already excludes cellbase tx, but `resolved` includes cellbase tx, skip it
+                                            // to make them aligned
                                             for (rtx, cycles) in
-                                                resolved.iter().zip(cache_entries.iter()).skip(1)
+                                                resolved.iter().skip(1).zip(cache_entries.iter())
                                             {
                                                 trace_target!(
                                                     "ckb_tx_monitor",
