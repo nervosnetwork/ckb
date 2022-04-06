@@ -1,6 +1,6 @@
 [package]
 name = "ckb-migration-template"
-version = "0.101.7"
+version = "0.101.8"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2021"

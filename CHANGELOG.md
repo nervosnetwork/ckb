@@ -1,3 +1,9 @@
+# [v0.101.8](https://github.com/nervosnetwork/ckb/compare/v0.101.7...v0.101.8) (2022-04-06)
+
+### Bug Fixes
+
+* #3365: fix #3309, mismatch `resolved_tx` and `completed_tx` (@chanhsu001)
+
 # [v0.101.7](https://github.com/nervosnetwork/ckb/compare/v0.101.6...v0.101.7) (2022-03-21)
 
 ### Features
