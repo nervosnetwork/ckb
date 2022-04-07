@@ -23,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          repository: nervosnetwork/ckb-integration-test
+          repository: chanhsu001/ckb-integration-test
+          ref: replay_fix
       - name: Get Current Date
         id: date
         run: |
