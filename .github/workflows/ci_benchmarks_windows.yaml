@@ -56,7 +56,8 @@ jobs:
     - name: install required tools
       if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
       run: |
-        iex (New-Object System.Net.WebClient).DownloadString('https://get.scoop.sh')
+        iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
+        .\install-scoop.ps1 -RunAsAdmin
         echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         scoop install git

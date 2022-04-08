@@ -18,7 +18,8 @@ use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, error, info};
+use ckb_logger::Level::Trace;
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -728,6 +729,18 @@ impl TxPoolService {
                 .hardfork_switch
                 .is_vm_version_1_and_syscalls_2_enabled(epoch)
         };
+
+        // log tx verification result for monitor node
+        if log_enabled_target!("ckb_tx_monitor", Trace) {
+            if let Ok(c) = ret {
+                trace_target!(
+                    "ckb_tx_monitor",
+                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
+                    tx_hash,
+                    c.cycles
+                );
+            }
+        }
 
         match remote {
             Some((declared_cycle, peer)) => match ret {

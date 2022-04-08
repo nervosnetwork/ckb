@@ -1,6 +1,6 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, WRONG_FORMAT,
+    Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, WRONG_FORMAT,
 };
 use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::CellMeta;
@@ -45,38 +45,30 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
-        match source {
-            Source::Transaction(SourceEntry::Input) => {
-                self.resolved_inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
-            }
-            Source::Transaction(SourceEntry::Output) => {
-                self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
-            }
-            Source::Transaction(SourceEntry::CellDep) => {
-                self.resolved_cell_deps.get(index).ok_or(INDEX_OUT_OF_BOUND)
-            }
-            Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
+        let cell_opt = match source {
+            Source::Transaction(SourceEntry::Input) => self.resolved_inputs.get(index),
+            Source::Transaction(SourceEntry::Output) => self.outputs.get(index),
+            Source::Transaction(SourceEntry::CellDep) => self.resolved_cell_deps.get(index),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| {
-                    self.resolved_inputs
-                        .get(*actual_index)
-                        .ok_or(INDEX_OUT_OF_BOUND)
-                }),
+                .and_then(|actual_index| self.resolved_inputs.get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
-            Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
-        }
+                .and_then(|actual_index| self.outputs.get(*actual_index)),
+            Source::Transaction(SourceEntry::HeaderDep)
+            | Source::Group(SourceEntry::CellDep)
+            | Source::Group(SourceEntry::HeaderDep) => {
+                return Err(INDEX_OUT_OF_BOUND);
+            }
+        };
+
+        cell_opt.ok_or(INDEX_OUT_OF_BOUND)
     }
 
-    fn fetch_witness(&self, source: Source, index: usize) -> Option<PackedBytes> {
-        match source {
+    fn fetch_witness(&self, source: Source, index: usize) -> Result<PackedBytes, u8> {
+        let witness_opt = match source {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
@@ -87,8 +79,12 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
                 .and_then(|actual_index| self.witnesses.get(*actual_index)),
             Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
             Source::Transaction(SourceEntry::Output) => self.witnesses.get(index),
-            _ => None,
-        }
+            _ => {
+                return Err(INDEX_OUT_OF_BOUND);
+            }
+        };
+
+        witness_opt.ok_or(INDEX_OUT_OF_BOUND)
     }
 }
 
@@ -123,32 +119,35 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
 
         let index = machine.registers()[A0].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A1].to_u64())?;
-        let place = machine.registers()[A2].to_u64();
+        let place = Place::parse_from_u64(machine.registers()[A2].to_u64())?;
         let bounds = machine.registers()[A3].to_u64();
         let offset = (bounds >> 32) as usize;
         let length = bounds as u32 as usize;
 
-        let data = if place == 0 {
-            let cell = self.fetch_cell(source, index as usize);
-            if let Err(err) = cell {
-                machine.set_register(A0, Mac::REG::from_u8(err));
-                return Ok(true);
+        let data = match place {
+            Place::CellData => {
+                let cell = self.fetch_cell(source, index as usize);
+                if let Err(err) = cell {
+                    machine.set_register(A0, Mac::REG::from_u8(err));
+                    return Ok(true);
+                }
+                let cell = cell.unwrap();
+                self.data_loader.load_cell_data(cell).ok_or_else(|| {
+                    VMError::Unexpected(format!(
+                        "Unexpected load_cell_data failed {}",
+                        cell.out_point,
+                    ))
+                })?
             }
-            let cell = cell.unwrap();
-            self.data_loader.load_cell_data(cell).ok_or_else(|| {
-                VMError::Unexpected(format!(
-                    "Unexpected load_cell_data failed {}",
-                    cell.out_point,
-                ))
-            })?
-        } else {
-            let witness = self.fetch_witness(source, index as usize);
-            if witness.is_none() {
-                machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
-                return Ok(true);
+            Place::Witness => {
+                let witness = self.fetch_witness(source, index as usize);
+                if let Err(err) = witness {
+                    machine.set_register(A0, Mac::REG::from_u8(err));
+                    return Ok(true);
+                }
+                let witness = witness.unwrap();
+                witness.raw_data()
             }
-            let witness = witness.unwrap();
-            witness.raw_data()
         };
         let data_size = data.len();
         if offset >= data_size {
@@ -159,7 +158,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, D
             data.slice(offset..data_size)
         } else {
             let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
-            if end >= data_size {
+            if end > data_size {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
                 return Ok(true);
             }
