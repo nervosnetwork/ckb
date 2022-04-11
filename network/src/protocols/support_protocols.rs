@@ -6,6 +6,8 @@ use p2p::{
 };
 use tokio_util::codec::length_delimited;
 
+const LASTEST_VERSION: &str = "2";
+
 /// All supported protocols
 ///
 /// The underlying network of CKB is flexible and complex. The flexibility lies in that it can support any number of protocols.
@@ -91,17 +93,21 @@ impl SupportProtocols {
         // we didn't invoke MetaBuilder#support_versions fn for these protocols (Ping/Discovery/Identify/Feeler/DisconnectMessage)
         // in previous code, so the default 0.0.1 value is used ( https://github.com/nervosnetwork/tentacle/blob/master/src/builder.rs#L312 )
         // have to keep 0.0.1 for compatibility...
+        //
+        // Here you have to make sure that the list of supported versions is sorted from smallest to largest
         match self {
-            SupportProtocols::Ping => vec!["0.0.1".to_owned(), "2".to_owned()],
-            SupportProtocols::Discovery => vec!["0.0.1".to_owned(), "2".to_owned()],
-            SupportProtocols::Identify => vec!["0.0.1".to_owned(), "2".to_owned()],
-            SupportProtocols::Feeler => vec!["0.0.1".to_owned(), "2".to_owned()],
-            SupportProtocols::DisconnectMessage => vec!["0.0.1".to_owned(), "2".to_owned()],
-            SupportProtocols::Sync => vec!["1".to_owned(), "2".to_owned()],
+            SupportProtocols::Ping => vec!["0.0.1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Discovery => vec!["0.0.1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Identify => vec!["0.0.1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Feeler => vec!["0.0.1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::DisconnectMessage => {
+                vec!["0.0.1".to_owned(), LASTEST_VERSION.to_owned()]
+            }
+            SupportProtocols::Sync => vec!["1".to_owned(), LASTEST_VERSION.to_owned()],
             SupportProtocols::Relay => vec!["1".to_owned()],
-            SupportProtocols::Time => vec!["1".to_owned(), "2".to_owned()],
-            SupportProtocols::Alert => vec!["1".to_owned(), "2".to_owned()],
-            SupportProtocols::RelayV2 => vec!["2".to_owned()],
+            SupportProtocols::Time => vec!["1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Alert => vec!["1".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::RelayV2 => vec![LASTEST_VERSION.to_owned()],
         }
     }
 

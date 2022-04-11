@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 set -e
 set -u
@@ -18,18 +17,18 @@ set +e
 test_id=$(date +"%Y%m%d-%H%M%S")
 test_tmp_dir=${CKB_INTEGRATION_TEST_TMP:-$(pwd)/target/ckb-test/${test_id}}
 export CKB_INTEGRATION_TEST_TMP="${test_tmp_dir}"
-echo "CKB_INTEGRATION_TEST_TMP=$CKB_INTEGRATION_TEST_TMP" >> $GITHUB_ENV
+echo "CKB_INTEGRATION_TEST_TMP=$CKB_INTEGRATION_TEST_TMP" >>$GITHUB_ENV
 mkdir -p "${test_tmp_dir}"
 test_log_file="${test_tmp_dir}/integration.log"
 
 export CKB_INTEGRATION_FAILURE_FILE="${test_tmp_dir}/integration.failure"
-echo "Unknown integration error" > "$CKB_INTEGRATION_FAILURE_FILE"
+echo "Unknown integration error" >"$CKB_INTEGRATION_FAILURE_FILE"
 cargo run "$@" 2>&1 | tee "${test_log_file}"
 EXIT_CODE="${PIPESTATUS[0]}"
 set -e
 
 if [ "$EXIT_CODE" != 0 ] && [ "${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}" = "nervosnetwork/ckb" ]; then
-  if ! command -v sentry-cli &> /dev/null; then
+  if ! command -v sentry-cli &>/dev/null; then
     curl -sL https://sentry.io/get-cli/ | bash
   fi
   export SENTRY_DSN="https://15373165fbf2439b99ba46684dfbcb12@sentry.nervos.org/7"
@@ -41,8 +40,8 @@ if [ "$EXIT_CODE" != 0 ] && [ "${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}" = "nervos
         CKB_BIN="$2"
         break
         ;;
-      *)
-        ;;
+      *) ;;
+
     esac
     shift
   done
@@ -63,7 +62,7 @@ send "bye\r"
 EOF
     cd -
   fi
-# upload github actions log if test failed
+  # upload github actions log if test failed
   if [ -n "${BUILD_BUILDID:-}" ] && [ -n "${LOGBAK_SERVER:-}" ]; then
     upload_id="github-actions-${test_id}-${BUILD_BUILDID:-0}-${ImageOS:-unknown}"
     cd "${test_tmp_dir}"/..

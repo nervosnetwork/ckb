@@ -1,24 +1,24 @@
 #!/bin/bash
 set -euo pipefail
-is_self_runner=`echo $RUNNER_LABEL | awk -F '-' '{print $1}'`
+is_self_runner=$(echo $RUNNER_LABEL | awk -F '-' '{print $1}')
 clean_threshold=40000
-available_space=`df -m "$GITHUB_WORKSPACE" | tail -1 | awk '{print $4}'`
-if [[ $is_self_runner == "self" ]];then
+available_space=$(df -m "$GITHUB_WORKSPACE" | tail -1 | awk '{print $4}')
+if [[ $is_self_runner == "self" ]]; then
   export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/../target"
   export RUSTC_WRAPPER='sccache'
   export SCCACHE_CACHE_SIZE='20G'
   #clean space when disk full
   if [[ $available_space -lt $clean_threshold ]]; then
-          echo "Run clean command"
-          cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
+    echo "Run clean command"
+    cargo clean --target-dir "${CARGO_TARGET_DIR}" || true
   fi
 fi
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$GITHUB_WORKSPACE/target"}
 case $GITHUB_WORKFLOW in
   ci_linters*)
     echo "ci_linters"
-    cargo fmt --version ||  rustup component add rustfmt
-    cargo clippy --version ||  rustup component add clippy
+    cargo fmt --version || rustup component add rustfmt
+    cargo clippy --version || rustup component add clippy
     make fmt
     make clippy
     git diff --exit-code Cargo.lock
@@ -31,14 +31,14 @@ case $GITHUB_WORKFLOW in
     echo "ci_benchmarks_test"
     make bench-test
     ;;
-ci_integration_tests*)
+  ci_integration_tests*)
     echo "ci_integration_test"
-    github_workflow_os=`echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}'`
+    github_workflow_os=$(echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}')
     export BUILD_BUILDID=$GITHUB_RUN_ID
     export ImageOS=$RUNNER_OS
     export BINARY_NAME=${BINARY_NAME:-"ckb"}
-    if [[ $github_workflow_os == 'windows' ]];then
-       BINARY_NAME="ckb.exe"
+    if [[ $github_workflow_os == 'windows' ]]; then
+      BINARY_NAME="ckb.exe"
     fi
     make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
     ;;
