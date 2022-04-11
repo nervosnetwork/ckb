@@ -9,8 +9,8 @@ pub struct ChainInfo {
     ///
     /// Examples:
     ///
-    /// * "ckb" - Lina the mainnet.
-    /// * "ckb_testnet" - Aggron the testnet.
+    /// * "ckb" - Mirana the mainnet.
+    /// * "ckb_testnet" - Pudge the testnet.
     pub chain: String,
     /// The median time of the last 37 blocks, including the tip block.
     pub median_time: Timestamp,
