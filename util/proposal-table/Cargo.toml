@@ -1,6 +1,6 @@
 [package]
 name = "ckb-proposal-table"
-version = "0.102.0-pre"
+version = "0.104.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -10,6 +10,6 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.102.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.102.0-pre" }
-ckb-types = { path = "../types", version = "= 0.102.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.104.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.104.0-pre" }
+ckb-types = { path = "../types", version = "= 0.104.0-pre" }
