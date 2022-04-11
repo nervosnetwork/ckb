@@ -1,3 +1,15 @@
+# [v0.102.0](https://github.com/nervosnetwork/ckb/compare/v0.101.8...v0.102.0) (2022-04-11)
+
+### Features
+
+* #3371: Activate ckb2021 in mainnet since epoch 5414 (@doitian)
+    At about 2022/05/10 1:00 UTC.
+
+### Bug Fixes
+
+* #3343: Genesis dep groups should supports relative file path (@quake)
+* #3345: Fix(cli) add h256 validator for `--assume-valid-target` and `--ba-code-hash` (@chanhsu001)
+
 # [v0.101.8](https://github.com/nervosnetwork/ckb/compare/v0.101.7...v0.101.8) (2022-04-06)
 
 ### Bug Fixes
