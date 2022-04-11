@@ -7,6 +7,10 @@ use ckb_types::{
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };
 use ckb_vm::Error as VmError;
+use proptest::{prelude::*, prop_assert_eq, proptest};
+use rand::distributions::Uniform;
+use rand::{thread_rng, Rng};
+use std::collections::VecDeque;
 
 use super::SCRIPT_VERSION;
 use crate::syscalls::SOURCE_GROUP_FLAG;
@@ -439,10 +443,7 @@ fn check_exec_big_offset_length() {
     }
 }
 
-#[test]
-fn check_type_id_one_in_one_out_resume() {
-    use std::collections::VecDeque;
-
+fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCaseError> {
     let script_version = SCRIPT_VERSION;
 
     let (always_success_cell, always_success_cell_data, always_success_script) =
@@ -501,16 +502,12 @@ fn check_type_id_one_in_one_out_resume() {
     verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: VecDeque<_> = verifier.groups_with_type().collect();
         let mut tmp: Option<ResumableMachine<'_>> = None;
-        let mut step_cycles = match groups.front().unwrap().0 {
-            ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE,
-            ScriptGroupType::Type => TYPE_ID_CYCLES - 10,
-        };
+        let mut limit = step_cycles;
 
         loop {
             if let Some(mut vm) = tmp.take() {
-                cycles += vm.cycles();
-                vm.set_cycles(0);
-                match vm.machine.run() {
+                vm.set_max_cycles(limit);
+                match vm.run() {
                     Ok(code) => {
                         if code == 0 {
                             cycles += vm.cycles();
@@ -522,6 +519,7 @@ fn check_type_id_one_in_one_out_resume() {
                     Err(error) => match error {
                         VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
+                            limit += step_cycles;
                             continue;
                         }
                         _ => unreachable!(),
@@ -532,26 +530,33 @@ fn check_type_id_one_in_one_out_resume() {
                 break;
             }
 
-            while let Some((_ty, _, group)) = groups.front().cloned() {
+            while let Some((ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(group, step_cycles, &None)
+                    .verify_group_with_chunk(group, limit, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                         groups.pop_front();
-                        if let Some(front) = groups.front() {
-                            step_cycles = match front.0 {
-                                ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE,
-                                ScriptGroupType::Type => TYPE_ID_CYCLES - 10,
-                            };
+                        if groups.front().is_some() {
+                            limit = step_cycles;
                         }
                     }
                     ChunkState::Suspended(vm) => {
                         if vm.is_some() {
                             tmp = vm;
+                        } else if ty == ScriptGroupType::Type // fast forward
+                            && step_cycles > TYPE_ID_CYCLES
+                            && limit < (TYPE_ID_CYCLES - step_cycles)
+                        {
+                            limit += TYPE_ID_CYCLES - step_cycles;
+                        } else if ty == ScriptGroupType::Lock  // fast forward
+                            && step_cycles < ALWAYS_SUCCESS_SCRIPT_CYCLE
+                            && limit < (ALWAYS_SUCCESS_SCRIPT_CYCLE - step_cycles)
+                        {
+                            limit += ALWAYS_SUCCESS_SCRIPT_CYCLE - step_cycles;
                         } else {
-                            step_cycles += 10
+                            limit += step_cycles;
                         }
                         break;
                     }
@@ -560,118 +565,30 @@ fn check_type_id_one_in_one_out_resume() {
         }
     });
 
-    assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
+    prop_assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
+    Ok(())
 }
 
-#[test]
-fn check_type_id_one_in_one_out_chunk() {
-    let script_version = SCRIPT_VERSION;
-
-    let (always_success_cell, always_success_cell_data, always_success_script) =
-        always_success_cell();
-    let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
-
-    let type_id_script = Script::new_builder()
-        .args(Bytes::from(h256!("0x1111").as_ref()).pack())
-        .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.into())
-        .build();
-
-    let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
-    let input_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000).pack())
-        .lock(always_success_script.clone())
-        .type_(Some(type_id_script.clone()).pack())
-        .build();
-
-    let output_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(990).pack())
-        .lock(always_success_script.clone())
-        .type_(Some(type_id_script).pack())
-        .build();
-
-    let transaction = TransactionBuilder::default()
-        .input(input.clone())
-        .output(output_cell)
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(always_success_out_point.clone())
-                .build(),
-        )
-        .build();
-
-    let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-        .out_point(input.previous_output())
-        .build();
-    let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
-        always_success_cell.clone(),
-        always_success_cell_data.to_owned(),
-    )
-    .out_point(always_success_out_point)
-    .build();
-
-    let rtx = ResolvedTransaction {
-        transaction,
-        resolved_cell_deps: vec![resolved_always_success_cell],
-        resolved_inputs: vec![resolved_input_cell],
-        resolved_dep_groups: vec![],
-    };
-
-    let mut cycles = 0;
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-
-    verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut groups: Vec<_> = verifier.groups_with_type().collect();
-        let mut tmp: Option<ResumableMachine<'_>> = None;
-
-        loop {
-            if let Some(mut vm) = tmp.take() {
-                cycles += vm.cycles();
-                vm.set_cycles(0);
-                match vm.machine.run() {
-                    Ok(code) => {
-                        if code == 0 {
-                            cycles += vm.cycles();
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    Err(error) => match error {
-                        VMInternalError::CyclesExceeded => {
-                            tmp = Some(vm);
-                            continue;
-                        }
-                        _ => unreachable!(),
-                    },
-                }
-            }
-            while let Some((ty, _, group)) = groups.pop() {
-                let max = match ty {
-                    ScriptGroupType::Lock => ALWAYS_SUCCESS_SCRIPT_CYCLE - 10,
-                    ScriptGroupType::Type => TYPE_ID_CYCLES,
-                };
-                match verifier.verify_group_with_chunk(group, max, &None).unwrap() {
-                    ChunkState::Completed(used_cycles) => {
-                        cycles += used_cycles;
-                    }
-                    ChunkState::Suspended(vm) => {
-                        tmp = vm;
-                        break;
-                    }
-                }
-            }
-
-            if tmp.is_none() {
-                break;
-            }
+// default is 256, which takes too long times
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(42))]
+    #[test]
+    fn check_type_id_one_in_one_out_resume1(step in 1..ALWAYS_SUCCESS_SCRIPT_CYCLE) {
+        if SCRIPT_VERSION >= ScriptVersion::V1 {
+            _check_type_id_one_in_one_out_resume(step)?;
         }
-    });
-
-    assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
+    }
 }
 
-#[test]
-fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(42))]
+    #[test]
+    fn check_type_id_one_in_one_out_resume2(step in ALWAYS_SUCCESS_SCRIPT_CYCLE..(ALWAYS_SUCCESS_SCRIPT_CYCLE + TYPE_ID_CYCLES)) {
+        _check_type_id_one_in_one_out_resume(step)?;
+    }
+}
+
+fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle) {
     let script_version = SCRIPT_VERSION;
 
     let rtx = random_2_in_2_out_rtx();
@@ -681,12 +598,12 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: Vec<_> = verifier.groups_with_type().collect();
         let mut tmp: Option<ResumableMachine<'_>> = None;
+        let mut limit = step_cycles;
 
         loop {
             if let Some(mut vm) = tmp.take() {
-                cycles += vm.cycles();
-                vm.set_cycles(0);
-                match vm.machine.run() {
+                vm.set_max_cycles(limit);
+                match vm.run() {
                     Ok(code) => {
                         if code == 0 {
                             cycles += vm.cycles();
@@ -697,6 +614,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
                     Err(error) => match error {
                         VMInternalError::CyclesExceeded => {
                             tmp = Some(vm);
+                            limit += step_cycles;
                             continue;
                         }
                         _ => unreachable!(),
@@ -705,7 +623,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
             }
             while let Some((_, _, group)) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(group, TWO_IN_TWO_OUT_CYCLES / 10, &None)
+                    .verify_group_with_chunk(group, limit, &None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
@@ -713,6 +631,11 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
                     }
                     ChunkState::Suspended(vm) => {
                         tmp = vm;
+                        if limit < (TWO_IN_TWO_OUT_CYCLES - step_cycles) {
+                            limit += TWO_IN_TWO_OUT_CYCLES - step_cycles;
+                        } else {
+                            limit += step_cycles;
+                        }
                         break;
                     }
                 }
@@ -727,52 +650,32 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
     });
 
     let cycles_once = result.unwrap();
-    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
-    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
-    assert_eq!(cycles, cycles_once);
+    assert!(
+        cycles <= TWO_IN_TWO_OUT_CYCLES,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert!(
+        cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
 }
 
 #[test]
-fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
-    let script_version = SCRIPT_VERSION;
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
 
-    let rtx = random_2_in_2_out_rtx();
-    let mut cycles = 0;
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
-
-        if let VerifyResult::Suspended(state) = verifier
-            .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
-            .unwrap()
-        {
-            init_snap = Some(state.try_into().unwrap());
-        }
-
-        loop {
-            let snap = init_snap.take().unwrap();
-            let (limit_cycles, _last) =
-                snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
-                VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
-                VerifyResult::Completed(cycle) => {
-                    cycles = cycle;
-                    break;
-                }
-            }
-        }
-
-        verifier.verify(TWO_IN_TWO_OUT_CYCLES)
-    });
-
-    let cycles_once = result.unwrap();
-    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
-    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
-    assert_eq!(cycles, cycles_once);
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
+    }
 }
 
-#[test]
-fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
+fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle) {
     let script_version = SCRIPT_VERSION;
 
     let rtx = random_2_in_2_out_rtx();
@@ -781,17 +684,13 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut init_state: Option<TransactionState<'_>> = None;
 
-        if let VerifyResult::Suspended(state) = verifier
-            .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
-            .unwrap()
-        {
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
             init_state = Some(state);
         }
 
         loop {
             let state = init_state.take().unwrap();
-            let (limit_cycles, _last) =
-                state.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
+            let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
             match verifier.resume_from_state(state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
@@ -805,9 +704,114 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
     });
 
     let cycles_once = result.unwrap();
-    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
-    assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
-    assert_eq!(cycles, cycles_once);
+    assert!(
+        cycles <= TWO_IN_TWO_OUT_CYCLES,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert!(
+        cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+}
+
+#[test]
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles1);
+
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles2);
+    }
+}
+
+fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle) {
+    let script_version = SCRIPT_VERSION;
+
+    let rtx = random_2_in_2_out_rtx();
+    let mut cycles = 0;
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_state: Option<TransactionState<'_>> = None;
+
+        if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
+            init_snap = Some(state.try_into().unwrap());
+        }
+
+        let mut count = 0;
+        loop {
+            if init_snap.is_some() {
+                let snap = init_snap.take().unwrap();
+                let (limit_cycles, _last) =
+                    snap.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+                match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        if count % 500 == 0 {
+                            init_snap = Some(state.try_into().unwrap());
+                        } else {
+                            init_state = Some(state);
+                        }
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            } else {
+                let state = init_state.take().unwrap();
+                let (limit_cycles, _last) =
+                    state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+                match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        if count % 500 == 0 {
+                            init_snap = Some(state.try_into().unwrap());
+                        } else {
+                            init_state = Some(state);
+                        }
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+            count += 1;
+        }
+
+        verifier.verify(TWO_IN_TWO_OUT_CYCLES)
+    });
+
+    let cycles_once = result.unwrap();
+    assert!(
+        cycles <= TWO_IN_TWO_OUT_CYCLES,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert!(
+        cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+        "step_cycles {}",
+        step_cycles
+    );
+    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+}
+
+#[test]
+fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles1);
+
+        let step_cycles2 = rng.sample(Uniform::from(
+            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+        ));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles2);
+    }
 }
 
 #[test]
