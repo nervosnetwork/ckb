@@ -8,7 +8,8 @@ use ckb_vm::{
     machine::{VERSION0, VERSION1},
     memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
     snapshot::{make_snapshot, Snapshot},
-    CoreMachine as _, Memory, SupportMachine, ISA_B, ISA_IMC, ISA_MOP, RISCV_PAGESIZE,
+    CoreMachine as _, Error as VMInternalError, Memory, SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
+    RISCV_PAGESIZE,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -100,15 +101,21 @@ pub(crate) type Machine<'a> = AsmMachine<'a>;
 pub(crate) type Machine<'a> = TraceMachine<'a, CoreMachine>;
 
 pub struct ResumableMachine<'a> {
-    pub(crate) machine: Machine<'a>,
-    pub(crate) program_loaded: bool,
+    machine: Machine<'a>,
+    pub(crate) program_bytes_cycles: Option<Cycle>,
+    pub(crate) enable_2021: bool,
 }
 
 impl<'a> ResumableMachine<'a> {
-    pub(crate) fn new(machine: Machine<'a>, program_loaded: bool) -> Self {
+    pub(crate) fn new(
+        machine: Machine<'a>,
+        program_bytes_cycles: Option<Cycle>,
+        enable_2021: bool,
+    ) -> Self {
         ResumableMachine {
             machine,
-            program_loaded,
+            program_bytes_cycles,
+            enable_2021,
         }
     }
 
@@ -116,17 +123,26 @@ impl<'a> ResumableMachine<'a> {
         self.machine.machine.cycles()
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_cycles(&mut self, cycles: Cycle) {
-        self.machine.machine.set_cycles(cycles)
-    }
-
     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
         set_vm_max_cycles(&mut self.machine, cycles)
     }
 
     pub fn program_loaded(&self) -> bool {
-        self.program_loaded
+        self.program_bytes_cycles.is_none()
+    }
+
+    pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
+        self.machine.machine.add_cycles(cycles)
+    }
+
+    pub fn run(&mut self) -> Result<i8, VMInternalError> {
+        if let Some(cycles) = self.program_bytes_cycles {
+            if self.enable_2021 {
+                self.add_cycles(cycles)?;
+                self.program_bytes_cycles = None;
+            }
+        }
+        self.machine.run()
     }
 }
 
@@ -275,7 +291,7 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
 
         let (snap, current_cycles) = if let Some(mut vm) = vm {
             // we should not capture snapshot if load program failed by exceeded cycles
-            if vm.program_loaded {
+            if vm.program_loaded() {
                 let vm_cycles = vm.cycles();
                 // To be consistent with the mainnet, add this flag to enable this behavior after hardfork
                 if !enable_backup_page_flags {
