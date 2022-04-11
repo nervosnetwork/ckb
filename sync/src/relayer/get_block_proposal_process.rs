@@ -4,6 +4,7 @@ use crate::{attempt, Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a> {
@@ -30,20 +31,26 @@ impl<'a> GetBlockProposalProcess<'a> {
 
     pub fn execute(self) -> Status {
         let shared = self.relayer.shared();
+        let message_len = self.message.proposals().len();
         {
-            let get_block_proposal = self.message;
+            // The block proposal request is separate from uncles,
+            // so here the limit is only used to calculate the maximum value of uncles
             let limit = shared.consensus().max_block_proposals_limit()
                 * (shared.consensus().max_uncles_num() as u64);
-            if (get_block_proposal.proposals().len() as u64) > limit {
+            if message_len as u64 > limit {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "GetBlockProposal proposals count({}) > consensus max_block_proposals_limit({})",
-                    get_block_proposal.proposals().len(), limit,
+                    message_len, limit,
                 ));
             }
         }
 
-        let proposals: Vec<packed::ProposalShortId> =
+        let proposals: HashSet<packed::ProposalShortId> =
             self.message.proposals().to_entity().into_iter().collect();
+
+        if proposals.len() != message_len {
+            return StatusCode::RequestDuplicate.with_context("Request duplicate proposal");
+        }
 
         let fetched_transactions = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();
