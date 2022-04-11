@@ -1023,6 +1023,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 return Ok(ChunkState::suspended(ResumableMachine::new(
                     machine,
                     Some(program_bytes_cycles),
+                    self.is_vm_version_1_and_syscalls_2_enabled(),
                 )));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -1039,7 +1040,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded => {
-                    Ok(ChunkState::suspended(ResumableMachine::new(machine, None)))
+                    Ok(ChunkState::suspended(ResumableMachine::new(
+                        machine,
+                        None,
+                        self.is_vm_version_1_and_syscalls_2_enabled(),
+                    )))
                 }
                 _ => {
                     self.tracing_data_as_code_pages.borrow_mut().clear();

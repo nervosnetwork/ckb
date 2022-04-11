@@ -574,7 +574,9 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(42))]
     #[test]
     fn check_type_id_one_in_one_out_resume1(step in 1..ALWAYS_SUCCESS_SCRIPT_CYCLE) {
-        _check_type_id_one_in_one_out_resume(step)?;
+        if SCRIPT_VERSION >= ScriptVersion::V1 {
+            _check_type_id_one_in_one_out_resume(step)?;
+        }
     }
 }
 
@@ -663,12 +665,14 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
-    let mut rng = thread_rng();
-    let step_cycles1 = rng.sample(Uniform::from(1..100u64));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
 
-    let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
+    }
 }
 
 fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle) {
@@ -715,12 +719,14 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
-    let mut rng = thread_rng();
-    let step_cycles1 = rng.sample(Uniform::from(1..100u64));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles1);
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles1);
 
-    let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles2);
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles2);
+    }
 }
 
 fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle) {
@@ -796,14 +802,16 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
-    let mut rng = thread_rng();
-    let step_cycles1 = rng.sample(Uniform::from(1..100u64));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles1);
+    if SCRIPT_VERSION >= ScriptVersion::V1 {
+        let mut rng = thread_rng();
+        let step_cycles1 = rng.sample(Uniform::from(1..100u64));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles1);
 
-    let step_cycles2 = rng.sample(Uniform::from(
-        TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-    ));
-    _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles2);
+        let step_cycles2 = rng.sample(Uniform::from(
+            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+        ));
+        _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles2);
+    }
 }
 
 #[test]
