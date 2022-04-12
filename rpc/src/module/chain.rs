@@ -651,8 +651,7 @@ pub trait ChainRpc {
         verbosity: Option<Uint32>,
     ) -> Result<ResponseFormat<HeaderView, Header>>;
 
-    /// Returns the status of a cell. The RPC returns extra information if it is a [live cell]
-    /// (#live-cell).
+    /// Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
     ///
     /// ## Returns
     ///
