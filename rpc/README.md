@@ -881,7 +881,7 @@ The response looks like below when `verbosity` is 0.
     * `with_data`: `boolean`
 * result: [`CellWithStatus`](#type-cellwithstatus)
 
-Returns the status of a cell. The RPC returns extra information if it is a [live cell] (#live-cell).
+Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
 
 ##### Returns
 
