@@ -16,6 +16,8 @@ pub struct Config {
     pub block_uncles_cache_size: usize,
     /// The maximum number of blocks which extension section is cached.
     pub block_extensions_cache_size: usize,
+    /// The maximum number of blocks which ext section is cached.
+    pub block_ext_cache_size: usize,
     /// whether enable freezer
     pub freezer_enable: bool,
 }

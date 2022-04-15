@@ -55,7 +55,7 @@ impl MockStore {
         };
         let store = Self::default();
         {
-            let db_txn = store.store().begin_transaction();
+            let mut db_txn = store.store().begin_transaction();
             db_txn
                 .insert_block_ext(&block.parent_hash(), &parent_block_ext)
                 .unwrap();
@@ -74,7 +74,7 @@ impl MockStore {
     /// Insert a block into mock chainDB.
     #[doc(hidden)]
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
-        let db_txn = self.store().begin_transaction();
+        let mut db_txn = self.store().begin_transaction();
         let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
         db_txn.insert_block(block).unwrap();
         db_txn.attach_block(block).unwrap();

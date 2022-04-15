@@ -82,7 +82,7 @@ fn test_txs_fees() {
         txs_fees: ext_tx_fees,
     };
 
-    let txn = store.begin_transaction();
+    let mut txn = store.begin_transaction();
     txn.insert_block(&block).unwrap();
     txn.insert_block_ext(&block.hash(), &ext).unwrap();
     txn.commit().unwrap();
@@ -267,7 +267,7 @@ fn test_proposal_reward() {
         txs_fees: ext_tx_fees_18,
     };
 
-    let txn = store.begin_transaction();
+    let mut txn = store.begin_transaction();
     for block in vec![
         block_10,
         block_11,

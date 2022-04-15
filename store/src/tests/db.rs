@@ -61,7 +61,7 @@ fn save_and_get_block_ext() {
     };
 
     let hash = block.hash();
-    let txn = store.begin_transaction();
+    let mut txn = store.begin_transaction();
     txn.insert_block_ext(&hash, &ext).unwrap();
     txn.commit().unwrap();
     assert_eq!(ext, store.get_block_ext(&hash).unwrap());

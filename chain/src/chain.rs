@@ -397,12 +397,11 @@ impl ChainService {
     }
 
     fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let db_txn = self.shared.store().begin_transaction();
-        let txn_snapshot = db_txn.get_snapshot();
-        let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
+        let mut db_txn = self.shared.store().begin_transaction();
+        let shared_snapshot = Arc::clone(&self.shared.snapshot());
 
         // insert_block are assumed be executed in single thread
-        if txn_snapshot.block_exists(&block.header().hash()) {
+        if shared_snapshot.block_exists(&block.header().hash()) {
             return Ok(false);
         }
         // non-contextual verify
@@ -413,11 +412,11 @@ impl ChainService {
         let mut total_difficulty = U256::zero();
         let mut fork = ForkChanges::default();
 
-        let parent_ext = txn_snapshot
+        let parent_ext = shared_snapshot
             .get_block_ext(&block.data().header().raw().parent_hash())
             .expect("parent already store");
 
-        let parent_header = txn_snapshot
+        let parent_header = shared_snapshot
             .get_block_header(&block.data().header().raw().parent_hash())
             .expect("parent already store");
 
@@ -436,7 +435,7 @@ impl ChainService {
         let next_block_epoch = self
             .shared
             .consensus()
-            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .next_epoch_ext(&parent_header, &shared_snapshot.as_data_provider())
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();
@@ -457,7 +456,6 @@ impl ChainService {
             db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         }
 
-        let shared_snapshot = Arc::clone(&self.shared.snapshot());
         let origin_proposals = shared_snapshot.proposals();
         let current_tip_header = shared_snapshot.tip_header();
 
@@ -482,7 +480,7 @@ impl ChainService {
 
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
+            self.reconcile_main_chain(&mut db_txn, &mut fork, switch)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -745,7 +743,7 @@ impl ChainService {
     // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
-        txn: &StoreTransaction,
+        txn: &mut StoreTransaction,
         fork: &mut ForkChanges,
         switch: Switch,
     ) -> Result<(), Error> {
@@ -767,8 +765,6 @@ impl ChainService {
             attach_block_cell(txn, b)?;
         }
 
-        let verify_context = VerifyContext::new(txn, consensus);
-
         let mut found_error = None;
         for (ext, b) in fork
             .dirty_exts
@@ -777,7 +773,6 @@ impl ChainService {
         {
             if !switch.disable_all() {
                 if found_error.is_none() {
-                    let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
                     let mut seen_inputs = HashSet::new();
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
@@ -797,6 +792,7 @@ impl ChainService {
                     };
 
                     let resolved = {
+                        let verify_context = VerifyContext::new(txn, consensus);
                         let cell_provider = OverlayCellProvider::new(&block_cp, txn);
                         transactions
                             .iter()
@@ -815,6 +811,9 @@ impl ChainService {
 
                     match resolved {
                         Ok(resolved) => {
+                            let verify_context = VerifyContext::new(txn, consensus);
+                            let contextual_block_verifier =
+                                ContextualBlockVerifier::new(&verify_context);
                             match contextual_block_verifier.verify(
                                 &resolved,
                                 b,

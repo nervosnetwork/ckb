@@ -111,7 +111,7 @@ fn test_reconstruct_transactions_and_uncles() {
         .unwrap();
 
     {
-        let db_txn = relayer.shared().shared().store().begin_transaction();
+        let mut db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle).unwrap();
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
         db_txn.commit().unwrap();
@@ -146,7 +146,7 @@ fn test_reconstruct_invalid_uncles() {
     let compact = packed::CompactBlock::build_from_block(&block, &Default::default());
 
     {
-        let db_txn = relayer.shared().shared().store().begin_transaction();
+        let mut db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle).unwrap();
         db_txn.attach_block(&uncle).unwrap();
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();

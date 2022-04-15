@@ -241,6 +241,12 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
 
     /// Get block ext by block header hash
     fn get_block_ext(&'a self, block_hash: &packed::Byte32) -> Option<BlockExt> {
+        if let Some(cache) = self.cache() {
+            if let Some(data) = cache.block_ext.lock().get(block_hash) {
+                return Some(data.clone());
+            }
+        };
+
         self.get(COLUMN_BLOCK_EXT, block_hash.as_slice())
             .map(|slice| packed::BlockExtReader::from_slice_should_be_ok(slice.as_ref()).unpack())
     }

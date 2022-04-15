@@ -363,7 +363,7 @@ fn test_accept_block() {
 
     let uncle_hash = uncle.hash();
     {
-        let db_txn = relayer.shared().shared().store().begin_transaction();
+        let mut db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle).unwrap();
         db_txn.attach_block(&uncle).unwrap();
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();

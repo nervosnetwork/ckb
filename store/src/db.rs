@@ -99,11 +99,11 @@ impl ChainDB {
 
     /// TODO(doc): @quake
     pub fn begin_transaction(&self) -> StoreTransaction {
-        StoreTransaction {
-            inner: self.db.transaction(),
-            freezer: self.freezer.clone(),
-            cache: Arc::clone(&self.cache),
-        }
+        StoreTransaction::new(
+            self.db.transaction(),
+            self.freezer.clone(),
+            Arc::clone(&self.cache),
+        )
     }
 
     /// TODO(doc): @quake
@@ -150,7 +150,7 @@ impl ChainDB {
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
         let genesis = consensus.genesis_block();
         let epoch = consensus.genesis_epoch_ext();
-        let db_txn = self.begin_transaction();
+        let mut db_txn = self.begin_transaction();
         let genesis_hash = genesis.hash();
         let ext = BlockExt {
             received_at: genesis.timestamp(),

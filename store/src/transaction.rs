@@ -21,6 +21,7 @@ use ckb_types::{
     packed::{self, OutPoint},
     prelude::*,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// TODO(doc): @quake
@@ -28,6 +29,7 @@ pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) freezer: Option<Freezer>,
     pub(crate) cache: Arc<StoreCache>,
+    pub(crate) block_ext_tmp_cache: HashMap<packed::Byte32, BlockExt>,
 }
 
 impl<'a> ChainStore<'a> for StoreTransaction {
@@ -108,6 +110,19 @@ impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
 }
 
 impl StoreTransaction {
+    /// Construct new Transaction Wrapper
+    pub fn new(
+        rock_txn: RocksDBTransaction,
+        freezer: Option<Freezer>,
+        cache: Arc<StoreCache>,
+    ) -> Self {
+        StoreTransaction {
+            freezer,
+            cache,
+            inner: rock_txn,
+            block_ext_tmp_cache: HashMap::new(),
+        }
+    }
     /// TODO(doc): @quake
     pub fn insert_raw(&self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
@@ -119,8 +134,16 @@ impl StoreTransaction {
     }
 
     /// TODO(doc): @quake
-    pub fn commit(&self) -> Result<(), Error> {
-        self.inner.commit()
+    pub fn commit(self) -> Result<(), Error> {
+        self.inner.commit()?;
+
+        {
+            let mut guard = self.cache.block_ext.lock();
+            for (hash, ext) in self.block_ext_tmp_cache {
+                guard.put(hash, ext);
+            }
+        }
+        Ok(())
     }
 
     /// TODO(doc): @quake
@@ -219,10 +242,15 @@ impl StoreTransaction {
 
     /// TODO(doc): @quake
     pub fn insert_block_ext(
-        &self,
+        &mut self,
         block_hash: &packed::Byte32,
         ext: &BlockExt,
     ) -> Result<(), Error> {
+        // the verified ext is immutable
+        if ext.verified.is_some() {
+            self.block_ext_tmp_cache
+                .insert(block_hash.to_owned(), ext.to_owned());
+        }
         self.insert_raw(
             COLUMN_BLOCK_EXT,
             block_hash.as_slice(),
