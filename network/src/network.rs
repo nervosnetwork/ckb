@@ -20,6 +20,7 @@ use crate::services::{
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
 use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::metrics;
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
@@ -187,13 +188,21 @@ impl NetworkState {
                 duration.as_secs(),
                 reason
             );
+            metrics!(
+                counter,
+                "ckb.network.ban_peer",
+                1,
+                "peer_addr" => addr.to_string(),
+                "duration" => duration.as_secs().to_string(),
+                "reason" => reason.clone(),
+            );
             if let Some(peer) = self.with_peer_registry_mut(|reg| reg.remove_peer(session_id)) {
+                let message = format!("Ban for {} seconds, reason: {}", duration.as_secs(), reason);
                 self.peer_store.lock().ban_addr(
                     &peer.connected_addr,
                     duration.as_millis() as u64,
                     reason,
                 );
-                let message = format!("Ban for {} seconds", duration.as_secs());
                 if let Err(err) =
                     disconnect_with_message(p2p_control, peer.session_id, message.as_str())
                 {
