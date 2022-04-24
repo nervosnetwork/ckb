@@ -4,26 +4,25 @@ use std::path;
 use ckb_logger::trace;
 use ckb_types::packed::Byte32;
 
-use super::{KeyValueBackend, KeyValueMemory};
+use super::{KeyValueBackend, MemoryMap};
 use crate::types::HeaderView;
 
-pub(crate) struct HeaderMapLruKernel<Backend>
+pub(crate) struct HeaderMapKernel<Backend>
 where
     Backend: KeyValueBackend,
 {
-    primary: KeyValueMemory<Byte32, HeaderView>,
-    backend: Backend,
+    pub(crate) memory: MemoryMap,
+    pub(crate) backend: Backend,
     // Configuration
     primary_limit: usize,
-    backend_close_threshold: usize,
     // Statistics
     #[cfg(feature = "stats")]
-    stats: HeaderMapLruKernelStats,
+    stats: HeaderMapKernelStats,
 }
 
 #[cfg(feature = "stats")]
 #[derive(Default)]
-struct HeaderMapLruKernelStats {
+struct HeaderMapKernelStats {
     frequency: usize,
 
     trace_progress: usize,
@@ -38,52 +37,46 @@ struct HeaderMapLruKernelStats {
     backend_delete: usize,
 }
 
-impl<Backend> HeaderMapLruKernel<Backend>
+impl<Backend> HeaderMapKernel<Backend>
 where
     Backend: KeyValueBackend,
 {
-    pub(crate) fn new<P>(
-        tmpdir: Option<P>,
-        primary_limit: usize,
-        backend_close_threshold: usize,
-    ) -> Self
+    pub(crate) fn new<P>(tmpdir: Option<P>, primary_limit: usize) -> Self
     where
         P: AsRef<path::Path>,
     {
-        let primary = Default::default();
+        let memory = Default::default();
         let backend = Backend::new(tmpdir);
 
         #[cfg(not(feature = "stats"))]
         {
             Self {
-                primary,
+                memory,
                 backend,
                 primary_limit,
-                backend_close_threshold,
             }
         }
 
         #[cfg(feature = "stats")]
         {
             Self {
-                primary,
+                memory,
                 backend,
                 primary_limit,
-                backend_close_threshold,
                 stats: HeaderMapLruKernelStats::new(50_000),
             }
         }
     }
 
-    pub(crate) fn contains_key(&mut self, hash: &Byte32) -> bool {
+    pub(crate) fn contains_key(&self, hash: &Byte32) -> bool {
         #[cfg(feature = "stats")]
         {
             self.mut_stats().tick_primary_contain();
         }
-        if self.primary.contains_key(hash) {
+        if self.memory.contains_key(hash) {
             return true;
         }
-        if !self.backend.is_opened() {
+        if self.backend.is_empty() {
             return false;
         }
         #[cfg(feature = "stats")]
@@ -93,15 +86,15 @@ where
         self.backend.contains_key(hash)
     }
 
-    pub(crate) fn get(&mut self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderView> {
         #[cfg(feature = "stats")]
         {
             self.mut_stats().tick_primary_select();
         }
-        if let Some(view) = self.primary.get_refresh(hash) {
+        if let Some(view) = self.memory.get_refresh(hash) {
             return Some(view);
         }
-        if !self.backend.is_opened() {
+        if self.backend.is_empty() {
             return None;
         }
         #[cfg(feature = "stats")]
@@ -109,74 +102,62 @@ where
             self.mut_stats().tick_backend_delete();
         }
         if let Some(view) = self.backend.remove(hash) {
-            if self.primary.len() >= self.primary_limit {
-                #[cfg(feature = "stats")]
-                {
-                    self.mut_stats().tick_primary_delete();
-                    self.mut_stats().tick_backend_insert();
-                }
-                if let Some((_, view_old)) = self.primary.pop_front() {
-                    self.backend.insert(&view_old);
-                }
-            } else if self.primary.len() < self.backend_close_threshold {
-                self.backend.try_close();
-            }
             #[cfg(feature = "stats")]
             {
                 self.mut_stats().tick_primary_insert();
             }
-            self.primary.insert(view.hash(), view.clone());
+            self.memory.insert(view.hash(), view.clone());
             Some(view)
         } else {
             None
         }
     }
 
-    pub(crate) fn insert(&mut self, view: HeaderView) -> Option<HeaderView> {
+    pub(crate) fn insert(&self, view: HeaderView) -> Option<()> {
         #[cfg(feature = "stats")]
         {
             self.trace();
             self.mut_stats().tick_primary_insert();
         }
-        if let Some(view) = self.primary.insert(view.hash(), view.clone()) {
-            return Some(view);
-        }
-        let view_opt = self.backend.remove(&view.hash());
-        if self.primary.len() > self.primary_limit {
-            self.backend.open();
-            #[cfg(feature = "stats")]
-            {
-                self.mut_stats().tick_primary_delete();
-                self.mut_stats().tick_backend_insert();
-            }
-            if let Some((_, view_old)) = self.primary.pop_front() {
-                self.backend.insert(&view_old);
-            }
-        }
-        view_opt
+        self.memory.insert(view.hash(), view.clone())
+        // let view_opt = self.backend.remove(&view.hash());
+        // if self.memory.len() > self.primary_limit {
+        //     self.backend.open();
+        //     #[cfg(feature = "stats")]
+        //     {
+        //         self.mut_stats().tick_primary_delete();
+        //         self.mut_stats().tick_backend_insert();
+        //     }
+        //     if let Some((_, view_old)) = self.memory.pop_front() {
+        //         self.backend.insert(&view_old);
+        //     }
+        // }
+        // view_opt
     }
 
-    pub(crate) fn remove(&mut self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn memory_remove(&self, hash: &Byte32) {
         #[cfg(feature = "stats")]
         {
             self.trace();
             self.mut_stats().tick_primary_delete();
         }
-        if let Some(view) = self.primary.remove(hash) {
-            return Some(view);
+        self.memory.remove(hash);
+    }
+
+    pub(crate) fn limit_memory(&self) {
+        if let Some(values) = self.memory.front(self.primary_limit) {
+            tokio::task::block_in_place(|| {
+                self.backend.insert_batch(&values);
+            });
+            self.memory
+                .remove_batch(values.iter().map(|value| value.hash()));
         }
-        if !self.backend.is_opened() {
-            return None;
+    }
+
+    pub(crate) fn backend_remove_batch(&self, keys: Vec<Byte32>) {
+        if !self.backend.is_empty() {
+            self.backend.remove_batch(&keys[..]);
         }
-        #[cfg(feature = "stats")]
-        {
-            self.mut_stats().tick_backend_delete();
-        }
-        let view_opt = self.backend.remove(hash);
-        if self.primary.len() < self.backend_close_threshold {
-            self.backend.try_close();
-        }
-        view_opt
     }
 
     #[cfg(feature = "stats")]
@@ -188,10 +169,10 @@ where
                 "Header Map Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
-            \n>\t| primary |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
+            \n>\t| memory |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             \n>\t| backend |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             ",
-                self.primary.len(),
+                self.memory.len(),
                 self.primary_limit,
                 self.stats().primary_contain,
                 self.stats().primary_select,

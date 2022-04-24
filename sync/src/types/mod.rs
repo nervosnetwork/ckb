@@ -45,7 +45,7 @@ mod header_map;
 
 use crate::utils::send_message;
 use ckb_types::core::EpochNumber;
-pub use header_map::HeaderMapLru as HeaderMap;
+pub use header_map::HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
@@ -958,25 +958,19 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F, G>(
-        &mut self,
-        tip_number: BlockNumber,
-        mut get_header_view: F,
-        fast_scanner: G,
-    ) where
+    pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
+    where
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let store_first = self.number() <= tip_number;
-        self.skip_hash = get_header_view(&self.parent_hash(), Some(store_first))
-            .and_then(|parent| {
-                parent.get_ancestor(
-                    tip_number,
-                    get_skip_height(self.number()),
-                    get_header_view,
-                    fast_scanner,
-                )
-            })
+        self.skip_hash = self
+            .clone()
+            .get_ancestor(
+                tip_number,
+                get_skip_height(self.number()),
+                get_header_view,
+                fast_scanner,
+            )
             .map(|header| header.hash());
     }
 
@@ -1153,7 +1147,7 @@ impl SyncShared {
         let header_map = HeaderMap::new(
             tmpdir,
             sync_config.header_map.primary_limit,
-            sync_config.header_map.backend_close_threshold,
+            shared.async_handle(),
         );
 
         let state = SyncState {
@@ -1586,10 +1580,6 @@ impl SyncState {
             return;
         }
 
-        assert!(
-            self.header_map.contains_key(&header.hash()),
-            "HeaderView must exists in header_map before set best header"
-        );
         metrics!(gauge, "ckb.shared_best_number", header.number() as i64);
         *self.shared_best_header.write() = header;
     }

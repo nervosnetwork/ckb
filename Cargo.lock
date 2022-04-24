@@ -1213,13 +1213,13 @@ version = "0.104.0-pre"
 dependencies = [
  "bitflags",
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-channel",
  "ckb-constant",
  "ckb-dao",
  "ckb-dao-utils",
- "ckb-db",
  "ckb-error",
  "ckb-launcher",
  "ckb-logger",
@@ -1227,6 +1227,7 @@ dependencies = [
  "ckb-network",
  "ckb-reward-calculator",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-test-chain-utils",
  "ckb-traits",
@@ -1245,6 +1246,7 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "sentry",
+ "sled",
  "tempfile",
  "tokio",
 ]
@@ -2089,6 +2091,15 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -4020,6 +4031,22 @@ name = "slab"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9def91fd1e018fe007022791f865d0ccc9b3a0d5001e01aabb8b40e46000afb5"
+
+[[package]]
+name = "sled"
+version = "0.34.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
+dependencies = [
+ "crc32fast",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "fs2",
+ "fxhash",
+ "libc",
+ "log",
+ "parking_lot 0.11.2",
+]
 
 [[package]]
 name = "smallvec"
