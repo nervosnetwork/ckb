@@ -904,6 +904,7 @@ dependencies = [
  "ckb-app-config",
  "ckb-hash",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-spawn",
  "ckb-stop-handler",
  "ckb-types",
