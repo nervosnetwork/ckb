@@ -1239,6 +1239,7 @@ impl NetworkController {
 
     /// Ban an ip
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) {
+        self.disconnect_peers_in_ip_range(address, &ban_reason);
         self.network_state
             .peer_store
             .lock()
@@ -1268,6 +1269,23 @@ impl NetworkController {
     pub fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
         self.network_state
             .ban_session(&self.p2p_control, peer_index, duration, reason);
+    }
+
+    /// disconnect peers with matched peer_ip or peer_ip_network, eg: 192.168.0.2 or 192.168.0.0/24
+    fn disconnect_peers_in_ip_range(&self, address: IpNetwork, reason: &str) {
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers().iter().for_each(|(peer_index, peer)| {
+                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr) {
+                    if address.contains(addr.ip()) {
+                        let _ = disconnect_with_message(
+                            &self.p2p_control,
+                            *peer_index,
+                            &format!("Ban peer {}, reason: {}", addr.ip(), reason),
+                        );
+                    }
+                }
+            })
+        });
     }
 
     fn try_broadcast(
