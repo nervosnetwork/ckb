@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::PathBuf;
+use ubyte::ByteUnit;
 
 // Max data size in send buffer: 24MB (a little larger than max frame length)
 const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
@@ -111,18 +112,26 @@ pub struct SyncConfig {
 #[serde(deny_unknown_fields)]
 pub struct HeaderMapConfig {
     /// The maximum size of data in memory
-    pub primary_limit: usize,
+    pub primary_limit: Option<usize>,
     /// Disable cache if the size of data in memory less than this threshold
-    pub backend_close_threshold: usize,
+    pub backend_close_threshold: Option<usize>,
+    /// The maximum amount memory limit
+    #[serde(default = "default_memory_limit")]
+    pub memory_limit: ByteUnit,
 }
 
 impl Default for HeaderMapConfig {
     fn default() -> Self {
         Self {
-            primary_limit: 300_000,
-            backend_close_threshold: 20_000,
+            primary_limit: None,
+            backend_close_threshold: None,
+            memory_limit: ByteUnit::Megabyte(600),
         }
     }
+}
+
+const fn default_memory_limit() -> ByteUnit {
+    ByteUnit::Megabyte(600)
 }
 
 #[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]

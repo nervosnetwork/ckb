@@ -17,7 +17,7 @@ where
     pub(crate) memory: MemoryMap,
     pub(crate) backend: Backend,
     // Configuration
-    primary_limit: usize,
+    memory_limit: usize,
     // Statistics
     #[cfg(feature = "stats")]
     stats: Mutex<HeaderMapKernelStats>,
@@ -43,7 +43,7 @@ impl<Backend> HeaderMapKernel<Backend>
 where
     Backend: KeyValueBackend,
 {
-    pub(crate) fn new<P>(tmpdir: Option<P>, primary_limit: usize) -> Self
+    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -55,7 +55,7 @@ where
             Self {
                 memory,
                 backend,
-                primary_limit,
+                memory_limit,
             }
         }
 
@@ -64,7 +64,7 @@ where
             Self {
                 memory,
                 backend,
-                primary_limit,
+                memory_limit,
                 stats: Mutex::new(HeaderMapKernelStats::new(50_000)),
             }
         }
@@ -138,7 +138,7 @@ where
     }
 
     pub(crate) fn limit_memory(&self) {
-        if let Some(values) = self.memory.front(self.primary_limit) {
+        if let Some(values) = self.memory.front_n(self.memory_limit) {
             tokio::task::block_in_place(|| {
                 self.backend.insert_batch(&values);
             });
@@ -161,7 +161,7 @@ where
             \n>\t| backend |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             ",
                 self.memory.len(),
-                self.primary_limit,
+                self.memory_limit,
                 stats.primary_contain,
                 stats.primary_select,
                 stats.primary_insert,

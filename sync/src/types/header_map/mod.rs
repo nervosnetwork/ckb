@@ -1,7 +1,7 @@
 use crate::types::HeaderView;
 use ckb_async_runtime::Handle;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_types::packed::Byte32;
+use ckb_types::packed::{self, Byte32};
 use std::path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,13 +30,26 @@ impl Drop for HeaderMap {
 }
 
 const INTERVAL: Duration = Duration::from_millis(500);
+// key + total_difficulty + skip_hash
+const ITEM_BYTES_SIZE: usize = packed::HeaderView::TOTAL_SIZE + 32 * 3;
+const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
-    pub(crate) fn new<P>(tmpdir: Option<P>, primary_limit: usize, async_handle: &Handle) -> Self
+    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
     where
         P: AsRef<path::Path>,
     {
-        let inner = Arc::new(HeaderMapKernel::new(tmpdir, primary_limit));
+        if memory_limit < ITEM_BYTES_SIZE {
+            panic!("The limit setting is too low");
+        }
+        if memory_limit < WARN_THRESHOLD {
+            ckb_logger::warn!(
+                "The low memory limit setting {} will result in inefficient synchronization",
+                memory_limit
+            );
+        }
+        let size_limit = memory_limit / ITEM_BYTES_SIZE;
+        let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit));
         let map = Arc::clone(&inner);
         let (stop, mut stop_rx) = oneshot::channel::<()>();
 

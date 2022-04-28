@@ -1146,7 +1146,7 @@ impl SyncShared {
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
         let header_map = HeaderMap::new(
             tmpdir,
-            sync_config.header_map.primary_limit,
+            sync_config.header_map.memory_limit.as_u64() as usize,
             shared.async_handle(),
         );
 

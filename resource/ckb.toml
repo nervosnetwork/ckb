@@ -97,6 +97,9 @@ discovery_local_address = false # {{
 # Ensure that itself can continue to serve as a bootnode node
 bootnode_mode = false
 
+# [network.sync.header_map]
+# memory_limit = "600MB"
+
 [rpc]
 # By default RPC only binds to localhost, thus it only allows accessing from the same machine.
 #

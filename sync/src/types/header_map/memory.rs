@@ -15,6 +15,7 @@ impl default::Default for MemoryMap {
 }
 
 impl MemoryMap {
+    #[cfg(feature = "stats")]
     pub(crate) fn len(&self) -> usize {
         self.0.read().len()
     }
@@ -40,7 +41,7 @@ impl MemoryMap {
         ret
     }
 
-    pub(crate) fn front(&self, size_limit: usize) -> Option<Vec<HeaderView>> {
+    pub(crate) fn front_n(&self, size_limit: usize) -> Option<Vec<HeaderView>> {
         let guard = self.0.read();
         let size = guard.len();
         if size > size_limit {
