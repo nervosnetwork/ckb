@@ -15,6 +15,10 @@ impl default::Default for MemoryMap {
 }
 
 impl MemoryMap {
+    pub(crate) fn len(&self) -> usize {
+        self.0.read().len()
+    }
+
     pub(crate) fn contains_key(&self, key: &Byte32) -> bool {
         self.0.read().contains_key(key)
     }

@@ -5,8 +5,8 @@ use ckb_types::packed::Byte32;
 use std::path;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::oneshot;
 use tokio::time::MissedTickBehavior;
-use tokio::sync::{mpsc, oneshot};
 
 mod backend;
 mod backend_sled;
@@ -20,7 +20,6 @@ pub(crate) use self::{
 
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
-    // tx: mpsc::Sender<Byte32>,
     stop: StopHandler<()>,
 }
 
@@ -30,6 +29,8 @@ impl Drop for HeaderMap {
     }
 }
 
+const INTERVAL: Duration = Duration::from_millis(500);
+
 impl HeaderMap {
     pub(crate) fn new<P>(tmpdir: Option<P>, primary_limit: usize, async_handle: &Handle) -> Self
     where
@@ -37,21 +38,14 @@ impl HeaderMap {
     {
         let inner = Arc::new(HeaderMapKernel::new(tmpdir, primary_limit));
         let map = Arc::clone(&inner);
-        let interval = Duration::from_millis(500);
         let (stop, mut stop_rx) = oneshot::channel::<()>();
-        // let (tx, mut rx) = mpsc::channel(10000);
 
         async_handle.spawn(async move {
-            let mut interval = tokio::time::interval(interval);
+            let mut interval = tokio::time::interval(INTERVAL);
             interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            // let mut removed = Vec::with_capacity(1000);
             loop {
                 tokio::select! {
-                    // Some(key) = rx.recv() => {
-                    //     removed.push(key);
-                    // }
                     _ = interval.tick() => {
-                        // map.backend_remove_batch(removed.drain(..).collect());
                         map.limit_memory();
                     }
                     _ = &mut stop_rx => break,
@@ -61,7 +55,6 @@ impl HeaderMap {
 
         Self {
             inner,
-            // tx,
             stop: StopHandler::new(SignalSender::Tokio(stop), None, "HeaderMap".to_string()),
         }
     }
@@ -79,10 +72,6 @@ impl HeaderMap {
     }
 
     pub(crate) fn remove(&self, hash: &Byte32) {
-        self.inner.memory_remove(hash);
-        if self.inner.backend.is_empty() {
-            return;
-        }
-        self.inner.backend.remove_no_return(hash);
+        self.inner.remove(hash)
     }
 }

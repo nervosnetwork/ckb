@@ -41,7 +41,9 @@ impl KeyValueBackend for SledBackend {
     }
 
     fn contains_key(&self, key: &Byte32) -> bool {
-        self.db.contains_key(key.as_slice()).unwrap()
+        self.db
+            .contains_key(key.as_slice())
+            .expect("sled contains_key")
     }
 
     fn get(&self, key: &Byte32) -> Option<HeaderView> {
