@@ -5,7 +5,8 @@ MOLC_VERSION := 0.7.3
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
-CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
+#CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
+CKB_TEST_ARGS := "RpcSetBan"
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
 BINARY_NAME ?= "ckb"
@@ -69,7 +70,10 @@ submodule-init:
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build --release --features "deadlock_detection,with_sentry"
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
+	number=1 ; while [ $$number -le 50 ] ; do \
+		RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}; \
+		number=`expr $$number + 1`; \
+	done
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod

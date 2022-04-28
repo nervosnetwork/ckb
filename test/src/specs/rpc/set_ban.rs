@@ -2,6 +2,7 @@ use crate::node::{connect_all, waiting_for_sync};
 use crate::specs::spec_name;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::find_available_port;
+use crate::utils::sleep;
 use crate::{Node, Spec};
 
 pub struct RpcSetBan;
@@ -27,6 +28,7 @@ impl Spec for RpcSetBan {
             None,
             Some("for_test".to_owned()),
         );
+        sleep(1);
         assert_eq!(node.rpc_client().get_peers().len(), 1);
 
         node.rpc_client().set_ban(
@@ -36,6 +38,7 @@ impl Spec for RpcSetBan {
             None,
             Some("for_test".to_owned()),
         );
+        sleep(2);
         assert_eq!(node.rpc_client().get_peers().len(), 0);
     }
 
