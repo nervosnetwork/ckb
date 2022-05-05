@@ -5,6 +5,7 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-20.04
+    if: github.repository_owner == 'nervosnetwork'
     steps:
       - uses: actions/checkout@v1
       - uses: yangby-cryptape/cargo-audit-check-action@customized-for-ckb
