@@ -1,7 +1,7 @@
 use crate::node::waiting_for_sync;
 use crate::util::cell::gen_spendable;
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::{mine, mine_until_bool, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transaction;
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
@@ -34,7 +34,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         );
         net.connect(node);
 
-        mine(node, 1);
+        node.mine(1);
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
@@ -112,7 +112,7 @@ impl Spec for CompactBlockPrefilled {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        mine(node, 3);
+        node.mine(3);
 
         // Relay a block contains `new_tx` as committed
         let new_block = node
@@ -156,7 +156,7 @@ impl Spec for CompactBlockMissingFreshTxs {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        mine(node, 3);
+        node.mine(3);
 
         // Relay a block contains `new_tx` as committed, but not include in prefilled
         let new_block = node
@@ -215,7 +215,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
                 .proposal(new_tx.proposal_short_id())
                 .build(),
         );
-        mine(node, 3);
+        node.mine(3);
 
         // Generate the target block which contains the target transaction as a committed transaction
         let new_block = node
@@ -247,7 +247,7 @@ pub struct CompactBlockMissingWithDropTx;
 impl Spec for CompactBlockMissingWithDropTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine(node, 3);
+        node.mine(3);
 
         // Build the target transaction
         let cells = gen_spendable(node, 2);
@@ -264,7 +264,7 @@ impl Spec for CompactBlockMissingWithDropTx {
                 .build(),
         );
 
-        mine(node, 3);
+        node.mine(3);
 
         // Generate the target block which contains the target transaction as a committed transaction
         let new_block = node
@@ -382,10 +382,10 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
                 .build(),
         );
         // Proposal a tx, and grow up into proposal window
-        mine(node0, 6);
+        node0.mine(6);
 
         // Make node0 and node1 reach the same height
-        mine(node1, 1);
+        node1.mine(1);
         node0.connect(node1);
         waiting_for_sync(&[node0, node1]);
 
@@ -437,10 +437,10 @@ impl Spec for BlockTransactionsRelayParentOfOrphanBlock {
             let cells = gen_spendable(node1, 1);
             let tx = always_success_transaction(node1, &cells[0]);
             node1.submit_transaction(&tx);
-            mine_until_bool(node1, || is_transaction_committed(node1, &tx));
+            node1.mine_until_bool(|| is_transaction_committed(node1, &tx));
             node1.get_tip_block()
         };
-        mine(node1, 1);
+        node1.mine(1);
         let block_b = node1.get_tip_block();
 
         for number in 1..block_a.number() {
@@ -549,7 +549,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         let (block_a, block_b) = {
             let node1 = &nodes[1];
-            mine(node1, 2);
+            node1.mine(2);
             let tip_number = node1.get_tip_block_number();
             (
                 node1.get_block_by_number(tip_number - 1),
@@ -640,7 +640,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
 
         assert_eq!(node0.get_tip_block(), node1.get_tip_block());
         let old_tip = node1.get_tip_block_number();
-        mine(node1, 10);
+        node1.mine(10);
         let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
             .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
             .collect();

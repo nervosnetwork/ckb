@@ -1,6 +1,6 @@
 use crate::node::{connect_all, waiting_for_sync};
 use crate::util::cell::gen_spendable;
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::{always_success_transaction, always_success_transactions};
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};
@@ -63,9 +63,7 @@ impl Spec for TransactionRelayMultiple {
         });
         assert!(relayed, "all transactions should be relayed");
 
-        mine(node0, 1);
-        mine(node0, 1);
-        mine(node0, 1);
+        node0.mine_until_transactions_confirm();
         waiting_for_sync(nodes);
         nodes.iter().for_each(|node| {
             node.assert_tx_pool_size(0, 0);
@@ -82,7 +80,7 @@ pub struct TransactionRelayTimeout;
 impl Spec for TransactionRelayTimeout {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
-        mine(&node, 4);
+        node.mine(4);
         let mut net = Net::new(
             self.name(),
             node.consensus(),
@@ -119,7 +117,7 @@ pub struct RelayInvalidTransaction;
 impl Spec for RelayInvalidTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes.pop().unwrap();
-        mine(node, 4);
+        node.mine(4);
         let mut net = Net::new(
             self.name(),
             node.consensus(),

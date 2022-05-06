@@ -1,6 +1,5 @@
 use super::new_block_assembler_config;
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -39,10 +38,10 @@ impl Spec for SendDefectedBinary {
         let node = &nodes[0];
 
         info!("Generate 20 blocks to work around initial blocks without rewards");
-        mine(node, 20);
+        node.mine(20);
 
         info!("Generate 20 blocks on node");
-        mine(node, 20);
+        node.mine(20);
 
         let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
         let inputs = {
@@ -103,7 +102,7 @@ impl Spec for SendDefectedBinary {
         if self.reject_ill_transactions {
             assert!(ret.is_err());
         } else {
-            mine(node, 20);
+            node.mine(20);
             assert!(is_transaction_committed(node, &tx));
         }
     }

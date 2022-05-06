@@ -1,4 +1,3 @@
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
 use ckb_logger::info;
 
@@ -11,7 +10,7 @@ impl Spec for PoolPersisted {
         let node0 = &mut nodes[0];
 
         info!("Generate 1 block on node0");
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Generate 6 txs on node0");
         let mut hash = node0.generate_transaction();
@@ -22,7 +21,7 @@ impl Spec for PoolPersisted {
         });
 
         info!("Generate 1 more blocks on node0");
-        mine(node0, 1);
+        node0.mine(1);
 
         info!("Generate 5 more txs on node0");
         (0..5).for_each(|_| {
@@ -31,7 +30,7 @@ impl Spec for PoolPersisted {
         });
 
         info!("Generate 1 more blocks on node0");
-        mine(node0, 1);
+        node0.mine(1);
 
         node0.wait_for_tx_pool();
 

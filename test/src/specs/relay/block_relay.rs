@@ -1,5 +1,5 @@
 use crate::node::waiting_for_sync;
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -27,12 +27,12 @@ impl Spec for RelayTooNewBlock {
 
         let _too_new_hash = node0.process_block_without_verify(&too_new_block, true);
         // sync node0 node2
-        mine(node2, 2);
+        node2.mine(2);
         node2.connect(node0);
         waiting_for_sync(&[node0, node2]);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        mine(node0, 1);
+        node0.mine(1);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();

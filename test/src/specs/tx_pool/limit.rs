@@ -1,6 +1,5 @@
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::assert_send_transaction_fail;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 
 use ckb_logger::info;
 use ckb_types::core::FeeRate;
@@ -15,7 +14,7 @@ impl Spec for SizeLimit {
         let node = &nodes[0];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();
@@ -50,8 +49,8 @@ impl Spec for SizeLimit {
         assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum size limit");
 
         node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
-        mine(node, 1);
+        node.mine_until_transactions_confirm();
+        node.mine(1);
         node.assert_tx_pool_serialized_size(0);
     }
 
@@ -72,7 +71,7 @@ impl Spec for CyclesLimit {
         let node = &nodes[0];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW block on node");
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();
@@ -107,8 +106,10 @@ impl Spec for CyclesLimit {
         assert_send_transaction_fail(node, &tx, "Transaction pool exceeded maximum cycles limit");
 
         node.assert_tx_pool_cycles(max_tx_num * one_tx_cycles);
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
-        mine(node, 1);
+        let proposed =
+            node.mine_with_blocking(|template| template.proposals.len() != max_tx_num as usize);
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+        node.mine_with_blocking(|template| template.transactions.len() != max_tx_num as usize);
         node.assert_tx_pool_cycles(0);
     }
 

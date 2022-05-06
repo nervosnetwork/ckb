@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
 /// Miner config options.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -18,12 +19,14 @@ pub struct Config {
 pub struct ClientConfig {
     /// CKB node RPC endpoint.
     pub rpc_url: String,
-    /// The pool interval in seconds to get work from the CKB node.
+    /// The poll interval in seconds to get work from the CKB node.
     pub poll_interval: u64,
     /// By default, miner submits a block and continues to get the next work.
     ///
     /// When this is enabled, miner will block until the submission RPC returns.
     pub block_on_submit: bool,
+    /// listen block_template notify instead of loop poll
+    pub listen: Option<SocketAddr>,
 }
 
 /// Miner worker config options.

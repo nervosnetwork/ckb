@@ -2,7 +2,6 @@ use crate::{
     util::{
         cell::gen_spendable,
         check::{assert_epoch_should_less_than, is_transaction_committed},
-        mining::{mine, mine_until_bool, mine_until_epoch},
     },
     utils::assert_send_transaction_fail,
     Node, Spec,
@@ -55,7 +54,7 @@ impl Spec for CheckVmBExtension {
 
         let node = &nodes[0];
 
-        mine(node, 1);
+        node.mine(1);
 
         let mut inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
             .into_iter()
@@ -77,7 +76,7 @@ impl Spec for CheckVmBExtension {
         }
 
         assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
+        node.mine_until_epoch(ckb2019_last_epoch, epoch_length - 4, epoch_length);
 
         {
             info!("CKB v2021:");
@@ -145,7 +144,7 @@ impl BExtScript {
             .output_data(data.clone())
             .build();
         node.submit_transaction(&tx);
-        mine_until_bool(node, || is_transaction_committed(node, &tx));
+        node.mine_until_bool(|| is_transaction_committed(node, &tx));
         tx
     }
 
@@ -276,6 +275,7 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
         debug!(">>> >>> submit: transaction {:#x}.", tx.hash());
         self.node.submit_transaction(tx);
-        mine_until_bool(self.node, || is_transaction_committed(self.node, tx));
+        self.node
+            .mine_until_bool(|| is_transaction_committed(self.node, tx));
     }
 }

@@ -527,11 +527,6 @@ impl ChainService {
                 ) {
                     error!("notify update_tx_pool_for_reorg error {}", e);
                 }
-                for detached_block in fork.detached_blocks() {
-                    if let Err(e) = tx_pool_controller.notify_new_uncle(detached_block.as_uncle()) {
-                        error!("notify new_uncle error {}", e);
-                    }
-                }
             }
 
             let block_ref: &BlockView = &block;

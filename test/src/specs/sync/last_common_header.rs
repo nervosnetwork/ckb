@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::utils::{build_compact_block, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -12,7 +11,7 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
         let node0 = &nodes[0];
 
         // Node0's main chain tip is 5
-        mine(node0, 5);
+        node0.mine(5);
         let worse = (1..=4)
             .map(|number| node0.get_block_by_number(number))
             .collect::<Vec<_>>();

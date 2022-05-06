@@ -1,6 +1,5 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -40,7 +39,7 @@ impl Spec for SendSecpTxUseDepGroup {
         let node = &nodes[0];
 
         info!("Generate 20 block on node");
-        mine(node, 20);
+        node.mine(20);
 
         let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
         let block = node.get_tip_block();
@@ -91,7 +90,7 @@ impl Spec for SendSecpTxUseDepGroup {
         info!("Send 1 secp tx use dep group");
 
         node.rpc_client().send_transaction(tx.data().into());
-        mine(node, 20);
+        node.mine(20);
 
         assert!(is_transaction_committed(node, &tx));
     }
@@ -135,7 +134,7 @@ impl Spec for CheckTypical2In2OutTx {
         let node = &nodes[0];
 
         info!("Generate 20 block on node");
-        mine(node, 20);
+        node.mine(20);
 
         let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
 
@@ -148,7 +147,7 @@ impl Spec for CheckTypical2In2OutTx {
             let cellbase_hash = block.transactions()[0].hash();
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
-        mine(node, 1);
+        node.mine(1);
         let input2 = {
             let block = node.get_tip_block();
             let cellbase_hash = block.transactions()[0].hash();
@@ -212,7 +211,7 @@ impl Spec for CheckTypical2In2OutTx {
             .send_transaction(tx.data().into(), None)
             .expect("should pass default outputs validator")
             .pack();
-        mine(node, 20);
+        node.mine(20);
 
         assert!(is_transaction_committed(node, &tx));
     }

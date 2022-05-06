@@ -167,6 +167,10 @@ fn start_chain(consensus: Consensus, lock_script: &packed::Script) -> (ChainCont
         message: Default::default(),
         use_binary_version_as_message_prefix: true,
         binary_version: "TEST".to_string(),
+        update_interval_millis: 800,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
     };
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)
@@ -196,7 +200,7 @@ fn create_cellbase(
                 .build(),
         )
         .output_data(Default::default())
-        .witness(Default::default())
+        .witness(packed::Script::default().into_witness())
         .build()
 }
 
@@ -342,6 +346,12 @@ fn refresh_txs_verify_cache_after_hardfork() {
             .internal_process_block(Arc::new(block.clone()), Switch::ONLY_SCRIPT)
             .expect("process block");
         parent_header = block.header().to_owned();
+
+        let mut tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+        while tx_pool_info.tip_hash != block.hash() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+        }
     }
 
     // at last of the test, the script should be ran with vm1

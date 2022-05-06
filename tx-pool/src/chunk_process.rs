@@ -322,6 +322,8 @@ impl ChunkProcess {
             .await;
         try_or_return_with_snapshot!(ret, snapshot);
 
+        self.service.notify_block_assembler(status).await;
+
         self.service
             .after_process(tx, remote, &submit_snapshot, &Ok(completed))
             .await;

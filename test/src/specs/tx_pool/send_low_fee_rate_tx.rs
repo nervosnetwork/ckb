@@ -1,4 +1,3 @@
-use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -14,7 +13,7 @@ impl Spec for SendLowFeeRateTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         let tx_hash_0 = node0.generate_transaction();
         let ret = wait_until(10, || {
             node0

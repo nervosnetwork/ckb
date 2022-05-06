@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_types::packed::Byte32;
 use std::collections::HashMap;
@@ -15,7 +14,7 @@ impl Spec for RpcGetBlockMedianTime {
         let median_time = node.rpc_client().get_blockchain_info().median_time.value();
         expected_median_time_map.insert(0u64, median_time);
         for number in 1..=median_time_block_count * 2 {
-            mine(node, 1);
+            node.mine(1);
             let median_time = node.rpc_client().get_blockchain_info().median_time.value();
             expected_median_time_map.insert(number, median_time);
         }

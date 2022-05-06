@@ -1,21 +1,17 @@
-use crate::block_assembler::{BlockAssembler, BlockTemplateCacheKey, TemplateCache};
 use crate::callback::Callbacks;
 use crate::component::chunk::DEFAULT_MAX_CHUNK_TRANSACTIONS;
-use crate::component::commit_txs_scanner::CommitTxsScanner;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
 use crate::pool::TxPool;
-use crate::service::{TxPoolService, TxVerificationResult};
+use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
     after_delay_window, check_tx_cycle_limit, check_tx_fee, check_tx_size_limit,
     check_txid_collision, is_missing_input, non_contextual_verify, time_relative_verify,
     verify_rtx,
 };
-use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
-use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
@@ -25,12 +21,10 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{OverlayCellChecker, ResolveOptions, ResolvedTransaction, TransactionsChecker},
-        BlockView, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionView,
-        UncleBlockView, Version,
+        cell::{ResolveOptions, ResolvedTransaction},
+        BlockView, Capacity, Cycle, HeaderView, TransactionView,
     },
-    packed::{Byte32, Bytes, CellbaseWitness, ProposalShortId, Script},
-    prelude::*,
+    packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
@@ -38,13 +32,10 @@ use ckb_verification::{
     ContextualTransactionVerifier, ScriptVerifyResult, TimeRelativeTransactionVerifier,
     TxVerifyEnv,
 };
-use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, iter};
 use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
@@ -69,11 +60,6 @@ pub(crate) enum ProcessResult {
     Completed(Completed),
 }
 
-enum PackageTxs {
-    Ready(HashSet<ProposalShortId>, Vec<TxEntry>, u64),
-    NotReady,
-}
-
 impl TxStatus {
     fn with_env(self, header: &HeaderView) -> TxVerifyEnv {
         match self {
@@ -85,410 +71,13 @@ impl TxStatus {
 }
 
 impl TxPoolService {
-    async fn get_block_template_cache(
-        &self,
-        bytes_limit: u64,
-        proposals_limit: u64,
-        version: Version,
-        snapshot: &Snapshot,
-        block_assembler: &BlockAssembler,
-    ) -> Option<BlockTemplate> {
-        let tip_header = snapshot.tip_header();
-        let tip_hash = tip_header.hash();
-        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
-
-        let last_uncles_updated_at = block_assembler
-            .last_uncles_updated_at
-            .load(Ordering::SeqCst);
-        let last_txs_updated_at = self.last_txs_updated_at.load(Ordering::SeqCst);
-        if let Some(template_cache) = block_assembler.template_caches.lock().await.peek(&(
-            tip_hash,
-            bytes_limit,
-            proposals_limit,
-            version,
-        )) {
-            // check template cache outdate time
-            if !template_cache.is_outdate(current_time) {
-                let mut template = template_cache.template.clone();
-                template.current_time = current_time.into();
-                return Some(template);
-            }
-
-            if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
-                let mut template = template_cache.template.clone();
-                template.current_time = current_time.into();
-                return Some(template);
-            }
-        }
-
-        None
-    }
-
-    fn build_block_template_cellbase(
-        &self,
-        snapshot: &Snapshot,
-        config: &BlockAssemblerConfig,
-    ) -> Result<TransactionView, AnyError> {
-        let hash_type: ScriptHashType = config.hash_type.clone().into();
-        let cellbase_lock = Script::new_builder()
-            .args(config.args.as_bytes().pack())
-            .code_hash(config.code_hash.pack())
-            .hash_type(hash_type.into())
-            .build();
-        let message = if config.use_binary_version_as_message_prefix {
-            if config.message.is_empty() {
-                config.binary_version.as_bytes().pack()
-            } else {
-                [
-                    config.binary_version.as_bytes(),
-                    b" ",
-                    config.message.as_bytes(),
-                ]
-                .concat()
-                .pack()
-            }
+    pub(crate) async fn get_block_template(&self) -> Result<BlockTemplate, AnyError> {
+        if let Some(ref block_assembler) = self.block_assembler {
+            Ok(block_assembler.get_current().await)
         } else {
-            config.message.as_bytes().pack()
-        };
-        let cellbase_witness = CellbaseWitness::new_builder()
-            .lock(cellbase_lock)
-            .message(message)
-            .build();
-
-        BlockAssembler::build_cellbase(snapshot, snapshot.tip_header(), cellbase_witness)
-    }
-
-    async fn prepare_block_template_uncles(
-        &self,
-        snapshot: &Snapshot,
-        block_assembler: &BlockAssembler,
-    ) -> (Vec<UncleBlockView>, EpochExt, u64) {
-        let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
-        let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
-            .expect("tip header's epoch should be stored")
-            .epoch();
-        let candidate_number = tip_header.number() + 1;
-
-        let mut guard = block_assembler.candidate_uncles.lock().await;
-        let uncles =
-            BlockAssembler::prepare_uncles(snapshot, candidate_number, &current_epoch, &mut guard);
-        let last_uncles_updated_at = block_assembler
-            .last_uncles_updated_at
-            .load(Ordering::SeqCst);
-        (uncles, current_epoch, last_uncles_updated_at)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn package_txs_for_block_template(
-        &self,
-        bytes_limit: u64,
-        proposals_limit: u64,
-        max_block_cycles: Cycle,
-        cellbase: &TransactionView,
-        uncles: &[UncleBlockView],
-        extension_opt: Option<Bytes>,
-        snapshot: &Snapshot,
-    ) -> Result<PackageTxs, AnyError> {
-        let guard = self.tx_pool.read().await;
-        if guard.snapshot.tip_hash() != snapshot.tip_hash() {
-            return Ok(PackageTxs::NotReady);
-        }
-
-        let uncle_proposals = uncles
-            .iter()
-            .flat_map(|u| u.data().proposals().into_iter())
-            .collect();
-        let proposals = guard.get_proposals(proposals_limit as usize, &uncle_proposals);
-
-        let txs_size_limit = BlockAssembler::calculate_txs_size_limit(
-            bytes_limit,
-            cellbase.data(),
-            uncles,
-            &proposals,
-            extension_opt,
-        )?;
-
-        let (entries, size, cycles) =
-            CommitTxsScanner::new(guard.proposed()).txs_to_commit(txs_size_limit, max_block_cycles);
-
-        if !entries.is_empty() {
-            info!(
-                "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
-                entries.len(),
-                size,
-                txs_size_limit,
-                cycles,
-                max_block_cycles
-            );
-        }
-        let last_txs_updated_at = self.last_txs_updated_at.load(Ordering::SeqCst);
-        Ok(PackageTxs::Ready(proposals, entries, last_txs_updated_at))
-    }
-
-    /// blank proposal?
-    #[allow(clippy::too_many_arguments)]
-    fn build_blank_block_template(
-        &self,
-        snapshot: &Snapshot,
-        cellbase: TransactionView,
-        work_id: u64,
-        current_epoch: EpochExt,
-        uncles: Vec<UncleBlockView>,
-        bytes_limit: u64,
-        version: Version,
-        extension: Option<Bytes>,
-    ) -> Result<BlockTemplate, AnyError> {
-        let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
-        let tip_hash = tip_header.hash();
-
-        let cellbase_dummy_rtx = ResolvedTransaction::dummy_resolve(cellbase.clone());
-
-        // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
-            .dao_field(&[cellbase_dummy_rtx], tip_header)?;
-
-        let candidate_number = tip_header.number() + 1;
-        let cycles_limit = consensus.max_block_cycles();
-        let uncles_count_limit = consensus.max_uncles_num() as u32;
-
-        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
-        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
-
-        Ok(BlockTemplate {
-            version: version.into(),
-            compact_target: current_epoch.compact_target().into(),
-            current_time: current_time.into(),
-            number: candidate_number.into(),
-            epoch: current_epoch.number_with_fraction(candidate_number).into(),
-            parent_hash: tip_hash.unpack(),
-            cycles_limit: cycles_limit.into(),
-            bytes_limit: bytes_limit.into(),
-            uncles_count_limit: u64::from(uncles_count_limit).into(),
-            uncles: uncles.iter().map(BlockAssembler::transform_uncle).collect(),
-            transactions: vec![],
-            proposals: vec![],
-            cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
-            work_id: work_id.into(),
-            dao: dao.into(),
-            extension: extension.map(Into::into),
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn build_block_template(
-        &self,
-        snapshot: &Snapshot,
-        entries: Vec<TxEntry>,
-        proposals: HashSet<ProposalShortId>,
-        cellbase: TransactionView,
-        work_id: u64,
-        current_epoch: EpochExt,
-        uncles: Vec<UncleBlockView>,
-        bytes_limit: u64,
-        version: Version,
-        extension: Option<Bytes>,
-    ) -> Result<BlockTemplate, AnyError> {
-        let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
-        let tip_hash = tip_header.hash();
-        let mut template_txs = Vec::with_capacity(entries.len());
-        let mut seen_inputs = HashSet::new();
-
-        let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
-
-        let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase.clone(), 0, Capacity::zero(), 0);
-        let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
-
-        let resolve_opts = {
-            let hardfork_switch = snapshot.consensus().hardfork_switch();
-            let epoch_number = current_epoch.number();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-
-        let rtxs: Vec<_> = block_in_place(|| {
-            entries_iter
-                .enumerate()
-                .filter_map(|(index, entry)| {
-                    let overlay_cell_checker =
-                        OverlayCellChecker::new(&transactions_checker, snapshot);
-                    if let Err(err) = entry.rtx.check(
-                        &mut seen_inputs,
-                        &overlay_cell_checker,
-                        snapshot,
-                        resolve_opts,
-                    ) {
-                        error!(
-                            "resolve transactions when build block template, \
-                             tip_number: {}, tip_hash: {}, error: {:?}",
-                            tip_header.number(),
-                            tip_hash,
-                            err
-                        );
-                        None
-                    } else {
-                        if index != 0 {
-                            transactions_checker.insert(entry.transaction());
-                            template_txs.push(BlockAssembler::transform_tx(&entry, false, None))
-                        }
-                        Some(entry.rtx)
-                    }
-                })
-                .collect()
-        });
-
-        // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
-            .dao_field(&rtxs, tip_header)?;
-
-        let candidate_number = tip_header.number() + 1;
-        let cycles_limit = consensus.max_block_cycles();
-        let uncles_count_limit = consensus.max_uncles_num() as u32;
-
-        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
-        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
-
-        Ok(BlockTemplate {
-            version: version.into(),
-            compact_target: current_epoch.compact_target().into(),
-            current_time: current_time.into(),
-            number: candidate_number.into(),
-            epoch: current_epoch.number_with_fraction(candidate_number).into(),
-            parent_hash: tip_hash.unpack(),
-            cycles_limit: cycles_limit.into(),
-            bytes_limit: bytes_limit.into(),
-            uncles_count_limit: u64::from(uncles_count_limit).into(),
-            uncles: uncles.iter().map(BlockAssembler::transform_uncle).collect(),
-            transactions: template_txs,
-            proposals: proposals.iter().cloned().map(Into::into).collect(),
-            cellbase: BlockAssembler::transform_cellbase(&cellbase, None),
-            work_id: work_id.into(),
-            dao: dao.into(),
-            extension: extension.map(Into::into),
-        })
-    }
-
-    async fn update_block_template_cache(
-        &self,
-        block_assembler: &BlockAssembler,
-        key: BlockTemplateCacheKey,
-        uncles_updated_at: u64,
-        txs_updated_at: u64,
-        template: BlockTemplate,
-    ) {
-        block_assembler.template_caches.lock().await.put(
-            key,
-            TemplateCache {
-                time: template.current_time.into(),
-                uncles_updated_at,
-                txs_updated_at,
-                template,
-            },
-        );
-    }
-
-    pub(crate) async fn get_block_template(
-        &self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-        snapshot: Arc<Snapshot>,
-        block_assembler_config: Option<BlockAssemblerConfig>,
-    ) -> Result<BlockTemplate, AnyError> {
-        if self.block_assembler.is_none() && block_assembler_config.is_none() {
             Err(InternalErrorKind::Config
                 .other("BlockAssembler disabled")
                 .into())
-        } else {
-            let block_assembler = block_assembler_config
-                .map(BlockAssembler::new)
-                .unwrap_or_else(|| self.block_assembler.clone().unwrap());
-            let consensus = snapshot.consensus();
-            let cycles_limit = consensus.max_block_cycles();
-            let (bytes_limit, proposals_limit, version) = BlockAssembler::transform_params(
-                consensus,
-                bytes_limit,
-                proposals_limit,
-                max_version,
-            );
-
-            if let Some(cache) = self
-                .get_block_template_cache(
-                    bytes_limit,
-                    proposals_limit,
-                    version,
-                    &snapshot,
-                    &block_assembler,
-                )
-                .await
-            {
-                return Ok(cache);
-            }
-
-            let cellbase =
-                self.build_block_template_cellbase(&snapshot, &block_assembler.config)?;
-
-            let (uncles, current_epoch, uncles_updated_at) = self
-                .prepare_block_template_uncles(&snapshot, &block_assembler)
-                .await;
-
-            let extension = None;
-
-            let package_txs = self
-                .package_txs_for_block_template(
-                    bytes_limit,
-                    proposals_limit,
-                    cycles_limit,
-                    &cellbase,
-                    &uncles,
-                    extension.clone(),
-                    &snapshot,
-                )
-                .await?;
-
-            let work_id = block_assembler.work_id.fetch_add(1, Ordering::SeqCst);
-
-            let block_template =
-                if let PackageTxs::Ready(proposals, entries, txs_updated_at) = package_txs {
-                    let block_template = self.build_block_template(
-                        &snapshot,
-                        entries,
-                        proposals,
-                        cellbase,
-                        work_id,
-                        current_epoch,
-                        uncles,
-                        bytes_limit,
-                        version,
-                        extension,
-                    )?;
-
-                    self.update_block_template_cache(
-                        &block_assembler,
-                        (snapshot.tip_hash(), bytes_limit, proposals_limit, version),
-                        uncles_updated_at,
-                        txs_updated_at,
-                        block_template.clone(),
-                    )
-                    .await;
-
-                    block_template
-                } else {
-                    self.build_blank_block_template(
-                        &snapshot,
-                        cellbase,
-                        work_id,
-                        current_epoch,
-                        uncles,
-                        bytes_limit,
-                        version,
-                        extension,
-                    )?
-                };
-
-            Ok(block_template)
         }
     }
 
@@ -546,6 +135,34 @@ impl TxPoolService {
             .await;
 
         (ret, snapshot)
+    }
+
+    pub(crate) async fn notify_block_assembler(&self, status: TxStatus) {
+        if self.should_notify_block_assembler() {
+            match status {
+                TxStatus::Fresh => {
+                    if self
+                        .block_assembler_sender
+                        .send(BlockAssemblerMessage::Pending)
+                        .await
+                        .is_err()
+                    {
+                        error!("block_assembler receiver dropped");
+                    }
+                }
+                TxStatus::Proposed => {
+                    if self
+                        .block_assembler_sender
+                        .send(BlockAssemblerMessage::Proposed)
+                        .await
+                        .is_err()
+                    {
+                        error!("block_assembler receiver dropped");
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
@@ -1023,6 +640,8 @@ impl TxPoolService {
         let (ret, submit_snapshot) = self.submit_entry(completed, tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
+        self.notify_block_assembler(status).await;
+
         if cached.is_none() {
             // update cache
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
@@ -1095,6 +714,8 @@ impl TxPoolService {
 
         let (ret, submit_snapshot) = self.submit_entry(verified, tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
+
+        self.notify_block_assembler(status).await;
 
         if verify_cache.is_none() {
             // update cache
@@ -1291,9 +912,19 @@ impl TxPoolService {
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {
-        let mut tx_pool = self.tx_pool.write().await;
-        self.last_txs_updated_at = Arc::new(AtomicU64::new(0));
-        tx_pool.clear(new_snapshot, Arc::clone(&self.last_txs_updated_at));
+        {
+            let mut tx_pool = self.tx_pool.write().await;
+            tx_pool.clear(Arc::clone(&new_snapshot));
+        }
+        // reset block_assembler
+        if self
+            .block_assembler_sender
+            .send(BlockAssemblerMessage::Reset(new_snapshot))
+            .await
+            .is_err()
+        {
+            error!("block_assembler receiver dropped");
+        }
     }
 
     pub(crate) async fn save_pool(&mut self) {

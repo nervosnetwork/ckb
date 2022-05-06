@@ -1,4 +1,3 @@
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec};
 use ckb_logger::info;
 use ckb_types::core::FeeRate;
@@ -15,7 +14,7 @@ impl Spec for SendTxChain {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         // build txs chain
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];
         while txs.len() < MAX_ANCESTORS_COUNT + 1 {
@@ -39,7 +38,7 @@ impl Spec for SendTxChain {
             assert!(ret.is_ok());
         }
 
-        mine(node0, 3);
+        node0.mine(3);
 
         // build txs chain
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];
@@ -65,7 +64,7 @@ impl Spec for SendTxChain {
             .set_transactions(vec![template.transaction(0).unwrap()])
             .build();
         node0.submit_block(&block_with_proposals);
-        mine(node0, node0.consensus().tx_proposal_window().closest());
+        node0.mine(node0.consensus().tx_proposal_window().closest());
 
         info!("submit proposed txs chain to node0");
         // send tx chain

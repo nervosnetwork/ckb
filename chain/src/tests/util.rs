@@ -127,6 +127,10 @@ pub(crate) fn start_chain_with_tx_pool_config(
         message: Default::default(),
         use_binary_version_as_message_prefix: false,
         binary_version: "TEST".to_string(),
+        update_interval_millis: 800,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
     };
 
     let (shared, mut pack) = builder

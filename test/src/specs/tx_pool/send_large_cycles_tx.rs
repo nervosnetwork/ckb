@@ -1,8 +1,5 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
-use crate::util::{
-    mining::{mine, mine_until_out_bootstrap_period},
-    transaction::relay_tx,
-};
+use crate::util::transaction::relay_tx;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
@@ -41,7 +38,7 @@ impl Spec for SendLargeCyclesTxInBlock {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine_until_out_bootstrap_period(node1);
+        node1.mine_until_out_bootstrap_period();
         info!("Generate large cycles tx");
         let tx = build_tx(node1, &self.random_key.privkey, self.random_key.lock_arg());
 
@@ -61,7 +58,7 @@ impl Spec for SendLargeCyclesTxInBlock {
             ret.is_some() && matches!(ret.unwrap().tx_status.status, Status::Pending)
         });
         assert!(result, "large cycles tx rejected by node0");
-        mine(node0, 3);
+        node0.mine_until_transactions_confirm();
         let block: BlockView = node0.get_tip_block();
         assert_eq!(block.transactions()[1], tx);
         node0.connect(node1);
@@ -103,7 +100,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine_until_out_bootstrap_period(node1);
+        node1.mine_until_out_bootstrap_period();
         node0.connect(node1);
         info!("Generate large cycles tx");
 
@@ -153,7 +150,7 @@ impl Spec for NotifyLargeCyclesTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         info!("Generate large cycles tx");
         let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
@@ -195,7 +192,7 @@ impl Spec for LoadProgramFailedTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         info!("Generate large cycles tx");
         let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
         // send tx
@@ -237,7 +234,7 @@ impl Spec for RelayWithWrongTx {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         let rpc_client = node0.rpc_client();
 
         let tx = build_tx(node0, &self.random_key.privkey, self.random_key.lock_arg());
@@ -261,7 +258,7 @@ impl Spec for RelayWithWrongTx {
         rpc_client.clear_banned_addresses();
 
         // Advance one block, in order to prevent tx hash is same
-        mine(node0, 1);
+        node0.mine(1);
 
         let mut generator = Generator::new();
         let tx_wrong_pk = build_tx(node0, &generator.gen_privkey(), self.random_key.lock_arg());

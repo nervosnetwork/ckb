@@ -11,9 +11,10 @@ use ckb_types::{
 };
 use futures::prelude::*;
 use hyper::{
-    body::{to_bytes, Bytes},
+    body::{to_bytes, Buf, Bytes},
     header::{HeaderValue, CONTENT_TYPE},
-    Body, Client as HttpClient, Error as HyperError, Method, Request, Uri,
+    service::{make_service_fn, service_fn},
+    Body, Client as HttpClient, Error as HyperError, Method, Request, Response, Server, Uri,
 };
 use jsonrpc_core::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
@@ -21,7 +22,11 @@ use jsonrpc_core::{
 };
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::{convert::Into, thread, time};
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::{convert::Into, time};
 use tokio::sync::{mpsc, oneshot};
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
@@ -89,7 +94,7 @@ impl Rpc {
 
         Rpc {
             sender,
-            stop: StopHandler::new(SignalSender::Tokio(stop), None, "miner".to_string()),
+            stop: StopHandler::new(SignalSender::Tokio(stop), None, "miner-rpc".to_string()),
         }
     }
 
@@ -137,7 +142,7 @@ pub enum Works {
 #[derive(Debug, Clone)]
 pub struct Client {
     /// TODO(doc): @quake
-    pub current_work_id: Option<u64>,
+    pub current_work_id: Arc<AtomicU64>,
     /// TODO(doc): @quake
     pub new_work_tx: Sender<Works>,
     /// TODO(doc): @quake
@@ -148,12 +153,12 @@ pub struct Client {
 }
 
 impl Client {
-    /// TODO(doc): @quake
+    /// Construct new Client
     pub fn new(new_work_tx: Sender<Works>, config: MinerClientConfig, handle: Handle) -> Client {
         let uri: Uri = config.rpc_url.parse().expect("valid rpc url");
 
         Client {
-            current_work_id: None,
+            current_work_id: Arc::new(AtomicU64::new(0)),
             rpc: Rpc::new(uri, handle.clone()),
             new_work_tx,
             config,
@@ -173,8 +178,7 @@ impl Client {
         self.rpc.clone().request(method, params)
     }
 
-    /// TODO(doc): @quake
-    pub fn submit_block(&self, work_id: &str, block: Block) -> Result<(), RpcError> {
+    pub(crate) fn submit_block(&self, work_id: &str, block: Block) -> Result<(), RpcError> {
         let parent = block.header().raw().parent_hash();
         let future = self
             .send_submit_block_request(work_id, block)
@@ -194,26 +198,88 @@ impl Client {
         }
     }
 
-    /// TODO(doc): @quake
-    pub fn poll_block_template(&mut self) {
-        loop {
-            debug!("poll block template...");
-            self.try_update_block_template();
-            thread::sleep(time::Duration::from_millis(self.config.poll_interval));
+    /// spawn background update process
+    pub fn spawn_background(self) -> StopHandler<()> {
+        let (stop, stop_rx) = oneshot::channel::<()>();
+        let client = self.clone();
+        if let Some(addr) = self.config.listen {
+            ckb_logger::info!("listen notify mode : {}", addr);
+            self.handle.spawn(async move {
+                client.listen_block_template_notify(addr, stop_rx).await;
+            });
+            self.blocking_fetch_block_template()
+        } else {
+            ckb_logger::info!("loop poll mode: interval {}ms", self.config.poll_interval);
+            self.handle.spawn(async move {
+                client.poll_block_template(stop_rx).await;
+            });
+        }
+        StopHandler::new(SignalSender::Tokio(stop), None, "miner-updater".to_string())
+    }
+
+    async fn listen_block_template_notify(&self, addr: SocketAddr, stop_rx: oneshot::Receiver<()>) {
+        let client = self.clone();
+        let make_service = make_service_fn(move |_conn| {
+            let client = client.clone();
+            let service = service_fn(move |req| handle(client.clone(), req));
+            async move { Ok::<_, Infallible>(service) }
+        });
+
+        let server = Server::bind(&addr).serve(make_service);
+        let graceful = server.with_graceful_shutdown(async move {
+            stop_rx.await.ok();
+        });
+
+        if let Err(e) = graceful.await {
+            error!("server error: {}", e);
         }
     }
 
-    /// TODO(doc): @quake
-    pub fn try_update_block_template(&mut self) {
-        match self.handle.block_on(self.get_block_template()) {
-            Ok(block_template) => {
-                if self.current_work_id != Some(block_template.work_id.into()) {
-                    self.current_work_id = Some(block_template.work_id.into());
-                    let work: Work = block_template.into();
-                    if let Err(e) = self.new_work_tx.send(Works::New(work)) {
-                        error!("notify_new_block error: {:?}", e);
-                    }
+    async fn poll_block_template(&self, mut stop_rx: oneshot::Receiver<()>) {
+        let poll_interval = time::Duration::from_millis(self.config.poll_interval);
+        let mut interval = tokio::time::interval(poll_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    debug!("poll block template...");
+                    self.fetch_block_template().await;
                 }
+                _ = &mut stop_rx => break,
+                else => break,
+            }
+        }
+    }
+
+    fn update_block_template(&self, block_template: BlockTemplate) {
+        let work_id = block_template.work_id.into();
+        let updated = |id| {
+            if id != work_id || id == 0 {
+                Some(work_id)
+            } else {
+                None
+            }
+        };
+        if self
+            .current_work_id
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, updated)
+            .is_ok()
+        {
+            let work: Work = block_template.into();
+            if let Err(e) = self.new_work_tx.send(Works::New(work)) {
+                error!("notify_new_block error: {:?}", e);
+            }
+        }
+    }
+
+    pub(crate) fn blocking_fetch_block_template(&self) {
+        self.handle.block_on(self.fetch_block_template())
+    }
+
+    async fn fetch_block_template(&self) {
+        match self.get_block_template().await {
+            Ok(block_template) => {
+                self.update_block_template(block_template);
             }
             Err(ref err) => {
                 let is_method_not_found = if let RpcError::Fail(RpcFail { code, .. }) = err {
@@ -245,6 +311,18 @@ impl Client {
             .and_then(parse_response)
             .await
     }
+}
+
+type Error = Box<dyn std::error::Error + Send + Sync>;
+
+async fn handle(client: Client, req: Request<Body>) -> Result<Response<Body>, Error> {
+    let body = hyper::body::aggregate(req).await?;
+
+    if let Ok(template) = serde_json::from_reader(body.reader()) {
+        client.update_block_template(template);
+    }
+
+    Ok(Response::new(Body::empty()))
 }
 
 async fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, RpcError> {

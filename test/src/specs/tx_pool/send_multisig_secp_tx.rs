@@ -1,5 +1,4 @@
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::{Node, Spec};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL};
@@ -43,7 +42,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         let node = &nodes[0];
 
         info!("Generate 20 block on node");
-        mine(node, 20);
+        node.mine(20);
 
         let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 1);
         let block = node.get_tip_block();
@@ -103,7 +102,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         info!("Send 1 multisig tx use dep group");
 
         node.rpc_client().send_transaction(tx.data().into());
-        mine(node, 20);
+        node.mine(20);
 
         assert!(is_transaction_committed(node, &tx));
     }
@@ -153,5 +152,9 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
         message: Default::default(),
         use_binary_version_as_message_prefix: false,
         binary_version: "TEST".to_string(),
+        update_interval_millis: 0,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
     }
 }

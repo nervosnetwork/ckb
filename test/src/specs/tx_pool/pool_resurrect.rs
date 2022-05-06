@@ -1,5 +1,4 @@
 use crate::node::waiting_for_sync;
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_logger::info;
 
@@ -13,7 +12,7 @@ impl Spec for PoolResurrect {
         let node1 = &nodes[1];
 
         info!("Generate 1 block on node0");
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Generate 6 txs on node0");
         let mut txs_hash = Vec::new();
@@ -27,14 +26,17 @@ impl Spec for PoolResurrect {
         });
 
         info!("Generate 3 more blocks on node0");
-        mine(node0, 3);
+        let proposed =
+            node0.mine_with_blocking(|template| template.proposals.len() != txs_hash.len());
+        node0.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+        node0.mine_with_blocking(|template| template.transactions.len() != txs_hash.len());
+        node0.wait_for_tx_pool();
 
         info!("Pool should be empty");
-        let tx_pool_info = node0.get_tip_tx_pool_info();
-        assert_eq!(tx_pool_info.pending.value(), 0);
+        node0.assert_tx_pool_size(0, 0);
 
         info!("Generate 5 blocks on node1");
-        mine(node1, DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
+        node1.mine(DEFAULT_TX_PROPOSAL_WINDOW.1 + 6);
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);
@@ -44,11 +46,18 @@ impl Spec for PoolResurrect {
         node0.assert_tx_pool_size(txs_hash.len() as u64, 0);
 
         info!("Generate 2 blocks on node0, 6 txs should be added to proposed pool");
-        mine(node0, 2);
-        node0.assert_tx_pool_size(0, txs_hash.len() as u64);
+        let proposed = node0.mine_with_blocking(|template| {
+            template.uncles.clear();
+            template.proposals.len() != txs_hash.len()
+        });
+        node0.mine_with_blocking(|template| {
+            template.uncles.clear();
+            template.number.value() != (proposed + 1)
+        });
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");
-        mine(node0, 1);
+        node0.mine_with_blocking(|template| template.transactions.len() != txs_hash.len());
+        node0.wait_for_tx_pool();
         node0.assert_tx_pool_size(0, 0);
     }
 }
@@ -63,8 +72,8 @@ impl Spec for InvalidHeaderDep {
         let node1 = &nodes[1];
 
         info!("Generate 1 block on node0");
-        mine_until_out_bootstrap_period(node0);
-        mine(node0, 1);
+        node0.mine_until_out_bootstrap_period();
+        node0.mine(1);
 
         info!("Generate header dep tx on node0");
         let hash = node0.generate_transaction();
@@ -84,8 +93,8 @@ impl Spec for InvalidHeaderDep {
         let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), 2);
 
-        mine_until_out_bootstrap_period(node1);
-        mine(node1, 2);
+        node1.mine_until_out_bootstrap_period();
+        node1.mine(2);
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);

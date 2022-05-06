@@ -1,10 +1,7 @@
 use crate::error::RPCError;
-use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, JsonBytes, Script, Transaction,
-};
+use ckb_jsonrpc_types::{AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -163,9 +160,7 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "generate_block",
-    ///   "params": [
-    ///     null, null
-    ///   ]
+    ///   "params": []
     /// }
     /// ```
     ///
@@ -180,11 +175,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "generate_block")]
-    fn generate_block(
-        &self,
-        block_assembler_script: Option<Script>,
-        block_assembler_message: Option<JsonBytes>,
-    ) -> Result<H256>;
+    fn generate_block(&self) -> Result<H256>;
 
     /// Add transaction to tx-pool.
     ///
@@ -528,29 +519,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(())
     }
 
-    fn generate_block(
-        &self,
-        block_assembler_script: Option<Script>,
-        block_assembler_message: Option<JsonBytes>,
-    ) -> Result<H256> {
+    fn generate_block(&self) -> Result<H256> {
         let tx_pool = self.shared.tx_pool_controller();
-        let snapshot = Arc::clone(&self.shared.snapshot());
-        let block_assembler_config = block_assembler_script.map(|script| BlockAssemblerConfig {
-            code_hash: script.code_hash,
-            hash_type: script.hash_type,
-            args: script.args,
-            message: block_assembler_message.unwrap_or_default(),
-            use_binary_version_as_message_prefix: false,
-            binary_version: "TEST".to_string(),
-        });
         let block_template = tx_pool
-            .get_block_template_with_block_assembler_config(
-                None,
-                None,
-                None,
-                snapshot,
-                block_assembler_config,
-            )
+            .get_block_template(None, None, None)
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 

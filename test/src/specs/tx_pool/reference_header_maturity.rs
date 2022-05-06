@@ -1,7 +1,6 @@
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::assert_send_transaction_fail;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Node, Spec};
 use ckb_logger::info;
 use ckb_types::core::EpochNumberWithFraction;
 
@@ -14,7 +13,7 @@ impl Spec for ReferenceHeaderMaturity {
         let node = &nodes[0];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW + 2 block");
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
         info!("Use generated block's cellbase as tx input");
         let base_block = node.get_tip_block();
 
@@ -31,9 +30,9 @@ impl Spec for ReferenceHeaderMaturity {
                 if current < threshold {
                     if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
                         let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
-                        mine(node, remained_blocks_in_epoch);
+                        node.mine(remained_blocks_in_epoch);
                     } else {
-                        mine(node, 1);
+                        node.mine(1);
                     }
                 } else {
                     break;
@@ -65,9 +64,9 @@ impl Spec for ReferenceHeaderMaturity {
                 }
                 if tip_epoch.number() < base_epoch.number() + cellbase_maturity.number() {
                     let remained_blocks_in_epoch = tip_epoch.length() - tip_epoch.index();
-                    mine(node, remained_blocks_in_epoch);
+                    node.mine(remained_blocks_in_epoch);
                 } else {
-                    mine(node, 1);
+                    node.mine(1);
                 }
             }
         }
@@ -78,13 +77,13 @@ impl Spec for ReferenceHeaderMaturity {
         node.assert_tx_pool_size(1, 0);
 
         info!("Tx will be added to proposed pool");
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
+        let proposed = node.mine_with_blocking(|template| template.proposals.is_empty());
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
         node.assert_tx_pool_size(0, 1);
-        mine(node, 1);
+        node.mine_with_blocking(|template| template.transactions.is_empty());
         node.assert_tx_pool_size(0, 0);
 
         info!("Tx will be eventually accepted on chain");
-        mine(node, 5);
         assert!(is_transaction_committed(node, &tx));
     }
 

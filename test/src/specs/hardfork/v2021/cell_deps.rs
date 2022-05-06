@@ -5,13 +5,13 @@ use crate::{
             assert_epoch_should_greater_than, assert_epoch_should_less_than,
             is_transaction_committed,
         },
-        mining::{mine, mine_until_bool, mine_until_epoch},
     },
     utils::assert_send_transaction_fail,
     Node, Spec,
 };
 use ckb_jsonrpc_types as rpc;
 use ckb_logger::{info, trace};
+use ckb_types::packed::Byte32;
 use ckb_types::{
     core::{self, TransactionView},
     packed,
@@ -152,6 +152,7 @@ impl Spec for CheckCellDeps {
             .map(|input| packed::CellInput::new(input.out_point, 0));
         let mut runner = CheckCellDepsTestRunner::new(node, &mut inputs);
 
+        runner.start_at = node.get_tip_block_number();
         runner.switch_v2019();
         runner.run_v2019_tests();
 
@@ -251,7 +252,7 @@ impl NewScript {
             .output_data(data.clone())
             .build();
         node.submit_transaction(&tx);
-        mine_until_bool(node, || is_transaction_committed(node, &tx));
+        node.mine_until_bool(|| is_transaction_committed(node, &tx));
         tx
     }
 
@@ -387,7 +388,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn submit_transaction_until_committed_to(node: &Node, tx: &TransactionView) {
         node.submit_transaction(tx);
-        mine_until_bool(node, || is_transaction_committed(node, tx));
+        node.mine_until_transactions_confirm();
     }
 
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
@@ -396,16 +397,27 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     }
 
     fn restore_to_checkpoint(&self) {
+        self.node.wait_for_tx_pool();
         let block_hash = self.node.get_block_by_number(self.checkpoint).hash();
-        self.node.rpc_client().truncate(block_hash);
+        self.node.rpc_client().truncate(block_hash.clone());
+        self.wait_block_assembler_reset(block_hash);
+        self.node.wait_for_tx_pool();
     }
 
     fn switch_v2019(&mut self) {
+        self.node.wait_for_tx_pool();
         let block_hash = self.node.get_block_by_number(self.start_at).hash();
-        self.node.rpc_client().truncate(block_hash);
+        self.node.rpc_client().truncate(block_hash.clone());
 
         self.checkpoint = self.node.get_tip_block_number();
         self.state = RunnerState::V2019;
+        self.wait_block_assembler_reset(block_hash);
+        self.node.wait_for_tx_pool();
+    }
+
+    fn wait_block_assembler_reset(&self, block_hash: Byte32) {
+        self.node
+            .new_block_with_blocking(|template| template.parent_hash != block_hash.unpack());
     }
 
     fn switch_one_block_before_v2021(&mut self) {
@@ -415,7 +427,8 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let length = GENESIS_EPOCH_LENGTH;
 
         assert_epoch_should_less_than(self.node, ckb2019_last_epoch, 0, length);
-        mine_until_epoch(self.node, ckb2019_last_epoch, 0, length);
+        self.node.mine_until_epoch(ckb2019_last_epoch, 0, length);
+        self.node.wait_for_tx_pool();
 
         self.checkpoint = self.node.get_tip_block_number();
         self.state = RunnerState::OneBlockBeforeV2021;
@@ -423,7 +436,8 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn switch_first_block_of_v2021(&mut self) {
         self.switch_one_block_before_v2021();
-        mine(self.node, 1);
+        self.node.mine(1);
+        self.node.wait_for_tx_pool();
 
         self.checkpoint = self.node.get_tip_block_number();
         self.state = RunnerState::FirstBlockOfV2021;
@@ -431,7 +445,8 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn switch_v2021(&mut self) {
         self.switch_one_block_before_v2021();
-        mine(self.node, 1 + GENESIS_EPOCH_LENGTH * 2);
+        self.node.mine(1 + GENESIS_EPOCH_LENGTH * 2);
+        self.node.wait_for_tx_pool();
 
         self.checkpoint = self.node.get_tip_block_number();
         self.state = RunnerState::V2021;
@@ -732,13 +747,15 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             }
             RunnerState::OneBlockBeforeV2021 => {
                 assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
-
-                mine_until_epoch(self.node, ckb2019_last_epoch, index - 1, length);
+                self.node
+                    .mine_until_epoch(ckb2019_last_epoch, index - 1, length);
+                self.node.wait_for_tx_pool();
             }
             RunnerState::FirstBlockOfV2021 => {
                 assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
-
-                mine_until_epoch(self.node, ckb2019_last_epoch, index, length);
+                self.node
+                    .mine_until_epoch(ckb2019_last_epoch, index, length);
+                self.node.wait_for_tx_pool();
             }
             RunnerState::V2021 => {
                 assert_epoch_should_greater_than(self.node, CKB2021_START_EPOCH, 0, length);

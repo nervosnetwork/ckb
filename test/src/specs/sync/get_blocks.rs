@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::utils::{build_headers, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_constant::sync::{BLOCK_DOWNLOAD_TIMEOUT, INIT_BLOCKS_IN_TRANSIT_PER_PEER};
@@ -16,8 +15,8 @@ impl Spec for GetBlocksTimeout {
         let node1 = nodes.pop().unwrap();
         let node2 = nodes.pop().unwrap();
 
-        mine(&node1, 1);
-        mine(&node2, INIT_BLOCKS_IN_TRANSIT_PER_PEER as u64 + 20);
+        node1.mine(1);
+        node2.mine(INIT_BLOCKS_IN_TRANSIT_PER_PEER as u64 + 20);
 
         let headers: Vec<HeaderView> = (1..=node2.get_tip_block_number())
             .map(|i| node2.get_header_by_number(i))
