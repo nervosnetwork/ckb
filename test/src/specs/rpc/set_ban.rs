@@ -2,6 +2,7 @@ use crate::node::{connect_all, waiting_for_sync};
 use crate::specs::spec_name;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::find_available_port;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 
 pub struct RpcSetBan;
@@ -27,7 +28,11 @@ impl Spec for RpcSetBan {
             None,
             Some("for_test".to_owned()),
         );
-        assert_eq!(node.rpc_client().get_peers().len(), 1);
+        let ret = wait_until(10, || {
+            let peers_cnt = node.rpc_client().get_peers().len();
+            peers_cnt == 1
+        });
+        assert!(ret, "Node1 should ban banned_ip_node");
 
         node.rpc_client().set_ban(
             "127.0.0.0/16".to_owned(),
@@ -36,7 +41,11 @@ impl Spec for RpcSetBan {
             None,
             Some("for_test".to_owned()),
         );
-        assert_eq!(node.rpc_client().get_peers().len(), 0);
+        let ret = wait_until(10, || {
+            let peers_cnt = node.rpc_client().get_peers().len();
+            peers_cnt == 0
+        });
+        assert!(ret, "Node1 should ban banned_ipsubnet_node");
     }
 
     fn before_run(&self) -> Vec<Node> {
