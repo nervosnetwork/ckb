@@ -6,9 +6,11 @@ use crate::{Node, Spec};
 
 pub struct RpcSetBan;
 
-impl Spec for RpcSetBan {
-    // crate::setup!(num_nodes: 3);
+const BAD_NODE_IP_1: &str = "127.0.0.2";
+const BAD_NODE_IP_2: &str = "127.0.1.1";
+const BAD_NODE_NETWORK: &str = "127.0.0.0/16";
 
+impl Spec for RpcSetBan {
     // node will ban the node with ip_address and ban the node within the ip/subnet
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
@@ -21,7 +23,7 @@ impl Spec for RpcSetBan {
         assert_eq!(node.rpc_client().get_peers().len(), 2);
 
         node.rpc_client().set_ban(
-            "127.0.0.2".to_owned(),
+            BAD_NODE_IP_1.to_owned(),
             "insert".to_owned(),
             None,
             None,
@@ -30,7 +32,7 @@ impl Spec for RpcSetBan {
         assert_eq!(node.rpc_client().get_peers().len(), 1);
 
         node.rpc_client().set_ban(
-            "127.0.0.0/16".to_owned(),
+            BAD_NODE_NETWORK.to_owned(),
             "insert".to_owned(),
             None,
             None,
@@ -45,21 +47,21 @@ impl Spec for RpcSetBan {
 
         let mut banned_ip_node = Node::new(spec_name(self), "banned_ip_node");
         banned_ip_node.modify_app_config(|app_config| {
-            let rpc_port = find_available_port();
             let p2p_port = find_available_port();
-            app_config.rpc.listen_address = format!("127.0.0.2:{}", rpc_port);
             app_config.network.listen_addresses =
-                vec![format!("/ip4/127.0.0.2/tcp/{}", p2p_port).parse().unwrap()];
+                vec![format!("/ip4/{}/tcp/{}", BAD_NODE_IP_1, p2p_port)
+                    .parse()
+                    .unwrap()];
         });
         banned_ip_node.start();
 
         let mut banned_ipsubnet_node = Node::new(spec_name(self), "banned_ipsubnet_node");
         banned_ipsubnet_node.modify_app_config(|app_config| {
-            let rpc_port = find_available_port();
             let p2p_port = find_available_port();
-            app_config.rpc.listen_address = format!("127.0.1.1:{}", rpc_port);
             app_config.network.listen_addresses =
-                vec![format!("/ip4/127.0.1.1/tcp/{}", p2p_port).parse().unwrap()];
+                vec![format!("/ip4/{}/tcp/{}", BAD_NODE_IP_2, p2p_port)
+                    .parse()
+                    .unwrap()];
         });
         banned_ipsubnet_node.start();
 
