@@ -505,6 +505,7 @@ impl Relayer {
                             )),
                     );
                 } else {
+                    metrics!(counter, "ckb.relay.transaction_short_id_collide", 1);
                     return ReconstructionResult::Collided;
                 }
             }
