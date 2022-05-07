@@ -320,7 +320,7 @@ impl Node {
 
     // Convenient way to construct an uncle block
     pub fn construct_uncle(&self) -> (BlockView, BlockView) {
-        let block = self.new_block(None, None, None);
+        let block = self.new_block_without_uncles(None, None, None);
         // Make sure the uncle block timestamp is different from
         // the next block timestamp in main fork.
         // Firstly construct uncle block which timestamp
@@ -444,6 +444,17 @@ impl Node {
         while !rpc_client.tx_pool_ready() {
             sleep(std::time::Duration::from_millis(200));
         }
+    }
+
+    pub fn new_block_without_uncles(
+        &self,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
+        max_version: Option<u32>,
+    ) -> BlockView {
+        self.new_block_builder(bytes_limit, proposals_limit, max_version)
+            .set_uncles(vec![])
+            .build()
     }
 
     pub fn new_block(
