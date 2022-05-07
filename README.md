@@ -32,8 +32,10 @@ Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING
 
 ## Join a Network
 
-- Mainnet Lina: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain mainnet` to initialize the node.
-- Testnet Aggron: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain testnet` to initialize the node.
+- Mainnet Mirana: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain mainnet` to initialize the node.
+    - Mirana is active since the epoch 5414, see the [migration guide](https://github.com/jordanmack/nervos-ckb2021-hard-fork-migration-guide) to upgrade from Lina.
+- Testnet Pudge: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain testnet` to initialize the node.
+    - Pudge is active since the epoch 3113.
 
 See more networks to join in the [wiki](https://github.com/nervosnetwork/ckb/wiki/Chains).
 
@@ -59,7 +61,7 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 [Latest version](https://github.com/nervosnetwork/ckb#documentations) is hosted in GitHub.
 
 The default branch in GitHub is `develop`, if you are looking for docs for the
-Mainnet Lina or Testnet Aggron, switch to the branch [master].
+Mainnet Mirana or Testnet Pudge, switch to the branch [master].
 
 [master]: https://github.com/nervosnetwork/ckb/tree/master#documentations
 

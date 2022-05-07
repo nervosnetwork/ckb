@@ -4127,9 +4127,9 @@ Chain information.
 
     Examples:
 
-    *   “ckb” - Lina the mainnet.
+    *   “ckb” - Mirana the mainnet.
 
-    *   “ckb_testnet” - Aggron the testnet.
+    *   “ckb_testnet” - Pudge the testnet.
 
 *   `median_time`: [`Timestamp`](#type-timestamp) - The median time of the last 37 blocks, including the tip block.
 

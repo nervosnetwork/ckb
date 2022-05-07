@@ -41,7 +41,7 @@ Then edit the generated config files according to the in-line comments.
 ## Chain Spec
 
 The option `chain.spec` configures the chain spec, which controls which kind of chain to run.
-This option is set to Lina, the mainnet by default.
+This option is set to Mirana, the mainnet by default.
 
 The subcommand `init` supports exporting the default options for different
 chains. The following command lists all supported chains.
@@ -50,7 +50,7 @@ chains. The following command lists all supported chains.
 ckb init --list-chains
 ```
 
-Here is an example to export config files for Aggron, the testnet.
+Here is an example to export config files for Pudge, the testnet.
 
 ```
 ckb init --chain testnet
