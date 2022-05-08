@@ -503,6 +503,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RpcTruncate),
         Box::new(RpcTransactionProof),
         Box::new(RpcGetBlockMedianTime),
+        #[cfg(target_os = "linux")]
         Box::new(RpcSetBan),
         Box::new(SyncTooNewBlock),
         Box::new(RelayTooNewBlock),
