@@ -85,7 +85,7 @@ impl Node {
         self.mine_with(count, with)
     }
 
-    pub fn mine_with_blocking<B>(&self, blocking: B) -> u64
+    pub fn mine_include_uncles_with_blocking<B>(&self, blocking: B) -> u64
     where
         B: Fn(&mut BlockTemplate) -> bool,
     {
@@ -101,6 +101,34 @@ impl Node {
             }
         }
         let block = packed::Block::from(template).as_advanced_builder().build();
+        let number = block.number();
+        self.rpc_client()
+            .submit_block("".to_owned(), block.data().into())
+            .unwrap();
+        number
+    }
+
+    pub fn mine_with_blocking<B>(&self, blocking: B) -> u64
+    where
+        B: Fn(&mut BlockTemplate) -> bool,
+    {
+        let mut count = 0;
+        let mut template = self.rpc_client().get_block_template(None, None, None);
+        while blocking(&mut template) {
+            sleep(Duration::from_millis(100));
+            template = self.rpc_client().get_block_template(None, None, None);
+            count += 1;
+
+            if count > 900 {
+                panic!("mine_with_blocking timeout");
+            }
+        }
+        // uncles are not included by default,
+        // because uncles' proposals can have an impact on the assertions of some tests
+        let block = packed::Block::from(template)
+            .as_advanced_builder()
+            .set_uncles(vec![])
+            .build();
         let number = block.number();
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
