@@ -5,7 +5,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-use ckb_metrics::{metrics, Timer};
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
@@ -133,13 +132,11 @@ where
 
     /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<(VerifyResult, Capacity), Error> {
-        let timer = Timer::start();
         self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
         let ret = self.script.resumable_verify(limit_cycles)?;
-        metrics!(timing, "ckb.resumable_verify", timer.stop());
         Ok((ret, fee))
     }
 
@@ -147,7 +144,6 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
-        let timer = Timer::start();
         self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
@@ -157,7 +153,6 @@ where
             self.script.verify(max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(Completed { cycles, fee })
     }
 
@@ -170,7 +165,6 @@ where
         skip_script_verify: bool,
         snapshot: &TransactionSnapshot,
     ) -> Result<Completed, Error> {
-        let timer = Timer::start();
         self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
@@ -180,7 +174,6 @@ where
             self.script.complete(snapshot, max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.complete_suspend_verified_tx", timer.stop());
         Ok(Completed { cycles, fee })
     }
 }
@@ -326,17 +319,13 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
 
     /// Perform script verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let timer = Timer::start();
         let cycle = self.inner.verify(max_cycles)?;
-        metrics!(timing, "ckb.verified_script", timer.stop());
         Ok(cycle)
     }
 
     /// Perform resumable script verification
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
         let ret = self.inner.resumable_verify(limit_cycles)?;
-        metrics!(timing, "ckb.resumable_verify_script", timer.stop());
         Ok(ret)
     }
 
@@ -346,10 +335,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         snapshot: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
-
         let ret = self.inner.resume_from_snap(snapshot, limit_cycles)?;
-        metrics!(timing, "ckb.resume_verify", timer.stop());
         Ok(ret)
     }
 
@@ -359,9 +345,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         state: TransactionState<'a>,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
         let ret = self.inner.resume_from_state(state, limit_cycles)?;
-        metrics!(timing, "ckb.resume_verify", timer.stop());
         Ok(ret)
     }
 
@@ -371,10 +355,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         snapshot: &TransactionSnapshot,
         max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
-        let timer = Timer::start();
-
         let ret = self.inner.complete(snapshot, max_cycles)?;
-        metrics!(timing, "ckb.complete_verify", timer.stop());
         Ok(ret)
     }
 
@@ -937,12 +918,10 @@ where
 
     /// Perform verification
     pub fn verify(&self) -> Result<Capacity, Error> {
-        let timer = Timer::start();
         self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(fee)
     }
 }

@@ -7,7 +7,7 @@ use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
-use ckb_metrics::{metrics, Timer};
+use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
@@ -369,9 +369,7 @@ impl ChainService {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
 
-        let timer = Timer::start();
         self.insert_block(block, switch).map(|ret| {
-            metrics!(timing, "ckb.processed_block", timer.stop());
             debug!("finish processing block");
             ret
         })
