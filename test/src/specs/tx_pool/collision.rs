@@ -131,7 +131,7 @@ impl Spec for SubmitConflict {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.mine_until_transactions_confirm();
+        node.mine_until_transaction_confirm(&txa.hash());
         assert!(is_transaction_committed(node, &txa));
         assert_send_transaction_fail(
             node,

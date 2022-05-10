@@ -58,7 +58,7 @@ impl Spec for SendLargeCyclesTxInBlock {
             ret.is_some() && matches!(ret.unwrap().tx_status.status, Status::Pending)
         });
         assert!(result, "large cycles tx rejected by node0");
-        node0.mine_until_transactions_confirm();
+        node0.mine_until_transaction_confirm(&tx.hash());
         let block: BlockView = node0.get_tip_block();
         assert_eq!(block.transactions()[1], tx);
         node0.connect(node1);

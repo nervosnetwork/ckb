@@ -1,10 +1,11 @@
 use crate::util::chain::forward_main_blocks;
 use crate::Node;
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{BlockTemplate, ProposalShortId};
 use ckb_types::{
     core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView},
     packed,
+    prelude::*,
 };
 use std::{thread::sleep, time::Duration};
 
@@ -134,6 +135,27 @@ impl Node {
             .submit_block("".to_owned(), block.data().into())
             .unwrap();
         number
+    }
+
+    pub fn mine_until_transaction_confirm_with_windows(
+        &self,
+        tx_hash: &packed::Byte32,
+        closest: u64,
+    ) {
+        let target: ProposalShortId = packed::ProposalShortId::from_tx_hash(tx_hash).into();
+        let last =
+            self.mine_with_blocking(|template| !template.proposals.iter().any(|id| id == &target));
+        self.mine_with_blocking(|template| template.number.value() != (last + closest - 1));
+        self.mine_with_blocking(|template| {
+            !template
+                .transactions
+                .iter()
+                .any(|tx| tx.hash == tx_hash.unpack())
+        });
+    }
+
+    pub fn mine_until_transaction_confirm(&self, tx_hash: &packed::Byte32) {
+        self.mine_until_transaction_confirm_with_windows(tx_hash, DEFAULT_TX_PROPOSAL_WINDOW.0)
     }
 
     pub fn mine_until_transactions_confirm_with_windows(&self, closest: u64) {
