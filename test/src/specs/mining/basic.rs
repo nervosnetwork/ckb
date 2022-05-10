@@ -19,7 +19,7 @@ impl Spec for MiningBasic {
         let cells = gen_spendable(node, 1);
         let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
-        node.mine_until_transactions_confirm();
+        node.mine_until_transaction_confirm(&transaction.hash());
 
         let block3 = node.get_tip_block();
         assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());

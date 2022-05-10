@@ -18,7 +18,7 @@ impl Spec for PoolReconcile {
         let hash = node0.generate_transaction();
 
         info!("Generate 3 more blocks on node0");
-        node0.mine_until_transactions_confirm();
+        node0.mine_until_transaction_confirm(&hash);
 
         info!("Pool should be empty");
         assert!(node0

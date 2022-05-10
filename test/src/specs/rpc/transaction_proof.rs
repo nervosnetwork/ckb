@@ -8,9 +8,9 @@ impl Spec for RpcTransactionProof {
         let node0 = &nodes[0];
         node0.mine(DEFAULT_TX_PROPOSAL_WINDOW.1 + 2);
 
-        let tx_hash = node0.generate_transaction().unpack();
-        let tx_hashes = vec![tx_hash];
-        node0.mine_until_transactions_confirm();
+        let tx_hash = node0.generate_transaction();
+        node0.mine_until_transaction_confirm(&tx_hash);
+        let tx_hashes = vec![tx_hash.unpack()];
         let proof = node0
             .rpc_client()
             .inner()

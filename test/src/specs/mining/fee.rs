@@ -28,12 +28,13 @@ impl Spec for FeeOfTransaction {
         let cells = gen_spendable(node, 1);
         let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
+        let tx_hash = transaction.hash();
 
         let txs = vec![transaction];
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
         let number_to_propose = node.get_tip_block_number() + 1;
         let number_to_commit = number_to_propose + closest;
-        node.mine_until_transactions_confirm();
+        node.mine_until_transaction_confirm(&tx_hash);
         node.mine(2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(

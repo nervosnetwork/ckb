@@ -26,7 +26,7 @@ impl Spec for ProposalRespondSizelimit {
 
             proposal_ids.push(transaction.proposal_short_id());
 
-            node0.mine_until_transactions_confirm();
+            node0.mine_until_transaction_confirm(&transaction.hash());
 
             // spend all new cell
             cells = get_spendable(node0);

@@ -122,7 +122,7 @@ impl Spec for SpendSatoshiCell {
         node0
             .rpc_client()
             .send_transaction(transaction.data().into());
-        node0.mine_until_transactions_confirm();
+        node0.mine_until_transaction_confirm(&tx_hash);
         // cellbase occupied capacity minus satoshi cell
         let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
         assert!(is_transaction_committed(node0, &transaction));
