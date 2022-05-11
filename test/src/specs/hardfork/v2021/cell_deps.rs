@@ -388,7 +388,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn submit_transaction_until_committed_to(node: &Node, tx: &TransactionView) {
         node.submit_transaction(tx);
-        node.mine_until_transaction_confirm(&tx.hash());
+        node.mine_until_bool(|| is_transaction_committed(node, tx));
     }
 
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
