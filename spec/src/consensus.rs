@@ -940,6 +940,11 @@ impl Consensus {
             mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
         )
     }
+
+    /// TODO(light-client) User-Activated Soft Fork
+    pub fn mmr_activated_number(&self) -> BlockNumber {
+        BlockNumber::MAX
+    }
 }
 
 /// Trait for consensus provider.
