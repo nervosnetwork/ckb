@@ -4147,9 +4147,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd1b61199af018787e25f0d6674d5cd66c97ad9e34e8808d284ac0ad09132f2d"
+checksum = "a25404f0ad099d7ac35c4873e854a1f9772014b1c42379780f7b9f55fa464913"
 dependencies = [
  "bs58",
  "bytes 1.1.0",
