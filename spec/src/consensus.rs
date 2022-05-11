@@ -962,7 +962,7 @@ impl Consensus {
 
     /// TODO(light-client) User-Activated Soft Fork
     pub fn mmr_activated_number(&self) -> BlockNumber {
-        1
+        BlockNumber::MAX
     }
 }
 
