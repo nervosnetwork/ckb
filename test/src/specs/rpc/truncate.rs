@@ -56,6 +56,7 @@ impl Spec for RpcTruncate {
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);
         assert_eq!(cell1.status, "live", "cell1 is alive after roll-backing");
 
+        node.wait_for_tx_pool();
         let tx_pool_info = node.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.orphan.value(), 0, "tx-pool was cleared");
         assert_eq!(tx_pool_info.pending.value(), 0, "tx-pool was cleared");
