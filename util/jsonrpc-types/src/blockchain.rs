@@ -21,7 +21,7 @@ pub enum ScriptHashType {
     Data = 0,
     /// Type "type" matches script code via cell type script hash.
     Type = 1,
-    /// Type "data" matches script code via cell data hash, and run the script code in v1 CKB VM.
+    /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
 }
 
