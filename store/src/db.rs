@@ -11,9 +11,11 @@ use ckb_db::{
     DBPinnableSlice, RocksDB,
 };
 use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
-use ckb_types::{core::BlockExt, packed, prelude::*};
+use ckb_types::{
+    core::BlockExt, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR,
+};
 use std::sync::Arc;
 
 /// TODO(doc): @quake
@@ -170,7 +172,14 @@ impl ChainDB {
         db_txn.insert_block_epoch_index(&genesis_hash, &last_block_hash_in_previous_epoch)?;
         db_txn.insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch)?;
         db_txn.attach_block(genesis)?;
+
+        let mut mmr = ChainRootMMR::new(0, &db_txn);
+        mmr.push(genesis.digest())
+            .map_err(|e| InternalErrorKind::MMR.other(e))?;
+        mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
+
         db_txn.commit()?;
+
         Ok(())
     }
 }

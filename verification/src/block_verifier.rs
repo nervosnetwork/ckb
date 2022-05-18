@@ -253,8 +253,8 @@ impl BlockExtensionVerifier {
         let hardfork_switch = self.consensus.hardfork_switch();
         let extra_fields_count = block.data().count_extra_fields();
 
-        let mmr_activated_number = self.consensus.mmr_activated_number();
-        let has_chain_root = block.number() > mmr_activated_number;
+        let mmr_activated_number = self.consensus.hardfork_switch().mmr_activated_number();
+        let has_chain_root = block.number() >= mmr_activated_number;
 
         match extra_fields_count {
             0 => {

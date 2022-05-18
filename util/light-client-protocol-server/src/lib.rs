@@ -85,11 +85,8 @@ impl LightClientProtocol {
         message: packed::LightClientMessageUnionReader<'_>,
     ) -> Status {
         match message {
-            packed::LightClientMessageUnionReader::GetChainInfo(reader) => {
-                components::GetChainInfoProcess::new(reader, self, peer, nc).execute()
-            }
-            packed::LightClientMessageUnionReader::GetLastHeader(reader) => {
-                components::GetLastHeaderProcess::new(reader, self, peer, nc).execute()
+            packed::LightClientMessageUnionReader::GetLastState(reader) => {
+                components::GetLastStateProcess::new(reader, self, peer, nc).execute()
             }
             packed::LightClientMessageUnionReader::GetBlockProof(reader) => {
                 components::GetBlockProofProcess::new(reader, self, peer, nc).execute()

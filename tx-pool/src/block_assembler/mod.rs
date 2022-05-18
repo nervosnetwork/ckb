@@ -486,9 +486,9 @@ impl BlockAssembler {
         let tip_header = snapshot.tip_header();
 
         let candidate_number = tip_header.number() + 1;
-        let mmr_activated_number = consensus.mmr_activated_number();
-        if candidate_number > mmr_activated_number {
-            let mmr_size = leaf_index_to_mmr_size(candidate_number - mmr_activated_number - 1);
+        let mmr_activated_number = consensus.hardfork_switch().mmr_activated_number();
+        if candidate_number >= mmr_activated_number {
+            let mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
             let mmr = ChainRootMMR::new(mmr_size, snapshot);
             let chain_root = mmr
                 .get_root()
