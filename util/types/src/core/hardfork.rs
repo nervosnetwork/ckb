@@ -1,12 +1,13 @@
 //! Hard forks related types.
 
-use crate::core::EpochNumber;
+use crate::core::{BlockNumber, EpochNumber};
 
 // Defines all methods for a feature.
 macro_rules! define_methods {
-    ($feature:ident, $name_getter:ident,
+    (epoch, $feature:ident, $name_getter:ident,
      $name_if_enabled:ident, $name_disable:ident, $rfc_name:literal) => {
         define_methods!(
+            EpochNumber,
             $feature,
             $name_getter,
             $name_if_enabled,
@@ -48,45 +49,101 @@ macro_rules! define_methods {
             )
         );
     };
-    ($feature:ident, $name_getter_alias:ident,
+    (block, $feature:ident, $name_getter:ident,
+     $name_if_enabled:ident, $name_disable:ident, $rfc_name:literal) => {
+        define_methods!(
+            BlockNumber,
+            $feature,
+            $name_getter,
+            $name_if_enabled,
+            $name_disable,
+            concat!(
+                "Return the first block number when the [",
+                $rfc_name,
+                "](struct.HardForkSwitchBuilder.html#structfield.",
+                stringify!($feature),
+                ") is enabled."
+            ),
+            concat!(
+                "An alias for the method [",
+                stringify!($feature),
+                "(&self)](#method.",
+                stringify!($feature),
+                ") to let the code to be more readable."
+            ),
+            concat!(
+                "If the [",
+                $rfc_name,
+                "](struct.HardForkSwitchBuilder.html#structfield.",
+                stringify!($feature),
+                ") is enabled at the provided block."
+            ),
+            concat!(
+                "Set the first block number of the [",
+                $rfc_name,
+                "](struct.HardForkSwitchBuilder.html#structfield.",
+                stringify!($feature),
+                ")."
+            ),
+            concat!(
+                "Never enable the [",
+                $rfc_name,
+                "](struct.HardForkSwitchBuilder.html#structfield.",
+                stringify!($feature),
+                ")."
+            )
+        );
+    };
+    ($feature:ident, $name_getter:ident,
+     $name_if_enabled:ident, $name_disable:ident, $rfc_name:literal) => {
+        define_methods!(
+            epoch,
+            $feature,
+            $name_getter,
+            $name_if_enabled,
+            $name_disable,
+            $rfc_name
+        );
+    };
+    ($switch_type:ty, $feature:ident, $name_getter_alias:ident,
      $name_if_enabled:ident, $name_disable:ident,
      $comment_getter:expr,$comment_getter_alias:expr, $comment_if_enabled:expr,
      $comment_setter:expr, $comment_disable:expr) => {
         impl HardForkSwitch {
             #[doc = $comment_getter]
             #[inline]
-            pub fn $feature(&self) -> EpochNumber {
+            pub fn $feature(&self) -> $switch_type {
                 self.$feature
             }
             #[doc = $comment_getter_alias]
             #[inline]
-            pub fn $name_getter_alias(&self) -> EpochNumber {
+            pub fn $name_getter_alias(&self) -> $switch_type {
                 self.$feature
             }
             #[doc = $comment_if_enabled]
             #[inline]
-            pub fn $name_if_enabled(&self, epoch_number: EpochNumber) -> bool {
-                epoch_number >= self.$feature
+            pub fn $name_if_enabled(&self, value: $switch_type) -> bool {
+                value >= self.$feature
             }
         }
         impl HardForkSwitchBuilder {
             #[doc = $comment_setter]
             #[inline]
-            pub fn $feature(mut self, epoch_number: EpochNumber) -> Self {
-                self.$feature = Some(epoch_number);
+            pub fn $feature(mut self, value: $switch_type) -> Self {
+                self.$feature = Some(value);
                 self
             }
             #[doc = $comment_disable]
             #[inline]
             pub fn $name_disable(mut self) -> Self {
-                self.$feature = Some(EpochNumber::MAX);
+                self.$feature = Some(<$switch_type>::MAX);
                 self
             }
         }
     };
 }
 
-/// A switch to select hard fork features base on the epoch number.
+/// A switch to select hard fork features base on the epoch or block number.
 ///
 /// For safety, all fields are private and not allowed to update.
 /// This structure can only be constructed by [`HardForkSwitchBuilder`].
@@ -101,6 +158,9 @@ pub struct HardForkSwitch {
     rfc_0032: EpochNumber,
     rfc_0036: EpochNumber,
     rfc_0038: EpochNumber,
+
+    // TODO(light-client) update the description
+    rfc_tmp1: BlockNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -147,6 +207,9 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: CKB RFC 0038
     pub rfc_0038: Option<EpochNumber>,
+
+    // TODO(light-client) update the description and the rfc link
+    pub rfc_tmp1: Option<BlockNumber>,
 }
 
 impl HardForkSwitch {
@@ -165,6 +228,7 @@ impl HardForkSwitch {
             .rfc_0032(self.rfc_0032())
             .rfc_0036(self.rfc_0036())
             .rfc_0038(self.rfc_0038())
+            .rfc_tmp1(self.rfc_tmp1())
     }
 
     /// Creates a new instance that all hard fork features are disabled forever.
@@ -178,6 +242,7 @@ impl HardForkSwitch {
             .disable_rfc_0032()
             .disable_rfc_0036()
             .disable_rfc_0038()
+            .disable_rfc_tmp1()
             .build()
             .unwrap()
     }
@@ -244,6 +309,14 @@ define_methods!(
     disable_rfc_0038,
     "RFC PR 0038"
 );
+define_methods!(
+    block,
+    rfc_tmp1,
+    mmr_activated_number,
+    is_mmr_activated_number_enabled,
+    disable_rfc_tmp1,
+    "RFC TMP1"
+);
 
 impl HardForkSwitchBuilder {
     /// Build a new [`HardForkSwitch`].
@@ -267,6 +340,7 @@ impl HardForkSwitchBuilder {
         let rfc_0032 = try_find!(rfc_0032);
         let rfc_0036 = try_find!(rfc_0036);
         let rfc_0038 = try_find!(rfc_0038);
+        let rfc_tmp1 = try_find!(rfc_tmp1);
 
         Ok(HardForkSwitch {
             rfc_0028,
@@ -276,6 +350,7 @@ impl HardForkSwitchBuilder {
             rfc_0032,
             rfc_0036,
             rfc_0038,
+            rfc_tmp1,
         })
     }
 }

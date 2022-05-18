@@ -22,10 +22,14 @@ pub enum StatusCode {
     /// Unexpected light-client protocol message.
     UnexpectedProtocolMessage = 401,
 
+    /// The request data is incorrect.
+    InvalidRequest = 410,
     /// The last block sent from client is invalid.
     InvalidLastBlock = 411,
     /// At least one unconfirmed block sent from client is invalid.
     InvalidUnconfirmedBlock = 412,
+    /// The difficulty boundary is not in the provided block range.
+    InvaildDifficultyBoundary = 413,
 
     /// Throws an internal error.
     InternalError = 500,

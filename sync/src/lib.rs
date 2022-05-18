@@ -21,7 +21,7 @@ pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::status::{Status, StatusCode};
 pub use crate::synchronizer::Synchronizer;
-pub use crate::types::SyncShared;
+pub use crate::types::{ActiveChain, SyncShared};
 use ckb_constant::sync::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 
 // Time recording window size, ibd period scheduler dynamically adjusts frequency

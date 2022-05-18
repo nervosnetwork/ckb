@@ -258,8 +258,8 @@ impl<'a> BlockExtensionVerifier<'a> {
         let is_reuse_uncles_hash_as_extra_hash_enabled =
             hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number);
 
-        let mmr_activated_number = self.consensus.mmr_activated_number();
-        let has_chain_root = block.number() > mmr_activated_number;
+        let mmr_activated_number = self.consensus.hardfork_switch().mmr_activated_number();
+        let has_chain_root = block.number() >= mmr_activated_number;
 
         if is_reuse_uncles_hash_as_extra_hash_enabled {
             match extra_fields_count {

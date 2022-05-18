@@ -1133,7 +1133,8 @@ pub trait ChainRpc {
     ///             { "rfc": "0031", "epoch_number": null },
     ///             { "rfc": "0032", "epoch_number": null },
     ///             { "rfc": "0036", "epoch_number": null },
-    ///             { "rfc": "0038", "epoch_number": null }
+    ///             { "rfc": "0038", "epoch_number": null },
+    ///             { "rfc": "tmp1", "block_number": null }
     ///         ],
     ///         "id": "main",
     ///         "initial_primary_epoch_reward": "0x71afd498d000",
