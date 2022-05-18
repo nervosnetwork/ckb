@@ -7,7 +7,10 @@ use crate::{
     calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
-use ckb_constant::hardfork::{mainnet, testnet};
+use ckb_constant::{
+    consensus::TAU,
+    hardfork::{mainnet, testnet},
+};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
@@ -43,9 +46,6 @@ pub(crate) const CELLBASE_MATURITY: EpochNumberWithFraction =
     EpochNumberWithFraction::new_unchecked(4, 0, 1);
 
 const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
-
-// dampening factor
-const TAU: u64 = 2;
 
 // We choose 1_000 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
 // can divide INITIAL_PRIMARY_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
@@ -978,7 +978,6 @@ impl NextBlockEpoch {
 
 impl From<Consensus> for ckb_jsonrpc_types::Consensus {
     fn from(consensus: Consensus) -> Self {
-        let mmr_activated_number = consensus.mmr_activated_number();
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
@@ -1017,7 +1016,6 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
             hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
                 &consensus.hardfork_switch,
             ),
-            mmr_activated_number: mmr_activated_number.into(),
         }
     }
 }

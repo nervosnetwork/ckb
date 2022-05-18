@@ -1,7 +1,8 @@
 //! Types for variable difficulty Merkle Mountain Range (MMR) in CKB.
 //!
-//! Since CKB doesn't record MMR data in headers since the genesis block, so the index of MMR leaf
-//! is NOT equal to the block number.
+//! Since CKB doesn't record MMR data in headers since the genesis block, we use an activation
+//! block number to enable MMR and create all MMR nodes before that block to make sure that the
+//! index of MMR leaf is EQUAL to the block number.
 //!
 //! ```
 //!          height                position
@@ -21,17 +22,31 @@
 //!                       / \     / \     / \    /  \    /  \
 //!             0        0   1   3   4   7   8  10  11  15  16   18
 //!         --------------------------------------------------------
-//! index                0   1   2   3   4   5   6   7   8   9   10
+//! index                0   1   2   3   4   5   6   7   8   9   10 ... N
 //!         --------------------------------------------------------
-//! number               N  N+1 N+2 N+3 N+4 N+5 N+6 N+7 N+8 N+9 N+10
+//! number               0   1   2   3   4   5   6   7   8   9   10 ... N
 //!         --------------------------------------------------------
 //! ```
 //!
 //! - `height`: the MMR node height.
 //! - `position`: the MMR node position.
-//! - `index`: the MMR leaf index.
+//! - `index`: the MMR leaf index; same as the block height.
 //! - `number`: the block height.
 //! - `N`: the activation block number; the block number of the last block which doesn't records MMR root hash.
+//!
+//! There are three kind of blocks base on its MMR data:
+//!
+//! - The genesis block
+//!
+//!   First node, also first leaf node in MMR; no chain root;
+//!
+//! - The blocks which height is less than `N`
+//!
+//!   No chain root in blocks but store them in database.
+//!
+//! - The blocks which height is equal to or greater than `N`
+//!
+//!   Has chain root in blocks.
 //!
 //! There are two kinds of MMR nodes: leaf node and non-leaf node.
 //!
@@ -43,33 +58,56 @@
 //!
 //!   - For non-leaf node, it's the hash of it's child nodes' hashes (concatenate serialized data).
 //!
-//! - `blocks_count`
-//!
-//!   - For leaf node, it's `1`.
-//!
-//!   - For non-leaf node, it's the sum of `blocks_count` in it's child nodes.
-//!
 //! - `total_difficulty`
 //!
-//!   - For leaf node, it's the difficulty it took to mine the current block.
+//!  - For leaf node, it's the difficulty it took to mine the current block.
 //!
-//!   - For non-leaf node, it's the sum of `total_difficulty` in it's child nodes.
+//!  - For non-leaf node, it's the sum of `total_difficulty` in it's child nodes.
 //!
-//! TODO(light-client) Add more fields in MMR node.
+//! - `start_*`
+//!
+//!   Such as `start_number`, `start_epoch`, `start_timestamp`, `start_compact_target`.
+//!
+//!   - For leaf node, it's the data of current block.
+//!
+//!   - For non-leaf node, it's the `start_*` of left node.
+//!
+//! - `end_*`
+//!
+//!   Such as `end_number`, `end_epoch`, `end_timestamp`, `end_compact_target`.
+//!
+//!   - For leaf node, it's the data of current block.
+//!
+//!   - For non-leaf node, it's the `end_*` of right node.
 //!
 //! ## References
 //!
 //! - [Peter Todd, Merkle mountain range.](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md).
 
 use ckb_hash::new_blake2b;
-use ckb_merkle_mountain_range::{Error, Merge, MerkleProof, MMR};
+use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as MMRResult, MMR};
 
-use crate::{core, packed, prelude::*, U256};
+use crate::{
+    core,
+    core::{BlockNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
+    packed,
+    prelude::*,
+    utilities::compact_to_difficulty,
+    U256,
+};
 
 pub struct MergeHeaderDigest;
 
 pub type ChainRootMMR<S> = MMR<packed::HeaderDigest, MergeHeaderDigest, S>;
 pub type MMRProof = MerkleProof<packed::HeaderDigest, MergeHeaderDigest>;
+
+/// A Header and the fields which are used to do verification for its extra hash.
+#[derive(Debug, Clone)]
+pub struct VerifiableHeader {
+    header: HeaderView,
+    uncles_hash: packed::Byte32,
+    extension: Option<packed::Bytes>,
+}
 
 impl core::BlockView {
     pub fn digest(&self) -> packed::HeaderDigest {
@@ -87,15 +125,85 @@ impl packed::Header {
     pub fn digest(&self) -> packed::HeaderDigest {
         let raw = self.raw();
         packed::HeaderDigest::new_builder()
-            .blocks_count(1u64.pack())
-            .total_difficulty(raw.difficulty().pack())
+            .total_difficulty(self.difficulty().pack())
+            .start_number(raw.number())
+            .end_number(raw.number())
+            .start_epoch(raw.epoch())
+            .end_epoch(raw.epoch())
+            .start_timestamp(raw.timestamp())
+            .end_timestamp(raw.timestamp())
+            .start_compact_target(raw.compact_target())
+            .end_compact_target(raw.compact_target())
             .build()
+    }
+}
+
+impl packed::HeaderDigest {
+    pub fn verify(&self) -> Result<(), String> {
+        // 1. Check block numbers.
+        let start_number: BlockNumber = self.start_number().unpack();
+        let end_number: BlockNumber = self.end_number().unpack();
+        if start_number > end_number {
+            let errmsg = format!(
+                "failed since the start block number is bigger than the end ([{},{}])",
+                start_number, end_number
+            );
+            return Err(errmsg);
+        }
+
+        // 2. Check epochs.
+        let start_epoch: EpochNumberWithFraction = self.start_epoch().unpack();
+        let end_epoch: EpochNumberWithFraction = self.end_epoch().unpack();
+        let start_epoch_number = start_epoch.number();
+        let end_epoch_number = end_epoch.number();
+        if start_epoch != end_epoch
+            && ((start_epoch_number > end_epoch_number)
+                || (start_epoch_number == end_epoch_number
+                    && start_epoch.index() > end_epoch.index()))
+        {
+            let errmsg = format!(
+                "failed since the start epoch is bigger than the end ([{:#},{:#}])",
+                start_epoch, end_epoch
+            );
+            return Err(errmsg);
+        }
+
+        // 3. Check difficulties when in the same epoch.
+        let start_compact_target: u32 = self.start_compact_target().unpack();
+        let end_compact_target: u32 = self.end_compact_target().unpack();
+        let total_difficulty: U256 = self.total_difficulty().unpack();
+        if start_epoch_number == end_epoch_number {
+            if start_compact_target != end_compact_target {
+                // In the same epoch, all compact targets should be same.
+                let errmsg = format!(
+                    "failed since the compact targets should be same during epochs ([{:#},{:#}])",
+                    start_epoch, end_epoch
+                );
+                return Err(errmsg);
+            } else {
+                // Sum all blocks difficulties to check total difficulty.
+                let blocks_count = end_number - start_number + 1;
+                let block_difficulty = compact_to_difficulty(start_compact_target);
+                let total_difficulty_calculated = block_difficulty * blocks_count;
+                if total_difficulty != total_difficulty_calculated {
+                    let errmsg = format!(
+                        "failed since total difficulty is {} but the calculated is {} \
+                        during epochs ([{:#},{:#}])",
+                        total_difficulty, total_difficulty_calculated, start_epoch, end_epoch
+                    );
+                    return Err(errmsg);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
 impl Merge for MergeHeaderDigest {
     type Item = packed::HeaderDigest;
-    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Result<Self::Item, Error> {
+
+    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> MMRResult<Self::Item> {
         let hash = {
             let mut hasher = new_blake2b();
             let mut hash = [0u8; 32];
@@ -104,20 +212,161 @@ impl Merge for MergeHeaderDigest {
             hasher.finalize(&mut hash);
             hash
         };
-        let blocks_count = {
-            let l: u64 = lhs.blocks_count().unpack();
-            let r: u64 = rhs.blocks_count().unpack();
-            l + r
-        };
+
         let total_difficulty = {
             let l: U256 = lhs.total_difficulty().unpack();
             let r: U256 = rhs.total_difficulty().unpack();
             l + r
         };
+
+        // 1. Check block numbers.
+        let lhs_end_number: BlockNumber = lhs.end_number().unpack();
+        let rhs_start_number: BlockNumber = rhs.start_number().unpack();
+        if lhs_end_number + 1 != rhs_start_number {
+            let errmsg = format!(
+                "failed since the blocks isn't continuous ([-,{}], [{},-])",
+                lhs_end_number, rhs_start_number
+            );
+            return Err(MMRError::MergeError(errmsg));
+        }
+
+        // 2. Check epochs.
+        let lhs_end_epoch: EpochNumberWithFraction = lhs.end_epoch().unpack();
+        let rhs_start_epoch: EpochNumberWithFraction = rhs.start_epoch().unpack();
+        if !rhs_start_epoch.is_successor_of(lhs_end_epoch) && !lhs_end_epoch.is_genesis() {
+            let errmsg = format!(
+                "failed since the epochs isn't continuous ([-,{:#}], [{:#},-])",
+                lhs_end_epoch, rhs_start_epoch
+            );
+            return Err(MMRError::MergeError(errmsg));
+        }
+
+        // 3. Check difficulties when in the same epoch.
+        let lhs_end_compact_target: u32 = lhs.end_compact_target().unpack();
+        let rhs_start_compact_target: u32 = rhs.start_compact_target().unpack();
+        if lhs_end_epoch.number() == rhs_start_epoch.number()
+            && lhs_end_compact_target != rhs_start_compact_target
+        {
+            // In the same epoch, all compact targets should be same.
+            let errmsg = format!(
+                "failed since the compact targets should be same for epochs ([-,{:#}], [{:#},-])",
+                lhs_end_epoch, rhs_start_epoch
+            );
+            return Err(MMRError::MergeError(errmsg));
+        }
+
         Ok(Self::Item::new_builder()
             .hash(hash.pack())
-            .blocks_count(blocks_count.pack())
             .total_difficulty(total_difficulty.pack())
+            .start_number(lhs.start_number())
+            .start_epoch(lhs.start_epoch())
+            .start_timestamp(lhs.start_timestamp())
+            .start_compact_target(lhs.start_compact_target())
+            .end_number(rhs.end_number())
+            .end_epoch(rhs.end_epoch())
+            .end_timestamp(rhs.end_timestamp())
+            .end_compact_target(rhs.end_compact_target())
             .build())
+    }
+
+    fn merge_peaks(lhs: &Self::Item, rhs: &Self::Item) -> MMRResult<Self::Item> {
+        Self::merge(rhs, lhs)
+    }
+}
+
+impl PartialEq for VerifiableHeader {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+            && self.uncles_hash == other.uncles_hash
+            && self.extension.is_none() == other.extension.is_none()
+            && (self.extension.is_none()
+                || self
+                    .extension
+                    .as_ref()
+                    .expect("checked: is not none")
+                    .as_slice()
+                    == other
+                        .extension
+                        .as_ref()
+                        .expect("checked: is not none")
+                        .as_slice())
+    }
+}
+
+impl Eq for VerifiableHeader {}
+
+impl From<packed::VerifiableHeader> for VerifiableHeader {
+    fn from(raw: packed::VerifiableHeader) -> Self {
+        Self::new(
+            raw.header().into_view(),
+            raw.uncles_hash(),
+            raw.extension().to_opt(),
+        )
+    }
+}
+
+impl VerifiableHeader {
+    /// Creates a new verifiable header.
+    pub fn new(
+        header: HeaderView,
+        uncles_hash: packed::Byte32,
+        extension: Option<packed::Bytes>,
+    ) -> Self {
+        Self {
+            header,
+            uncles_hash,
+            extension,
+        }
+    }
+
+    /// Checks if the current verifiable header is valid.
+    pub fn is_valid(
+        &self,
+        mmr_activated_number: BlockNumber,
+        expected_root_hash_opt: Option<&packed::Byte32>,
+    ) -> bool {
+        let has_chain_root = self.header().number() >= mmr_activated_number;
+        if has_chain_root
+            && !self
+                .extension()
+                .map(|extension| {
+                    let actual_extension_data = extension.raw_data();
+                    if actual_extension_data.len() < 32
+                        || expected_root_hash_opt
+                            .map(|hash| &actual_extension_data.slice(..32) != hash.as_slice())
+                            .unwrap_or(false)
+                    {
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .unwrap_or(false)
+        {
+            return false;
+        }
+        let expected_extension_hash = self
+            .extension()
+            .map(|extension| extension.calc_raw_data_hash());
+        let extra_hash_view = ExtraHashView::new(self.uncles_hash(), expected_extension_hash);
+        let expected_extra_hash = extra_hash_view.extra_hash();
+        let actual_extra_hash = self.header().extra_hash();
+        expected_extra_hash == actual_extra_hash
+    }
+
+    /// Returns the header.
+    pub fn header(&self) -> &HeaderView {
+        &self.header
+    }
+
+    /// Returns the uncles hash.
+    pub fn uncles_hash(&self) -> packed::Byte32 {
+        self.uncles_hash.clone()
+    }
+
+    /// Returns the extension.
+    pub fn extension(&self) -> Option<packed::Bytes> {
+        self.extension.clone()
     }
 }

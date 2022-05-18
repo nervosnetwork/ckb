@@ -486,6 +486,11 @@ impl EpochNumberWithFraction {
         }
     }
 
+    /// Check if current value is the genesis block.
+    pub fn is_genesis(&self) -> bool {
+        self.number() == 0 && self.index() == 0 && self.length() == 0
+    }
+
     /// Check if current value is another value's successor.
     pub fn is_successor_of(self, predecessor: Self) -> bool {
         if predecessor.index() + 1 == predecessor.length() {

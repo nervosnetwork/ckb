@@ -714,8 +714,8 @@ impl ChainService {
         }
 
         let consensus = self.shared.consensus();
-        let mmr_activated_number = consensus.mmr_activated_number();
-        let mut activated_attached_blocks = attached_blocks
+        let mmr_activated_number = consensus.hardfork_switch().mmr_activated_number();
+        let activated_attached_blocks = attached_blocks
             .iter()
             .skip_while(|b| b.number() < mmr_activated_number)
             .collect::<Vec<_>>();
@@ -725,34 +725,31 @@ impl ChainService {
         }
 
         let start_block_header = activated_attached_blocks[0].header();
-        let mut mmr = if start_block_header.number() == mmr_activated_number {
-            trace!("light-client: initialize the chain root MMR");
-            let mut mmr = ChainRootMMR::new(0, txn);
-            mmr.push(start_block_header.digest())
-                .map_err(|e| InternalErrorKind::MMR.other(e))?;
 
-            activated_attached_blocks.remove(0);
-
-            mmr
-        } else {
-            let mmr_size =
-                leaf_index_to_mmr_size(start_block_header.number() - mmr_activated_number - 1);
-            trace!("light-client: new chain root MMR with size = {}", mmr_size);
-            ChainRootMMR::new(mmr_size, txn)
-        };
+        let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
+        trace!("light-client: new chain root MMR with size = {}", mmr_size);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn);
 
         for block in &activated_attached_blocks {
-            trace!("light-client: attach block#{}", block.number());
-            let chain_root = mmr
-                .get_root()
-                .map_err(|e| InternalErrorKind::MMR.other(e))?;
-            let actual_root_hash = chain_root.calc_mmr_hash();
-            let extension = block
-                .extension()
-                .expect("should be checked in BlockVerifier/BlockExtensionVerifier");
-            let expected_root_hash = Byte32::new_unchecked(extension.raw_data().slice(..32));
-            if actual_root_hash != expected_root_hash {
-                return Err(BlockErrorKind::InvalidChainRoot.into());
+            let block_number = block.number();
+            let has_chain_root = block_number >= mmr_activated_number;
+            trace!(
+                "light-client: attach block#{} (chain root: {})",
+                block_number,
+                has_chain_root
+            );
+            if has_chain_root {
+                let chain_root = mmr
+                    .get_root()
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let actual_root_hash = chain_root.calc_mmr_hash();
+                let extension = block
+                    .extension()
+                    .expect("should be checked in BlockVerifier/BlockExtensionVerifier");
+                let expected_root_hash = Byte32::new_unchecked(extension.raw_data().slice(..32));
+                if actual_root_hash != expected_root_hash {
+                    return Err(BlockErrorKind::InvalidChainRoot.into());
+                }
             }
             mmr.push(block.digest())
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
