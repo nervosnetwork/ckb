@@ -24,7 +24,6 @@ ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.104.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.104.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.104.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.104.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.104.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.104.0-pre" }
 ckb-logger-config = { path = "../util/logger-config", version = "= 0.104.0-pre" }
 ckb-logger-service = { path = "../util/logger-service", version = "= 0.104.0-pre" }

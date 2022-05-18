@@ -10,9 +10,11 @@ use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
+use std::time::Duration;
 
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
+const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The executable main entry.
 ///
@@ -56,7 +58,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
-    let (handle, mut rt_stop) = new_global_runtime();
+    let (handle, runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
@@ -75,7 +77,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         _ => unreachable!(),
     };
 
-    rt_stop.try_send(());
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
     ret
 }
 
