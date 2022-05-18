@@ -5,7 +5,7 @@
 use crate::migrate::Migrate;
 use ckb_app_config::ExitCode;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
-use ckb_async_runtime::{new_global_runtime, Handle};
+use ckb_async_runtime::{new_global_runtime, Handle, Runtime};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_channel::Receiver;
@@ -19,7 +19,6 @@ use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_shared::Shared;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
-use ckb_stop_handler::StopHandler;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
 use ckb_tx_pool::{
@@ -150,7 +149,7 @@ impl SharedBuilder {
 
         thread_local! {
             static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
-            static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
+            static RUNTIME_HANDLE: unsync::OnceCell<(Handle, Runtime)> = unsync::OnceCell::new();
         }
 
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
