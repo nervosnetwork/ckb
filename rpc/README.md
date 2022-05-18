@@ -4917,7 +4917,7 @@ Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/
 
 *   Type “data” matches script code via cell data hash, and run the script code in v0 CKB VM.
 *   Type “type” matches script code via cell type script hash.
-*   Type “data” matches script code via cell data hash, and run the script code in v1 CKB VM.
+*   Type “data1” matches script code via cell data hash, and run the script code in v1 CKB VM.
 
 
 ### Type `SerializedBlock`
