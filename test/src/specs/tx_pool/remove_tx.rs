@@ -20,7 +20,7 @@ impl Spec for RemoveTx {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 

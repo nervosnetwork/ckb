@@ -73,7 +73,6 @@ pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
-    v2: bool,
 }
 
 impl Relayer {
@@ -89,14 +88,7 @@ impl Relayer {
             chain,
             shared,
             rate_limiter,
-            v2: false,
         }
-    }
-
-    /// set relay to v2
-    pub fn v2(mut self) -> Self {
-        self.v2 = true;
-        self
     }
 
     /// Get shared state
@@ -129,14 +121,6 @@ impl Relayer {
                 CompactBlockProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
-                // after ckb2021, v1 doesn't work with relay tx
-                // before ckb2021, v2 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v2) {
-                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ignored()
-                    }
-                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
-                }
                 if reader.check_data() {
                     TransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
@@ -145,25 +129,9 @@ impl Relayer {
                 }
             }
             packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
-                // after ckb2021, v1 doesn't work with relay tx
-                // before ckb2021, v2 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v2) {
-                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ignored()
-                    }
-                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
-                }
                 TransactionHashesProcess::new(reader, self, peer).execute()
             }
             packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
-                // after ckb2021, v1 doesn't work with relay tx
-                // before ckb2021, v2 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v2) {
-                    RelaySwitch::Ckb2021RelayV1 | RelaySwitch::Ckb2019RelayV2 => {
-                        return Status::ignored()
-                    }
-                    RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
-                }
                 GetTransactionsProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
@@ -201,7 +169,7 @@ impl Relayer {
             "ckb.messages_bytes",
             item_bytes,
             "direction" => "in",
-            "protocol_id" => SupportProtocols::Relay.protocol_id().value().to_string(),
+            "protocol_id" => SupportProtocols::RelayV2.protocol_id().value().to_string(),
             "item_id" => message.item_id().to_string(),
             "status" => (status.code() as u16).to_string(),
         );
@@ -630,7 +598,6 @@ impl Relayer {
             return;
         }
 
-        let ckb2021 = nc.ckb2021();
         let tx_verify_results = self
             .shared
             .state()
@@ -641,14 +608,8 @@ impl Relayer {
                 match tx_verify_result {
                     TxVerificationResult::Ok {
                         original_peer,
-                        with_vm_2021,
                         tx_hash,
                     } => {
-                        // must all fork or all no-fork
-                        if ckb2021 != with_vm_2021 {
-                            continue;
-                        }
-
                         for target in &connected_peers {
                             match original_peer {
                                 Some(peer) => {
@@ -837,32 +798,6 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
-        match RelaySwitch::new(&nc, self.v2) {
-            RelaySwitch::Ckb2019RelayV2 => return,
-            RelaySwitch::Ckb2021RelayV1 => {
-                if nc.remove_notify(TX_PROPOSAL_TOKEN).is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
-                }
-                if nc.remove_notify(ASK_FOR_TXS_TOKEN).is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
-                }
-                if nc.remove_notify(TX_HASHES_TOKEN).is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
-                }
-                if nc.remove_notify(SEARCH_ORPHAN_POOL_TOKEN).is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
-                }
-                for kv_pair in self.shared().state().peers().state.iter() {
-                    let (peer, state) = kv_pair.pair();
-                    if !state.peer_flags.is_2021edition {
-                        let _ignore = nc.disconnect(*peer, "Evict low-version clients ");
-                    }
-                }
-                return;
-            }
-            RelaySwitch::Ckb2021RelayV2 | RelaySwitch::Ckb2019RelayV1 => (),
-        }
-
         let start_time = Instant::now();
         trace_target!(crate::LOG_TARGET_RELAY, "start notify token={}", token);
         match token {
@@ -887,24 +822,5 @@ impl CKBProtocolHandler for Relayer {
             token,
             Instant::now().saturating_duration_since(start_time)
         );
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-enum RelaySwitch {
-    Ckb2019RelayV1,
-    Ckb2019RelayV2,
-    Ckb2021RelayV1,
-    Ckb2021RelayV2,
-}
-
-impl RelaySwitch {
-    fn new(nc: &Arc<dyn CKBProtocolContext + Sync>, is_relay_v2: bool) -> Self {
-        match (nc.ckb2021(), is_relay_v2) {
-            (true, true) => Self::Ckb2021RelayV2,
-            (true, false) => Self::Ckb2021RelayV1,
-            (false, true) => Self::Ckb2019RelayV2,
-            (false, false) => Self::Ckb2019RelayV1,
-        }
     }
 }

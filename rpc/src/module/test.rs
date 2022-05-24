@@ -474,7 +474,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             let message = packed::RelayMessage::new_builder().set(content).build();
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+                .quick_broadcast(SupportProtocols::RelayV2.protocol_id(), message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }
@@ -614,7 +614,7 @@ impl IntegrationTestRpcImpl {
         // announce new block
         if let Err(err) = self
             .network_controller
-            .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+            .quick_broadcast(SupportProtocols::RelayV2.protocol_id(), message.as_bytes())
         {
             error!("Broadcast new block failed: {:?}", err);
         }

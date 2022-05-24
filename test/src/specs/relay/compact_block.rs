@@ -30,7 +30,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
@@ -47,7 +47,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
         let tip_block = node.get_tip_block();
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&parent_unknown_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() != tip_block);
@@ -75,14 +75,14 @@ impl Spec for CompactBlockEmpty {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
         let new_empty_block = node.new_block(None, None, None);
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&new_empty_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_empty_block);
@@ -100,7 +100,7 @@ impl Spec for CompactBlockPrefilled {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
@@ -121,7 +121,7 @@ impl Spec for CompactBlockPrefilled {
             .build();
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block_with_prefilled(&new_block, vec![1]),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
@@ -144,7 +144,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
@@ -165,7 +165,7 @@ impl Spec for CompactBlockMissingFreshTxs {
             .build();
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&new_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
@@ -202,7 +202,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
@@ -229,7 +229,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         // Relay the target block
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&new_block),
         );
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
@@ -275,13 +275,17 @@ impl Spec for CompactBlockMissingWithDropTx {
         // Put `new_tx` as an not fresh tx into tx_pool
         node.rpc_client().send_transaction(new_tx_1.data().into());
 
-        let mut net = Net::new(self.name(), node.consensus(), vec![SupportProtocols::Relay]);
+        let mut net = Net::new(
+            self.name(),
+            node.consensus(),
+            vec![SupportProtocols::RelayV2],
+        );
         net.connect(node);
 
         // Relay the target block
         net.send(
             node,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&new_block),
         );
 
@@ -317,7 +321,7 @@ impl Spec for CompactBlockMissingWithDropTx {
         let message = packed::RelayMessage::new_builder().set(content).build();
 
         // Send tx2 to node
-        net.send(node, SupportProtocols::Relay, message.as_bytes());
+        net.send(node, SupportProtocols::RelayV2, message.as_bytes());
 
         let ret = net.should_receive(node, |data| {
             RelayMessage::from_slice(data)
@@ -349,7 +353,7 @@ impl Spec for CompactBlockMissingWithDropTx {
         let message = packed::RelayMessage::new_builder().set(content).build();
 
         // send tx1 and tx2 to node
-        net.send(node, SupportProtocols::Relay, message.as_bytes());
+        net.send(node, SupportProtocols::RelayV2, message.as_bytes());
 
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
         assert!(ret, "Node should be able to reconstruct the block");
@@ -367,7 +371,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
         let node1 = &nodes[1];
@@ -397,7 +401,11 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 
         // Net send the compact block to node0, but dose not send the corresponding missing
         // block transactions. It will make node0 unable to reconstruct the complete block
-        net.send(node0, SupportProtocols::Relay, build_compact_block(&block));
+        net.send(
+            node0,
+            SupportProtocols::RelayV2,
+            build_compact_block(&block),
+        );
 
         let ret = net.should_receive(node0, |data: &Bytes| {
             let get_block_txns = RelayMessage::from_slice(data)
@@ -451,7 +459,7 @@ impl Spec for BlockTransactionsRelayParentOfOrphanBlock {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -496,7 +504,7 @@ impl Spec for BlockTransactionsRelayParentOfOrphanBlock {
         // the missing A.transactions via GetBlockTransactions
         net.send(
             node0,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&block_a),
         );
         let ret = net.should_receive(node0, |data| {
@@ -519,7 +527,7 @@ impl Spec for BlockTransactionsRelayParentOfOrphanBlock {
         // inserted in orphan_block_pool before
         net.send(
             node0,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_block_transactions(&block_a),
         );
 
@@ -560,7 +568,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -604,7 +612,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         // 2. Relay block_a's CompactBlock to node0
         net.send(
             node0,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&block_a),
         );
 
@@ -634,7 +642,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -656,7 +664,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         let new_block = node0.new_block(None, None, None);
         net.send(
             node0,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_compact_block(&new_block),
         );
         assert!(

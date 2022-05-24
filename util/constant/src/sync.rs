@@ -9,9 +9,9 @@ pub const MAX_HEADERS_LEN: usize = 2_000;
 
 /// The default number of download blocks that can be requested at one time
 /* About Download Scheduler */
-pub const INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
+
 /// ckb2021 edition new limit
-pub const NEW_INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 32;
+pub const INIT_BLOCKS_IN_TRANSIT_PER_PEER: usize = 32;
 /// Maximum number of download blocks that can be requested at one time
 pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 128;
 /// The point at which the scheduler adjusts the number of tasks, by default one adjustment per 512 blocks.

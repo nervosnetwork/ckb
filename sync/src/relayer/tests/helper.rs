@@ -232,9 +232,6 @@ impl MockProtocolContext {
 }
 
 impl CKBProtocolContext for MockProtocolContext {
-    fn ckb2021(&self) -> bool {
-        false
-    }
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }

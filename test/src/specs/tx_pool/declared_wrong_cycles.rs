@@ -17,7 +17,7 @@ impl Spec for DeclaredWrongCycles {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -45,7 +45,7 @@ impl Spec for DeclaredWrongCyclesChunk {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -81,7 +81,7 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
 
         let tx = node0.new_transaction_spend_tip_cellbase();

@@ -55,7 +55,7 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
             .to_enum()
             .item_name()
             .to_owned()
-    } else if protocol_id == SupportProtocols::Relay.protocol_id() {
+    } else if protocol_id == SupportProtocols::RelayV2.protocol_id() {
         RelayMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()
@@ -70,7 +70,7 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
 fn item_id<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> u32 {
     if protocol_id == SupportProtocols::Sync.protocol_id() {
         SyncMessageReader::new_unchecked(message.as_slice()).item_id()
-    } else if protocol_id == SupportProtocols::Relay.protocol_id() {
+    } else if protocol_id == SupportProtocols::RelayV2.protocol_id() {
         RelayMessageReader::new_unchecked(message.as_slice()).item_id()
     } else {
         0

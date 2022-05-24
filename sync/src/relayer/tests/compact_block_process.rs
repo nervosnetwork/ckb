@@ -36,7 +36,7 @@ fn test_in_block_status_map() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
 
@@ -118,7 +118,7 @@ fn test_unknow_parent() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
 
@@ -171,7 +171,7 @@ fn test_accept_not_a_better_block() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
 
@@ -206,7 +206,7 @@ fn test_header_invalid() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
 
@@ -266,7 +266,7 @@ fn test_send_missing_indexes() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 100.into();
 
@@ -295,7 +295,7 @@ fn test_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc.has_sent(SupportProtocols::Relay.protocol_id(), peer_index, data));
+    assert!(nc.has_sent(SupportProtocols::RelayV2.protocol_id(), peer_index, data));
 
     // insert inflight proposal
     assert!(relayer
@@ -311,7 +311,7 @@ fn test_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send proposal request
-    assert!(nc.has_sent(SupportProtocols::Relay.protocol_id(), peer_index, data));
+    assert!(nc.has_sent(SupportProtocols::RelayV2.protocol_id(), peer_index, data));
 }
 
 #[test]
@@ -375,7 +375,7 @@ fn test_accept_block() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 100.into();
 
@@ -415,7 +415,7 @@ fn test_ignore_a_too_old_block() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
 
@@ -451,7 +451,7 @@ fn test_invalid_transaction_root() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 100.into();
 
@@ -526,7 +526,7 @@ fn test_collision() {
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 100.into();
 
@@ -554,5 +554,5 @@ fn test_collision() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc.has_sent(SupportProtocols::Relay.protocol_id(), peer_index, data));
+    assert!(nc.has_sent(SupportProtocols::RelayV2.protocol_id(), peer_index, data));
 }

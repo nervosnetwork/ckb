@@ -242,7 +242,7 @@ impl Spec for RelayWithWrongTx {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay, SupportProtocols::Sync],
+            vec![SupportProtocols::RelayV2, SupportProtocols::Sync],
         );
         net.connect(node0);
 

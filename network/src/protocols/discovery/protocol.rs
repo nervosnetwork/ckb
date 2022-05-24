@@ -1,45 +1,13 @@
-use p2p::{
-    bytes::{Bytes, BytesMut},
-    multiaddr::Multiaddr,
-};
-use tokio_util::codec::length_delimited::LengthDelimitedCodec;
-use tokio_util::codec::{Decoder, Encoder};
+use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
-use ckb_logger::debug;
 use ckb_types::{packed, prelude::*};
 
-pub(crate) fn encode(data: DiscoveryMessage, v2: bool) -> Bytes {
-    if v2 {
-        data.encode()
-    } else {
-        // Length Delimited Codec is not a mandatory requirement.
-        // For historical reasons, this must exist as compatibility
-        let mut codec = LengthDelimitedCodec::new();
-        let mut bytes = BytesMut::new();
-        codec
-            .encode(data.encode(), &mut bytes)
-            .expect("encode must be success");
-        bytes.freeze()
-    }
+pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
+    data.encode()
 }
 
-pub(crate) fn decode(data: &Bytes, v2: bool) -> Option<DiscoveryMessage> {
-    if v2 {
-        DiscoveryMessage::decode(data)
-    } else {
-        let mut data = BytesMut::from(data.as_ref());
-        // Length Delimited Codec is not a mandatory requirement.
-        // For historical reasons, this must exist as compatibility
-        let mut codec = LengthDelimitedCodec::new();
-        match codec.decode(&mut data) {
-            Ok(Some(frame)) => DiscoveryMessage::decode(&frame),
-            Ok(None) => None,
-            Err(err) => {
-                debug!("decode error: {:?}", err);
-                None
-            }
-        }
-    }
+pub(crate) fn decode(data: &Bytes) -> Option<DiscoveryMessage> {
+    DiscoveryMessage::decode(data)
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
