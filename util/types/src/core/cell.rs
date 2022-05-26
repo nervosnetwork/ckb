@@ -312,7 +312,6 @@ impl ResolvedTransaction {
         seen_inputs: &mut HashSet<OutPoint, S>,
         cell_checker: &CC,
         header_checker: &HC,
-        resolve_opts: ResolveOptions,
     ) -> Result<(), OutPointError> {
         let mut checked_cells: HashSet<OutPoint> = HashSet::new();
         let mut check_cell = |out_point: &OutPoint| -> Result<(), OutPointError> {
@@ -378,13 +377,7 @@ impl ResolvedTransaction {
         }
 
         for block_hash in self.transaction.header_deps_iter() {
-            let result = header_checker.check_valid(&block_hash);
-            if resolve_opts.if_skip_immature_header_deps_check() {
-                if let Err(OutPointError::ImmatureHeader(_)) = result {
-                    continue;
-                }
-            }
-            result?;
+            header_checker.check_valid(&block_hash)?
         }
 
         seen_inputs.extend(self.resolved_inputs.iter().map(|i| &i.out_point).cloned());
@@ -754,33 +747,12 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError
     Ok((dep_group_cell, resolved_deps))
 }
 
-/// **Deprecated** Use `resolve_transaction_with_options` instead of.
-///
-/// This function is only used to be compatible with the old unit tests.
-/// Please don't add more tests with this function.
-/// Then we could remove this function easier in future.
+/// Resolve all cell meta from db base on the transaction.
 pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-) -> Result<ResolvedTransaction, OutPointError> {
-    resolve_transaction_with_options(
-        transaction,
-        seen_inputs,
-        cell_provider,
-        header_checker,
-        ResolveOptions::new(),
-    )
-}
-
-/// Resolve all cell meta from db base on the transaction.
-pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
-    transaction: TransactionView,
-    seen_inputs: &mut HashSet<OutPoint, S>,
-    cell_provider: &CP,
-    header_checker: &HC,
-    resolve_opts: ResolveOptions,
 ) -> Result<ResolvedTransaction, OutPointError> {
     let (mut resolved_inputs, mut resolved_cell_deps, mut resolved_dep_groups) = (
         Vec::with_capacity(transaction.inputs().len()),
@@ -827,17 +799,10 @@ pub fn resolve_transaction_with_options<CP: CellProvider, HC: HeaderChecker, S: 
         &mut resolve_cell,
         &mut resolved_cell_deps,
         &mut resolved_dep_groups,
-        &resolve_opts,
     )?;
 
     for block_hash in transaction.header_deps_iter() {
-        let result = header_checker.check_valid(&block_hash);
-        if resolve_opts.if_skip_immature_header_deps_check() {
-            if let Err(OutPointError::ImmatureHeader(_)) = result {
-                continue;
-            }
-        }
-        result?;
+        header_checker.check_valid(&block_hash)?;
     }
 
     seen_inputs.extend(current_inputs);
@@ -856,29 +821,13 @@ fn resolve_transaction_deps_with_system_cell_cache<
     cell_resolver: &mut F,
     resolved_cell_deps: &mut Vec<CellMeta>,
     resolved_dep_groups: &mut Vec<CellMeta>,
-    resolve_opts: &ResolveOptions,
 ) -> Result<(), OutPointError> {
     // - If the dep expansion count of the transaction is not over the `MAX_DEP_EXPANSION_LIMIT`,
     //   it will always be accepted.
-    //
     // - If the dep expansion count of the transaction is over the `MAX_DEP_EXPANSION_LIMIT`, the
     //   behavior is as follow:
-    //
-    //   |           |     |                    in_block                     |
-    //   | Edition   | ban |-------------------------------------------------|
-    //   |           |     |          true          |         false          |
-    //   |-----------+-----+------------------------+------------------------|
-    //   | ckb v2019 | no  | accept the transaction | reject the transaction |
     //   | ckb v2021 | yes |             reject the transaction              |
-    let ban = resolve_opts.if_disallow_over_max_dep_expansion_limit();
-    let mut remaining_dep_slots = {
-        let in_block = resolve_opts.if_for_block_verification();
-        if in_block && !ban {
-            usize::MAX
-        } else {
-            MAX_DEP_EXPANSION_LIMIT
-        }
-    };
+    let mut remaining_dep_slots = MAX_DEP_EXPANSION_LIMIT;
     if let Some(system_cell) = SYSTEM_CELL.get() {
         for cell_dep in transaction.cell_deps_iter() {
             if let Some(resolved_dep) = system_cell.get(&cell_dep) {
@@ -887,14 +836,14 @@ fn resolve_transaction_deps_with_system_cell_cache<
                         resolved_cell_deps.push(cell_meta.clone());
                         remaining_dep_slots = remaining_dep_slots
                             .checked_sub(1)
-                            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+                            .ok_or(OutPointError::OverMaxDepExpansionLimit)?;
                     }
                     ResolvedDep::Group(dep_group, cell_deps) => {
                         resolved_dep_groups.push(dep_group.clone());
                         resolved_cell_deps.extend(cell_deps.clone());
                         remaining_dep_slots = remaining_dep_slots
                             .checked_sub(cell_deps.len())
-                            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+                            .ok_or(OutPointError::OverMaxDepExpansionLimit)?;
                     }
                 }
             } else {
@@ -905,7 +854,6 @@ fn resolve_transaction_deps_with_system_cell_cache<
                     resolved_dep_groups,
                     false, // don't eager_load data
                     &mut remaining_dep_slots,
-                    resolve_opts,
                 )?;
             }
         }
@@ -918,7 +866,6 @@ fn resolve_transaction_deps_with_system_cell_cache<
                 resolved_dep_groups,
                 false, // don't eager_load data
                 &mut remaining_dep_slots,
-                resolve_opts,
             )?;
         }
     }
@@ -932,9 +879,7 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     resolved_dep_groups: &mut Vec<CellMeta>,
     eager_load: bool,
     remaining_dep_slots: &mut usize,
-    resolve_opts: &ResolveOptions,
 ) -> Result<(), OutPointError> {
-    let ban = resolve_opts.if_disallow_over_max_dep_expansion_limit();
     if cell_dep.dep_type() == DepType::DepGroup.into() {
         let outpoint = cell_dep.out_point();
         let dep_group = cell_resolver(&outpoint, true)?;
@@ -947,7 +892,7 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
 
         *remaining_dep_slots = remaining_dep_slots
             .checked_sub(sub_out_points.len())
-            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+            .ok_or(OutPointError::OverMaxDepExpansionLimit)?;
 
         for sub_out_point in sub_out_points.into_iter() {
             resolved_cell_deps.push(cell_resolver(&sub_out_point, eager_load)?);
@@ -956,7 +901,7 @@ fn resolve_transaction_dep<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPoin
     } else {
         *remaining_dep_slots = remaining_dep_slots
             .checked_sub(1)
-            .ok_or(OutPointError::OverMaxDepExpansionLimit { ban })?;
+            .ok_or(OutPointError::OverMaxDepExpansionLimit)?;
 
         resolved_cell_deps.push(cell_resolver(&cell_dep.out_point(), eager_load)?);
     }

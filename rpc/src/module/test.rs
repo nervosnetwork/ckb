@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, Transaction};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -10,8 +10,7 @@ use ckb_types::{
     core::{
         self,
         cell::{
-            resolve_transaction_with_options, OverlayCellProvider, ResolveOptions,
-            ResolvedTransaction, TransactionsProvider,
+            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
         BlockView,
     },
@@ -558,7 +557,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .expect("parent header should be stored");
         let mut seen_inputs = HashSet::new();
 
-        let txs: Vec<_> = packed::Block::from(block_template.clone())
+        let txs: Vec<_> = packed::Block::from(block_template)
             .transactions()
             .into_iter()
             .map(|tx| tx.into_view())
@@ -566,21 +565,14 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-        let resolve_opts = {
-            let epoch_number = block_template.epoch.epoch_number();
-            let hardfork_switch = consensus.hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-
         let rtxs = txs
             .iter()
             .map(|tx| {
-                resolve_transaction_with_options(
+                resolve_transaction(
                     tx.clone(),
                     &mut seen_inputs,
                     &overlay_cell_provider,
                     snapshot,
-                    resolve_opts,
                 )
                 .map_err(|err| {
                     error!(

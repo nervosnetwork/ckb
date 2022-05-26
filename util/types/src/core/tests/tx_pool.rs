@@ -28,17 +28,14 @@ fn test_if_is_malformed_tx() {
         OutPointError::OutOfOrder(Default::default()),
         OutPointError::InvalidDepGroup(Default::default()),
         OutPointError::InvalidHeader(Default::default()),
-        OutPointError::ImmatureHeader(Default::default()),
     ] {
         let reject = Reject::Resolve(error);
         assert!(!reject.is_malformed_tx());
     }
 
-    for ban in vec![true, false].into_iter() {
-        let error = OutPointError::OverMaxDepExpansionLimit { ban };
-        let reject = Reject::Resolve(error);
-        assert_eq!(reject.is_malformed_tx(), ban);
-    }
+    let error = OutPointError::OverMaxDepExpansionLimit;
+    let reject = Reject::Resolve(error);
+    assert!(reject.is_malformed_tx());
 
     for tx_error in vec![
         TransactionError::InsufficientCellCapacity {

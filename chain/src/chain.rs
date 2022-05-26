@@ -16,11 +16,7 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
-        cell::{
-            resolve_transaction_with_options, BlockCellProvider, OverlayCellProvider,
-            ResolveOptions, ResolvedTransaction,
-        },
-        hardfork::HardForkSwitch,
+        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
@@ -171,41 +167,6 @@ impl ForkChanges {
         }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
             blk.header().number()
         })
-    }
-
-    pub fn during_hardfork(&self, hardfork_switch: &HardForkSwitch) -> bool {
-        let hardfork_during_detach =
-            self.check_if_hardfork_during_blocks(hardfork_switch, &self.detached_blocks);
-        let hardfork_during_attach =
-            self.check_if_hardfork_during_blocks(hardfork_switch, &self.attached_blocks);
-
-        hardfork_during_detach || hardfork_during_attach
-    }
-
-    fn check_if_hardfork_during_blocks(
-        &self,
-        hardfork_switch: &HardForkSwitch,
-        blocks: &VecDeque<BlockView>,
-    ) -> bool {
-        if blocks.is_empty() {
-            false
-        } else {
-            // This method assumes that the input blocks are sorted and unique.
-            let hardfork_epochs = hardfork_switch.script_result_changed_at();
-            if hardfork_epochs.is_empty() {
-                false
-            } else {
-                let epoch_first = blocks.front().unwrap().epoch().number();
-                let epoch_next = blocks
-                    .back()
-                    .unwrap()
-                    .epoch()
-                    .minimum_epoch_number_after_n_blocks(1);
-                hardfork_epochs.into_iter().any(|hardfork_epoch| {
-                    epoch_first < hardfork_epoch && hardfork_epoch <= epoch_next
-                })
-            }
-        }
     }
 }
 
@@ -744,15 +705,7 @@ impl ChainService {
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
         let consensus = self.shared.consensus();
-        let hardfork_switch = consensus.hardfork_switch();
-        let during_hardfork = fork.during_hardfork(hardfork_switch);
         let async_handle = self.shared.tx_pool_controller().handle();
-
-        if during_hardfork {
-            async_handle.block_on(async {
-                txs_verify_cache.write().await.clear();
-            });
-        }
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
@@ -781,26 +734,17 @@ impl ChainService {
                     };
 
                     let transactions = b.transactions();
-                    let resolve_opts = {
-                        let hardfork_switch = self.shared.consensus().hardfork_switch();
-                        let epoch_number = b.epoch().number();
-                        ResolveOptions::new()
-                            .apply_current_features(hardfork_switch, epoch_number)
-                            .set_for_block_verification(true)
-                    };
-
                     let resolved = {
                         let cell_provider = OverlayCellProvider::new(&block_cp, txn);
                         transactions
                             .iter()
                             .cloned()
                             .map(|x| {
-                                resolve_transaction_with_options(
+                                resolve_transaction(
                                     x,
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
-                                    resolve_opts,
                                 )
                             })
                             .collect::<Result<Vec<ResolvedTransaction>, _>>()

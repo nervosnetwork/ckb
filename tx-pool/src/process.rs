@@ -20,10 +20,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{
-        cell::{ResolveOptions, ResolvedTransaction},
-        BlockView, Capacity, Cycle, HeaderView, TransactionView,
-    },
+    core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
@@ -904,17 +901,9 @@ fn check_rtx(
     rtx: &ResolvedTransaction,
 ) -> Result<TxStatus, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
-    let tip_header = snapshot.tip_header();
-    let proposal_window = snapshot.consensus().tx_proposal_window();
-    let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
-        let resolve_opts = {
-            let tx_env = TxStatus::Proposed.with_env(tip_header);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
         tx_pool
-            .check_rtx_from_proposed(rtx, resolve_opts)
+            .check_rtx_from_proposed(rtx)
             .map(|_| TxStatus::Proposed)
     } else {
         let tx_status = if snapshot.proposals().contains_gap(&short_id) {
@@ -922,30 +911,17 @@ fn check_rtx(
         } else {
             TxStatus::Fresh
         };
-        let resolve_opts = {
-            let tx_env = tx_status.with_env(tip_header);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
         tx_pool
-            .check_rtx_from_pending_and_proposed(rtx, resolve_opts)
+            .check_rtx_from_pending_and_proposed(rtx)
             .map(|_| tx_status)
     }
 }
 
 fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> ResolveResult {
     let short_id = tx.proposal_short_id();
-    let tip_header = snapshot.tip_header();
-    let proposal_window = snapshot.consensus().tx_proposal_window();
-    let hardfork_switch = snapshot.consensus().hardfork_switch();
     if snapshot.proposals().contains_proposed(&short_id) {
-        let resolve_opts = {
-            let tx_env = TxStatus::Proposed.with_env(tip_header);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
         tx_pool
-            .resolve_tx_from_proposed(tx, resolve_opts)
+            .resolve_tx_from_proposed(tx)
             .map(|rtx| (rtx, TxStatus::Proposed))
     } else {
         let tx_status = if snapshot.proposals().contains_gap(&short_id) {
@@ -953,13 +929,8 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
         } else {
             TxStatus::Fresh
         };
-        let resolve_opts = {
-            let tx_env = tx_status.with_env(tip_header);
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
         tx_pool
-            .resolve_tx_from_pending_and_proposed(tx, resolve_opts)
+            .resolve_tx_from_pending_and_proposed(tx)
             .map(|rtx| (rtx, tx_status))
     }
 }

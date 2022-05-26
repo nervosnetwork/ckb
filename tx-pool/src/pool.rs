@@ -13,10 +13,7 @@ use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
-        cell::{
-            resolve_transaction_with_options, OverlayCellChecker, OverlayCellProvider,
-            ResolveOptions, ResolvedTransaction,
-        },
+        cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Cycle, TransactionView, UncleBlockView,
     },
@@ -373,7 +370,6 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
-        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
@@ -381,12 +377,11 @@ impl TxPool {
         let pending_and_proposed_provider =
             OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction_with_options(
+        resolve_transaction(
             tx,
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
-            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -394,7 +389,6 @@ impl TxPool {
     pub(crate) fn check_rtx_from_pending_and_proposed(
         &self,
         rtx: &ResolvedTransaction,
-        resolve_opts: ResolveOptions,
     ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
@@ -402,42 +396,25 @@ impl TxPool {
         let pending_and_proposed_checker =
             OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
         let mut seen_inputs = HashSet::new();
-        rtx.check(
-            &mut seen_inputs,
-            &pending_and_proposed_checker,
-            snapshot,
-            resolve_opts,
-        )
-        .map_err(Reject::Resolve)
+        rtx.check(&mut seen_inputs, &pending_and_proposed_checker, snapshot)
+            .map_err(Reject::Resolve)
     }
 
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
-        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction_with_options(
-            tx,
-            &mut seen_inputs,
-            &cell_provider,
-            snapshot,
-            resolve_opts,
-        )
-        .map_err(Reject::Resolve)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
     }
 
-    pub(crate) fn check_rtx_from_proposed(
-        &self,
-        rtx: &ResolvedTransaction,
-        resolve_opts: ResolveOptions,
-    ) -> Result<(), Reject> {
+    pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &cell_checker, snapshot, resolve_opts)
+        rtx.check(&mut seen_inputs, &cell_checker, snapshot)
             .map_err(Reject::Resolve)
     }
 
@@ -450,14 +427,7 @@ impl TxPool {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
-
-        let resolve_opts = {
-            let proposal_window = snapshot.consensus().tx_proposal_window();
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            let hardfork_switch = snapshot.consensus().hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-        self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
+        self.check_rtx_from_pending_and_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
@@ -480,14 +450,7 @@ impl TxPool {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
-
-        let resolve_opts = {
-            let proposal_window = snapshot.consensus().tx_proposal_window();
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            let hardfork_switch = snapshot.consensus().hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-        self.check_rtx_from_proposed(&rtx, resolve_opts)?;
+        self.check_rtx_from_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
