@@ -420,7 +420,9 @@ dependencies = [
 name = "ckb-async-runtime"
 version = "0.104.0-pre"
 dependencies = [
+ "ckb-logger",
  "ckb-spawn",
+ "ckb-stop-handler",
  "tokio",
 ]
 
@@ -748,6 +750,7 @@ dependencies = [
  "ckb-rpc",
  "ckb-shared",
  "ckb-snapshot",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
  "ckb-tx-pool",
