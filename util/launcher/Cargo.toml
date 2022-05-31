@@ -39,6 +39,7 @@ ckb-freezer = { path = "../../freezer", version = "= 0.104.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.104.0-pre" }
 ckb-snapshot = { path = "../snapshot", version = "= 0.104.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.104.0-pre" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.104.0-pre" }
 num_cpus = "1.10"
 once_cell = "1.8.0"
 tempfile = "3.0"
