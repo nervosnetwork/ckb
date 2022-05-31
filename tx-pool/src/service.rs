@@ -6,7 +6,6 @@ use crate::chunk_process::ChunkCommand;
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::{TxPool, TxPoolInfo};
-use crate::util::after_delay_window;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -25,7 +24,6 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_util::LinkedHashMap;
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -625,8 +623,6 @@ impl TxPoolServiceBuilder {
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
-
-        let after_delay_window = after_delay_window(&self.snapshot);
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
 
         let txs = match tx_pool.load_from_file() {
@@ -643,8 +639,6 @@ impl TxPoolServiceBuilder {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
-            delay: Arc::new(RwLock::new(LinkedHashMap::new())),
-            after_delay: Arc::new(AtomicBool::new(after_delay_window)),
             block_assembler: self.block_assembler,
             txs_verify_cache: self.txs_verify_cache,
             callbacks: Arc::new(self.callbacks),
@@ -791,8 +785,6 @@ pub(crate) struct TxPoolService {
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
-    pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
-    pub(crate) after_delay: Arc<AtomicBool>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
 }
 
@@ -1073,14 +1065,6 @@ impl TxPoolService {
             total_tx_cycles: tx_pool.total_tx_cycles,
             last_txs_updated_at: 0,
         }
-    }
-
-    pub fn after_delay(&self) -> bool {
-        self.after_delay.load(Ordering::Relaxed)
-    }
-
-    pub fn set_after_delay_true(&self) {
-        self.after_delay.store(true, Ordering::Relaxed);
     }
 
     pub fn should_notify_block_assembler(&self) -> bool {

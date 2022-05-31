@@ -940,25 +940,6 @@ impl Consensus {
             mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
         )
     }
-
-    /// Return true if specifies epoch is between delay window.
-    pub fn is_in_delay_window(&self, epoch: &EpochNumberWithFraction) -> bool {
-        let proposal_window = self.tx_proposal_window();
-        let epoch_length = epoch.length();
-        let index = epoch.index();
-
-        let epoch_number = epoch.number();
-
-        let rfc_0032 = self.hardfork_switch.rfc_0032();
-
-        // dev default is 0
-        if rfc_0032 != 0 && rfc_0032 != EpochNumber::MAX {
-            return (epoch_number + 1 == rfc_0032
-                && (proposal_window.farthest() + index) >= epoch_length)
-                || (epoch_number == rfc_0032 && index <= proposal_window.farthest());
-        }
-        false
-    }
 }
 
 /// Trait for consensus provider.
