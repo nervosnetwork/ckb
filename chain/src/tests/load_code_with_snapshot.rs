@@ -178,15 +178,7 @@ fn test_load_code_with_snapshot() {
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
             if let Ok(Ok(status)) = tx_status {
-                if status.status == Status::Rejected {
-                    let reason = Some(
-                        "{\"type\":\"Verification\",\
-                        \"description\":\"Verification failed Script(TransactionScriptError \
-                        { source: Inputs[0].Lock, cause: \
-                        VM Internal Error: MemWriteOnExecutablePage })\"}"
-                            .to_string(),
-                    );
-                    assert_eq!(status.reason, reason);
+                if status.status == Status::Pending {
                     break;
                 }
             }
