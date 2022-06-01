@@ -259,6 +259,7 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     txs.iter()
         .for_each(|tx| utxos.extend(Into::<TXOSet>::into(tx)));
     utxos.truncate(n);
+    node.wait_for_tx_pool();
     utxos
 }
 
