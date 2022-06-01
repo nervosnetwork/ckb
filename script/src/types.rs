@@ -101,19 +101,16 @@ pub(crate) type Machine<'a> = TraceMachine<'a, CoreMachine>;
 pub struct ResumableMachine<'a> {
     machine: Machine<'a>,
     pub(crate) program_bytes_cycles: Option<Cycle>,
-    pub(crate) enable_2021: bool,
 }
 
 impl<'a> ResumableMachine<'a> {
     pub(crate) fn new(
         machine: Machine<'a>,
         program_bytes_cycles: Option<Cycle>,
-        enable_2021: bool,
     ) -> Self {
         ResumableMachine {
             machine,
             program_bytes_cycles,
-            enable_2021,
         }
     }
 
@@ -135,10 +132,8 @@ impl<'a> ResumableMachine<'a> {
 
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
         if let Some(cycles) = self.program_bytes_cycles {
-            if self.enable_2021 {
-                self.add_cycles(cycles)?;
-                self.program_bytes_cycles = None;
-            }
+            self.add_cycles(cycles)?;
+            self.program_bytes_cycles = None;
         }
         self.machine.run()
     }

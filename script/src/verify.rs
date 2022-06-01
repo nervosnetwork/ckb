@@ -1014,7 +1014,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 return Ok(ChunkState::suspended(ResumableMachine::new(
                     machine,
                     Some(program_bytes_cycles),
-                    self.is_vm_version_1_and_syscalls_2_enabled(),
                 )));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -1033,7 +1032,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     Ok(ChunkState::suspended(ResumableMachine::new(
                         machine,
                         None,
-                        self.is_vm_version_1_and_syscalls_2_enabled(),
                     )))
                 }
                 _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),

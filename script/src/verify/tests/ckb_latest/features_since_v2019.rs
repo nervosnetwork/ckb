@@ -1261,8 +1261,6 @@ fn check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles() {
 }
 
 fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: Cycle) {
-    const LOAD_CYCLES: Cycle = 25356;
-
     let script_version = SCRIPT_VERSION;
     let rtx = random_2_in_2_out_rtx();
     let mut cycles = 0;
@@ -1301,15 +1299,5 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
         "step_cycles {}",
         step_cycles
     );
-
-    if SCRIPT_VERSION >= ScriptVersion::V1 {
-        assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
-    } else {
-        assert_eq!(
-            cycles + LOAD_CYCLES,
-            cycles_once,
-            "step_cycles {}",
-            step_cycles
-        );
-    }
+    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
 }
