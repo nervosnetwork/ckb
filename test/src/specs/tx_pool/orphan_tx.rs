@@ -20,7 +20,7 @@ impl Spec for OrphanTxAccepted {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -61,7 +61,7 @@ impl Spec for OrphanTxRejected {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 

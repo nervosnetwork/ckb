@@ -19,7 +19,7 @@ fn test_duplicate() {
         .block_hash(hash)
         .proposals(vec![id.clone(), id].into_iter().pack())
         .build();
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::Relay);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
     let process = GetBlockProposalProcess::new(content.as_reader(), &relayer, nc, peer_index);

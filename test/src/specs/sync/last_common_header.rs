@@ -20,11 +20,15 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
         for block in worse {
-            net.send(node0, SupportProtocols::Relay, build_compact_block(&block));
+            net.send(
+                node0,
+                SupportProtocols::RelayV2,
+                build_compact_block(&block),
+            );
         }
 
         // peer.last_common_header is expect to be advanced to peer.best_known_header

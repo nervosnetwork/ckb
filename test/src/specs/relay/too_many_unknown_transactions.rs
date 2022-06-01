@@ -14,7 +14,7 @@ impl Spec for TooManyUnknownTransactions {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -34,7 +34,7 @@ impl Spec for TooManyUnknownTransactions {
         assert!(MAX_RELAY_TXS_NUM_PER_BATCH >= tx_hashes.len());
         net.send(
             node0,
-            SupportProtocols::Relay,
+            SupportProtocols::RelayV2,
             build_relay_tx_hashes(&tx_hashes),
         );
 

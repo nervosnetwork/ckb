@@ -54,7 +54,7 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
                 .build(),
         )
         .build();
-    net.send(node, SupportProtocols::Relay, tx_hashes_msg.as_bytes());
+    net.send(node, SupportProtocols::RelayV2, tx_hashes_msg.as_bytes());
 
     let ret = net.should_receive(node, |data: &Bytes| {
         packed::RelayMessage::from_slice(data)
@@ -79,5 +79,5 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
                 .build(),
         )
         .build();
-    net.send(node, SupportProtocols::Relay, tx_msg.as_bytes());
+    net.send(node, SupportProtocols::RelayV2, tx_msg.as_bytes());
 }

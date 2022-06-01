@@ -335,17 +335,6 @@ impl TxPoolService {
         ret: &Result<Completed, Reject>,
     ) {
         let tx_hash = tx.hash();
-        // The network protocol is switched after tx-pool confirms the cache,
-        // there will be no problem with the current state as the choice of the broadcast protocol.
-        let with_vm_2021 = {
-            let epoch = snapshot
-                .tip_header()
-                .epoch()
-                .minimum_epoch_number_after_n_blocks(1);
-            self.consensus
-                .hardfork_switch
-                .is_vm_version_1_and_syscalls_2_enabled(epoch)
-        };
 
         // log tx verification result for monitor node
         if log_enabled_target!("ckb_tx_monitor", Trace) {
@@ -364,7 +353,6 @@ impl TxPoolService {
                 Ok(_) => {
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
-                        with_vm_2021,
                         tx_hash,
                     });
                     self.process_orphan_tx(&tx).await;
@@ -389,7 +377,6 @@ impl TxPoolService {
                     Ok(_) => {
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,
-                            with_vm_2021,
                             tx_hash,
                         });
                         self.process_orphan_tx(&tx).await;
@@ -398,7 +385,6 @@ impl TxPoolService {
                         // re-broadcast tx when it's duplicated and submitted through local rpc
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,
-                            with_vm_2021,
                             tx_hash,
                         });
                     }
@@ -456,24 +442,14 @@ impl TxPoolService {
                         .write()
                         .await
                         .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
-                } else if let Some((ret, snapshot)) = self
+                } else if let Some((ret, _snapshot)) = self
                     ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
                     .await
                 {
-                    let with_vm_2021 = {
-                        let epoch = snapshot
-                            .tip_header()
-                            .epoch()
-                            .minimum_epoch_number_after_n_blocks(1);
-                        self.consensus
-                            .hardfork_switch
-                            .is_vm_version_1_and_syscalls_2_enabled(epoch)
-                    };
                     match ret {
                         Ok(_) => {
                             self.send_result_to_relayer(TxVerificationResult::Ok {
                                 original_peer: Some(orphan.peer),
-                                with_vm_2021,
                                 tx_hash: orphan.tx.hash(),
                             });
                             debug!(
@@ -743,10 +719,6 @@ impl TxPoolService {
         let new_tip_after_delay = after_delay_window(&snapshot);
         let is_in_delay_window = self.is_in_delay_window(&snapshot);
 
-        let epoch_of_next_block = snapshot
-            .tip_header()
-            .epoch()
-            .minimum_epoch_number_after_n_blocks(1);
         let detached_headers: HashSet<Byte32> = detached_blocks
             .iter()
             .map(|blk| blk.header().hash())
@@ -795,19 +767,6 @@ impl TxPoolService {
                 &self.callbacks,
                 mine_mode,
             );
-
-            // Updates network fork switch if required.
-            //
-            // This operation should be ahead of any transaction which is processed with new
-            // hardfork features.
-            if !self.network.load_ckb2021()
-                && self
-                    .consensus
-                    .hardfork_switch
-                    .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
-            {
-                self.network.init_ckb2021()
-            }
 
             // notice: readd_detached_tx don't update cache
             self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);

@@ -267,7 +267,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
         let rpc_client = node0.rpc_client();
@@ -293,7 +293,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         assert!(!ret, "node0 should stay the same");
 
         sync_block(&net, node0, &first);
-        net.send(node0, SupportProtocols::Relay, build_compact_block(&last));
+        net.send(node0, SupportProtocols::RelayV2, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
         info!("{}", rpc_client.get_tip_block_number());

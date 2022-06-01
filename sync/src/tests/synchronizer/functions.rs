@@ -422,9 +422,6 @@ fn mock_header_view(total_difficulty: u64) -> HeaderView {
 }
 
 impl CKBProtocolContext for DummyNetworkContext {
-    fn ckb2021(&self) -> bool {
-        false
-    }
     // Interact with underlying p2p service
     fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!();

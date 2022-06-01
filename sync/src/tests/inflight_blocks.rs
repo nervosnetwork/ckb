@@ -115,7 +115,7 @@ fn inflight_blocks_timeout() {
     assert!(inflight_blocks.insert(3.into(), (2, h256!("0x2").pack()).into()));
     assert!(inflight_blocks.insert(3.into(), (3, h256!("0x3").pack()).into()));
 
-    assert_eq!(inflight_blocks.peer_can_fetch_count(2.into()), 16 >> 4);
+    assert_eq!(inflight_blocks.peer_can_fetch_count(2.into()), 32 >> 4);
 
     assert_eq!(
         inflight_blocks
@@ -194,6 +194,6 @@ fn inflight_trace_number_state() {
         .inflight_state_by_block(&(3, h256!("0x33").pack()).into())
         .is_none());
 
-    assert_eq!(inflight_blocks.peer_can_fetch_count(3.into()), 8);
-    assert_eq!(inflight_blocks.peer_can_fetch_count(4.into()), 8);
+    assert_eq!(inflight_blocks.peer_can_fetch_count(3.into()), 32 >> 1);
+    assert_eq!(inflight_blocks.peer_can_fetch_count(4.into()), 32 >> 1);
 }
