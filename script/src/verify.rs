@@ -396,19 +396,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
                         Binaries::Unique(_, ref lazy) => Ok(lazy.access(self.data_loader)),
-                        Binaries::Duplicate(_, ref lazy) => {
-                            let proposal_window = self.consensus.tx_proposal_window();
-                            let epoch_number = self.tx_env.epoch_number(proposal_window);
-                            if self
-                                .consensus
-                                .hardfork_switch()
-                                .is_allow_multiple_matches_on_identical_data_enabled(epoch_number)
-                            {
-                                Ok(lazy.access(self.data_loader))
-                            } else {
-                                Err(ScriptError::MultipleMatches)
-                            }
-                        }
+                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(self.data_loader)),
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
@@ -430,25 +418,12 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
-        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
-            ScriptHashType::Data1 => {
-                if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok(ScriptVersion::V1)
-                } else {
-                    Err(ScriptError::InvalidVmVersion(1))
-                }
-            }
-            ScriptHashType::Type => {
-                if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok(ScriptVersion::V1)
-                } else {
-                    Ok(ScriptVersion::V0)
-                }
-            }
+            ScriptHashType::Data1 => Ok(ScriptVersion::V1),
+            ScriptHashType::Type => Ok(ScriptVersion::V1),
         }
     }
 

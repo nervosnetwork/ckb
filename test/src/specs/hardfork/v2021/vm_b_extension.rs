@@ -1,8 +1,5 @@
 use crate::{
-    util::{
-        cell::gen_spendable,
-        check::{assert_epoch_should_less_than, is_transaction_committed},
-    },
+    util::{cell::gen_spendable, check::is_transaction_committed},
     utils::assert_send_transaction_fail,
     Node, Spec,
 };
@@ -15,7 +12,7 @@ use ckb_types::{
 use std::fmt;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2021_START_EPOCH: u64 = 10;
+const CKB2021_START_EPOCH: u64 = 0;
 
 // ( Data, Type, Data1 ) * (Skip, Pass, Fail)
 const TEST_CASES_COUNT: usize = 3 * 3;
@@ -49,9 +46,6 @@ impl Spec for CheckVmBExtension {
     crate::setup!(num_nodes: 1);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-
         let node = &nodes[0];
 
         node.mine(1);
@@ -61,23 +55,6 @@ impl Spec for CheckVmBExtension {
             .map(|input| packed::CellInput::new(input.out_point, 0));
         let script = BExtScript::new(node, inputs.next().unwrap());
         let runner = CheckVmBExtensionTestRunner::new(node, script);
-
-        {
-            info!("CKB v2019:");
-
-            runner.do_test(&mut inputs, None, 0, 0, PASS);
-            runner.do_test(&mut inputs, Some(0), 0, 0, PASS);
-
-            runner.do_test(&mut inputs, None, 1, 0, INST);
-            runner.do_test(&mut inputs, Some(0), 1, 0, INST);
-
-            runner.do_test(&mut inputs, None, 1, 1, INST);
-            runner.do_test(&mut inputs, Some(0), 1, 1, INST);
-        }
-
-        assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-        node.mine_until_epoch(ckb2019_last_epoch, epoch_length - 4, epoch_length);
-
         {
             info!("CKB v2021:");
 

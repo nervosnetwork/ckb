@@ -191,7 +191,7 @@ fn check_signature_referenced_via_type_hash() {
 }
 
 #[test]
-fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
+fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
     let script_version = SCRIPT_VERSION;
 
     let mut file = open_cell_always_success();
@@ -277,10 +277,7 @@ fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert_error_eq!(
-        result.unwrap_err(),
-        ScriptError::MultipleMatches.input_lock_script(0),
-    );
+    assert_eq!(result.unwrap(), 539);
 }
 
 #[test]

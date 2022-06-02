@@ -286,11 +286,12 @@ fn setup() -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), true, vec![], vec![])
+        .enable_pool(shared.clone(), FeeRate::zero(), vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
             chain_controller.clone(),
+            true,
         )
         .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
     let io_handler = builder.build();

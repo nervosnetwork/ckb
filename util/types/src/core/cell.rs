@@ -2,14 +2,10 @@
 use crate::{
     bytes::Bytes,
     core::error::OutPointError,
-    core::{
-        hardfork::HardForkSwitch, BlockView, Capacity, DepType, EpochNumber, TransactionInfo,
-        TransactionView,
-    },
+    core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
     packed::{Byte32, CellDep, CellOutput, CellOutputVec, OutPoint, OutPointVec},
     prelude::*,
 };
-use bitflags::bitflags;
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
@@ -613,79 +609,6 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
 pub trait HeaderChecker {
     /// Check if header in main chain
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError>;
-}
-
-bitflags! {
-    /// Bit flags to set options for resolving transactions.
-    pub struct ResolveOptions: u8 {
-        /// Skip the immature header deps check.
-        const SKIP_IMMATURE_HEADER_DEPS_CHECK               = 0b00000001;
-        /// Ban when over max dep expansion limit.
-        const BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT         = 0b00000010;
-
-        /// Resolve for block verification.
-        const FOR_BLOCK_VERIFICATION                        = 0b10000000;
-    }
-}
-
-impl Default for ResolveOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ResolveOptions {
-    /// Create a default instance.
-    pub fn new() -> Self {
-        Self::empty()
-    }
-
-    /// Set flags for current features.
-    pub fn apply_current_features(
-        self,
-        hardfork_switch: &HardForkSwitch,
-        epoch_number: EpochNumber,
-    ) -> Self {
-        self.set_skip_immature_header_deps_check(
-            hardfork_switch.is_remove_header_deps_immature_rule_enabled(epoch_number),
-        )
-        .set_disallow_over_max_dep_expansion_limit(
-            hardfork_switch.is_disallow_over_max_dep_expansion_limit_enabled(epoch_number),
-        )
-    }
-
-    /// Get the flag whether skips the immature header deps check or not.
-    pub fn if_skip_immature_header_deps_check(self) -> bool {
-        self.contains(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK)
-    }
-
-    /// Set the flag whether skips the immature header deps check or not.
-    pub fn set_skip_immature_header_deps_check(mut self, value: bool) -> Self {
-        self.set(Self::SKIP_IMMATURE_HEADER_DEPS_CHECK, value);
-        self
-    }
-
-    /// Get the flag whether ban when over the max dep expansion limit or not.
-    pub fn if_disallow_over_max_dep_expansion_limit(self) -> bool {
-        self.contains(Self::BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT)
-    }
-
-    /// Set the flag whether ban when over the max dep expansion limit or not.
-    pub fn set_disallow_over_max_dep_expansion_limit(mut self, value: bool) -> Self {
-        self.set(Self::BAN_WHEN_OVER_MAX_DEP_EXPANSION_LIMIT, value);
-        self
-    }
-
-    /// Get if resolve for block verification.
-    pub fn if_for_block_verification(self) -> bool {
-        self.contains(Self::FOR_BLOCK_VERIFICATION)
-    }
-
-    /// Set resolve for block verification.
-    pub fn set_for_block_verification(mut self, value: bool) -> Self {
-        self.set(Self::FOR_BLOCK_VERIFICATION, value);
-        self
-    }
 }
 
 /// Gather all cell dep out points and resolved dep group out points

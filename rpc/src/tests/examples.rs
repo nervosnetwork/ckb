@@ -226,11 +226,12 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), true, vec![], vec![])
+        .enable_pool(shared.clone(), FeeRate::zero(), vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
             chain_controller.clone(),
+            true,
         )
         .enable_net(network_controller.clone(), sync_shared)
         .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
