@@ -193,10 +193,6 @@ impl TransactionScriptsVerifierWithEnv {
                     init_snap = Some(state.try_into().unwrap());
                 }
                 VerifyResult::Completed(cycle) => {
-                    assert!(
-                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                        "Any group execution is complete, this must be empty"
-                    );
                     cycles = cycle;
                     return Ok((cycles, times));
                 }
@@ -210,10 +206,6 @@ impl TransactionScriptsVerifierWithEnv {
                         init_snap = Some(state.try_into().unwrap());
                     }
                     VerifyResult::Completed(cycle) => {
-                        assert!(
-                            verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                            "Any group execution is complete, this must be empty"
-                        );
                         cycles = cycle;
                         break;
                     }
