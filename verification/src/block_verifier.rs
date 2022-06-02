@@ -252,34 +252,25 @@ impl<'a> BlockExtensionVerifier<'a> {
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
-        let epoch_number = block.epoch().number();
-        let hardfork_switch = self.consensus.hardfork_switch();
         let extra_fields_count = block.data().count_extra_fields();
-        let is_reuse_uncles_hash_as_extra_hash_enabled =
-            hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number);
-
-        if is_reuse_uncles_hash_as_extra_hash_enabled {
-            match extra_fields_count {
-                0 => {}
-                1 => {
-                    let extension = if let Some(data) = block.extension() {
-                        data
-                    } else {
-                        return Err(BlockErrorKind::UnknownFields.into());
-                    };
-                    if extension.is_empty() {
-                        return Err(BlockErrorKind::EmptyBlockExtension.into());
-                    }
-                    if extension.len() > 96 {
-                        return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
-                    }
-                }
-                _ => {
+        match extra_fields_count {
+            0 => {}
+            1 => {
+                let extension = if let Some(data) = block.extension() {
+                    data
+                } else {
                     return Err(BlockErrorKind::UnknownFields.into());
+                };
+                if extension.is_empty() {
+                    return Err(BlockErrorKind::EmptyBlockExtension.into());
+                }
+                if extension.len() > 96 {
+                    return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
                 }
             }
-        } else if extra_fields_count > 0 {
-            return Err(BlockErrorKind::UnknownFields.into());
+            _ => {
+                return Err(BlockErrorKind::UnknownFields.into());
+            }
         }
 
         let actual_extra_hash = block.calc_extra_hash().extra_hash();

@@ -428,7 +428,7 @@ pub fn test_max_proposals_limit_verifier() {
 
 #[test]
 fn test_block_extension_verifier() {
-    let fork_at = 10;
+    let fork_at = 0;
     let epoch = EpochNumberWithFraction::new(fork_at, 0, 1);
 
     // normal block (no uncles)
@@ -475,42 +475,6 @@ fn test_block_extension_verifier() {
         .as_advanced_builder()
         .extension(Some(vec![0u8; 32].pack()))
         .build_unchecked();
-
-    {
-        // Test CKB v2019
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_0031(fork_at + 1)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block);
-        assert!(result.is_ok(), "result = {:?}", result);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block1);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block2);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block3);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block4);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block5);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block6);
-        assert!(result.is_ok(), "result = {:?}", result);
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block7);
-        assert_error_eq!(result.unwrap_err(), BlockErrorKind::UnknownFields);
-    }
     {
         // Test CKB v2021
         let hardfork_switch = HardForkSwitch::new_without_any_enabled()

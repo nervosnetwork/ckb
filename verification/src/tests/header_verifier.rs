@@ -43,10 +43,11 @@ fn test_timestamp() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
     let fake_block_median_time_context = mock_median_time_context();
-
+    let parent_hash = fake_block_median_time_context.get_block_hash(99);
     let timestamp = unix_time_as_millis() + 1;
     let header = HeaderBuilder::default()
-        .number(10u64.pack())
+        .parent_hash(parent_hash)
+        .number(100u64.pack())
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(
@@ -64,11 +65,13 @@ fn test_timestamp_too_old() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
     let fake_block_median_time_context = mock_median_time_context();
+    let parent_hash = fake_block_median_time_context.get_block_hash(99);
 
     let min = unix_time_as_millis();
     let timestamp = unix_time_as_millis() - 1;
     let header = HeaderBuilder::default()
-        .number(10u64.pack())
+        .number(100u64.pack())
+        .parent_hash(parent_hash)
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(
@@ -92,11 +95,13 @@ fn test_timestamp_too_new() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
     let fake_block_median_time_context = mock_median_time_context();
+    let parent_hash = fake_block_median_time_context.get_block_hash(99);
 
     let max = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
     let timestamp = max + 1;
     let header = HeaderBuilder::default()
-        .number(10u64.pack())
+        .number(100u64.pack())
+        .parent_hash(parent_hash)
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(

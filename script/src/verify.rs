@@ -12,9 +12,8 @@ use crate::{
         CoreMachine, Machine, ResumableMachine, ScriptGroup, ScriptGroupType, ScriptVersion,
         TransactionSnapshot, TransactionState, VerifyResult,
     },
-    verify_env::TxVerifyEnv,
 };
-use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
+use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
@@ -127,8 +126,6 @@ impl Binaries {
 /// future, we might refactor this to share buffer to achieve zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
-    consensus: &'a Consensus,
-    tx_env: &'a TxVerifyEnv,
 
     debug_printer: Box<dyn Fn(&Byte32, &str)>,
 
@@ -154,9 +151,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// * `data_loader` - used to load cell data.
     pub fn new(
         rtx: &'a ResolvedTransaction,
-        consensus: &'a Consensus,
         data_loader: &'a DL,
-        tx_env: &'a TxVerifyEnv,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
@@ -227,8 +222,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         TransactionScriptsVerifier {
             data_loader,
-            consensus,
-            tx_env,
             binaries_by_data_hash,
             binaries_by_type_hash,
             outputs,
@@ -404,16 +397,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 }
             }
         }
-    }
-
-    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
-        // If the proposal window is allowed to prejudge on the vm version,
-        // it will cause proposal tx to start a new vm in the blocks before hardfork,
-        // destroying the assumption that the transaction execution only uses the old vm
-        // before hardfork, leading to unexpected network splits.
-        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
-        let hardfork_switch = self.consensus.hardfork_switch();
-        hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number)
     }
 
     /// Returns the version of the machine based on the script and the consensus rules.

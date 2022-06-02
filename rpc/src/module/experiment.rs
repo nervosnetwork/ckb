@@ -14,7 +14,7 @@ use ckb_types::{
     packed,
     prelude::*,
 };
-use ckb_verification::{ScriptVerifier, TxVerifyEnv};
+use ckb_verification::ScriptVerifier;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -281,18 +281,11 @@ impl<'a> DryRunner<'a> {
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_submit(tip_header);
         match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(
-                    &resolved,
-                    consensus,
-                    &snapshot.as_data_provider(),
-                    &tx_env,
-                )
-                .verify(max_cycles)
+                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
+                    .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: cycles.into(),

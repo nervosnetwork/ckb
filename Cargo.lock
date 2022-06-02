@@ -1070,7 +1070,6 @@ dependencies = [
  "ckb-notify",
  "ckb-pow",
  "ckb-reward-calculator",
- "ckb-script",
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
@@ -1121,9 +1120,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
- "ckb-vm-definitions",
  "faster-hex",
- "goblin 0.2.3",
  "proptest",
  "rand 0.8.5",
  "serde",
@@ -1270,6 +1267,7 @@ dependencies = [
  "ckb-store",
  "ckb-traits",
  "ckb-types",
+ "ckb-util",
  "faketime",
  "lazy_static",
  "tempfile",
@@ -1320,7 +1318,6 @@ name = "ckb-types"
 version = "0.104.0-pre"
 dependencies = [
  "bit-vec",
- "bitflags",
  "bytes 1.1.0",
  "ckb-channel",
  "ckb-error",
