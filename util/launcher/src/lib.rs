@@ -321,7 +321,6 @@ impl Launcher {
             .enable_pool(
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
-                self.args.config.rpc.reject_ill_transactions,
                 self.args
                     .config
                     .rpc

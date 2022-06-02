@@ -104,10 +104,7 @@ pub struct ResumableMachine<'a> {
 }
 
 impl<'a> ResumableMachine<'a> {
-    pub(crate) fn new(
-        machine: Machine<'a>,
-        program_bytes_cycles: Option<Cycle>,
-    ) -> Self {
+    pub(crate) fn new(machine: Machine<'a>, program_bytes_cycles: Option<Cycle>) -> Self {
         ResumableMachine {
             machine,
             program_bytes_cycles,

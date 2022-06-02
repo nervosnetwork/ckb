@@ -1029,10 +1029,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded => {
-                    Ok(ChunkState::suspended(ResumableMachine::new(
-                        machine,
-                        None,
-                    )))
+                    Ok(ChunkState::suspended(ResumableMachine::new(machine, None)))
                 }
                 _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
             },

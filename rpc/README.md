@@ -2947,8 +2947,6 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 
 *   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to “passthrough”.
 
-*   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-poolrejectedtransactionbyilltransactionchecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
-
 *   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-poolrejectedtransactionbyminfeerate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 
 *   [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](#error-poolrejectedtransactionbymaxancestorscountlimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.

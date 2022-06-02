@@ -98,13 +98,8 @@ impl Spec for SendDefectedBinary {
         info!("Send 1 secp tx with defected binary");
 
         let ret = node.rpc_client().send_transaction_result(tx.data().into());
-
-        if self.reject_ill_transactions {
-            assert!(ret.is_err());
-        } else {
-            node.mine(20);
-            assert!(is_transaction_committed(node, &tx));
-        }
+        node.mine(20);
+        assert!(is_transaction_committed(node, &tx));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

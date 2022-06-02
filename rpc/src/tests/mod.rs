@@ -291,7 +291,6 @@ fn setup() -> RpcTestSuite {
             shared.clone(),
             network_controller.clone(),
             chain_controller.clone(),
-            true,
         )
         .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
     let io_handler = builder.build();
