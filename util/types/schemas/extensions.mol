@@ -288,6 +288,14 @@ table InIBD {
 
 vector HeaderDigestVec <HeaderDigest>;
 
+table HeaderWithChainRoot {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    chain_root:             HeaderDigest,
+}
+
+vector HeaderWithChainRootVec <HeaderWithChainRoot>;
+
 table BlockProof {
     mmr_size:               Uint64,
     items:                  HeaderDigestVec,
@@ -326,8 +334,8 @@ table GetBlockProof {
 table SendBlockProof {
     root:                       HeaderDigest,
     proof:                      BlockProof,
-    sampled_headers:            HeaderVec,
-    last_n_headers:             HeaderVec,
+    sampled_headers:            HeaderWithChainRootVec,
+    last_n_headers:             HeaderWithChainRootVec,
 }
 
 /* Types for Network/Others */
