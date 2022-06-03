@@ -320,6 +320,21 @@ impl VerifiableHeader {
         }
     }
 
+    /// Creates a new verifiable header from a header with chain root.
+    pub fn new_from_header_with_chain_root(
+        header_with_chain_root: packed::HeaderWithChainRoot,
+    ) -> Self {
+        let header = header_with_chain_root.header().into_view();
+        let uncles_hash = header_with_chain_root.uncles_hash();
+        let bytes = header_with_chain_root
+            .chain_root()
+            .calc_mmr_hash()
+            .as_bytes()
+            .pack();
+        let extension = Some(bytes);
+        Self::new(header, uncles_hash, extension)
+    }
+
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(
         &self,

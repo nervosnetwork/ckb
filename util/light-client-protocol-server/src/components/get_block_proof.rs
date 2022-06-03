@@ -112,22 +112,60 @@ impl BlockSampler {
 
     fn complete_headers(
         &self,
+        snapshot: &Snapshot,
         positions: &mut Vec<u64>,
         last_hash: &packed::Byte32,
         numbers: &[BlockNumber],
-    ) -> Result<Vec<packed::Header>, String> {
-        let mut headers = Vec::new();
+    ) -> Result<Vec<packed::HeaderWithChainRoot>, String> {
+        let active_chain = self.active_chain();
+        let mut headers_with_chain_root = Vec::new();
+
         for number in numbers {
-            if let Some(ancestor_header) = self.active_chain().get_ancestor(last_hash, *number) {
+            if let Some(ancestor_header) = active_chain.get_ancestor(last_hash, *number) {
                 let position = leaf_index_to_pos(*number);
                 positions.push(position);
-                headers.push(ancestor_header.data());
+
+                let uncles_hash = match active_chain.get_block(&ancestor_header.hash()) {
+                    Some(ancestor_block) => ancestor_block.calc_uncles_hash(),
+                    None => {
+                        let errmsg = format!(
+                            "failed to find block for header#{} (hash: {:#x})",
+                            number,
+                            ancestor_header.hash()
+                        );
+                        return Err(errmsg);
+                    }
+                };
+
+                let chain_root = {
+                    let mmr_size = leaf_index_to_mmr_size(*number - 1);
+                    let mmr = ChainRootMMR::new(mmr_size, snapshot);
+                    match mmr.get_root() {
+                        Ok(root) => root,
+                        Err(err) => {
+                            let errmsg = format!(
+                                "failed to generate a root for block#{} since {:?}",
+                                number, err
+                            );
+                            return Err(errmsg);
+                        }
+                    }
+                };
+
+                let header_with_chain_root = packed::HeaderWithChainRoot::new_builder()
+                    .header(ancestor_header.data())
+                    .uncles_hash(uncles_hash)
+                    .chain_root(chain_root)
+                    .build();
+
+                headers_with_chain_root.push(header_with_chain_root);
             } else {
                 let errmsg = format!("failed to find ancestor header ({})", number);
                 return Err(errmsg);
             }
         }
-        Ok(headers)
+
+        Ok(headers_with_chain_root)
     }
 }
 
@@ -289,6 +327,7 @@ impl<'a> GetBlockProofProcess<'a> {
         let (positions, sampled_headers, last_n_headers) = {
             let mut positions: Vec<u64> = Vec::new();
             let sampled_headers = match sampler.complete_headers(
+                &snapshot,
                 &mut positions,
                 &last_block_hash,
                 &sampled_numbers,
@@ -298,13 +337,17 @@ impl<'a> GetBlockProofProcess<'a> {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            let last_n_headers =
-                match sampler.complete_headers(&mut positions, &last_block_hash, &last_n_numbers) {
-                    Ok(headers) => headers,
-                    Err(errmsg) => {
-                        return StatusCode::InternalError.with_context(errmsg);
-                    }
-                };
+            let last_n_headers = match sampler.complete_headers(
+                &snapshot,
+                &mut positions,
+                &last_block_hash,
+                &last_n_numbers,
+            ) {
+                Ok(headers) => headers,
+                Err(errmsg) => {
+                    return StatusCode::InternalError.with_context(errmsg);
+                }
+            };
             (positions, sampled_headers, last_n_headers)
         };
 
