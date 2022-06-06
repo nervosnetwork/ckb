@@ -273,7 +273,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
-                hardfork_switch: HardForkSwitch::new_without_any_enabled(),
+                hardfork_switch: HardForkSwitch::new_mirana(),
             },
         }
     }

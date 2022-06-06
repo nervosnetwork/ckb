@@ -554,11 +554,7 @@ fn test_fraction_epoch_since_verify_v2021() {
     };
     {
         // Test CKB v2021
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_0030(0)
-            .build()
-            .unwrap();
+        let hardfork_switch = HardForkSwitch::new_mirana();
         let consensus = ConsensusBuilder::default()
             .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
             .hardfork_switch(hardfork_switch)

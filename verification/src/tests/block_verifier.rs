@@ -3,13 +3,12 @@ use super::super::block_verifier::{
     DuplicateVerifier, MerkleRootVerifier,
 };
 use crate::{BlockErrorKind, CellbaseError};
-use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, BlockNumber, Capacity,
-        EpochNumberWithFraction, HeaderBuilder, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
+        HeaderBuilder, TransactionBuilder, TransactionView,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
@@ -476,41 +475,31 @@ fn test_block_extension_verifier() {
         .extension(Some(vec![0u8; 32].pack()))
         .build_unchecked();
     {
-        // Test CKB v2021
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_0031(fork_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
-
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block);
+        let result = BlockExtensionVerifier::new().verify(&block);
         assert!(result.is_ok(), "result = {:?}", result);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block1);
+        let result = BlockExtensionVerifier::new().verify(&block1);
         assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block2);
+        let result = BlockExtensionVerifier::new().verify(&block2);
         assert_error_eq!(result.unwrap_err(), BlockErrorKind::EmptyBlockExtension);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block3);
+        let result = BlockExtensionVerifier::new().verify(&block3);
         assert!(result.is_ok(), "result = {:?}", result);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block4);
+        let result = BlockExtensionVerifier::new().verify(&block4);
         assert!(result.is_ok(), "result = {:?}", result);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block5);
+        let result = BlockExtensionVerifier::new().verify(&block5);
         assert_error_eq!(
             result.unwrap_err(),
             BlockErrorKind::ExceededMaximumBlockExtensionBytes
         );
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block6);
+        let result = BlockExtensionVerifier::new().verify(&block6);
         assert!(result.is_ok(), "result = {:?}", result);
 
-        let result = BlockExtensionVerifier::new(&consensus).verify(&block7);
+        let result = BlockExtensionVerifier::new().verify(&block7);
         assert_error_eq!(result.unwrap_err(), BlockErrorKind::InvalidExtraHash);
     }
 }

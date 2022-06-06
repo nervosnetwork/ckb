@@ -40,7 +40,7 @@ impl<'a> Verifier for BlockVerifier<'a> {
         let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
-        BlockExtensionVerifier::new(self.consensus).verify(target)?;
+        BlockExtensionVerifier::new().verify(target)?;
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
@@ -242,13 +242,11 @@ impl BlockBytesVerifier {
 ///
 /// Check block extension.
 #[derive(Clone)]
-pub struct BlockExtensionVerifier<'a> {
-    consensus: &'a Consensus,
-}
+pub struct BlockExtensionVerifier;
 
-impl<'a> BlockExtensionVerifier<'a> {
-    pub fn new(consensus: &'a Consensus) -> Self {
-        BlockExtensionVerifier { consensus }
+impl BlockExtensionVerifier {
+    pub fn new() -> Self {
+        BlockExtensionVerifier {}
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {

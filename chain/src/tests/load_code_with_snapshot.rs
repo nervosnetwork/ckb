@@ -234,7 +234,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         .dao(dao)
         .build();
 
-    let hardfork_switch = HardForkSwitch::new_without_any_enabled()
+    let hardfork_switch = HardForkSwitch::new_mirana()
         .as_builder()
         .rfc_0032(0)
         .build()
