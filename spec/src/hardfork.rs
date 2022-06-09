@@ -79,7 +79,11 @@ impl HardForkConfig {
     /// sets all `None` to default values, otherwise, return an `Err`.
     pub fn complete_mainnet(&self) -> Result<HardForkSwitch, String> {
         let mut b = HardForkSwitch::new_builder();
-        b = self.update_builder_via_edition(b, mainnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_via_edition(
+            b,
+            mainnet::CKB2021_START_EPOCH,
+            mainnet::RFC0028_START_EPOCH,
+        )?;
         b.build()
     }
 
@@ -87,7 +91,11 @@ impl HardForkConfig {
     /// sets all `None` to default values, otherwise, return an `Err`.
     pub fn complete_testnet(&self) -> Result<HardForkSwitch, String> {
         let mut b = HardForkSwitch::new_builder();
-        b = self.update_builder_via_edition(b, testnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_via_edition(
+            b,
+            testnet::CKB2021_START_EPOCH,
+            testnet::RFC0028_START_EPOCH,
+        )?;
         b.build()
     }
 
@@ -95,9 +103,10 @@ impl HardForkConfig {
         &self,
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
+        rfc_0028_start: EpochNumber,
     ) -> Result<HardForkSwitchBuilder, String> {
         let builder = builder
-            .rfc_0028(check_default!(self, rfc_0028, ckb2021))
+            .rfc_0028(check_default!(self, rfc_0028, rfc_0028_start))
             .rfc_0029(check_default!(self, rfc_0029, ckb2021))
             .rfc_0030(check_default!(self, rfc_0030, ckb2021))
             .rfc_0031(check_default!(self, rfc_0031, ckb2021))

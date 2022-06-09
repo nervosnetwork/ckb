@@ -632,6 +632,11 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
         }
     }
 
+    fn parent_median_time(&self, block_hash: &Byte32) -> u64 {
+        let (_, _, parent_hash) = self.data_loader.timestamp_and_parent(block_hash);
+        self.block_median_time(&parent_hash)
+    }
+
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
         let median_block_count = self.consensus.median_time_block_count();
         self.data_loader
@@ -707,12 +712,20 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
+                    let proposal_window = self.consensus.tx_proposal_window();
                     let parent_hash = self.tx_env.parent_hash();
-                    let base_timestamp = self
-                        .data_loader
-                        .get_header(&info.block_hash)
-                        .expect("header exist")
-                        .timestamp();
+                    let epoch_number = self.tx_env.epoch_number(proposal_window);
+                    let hardfork_switch = self.consensus.hardfork_switch();
+                    let base_timestamp = if hardfork_switch
+                        .is_block_ts_as_relative_since_start_enabled(epoch_number)
+                    {
+                        self.data_loader
+                            .get_header(&info.block_hash)
+                            .expect("header exist")
+                            .timestamp()
+                    } else {
+                        self.parent_median_time(&info.block_hash)
+                    };
                     let current_median_time = self.block_median_time(&parent_hash);
                     if current_median_time < base_timestamp + timestamp {
                         return Err((TransactionError::Immature { index }).into());

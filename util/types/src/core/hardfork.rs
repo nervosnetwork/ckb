@@ -171,7 +171,7 @@ impl HardForkSwitch {
     pub fn new_mirana() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
-            .rfc_0028(0)
+            .rfc_0028(5414)
             .rfc_0029(0)
             .rfc_0030(0)
             .rfc_0031(0)
