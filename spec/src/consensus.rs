@@ -5,7 +5,7 @@
 
 use crate::{
     calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
-    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
+    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL, versionbits::{DeploymentPos, Deployment}
 };
 use ckb_constant::{
     consensus::TAU,
@@ -32,6 +32,7 @@ use ckb_types::{
 };
 use std::cmp;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 // 1.344 billion per year
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
@@ -85,6 +86,10 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // Ratio of satoshi cell occupied of capacity,
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
+
+pub(crate) const SOFT_FORK_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
+
+pub(crate) const MINER_CONFIRMATION_WINDOW: EpochNumber = 180; // a month
 
 /// The struct represent CKB two-step-transaction-confirmation params
 ///
@@ -274,6 +279,9 @@ impl ConsensusBuilder {
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
                 hardfork_switch: HardForkSwitch::new_mirana(),
+                deployments: HashMap::new(),
+                soft_fork_activation_threshold: SOFT_FORK_ACTIVATION_THRESHOLD,
+                miner_confirmation_window: MINER_CONFIRMATION_WINDOW,
             },
         }
     }
@@ -537,6 +545,10 @@ pub struct Consensus {
     pub permanent_difficulty_in_dummy: bool,
     /// A switch to select hard fork features base on the epoch number.
     pub hardfork_switch: HardForkSwitch,
+    /// Soft fork deployments
+    pub deployments: HashMap<DeploymentPos, Deployment>,
+    pub soft_fork_activation_threshold: Ratio,
+    pub miner_confirmation_window: EpochNumber,
 }
 
 // genesis difficulty should not be zero
