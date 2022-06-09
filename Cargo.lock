@@ -567,6 +567,7 @@ dependencies = [
  "ckb-resource",
  "ckb-traits",
  "ckb-types",
+ "ckb-util",
  "serde",
  "toml",
 ]
