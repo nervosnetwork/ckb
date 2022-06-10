@@ -14,6 +14,7 @@ use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
+use ckb_types::core::{Cycle, EpochNumber, EpochNumberWithFraction};
 use ckb_types::{
     core::{
         cell::{
@@ -230,12 +231,36 @@ impl GlobalIndex {
     }
 }
 
+#[derive(Copy, Clone)]
+struct ChainStat {
+    block_cnt: u64,
+    block_size_cnt: u64,
+    tx_cnt: u64,
+    time_stamp: u64,
+    epoch_number: EpochNumber,
+    first_block_in_epoch: BlockNumber,
+    last_block_in_epoch: BlockNumber,
+}
+impl Default for ChainStat {
+    fn default() -> Self {
+        ChainStat {
+            block_cnt: 0,
+            block_size_cnt: 0,
+            tx_cnt: 0,
+            time_stamp: 0,
+            epoch_number: u64::MAX,
+            first_block_in_epoch: 1,
+            last_block_in_epoch: 0,
+        }
+    }
+}
 /// Chain background service
 ///
 /// The ChainService provides a single-threaded background executor.
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
+    stat: ChainStat,
 }
 
 impl ChainService {
@@ -244,6 +269,7 @@ impl ChainService {
         ChainService {
             shared,
             proposal_table,
+            stat: Default::default(),
         }
     }
 
@@ -494,14 +520,14 @@ impl ChainService {
 
         if new_best_block {
             let tip_header = block.header();
-            info!(
-                "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
-                tip_header.number(),
-                tip_header.hash(),
-                tip_header.epoch(),
-                total_difficulty,
-                block.transactions().len()
-            );
+
+            // in IBD, print every epoch summary
+            // out of IBD, print every block
+            if self.shared.is_initial_block_download() {
+                self.print_epoch_summary(&block, &tip_header, total_difficulty.clone());
+            } else {
+                log_new_block(&block, &tip_header, total_difficulty.clone());
+            }
 
             self.update_proposal_table(&fork);
             let (detached_proposal_id, new_proposals) = self
@@ -537,14 +563,7 @@ impl ChainService {
             metrics!(gauge, "ckb.chain_tip", block.header().number() as i64);
         } else {
             self.shared.refresh_snapshot();
-            info!(
-                "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
-                block.header().number(),
-                block.header().hash(),
-                block.header().epoch(),
-                cannon_total_difficulty,
-                block.transactions().len()
-            );
+            log_new_better_block(&block, cannon_total_difficulty);
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
@@ -825,15 +844,7 @@ impl ChainService {
                                     mut_ext.txs_fees = txs_fees;
                                     txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
                                     if !switch.disable_script() && b.transactions().len() > 1 {
-                                        info!(
-                                            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
-                                            b.number(),
-                                            b.hash(),
-                                            b.data().serialized_size_without_uncle_proposals(),
-                                            self.shared.consensus().max_block_bytes(),
-                                            cycles,
-                                            self.shared.consensus().max_block_cycles()
-                                        );
+                                        log_block_verify(b, &self.shared, cycles);
 
                                         // log tx verification result for monitor node
                                         if log_enabled_target!("ckb_tx_monitor", Trace) {
@@ -912,6 +923,101 @@ impl ChainService {
 
         debug!("}}");
     }
+
+    /// in IBD, print 1st block of the epoch and print statistics of previous epoch
+    fn print_epoch_summary(
+        &mut self,
+        block: &Arc<BlockView>,
+        tip_header: &HeaderView,
+        total_difficulty: U256,
+    ) {
+        let tip_epoch = tip_header.epoch();
+        // update epoch stat
+        if tip_epoch.number() != self.stat.epoch_number {
+            self.stat.epoch_number = tip_epoch.number();
+            self.stat.first_block_in_epoch = tip_header.number().saturating_sub(tip_epoch.index());
+            self.stat.last_block_in_epoch = self
+                .stat
+                .first_block_in_epoch
+                .saturating_add(tip_epoch.length())
+                .saturating_sub(1);
+        }
+
+        // print 1st block in this epoch
+        if block.number() == self.stat.first_block_in_epoch {
+            log_new_block(block, tip_header, total_difficulty);
+        }
+        self.stat.block_cnt += 1;
+        self.stat.block_size_cnt += block.data().total_size() as u64;
+        self.stat.tx_cnt += block.transactions().len() as u64;
+
+        // print statistics of this epoch
+        if block.number() == self.stat.last_block_in_epoch {
+            let elapse = if self.stat.time_stamp != 0 {
+                (unix_time_as_millis() - self.stat.time_stamp) / 1000
+            } else {
+                0
+            };
+
+            log_epoch(&tip_epoch, &self.stat, elapse);
+
+            // reset stat data
+            self.stat.block_cnt = 0;
+            self.stat.block_size_cnt = 0;
+            self.stat.tx_cnt = 0;
+            self.stat.time_stamp = unix_time_as_millis();
+        }
+    }
+}
+
+#[inline]
+fn log_epoch(tip_epoch: &EpochNumberWithFraction, stat: &ChainStat, elapse: u64) {
+    info!(
+        "Epoch {} Statis: blocks: {}, blocks size: {}, txs: {}, time: {} secs",
+        tip_epoch.number(),
+        stat.block_cnt,
+        stat.block_size_cnt,
+        stat.tx_cnt,
+        elapse
+    );
+}
+
+#[inline]
+fn log_new_block(block: &Arc<BlockView>, header: &HeaderView, total_difficulty: U256) {
+    info!(
+        "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
+        header.number(),
+        header.hash(),
+        header.epoch(),
+        total_difficulty,
+        block.transactions().len()
+    );
+}
+
+#[inline]
+fn log_new_better_block(block: &Arc<BlockView>, cannon_total_difficulty: U256) {
+    let header = block.header();
+    info!(
+        "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
+        header.number(),
+        header.hash(),
+        header.epoch(),
+        cannon_total_difficulty,
+        block.transactions().len()
+    );
+}
+
+#[inline]
+fn log_block_verify(block: &BlockView, shared: &Shared, cycles: Cycle) {
+    info!(
+        "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
+        block.number(),
+        block.hash(),
+        block.data().serialized_size_without_uncle_proposals(),
+        shared.consensus().max_block_bytes(),
+        cycles,
+        shared.consensus().max_block_cycles()
+    );
 }
 
 #[cfg(debug_assertions)]
