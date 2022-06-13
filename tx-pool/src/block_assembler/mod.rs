@@ -425,28 +425,45 @@ impl BlockAssembler {
         (&current.template).into()
     }
 
-    pub(crate) fn build_cellbase_witness(config: &BlockAssemblerConfig) -> CellbaseWitness {
+    pub(crate) fn build_cellbase_witness(
+        config: &BlockAssemblerConfig,
+        snapshot: &Snapshot,
+    ) -> CellbaseWitness {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
             .code_hash(config.code_hash.pack())
             .hash_type(hash_type.into())
             .build();
-        let message = if config.use_binary_version_as_message_prefix {
-            if config.message.is_empty() {
-                config.binary_version.as_bytes().pack()
-            } else {
-                [
-                    config.binary_version.as_bytes(),
-                    b" ",
-                    config.message.as_bytes(),
-                ]
-                .concat()
-                .pack()
-            }
+        let tip = snapshot.tip_header();
+
+        let message = if let Some(version) = snapshot.compute_versionbits(tip) {
+            [
+                version.to_le_bytes().as_slice(),
+                b" ",
+                config.message.as_bytes(),
+            ]
+            .concat()
+            .pack()
         } else {
             config.message.as_bytes().pack()
         };
+
+        // let message = if config.use_binary_version_as_message_prefix {
+        //     if config.message.is_empty() {
+        //         config.binary_version.as_bytes().pack()
+        //     } else {
+        //         [
+        //             config.binary_version.as_bytes(),
+        //             b" ",
+        //             config.message.as_bytes(),
+        //         ]
+        //         .concat()
+        //         .pack()
+        //     }
+        // } else {
+        //     config.message.as_bytes().pack()
+        // };
         CellbaseWitness::new_builder()
             .lock(cellbase_lock)
             .message(message)
@@ -461,9 +478,9 @@ impl BlockAssembler {
         config: &BlockAssemblerConfig,
         snapshot: &Snapshot,
     ) -> Result<TransactionView, AnyError> {
-        let cellbase_witness = Self::build_cellbase_witness(config);
         let tip = snapshot.tip_header();
         let candidate_number = tip.number() + 1;
+        let cellbase_witness = Self::build_cellbase_witness(config, snapshot);
 
         let tx = {
             let (target_lock, block_reward) = block_in_place(|| {

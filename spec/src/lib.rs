@@ -46,7 +46,7 @@ pub use hardfork::HardForkConfig;
 pub mod consensus;
 mod error;
 mod hardfork;
-mod versionbits;
+pub mod versionbits;
 
 #[cfg(test)]
 mod tests;

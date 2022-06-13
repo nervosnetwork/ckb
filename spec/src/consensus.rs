@@ -4,8 +4,13 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
 use crate::{
-    calculate_block_reward, OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
-    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL, versionbits::{DeploymentPos, Deployment}
+    calculate_block_reward,
+    versionbits::{
+        self, Deployment, DeploymentPos, VersionBits, VersionBitsCache,
+        VersionBitsConditionChecker, VersionBitsIndexer,
+    },
+    OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
+    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_constant::{
     consensus::TAU,
@@ -31,8 +36,8 @@ use ckb_types::{
     H160, H256, U256,
 };
 use std::cmp;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // 1.344 billion per year
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
@@ -88,8 +93,6 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
 pub(crate) const SOFT_FORK_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
-
-pub(crate) const MINER_CONFIRMATION_WINDOW: EpochNumber = 180; // a month
 
 /// The struct represent CKB two-step-transaction-confirmation params
 ///
@@ -281,7 +284,7 @@ impl ConsensusBuilder {
                 hardfork_switch: HardForkSwitch::new_mirana(),
                 deployments: HashMap::new(),
                 soft_fork_activation_threshold: SOFT_FORK_ACTIVATION_THRESHOLD,
-                miner_confirmation_window: MINER_CONFIRMATION_WINDOW,
+                versionbits_caches: VersionBitsCache::default(),
             },
         }
     }
@@ -547,8 +550,8 @@ pub struct Consensus {
     pub hardfork_switch: HardForkSwitch,
     /// Soft fork deployments
     pub deployments: HashMap<DeploymentPos, Deployment>,
+    pub versionbits_caches: VersionBitsCache,
     pub soft_fork_activation_threshold: Ratio,
-    pub miner_confirmation_window: EpochNumber,
 }
 
 // genesis difficulty should not be zero
@@ -943,6 +946,25 @@ impl Consensus {
     /// Returns the hardfork switch.
     pub fn hardfork_switch(&self) -> &HardForkSwitch {
         &self.hardfork_switch
+    }
+
+    pub fn compute_versionbits<I: VersionBitsIndexer>(
+        &self,
+        parent: &HeaderView,
+        indexer: &I,
+    ) -> Option<Version> {
+        let mut version = versionbits::VERSIONBITS_TOP_BITS;
+        for pos in self.deployments.keys() {
+            let versionbits = VersionBits::new(*pos, self);
+            let cache = self.versionbits_caches.cache(pos);
+            let state = versionbits.get_state(parent, cache, indexer)?;
+            if state == versionbits::ThresholdState::LockedIn
+                || state == versionbits::ThresholdState::Started
+            {
+                version |= versionbits.mask();
+            }
+        }
+        Some(version)
     }
 
     /// If the CKB block chain specification is for an public chain.
