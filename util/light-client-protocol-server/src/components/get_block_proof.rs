@@ -85,7 +85,7 @@ impl BlockSampler {
 
     fn get_block_numbers_via_difficulties(
         &self,
-        mut start_block_number: BlockNumber,
+        start_block_number: BlockNumber,
         end_block_number: BlockNumber,
         difficulties: &[U256],
     ) -> Result<Vec<BlockNumber>, String> {
@@ -97,7 +97,6 @@ impl BlockSampler {
                 difficulty,
             ) {
                 numbers.push(num);
-                start_block_number = num + 1;
             } else {
                 let errmsg = format!(
                     "the difficulty ({:#x}) is not in the block range [{}, {}]",
@@ -121,6 +120,10 @@ impl BlockSampler {
         let mut headers_with_chain_root = Vec::new();
 
         for number in numbers {
+            // Genesis block doesn't has chain root.
+            if *number == 0 {
+                continue;
+            }
             if let Some(ancestor_header) = active_chain.get_ancestor(last_hash, *number) {
                 let position = leaf_index_to_pos(*number);
                 positions.push(position);
@@ -223,7 +226,7 @@ impl<'a> GetBlockProofProcess<'a> {
             // The maximum difficulty should be less than the difficulty boundary.
             if difficulties
                 .last()
-                .map(|d| *d <= difficulty_boundary)
+                .map(|d| *d >= difficulty_boundary)
                 .unwrap_or(false)
             {
                 let errmsg = "the difficulty boundary should be greater than all difficulties";
@@ -275,7 +278,7 @@ impl<'a> GetBlockProofProcess<'a> {
                 let mut difficulty_boundary_block_number = if let Some(block_number) = sampler
                     .get_first_block_total_difficulty_is_not_less_than(
                         start_block_number,
-                        last_block_number - 1,
+                        last_block_number,
                         &difficulty_boundary,
                     ) {
                     block_number
@@ -298,7 +301,7 @@ impl<'a> GetBlockProofProcess<'a> {
                     difficulty_boundary = total_difficulty;
                     difficulties = difficulties
                         .into_iter()
-                        .filter(|d| *d >= difficulty_boundary)
+                        .take_while(|d| *d < difficulty_boundary)
                         .collect();
                 } else {
                     let errmsg = format!(
@@ -309,7 +312,7 @@ impl<'a> GetBlockProofProcess<'a> {
                 };
                 let sampled_numbers = match sampler.get_block_numbers_via_difficulties(
                     start_block_number,
-                    difficulty_boundary_block_number - 1,
+                    difficulty_boundary_block_number,
                     &difficulties,
                 ) {
                     Ok(numbers) => numbers,
