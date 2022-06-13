@@ -45,7 +45,7 @@ pub(crate) fn check_tx_fee(
 ) -> Result<Capacity, Reject> {
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
         .transaction_fee(rtx)
-        .map_err(|err| Reject::Malformed(format!("Transaction fee calculate overflow: {}", err)))?;
+        .map_err(|err| Reject::Malformed(format!("{}", err)))?;
     let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
