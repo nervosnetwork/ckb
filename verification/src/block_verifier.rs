@@ -258,9 +258,16 @@ impl<'a> BlockExtensionVerifier<'a> {
         let is_reuse_uncles_hash_as_extra_hash_enabled =
             hardfork_switch.is_reuse_uncles_hash_as_extra_hash_enabled(epoch_number);
 
+        let mmr_activated_number = self.consensus.hardfork_switch().mmr_activated_number();
+        let has_chain_root = block.number() >= mmr_activated_number;
+
         if is_reuse_uncles_hash_as_extra_hash_enabled {
             match extra_fields_count {
-                0 => {}
+                0 => {
+                    if has_chain_root {
+                        return Err(BlockErrorKind::NoBlockExtension.into());
+                    }
+                }
                 1 => {
                     let extension = if let Some(data) = block.extension() {
                         data
@@ -273,6 +280,11 @@ impl<'a> BlockExtensionVerifier<'a> {
                     if extension.len() > 96 {
                         return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
                     }
+                    if has_chain_root && extension.len() != 32 {
+                        return Err(BlockErrorKind::InvalidBlockExtension.into());
+                    }
+                    // Requires checks of the chain root in `chain/find_fork`
+                    // if `has_chain_root && extension.len() == 32`
                 }
                 _ => {
                     return Err(BlockErrorKind::UnknownFields.into());

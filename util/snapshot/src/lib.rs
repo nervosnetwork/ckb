@@ -8,6 +8,7 @@ use ckb_db::{
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
+use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::HeaderProvider;
@@ -17,7 +18,7 @@ use ckb_types::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
         BlockNumber, EpochExt, HeaderView,
     },
-    packed::{Byte32, OutPoint},
+    packed::{Byte32, HeaderDigest, OutPoint},
     U256,
 };
 use std::hash::{Hash, Hasher};
@@ -243,5 +244,17 @@ impl HeaderProvider for Snapshot {
 impl ConsensusProvider for Snapshot {
     fn get_consensus(&self) -> &Consensus {
         self.consensus()
+    }
+}
+
+impl MMRStore<HeaderDigest> for &Snapshot {
+    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
+        Ok(self.store.get_header_digest(pos))
+    }
+
+    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
+        Err(MMRError::StoreError(
+            "Failed to append to MMR, snapshot MMR is readonly".into(),
+        ))
     }
 }

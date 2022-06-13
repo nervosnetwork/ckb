@@ -1903,6 +1903,10 @@ impl ActiveChain {
         self.store().get_block_header(h)
     }
 
+    pub fn get_block_ext(&self, h: &packed::Byte32) -> Option<core::BlockExt> {
+        self.snapshot().get_block_ext(h)
+    }
+
     pub fn shared(&self) -> &SyncShared {
         &self.shared
     }

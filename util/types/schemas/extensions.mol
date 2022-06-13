@@ -14,6 +14,7 @@ array BeUint64 [byte; 8];
 
 vector Uint32Vec <Uint32>;
 vector Uint64Vec <Uint64>;
+vector Uint256Vec <Uint256>;
 
 /* Extension Types for Chain */
 
@@ -21,6 +22,26 @@ option CellOutputOpt (CellOutput);
 
 vector HeaderVec <Header>;
 vector OutPointVec <OutPoint>;
+
+/* Types for Light Client */
+
+struct HeaderDigest {
+    hash:                   Byte32,
+
+    total_difficulty:       Uint256,
+
+    start_number:           Uint64,
+    end_number:             Uint64,
+
+    start_epoch:            Uint64,
+    end_epoch:              Uint64,
+
+    start_timestamp:        Uint64,
+    end_timestamp:          Uint64,
+
+    start_compact_target:   Uint32,
+    end_compact_target:     Uint32,
+}
 
 /* Types for Storage */
 
@@ -164,6 +185,47 @@ table IndexTransaction {
 }
 vector IndexTransactionVec <IndexTransaction>;
 
+/* Types for Network/BlockFilter */
+
+union BlockFilterMessage {
+    GetBlockFilters,
+    BlockFilters,
+    GetBlockFilterHashes,
+    BlockFilterHashes,
+    GetBlockFilterCheckPoints,
+    BlockFilterCheckPoints,
+}
+
+struct GetBlockFilters {
+    start_number:   Uint64,
+}
+
+table BlockFilters {
+    start_number:   Uint64,
+    block_hashes:   Byte32Vec,
+    filters:        BytesVec,
+}
+
+struct GetBlockFilterHashes {
+    start_number:   Uint64,
+}
+
+table BlockFilterHashes {
+    start_number:               Uint64,
+    parent_block_filter_hash:   Byte32,
+    block_filter_hashes:        Byte32Vec,
+}
+
+struct GetBlockFilterCheckPoints {
+    start_number:   Uint64,
+}
+
+table BlockFilterCheckPoints {
+    start_number:           Uint64,
+    block_filter_hashes:    Byte32Vec,
+}
+
+
 /* Types for Network/Sync */
 
 union SyncMessage {
@@ -220,6 +282,60 @@ table MerkleProof {
 }
 
 table InIBD {
+}
+
+/* Types for Network/LightClient */
+
+vector HeaderDigestVec <HeaderDigest>;
+
+table HeaderWithChainRoot {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    chain_root:             HeaderDigest,
+}
+
+vector HeaderWithChainRootVec <HeaderWithChainRoot>;
+
+table BlockProof {
+    mmr_size:               Uint64,
+    items:                  HeaderDigestVec,
+}
+
+table VerifiableHeader {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    extension:              BytesOpt,
+}
+
+union LightClientMessage {
+    GetLastState,
+    SendLastState,
+    GetBlockProof,
+    SendBlockProof,
+}
+
+table GetLastState{
+}
+
+table SendLastState{
+    mmr_activated_number:       Uint64,
+    last_header:                VerifiableHeader,
+    total_difficulty:           Uint256,
+}
+
+table GetBlockProof {
+    last_hash:                  Byte32,
+    start_number:               Uint64,
+    last_n_blocks:              Uint64,
+    difficulty_boundary:        Uint256,
+    difficulties:               Uint256Vec,
+}
+
+table SendBlockProof {
+    root:                       HeaderDigest,
+    proof:                      BlockProof,
+    sampled_headers:            HeaderWithChainRootVec,
+    last_n_headers:             HeaderWithChainRootVec,
 }
 
 /* Types for Network/Others */

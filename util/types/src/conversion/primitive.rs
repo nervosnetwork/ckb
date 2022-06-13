@@ -180,3 +180,4 @@ impl_conversion_for_vector!(u64, Uint64Vec, Uint64VecReader);
 impl_conversion_for_option_pack!(&str, BytesOpt);
 impl_conversion_for_option_pack!(String, BytesOpt);
 impl_conversion_for_option_pack!(Bytes, BytesOpt);
+impl_conversion_for_packed_optional_pack!(Bytes, BytesOpt);

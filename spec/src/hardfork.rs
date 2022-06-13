@@ -3,7 +3,7 @@
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_types::core::{
     hardfork::{HardForkSwitch, HardForkSwitchBuilder},
-    EpochNumber,
+    BlockNumber, EpochNumber,
 };
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +57,10 @@ pub struct HardForkConfig {
     /// Ref: CKB RFC 0038
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_0038: Option<EpochNumber>,
+
+    // TODO(light-client) update the description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rfc_tmp1: Option<BlockNumber>,
 }
 
 macro_rules! check_default {
@@ -79,7 +83,8 @@ impl HardForkConfig {
     /// sets all `None` to default values, otherwise, return an `Err`.
     pub fn complete_mainnet(&self) -> Result<HardForkSwitch, String> {
         let mut b = HardForkSwitch::new_builder();
-        b = self.update_builder_via_edition(b, mainnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_for_edition_2021(b, mainnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_for_light_client(b, mainnet::MMR_ACTIVATED_BLOCK)?;
         b.build()
     }
 
@@ -87,11 +92,12 @@ impl HardForkConfig {
     /// sets all `None` to default values, otherwise, return an `Err`.
     pub fn complete_testnet(&self) -> Result<HardForkSwitch, String> {
         let mut b = HardForkSwitch::new_builder();
-        b = self.update_builder_via_edition(b, testnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_for_edition_2021(b, testnet::CKB2021_START_EPOCH)?;
+        b = self.update_builder_for_light_client(b, testnet::MMR_ACTIVATED_BLOCK)?;
         b.build()
     }
 
-    fn update_builder_via_edition(
+    fn update_builder_for_edition_2021(
         &self,
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
@@ -107,18 +113,34 @@ impl HardForkConfig {
         Ok(builder)
     }
 
+    fn update_builder_for_light_client(
+        &self,
+        builder: HardForkSwitchBuilder,
+        mmr_activated_number: BlockNumber,
+    ) -> Result<HardForkSwitchBuilder, String> {
+        let builder = builder.rfc_tmp1(check_default!(self, rfc_tmp1, mmr_activated_number));
+        Ok(builder)
+    }
+
     /// Converts to a hard fork switch.
     ///
-    /// Enable features which are set to `None` at the user provided epoch.
-    pub fn complete_with_default(&self, default: EpochNumber) -> Result<HardForkSwitch, String> {
+    /// Enable features which are set to `None` at the user provided epoch (or block).
+    pub fn complete_with_default(&self) -> Result<HardForkSwitch, String> {
+        if self.rfc_tmp1.map(|v| v == 0).unwrap_or(false) {
+            let errmsg = "Found the hard fork feature parameter \"rfc_tmp1\" is \
+                in the chain specification file, and its value is 0.
+                But it should NOT be 0 since genesis block doesn't has chain root.";
+            return Err(errmsg.to_string());
+        }
         HardForkSwitch::new_builder()
-            .rfc_0028(self.rfc_0028.unwrap_or(default))
-            .rfc_0029(self.rfc_0029.unwrap_or(default))
-            .rfc_0030(self.rfc_0030.unwrap_or(default))
-            .rfc_0031(self.rfc_0031.unwrap_or(default))
-            .rfc_0032(self.rfc_0032.unwrap_or(default))
-            .rfc_0036(self.rfc_0036.unwrap_or(default))
-            .rfc_0038(self.rfc_0038.unwrap_or(default))
+            .rfc_0028(self.rfc_0028.unwrap_or(EpochNumber::MAX))
+            .rfc_0029(self.rfc_0029.unwrap_or(EpochNumber::MAX))
+            .rfc_0030(self.rfc_0030.unwrap_or(EpochNumber::MAX))
+            .rfc_0031(self.rfc_0031.unwrap_or(EpochNumber::MAX))
+            .rfc_0032(self.rfc_0032.unwrap_or(EpochNumber::MAX))
+            .rfc_0036(self.rfc_0036.unwrap_or(EpochNumber::MAX))
+            .rfc_0038(self.rfc_0038.unwrap_or(EpochNumber::MAX))
+            .rfc_tmp1(self.rfc_tmp1.unwrap_or(BlockNumber::MAX))
             .build()
     }
 }

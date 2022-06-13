@@ -112,11 +112,22 @@ pub enum BlockErrorKind {
     /// Total bytes of block extension exceeds limit.
     ExceededMaximumBlockExtensionBytes,
 
+    /// No block extension.
+    ///
+    /// The block extension should be existed after light client supported.
+    NoBlockExtension,
+
+    /// The data length of block extension mismatches.
+    InvalidBlockExtension,
+
     /// The block has unknown field.
     UnknownFields,
 
     /// The calculated extra-hash does not match with the one in the header.
     InvalidExtraHash,
+
+    /// The calculated hash of chain root does not match with the one in the header.
+    InvalidChainRoot,
 }
 
 def_error_base_on_kind!(
