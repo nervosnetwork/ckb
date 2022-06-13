@@ -93,7 +93,7 @@ impl BlockAssembler {
         let extension =
             Self::build_extension(&snapshot).expect("build extension for BlockAssembler initial");
         let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension);
+            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
 
         let dao = Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])
             .expect("calc_dao for BlockAssembler initial");
@@ -107,6 +107,9 @@ impl BlockAssembler {
             .work_id(work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
         let template = builder.build();
 
         let size = TemplateSize {
@@ -140,6 +143,7 @@ impl BlockAssembler {
         let current_template = &current.template;
         let uncles = &current_template.uncles;
 
+        let extension = Self::build_extension(&current.snapshot)?;
         let (proposals, txs, txs_size, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -148,12 +152,11 @@ impl BlockAssembler {
             let proposals =
                 tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), uncles);
 
-            let extension = Self::build_extension(&current.snapshot)?;
             let basic_size = Self::basic_block_size(
                 current_template.cellbase.data(),
                 uncles,
                 proposals.iter(),
-                extension,
+                extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes
@@ -186,6 +189,9 @@ impl BlockAssembler {
                 current.template.current_time,
             ))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
 
         current.template = builder.build();
         current.size.txs = txs_size;
@@ -218,7 +224,7 @@ impl BlockAssembler {
 
         let extension = Self::build_extension(&snapshot)?;
         let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension);
+            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
 
         let dao = Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])?;
 
@@ -230,6 +236,9 @@ impl BlockAssembler {
             .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
         let template = builder.build();
 
         trace!(
@@ -348,18 +357,18 @@ impl BlockAssembler {
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;
+        let extension = Self::build_extension(&current.snapshot)?;
         let (txs, new_txs_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
                 return Ok(());
             }
 
-            let extension = Self::build_extension(&current.snapshot)?;
             let basic_block_size = Self::basic_block_size(
                 current_template.cellbase.data(),
                 &current_template.uncles,
                 current_template.proposals.iter(),
-                extension,
+                extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
@@ -392,6 +401,9 @@ impl BlockAssembler {
                     current.template.current_time,
                 ))
                 .dao(dao);
+            if let Some(data) = extension {
+                builder.extension(data);
+            }
             current.template = builder.build();
             current.size.txs = new_txs_size;
             current.size.total = new_total_size;
