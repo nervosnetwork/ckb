@@ -135,6 +135,12 @@ impl HardForkConfig {
     ///
     /// Enable features which are set to `None` at the user provided epoch (or block).
     pub fn complete_with_default(&self) -> Result<HardForkSwitch, String> {
+        if self.rfc_tmp1.map(|v| v == 0).unwrap_or(false) {
+            let errmsg = "Found the hard fork feature parameter \"rfc_tmp1\" is \
+                in the chain specification file, and its value is 0.
+                But it should NOT be 0 since genesis block doesn't has chain root.";
+            return Err(errmsg.to_string());
+        }
         HardForkSwitch::new_builder()
             .rfc_0028(self.rfc_0028.unwrap_or(EpochNumber::MAX))
             .rfc_0029(self.rfc_0029.unwrap_or(EpochNumber::MAX))
