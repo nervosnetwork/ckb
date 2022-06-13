@@ -1,7 +1,10 @@
 //! Rocksdb snapshot wrapper
 
 use arc_swap::{ArcSwap, Guard};
-use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
+use ckb_chain_spec::{
+    consensus::{Consensus, ConsensusProvider},
+    versionbits::VersionBitsIndexer,
+};
 use ckb_db::{
     iter::{DBIter, IteratorMode},
     DBPinnableSlice,
@@ -16,7 +19,7 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
-        BlockNumber, EpochExt, HeaderView,
+        BlockNumber, EpochExt, EpochNumber, HeaderView, TransactionView, Version,
     },
     packed::{Byte32, HeaderDigest, OutPoint},
     U256,
@@ -157,6 +160,10 @@ impl Snapshot {
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
+
+    pub fn compute_versionbits(&self, parent: &HeaderView) -> Option<Version> {
+        self.consensus.compute_versionbits(parent, self)
+    }
 }
 
 impl<'a> ChainStore<'a> for Snapshot {
@@ -184,6 +191,44 @@ impl<'a> ChainStore<'a> for Snapshot {
 
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         Some(self.epoch_ext.clone())
+    }
+}
+
+impl VersionBitsIndexer for Snapshot {
+    fn get_block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32> {
+        ChainStore::get_block_epoch_index(self, block_hash)
+    }
+
+    fn get_epoch_ext(&self, index: &Byte32) -> Option<EpochExt> {
+        ChainStore::get_epoch_ext(self, index)
+    }
+
+    fn get_block_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+        ChainStore::get_block_header(self, block_hash)
+    }
+
+    fn get_cellbase(&self, block_hash: &Byte32) -> Option<TransactionView> {
+        ChainStore::get_cellbase(self, block_hash)
+    }
+
+    fn get_ancestor_epoch(&self, index: &Byte32, target: EpochNumber) -> Option<EpochExt> {
+        let mut epoch_ext = ChainStore::get_epoch_ext(self, &index)?;
+
+        if epoch_ext.number() < target {
+            return None;
+        }
+
+        while epoch_ext.number() > target {
+            let last_block_header_in_previous_epoch =
+                ChainStore::get_block_header(self, &epoch_ext.last_block_hash_in_previous_epoch())?;
+            let previous_epoch_index = ChainStore::get_block_epoch_index(
+                self,
+                &last_block_header_in_previous_epoch.hash(),
+            )?;
+            epoch_ext = ChainStore::get_epoch_ext(self, &previous_epoch_index)?;
+        }
+
+        Some(epoch_ext)
     }
 }
 
@@ -219,7 +264,7 @@ impl HeaderChecker for Snapshot {
         if !self.is_main_chain(block_hash) {
             return Err(OutPointError::InvalidHeader(block_hash.clone()));
         }
-        self.get_block_header(block_hash)
+        ChainStore::get_block_header(self, block_hash)
             .ok_or_else(|| OutPointError::InvalidHeader(block_hash.clone()))?;
         Ok(())
     }
