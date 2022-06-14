@@ -715,22 +715,14 @@ impl ChainService {
 
         let consensus = self.shared.consensus();
         let mmr_activated_number = consensus.hardfork_switch().mmr_activated_number();
-        let activated_attached_blocks = attached_blocks
-            .iter()
-            .skip_while(|b| b.number() < mmr_activated_number)
-            .collect::<Vec<_>>();
 
-        if activated_attached_blocks.is_empty() {
-            return Ok(());
-        }
-
-        let start_block_header = activated_attached_blocks[0].header();
+        let start_block_header = attached_blocks[0].header();
 
         let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
         trace!("light-client: new chain root MMR with size = {}", mmr_size);
         let mut mmr = ChainRootMMR::new(mmr_size, txn);
 
-        for block in &activated_attached_blocks {
+        for block in attached_blocks.iter() {
             let block_number = block.number();
             let has_chain_root = block_number >= mmr_activated_number;
             trace!(
