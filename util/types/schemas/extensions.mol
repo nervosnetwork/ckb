@@ -288,7 +288,7 @@ table InIBD {
 
 vector HeaderDigestVec <HeaderDigest>;
 
-table HeaderWithChainRoot {
+struct HeaderWithChainRoot {
     header:                 Header,
     uncles_hash:            Byte32,
     chain_root:             HeaderDigest,
