@@ -15,6 +15,7 @@ ckb-build-info = { path = "util/build-info", version = "= 0.104.0-rc1" }
 
 [dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.104.0-rc1" }
+ckb-db = { path = "db", version = "= 0.104.0-rc1" }
 ckb-bin = { path = "ckb-bin", version = "= 0.104.0-rc1" }
 
 [dev-dependencies]
@@ -95,6 +96,11 @@ opt-level = 3
 
 [profile.bench.build-override]
 opt-level = 3
+
+[profile.prod]
+inherits = "release"
+lto = true
+codegen-units = 1
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 tikv-jemallocator = { version = "0.4.0", features = ["unprefixed_malloc_on_supported_platforms"] }

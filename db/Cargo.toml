@@ -18,3 +18,7 @@ ckb-db-schema = { path = "../db-schema", version = "= 0.104.0-rc1" }
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[features]
+default = []
+portable = ["rocksdb/portable"]
