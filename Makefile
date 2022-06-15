@@ -126,11 +126,15 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --release --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding"
+
+.PHONY: prod_portable
+prod_portable: ## Build binary for portable production release.
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,ckb-db/portable"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime --cfg docker" cargo build --verbose --release --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime --cfg docker" cargo build --verbose --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
