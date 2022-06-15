@@ -115,9 +115,9 @@ impl BlockSampler {
         positions: &mut Vec<u64>,
         last_hash: &packed::Byte32,
         numbers: &[BlockNumber],
-    ) -> Result<Vec<packed::HeaderWithChainRoot>, String> {
+    ) -> Result<Vec<packed::MMRHeader>, String> {
         let active_chain = self.active_chain();
-        let mut headers_with_chain_root = Vec::new();
+        let mut mmr_headers = Vec::new();
 
         for number in numbers {
             // Genesis block doesn't has chain root.
@@ -155,20 +155,20 @@ impl BlockSampler {
                     }
                 };
 
-                let header_with_chain_root = packed::HeaderWithChainRoot::new_builder()
+                let mmr_header = packed::MMRHeader::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
                     .chain_root(chain_root)
                     .build();
 
-                headers_with_chain_root.push(header_with_chain_root);
+                mmr_headers.push(mmr_header);
             } else {
                 let errmsg = format!("failed to find ancestor header ({})", number);
                 return Err(errmsg);
             }
         }
 
-        Ok(headers_with_chain_root)
+        Ok(mmr_headers)
     }
 }
 

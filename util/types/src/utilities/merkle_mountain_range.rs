@@ -320,18 +320,11 @@ impl VerifiableHeader {
         }
     }
 
-    /// Creates a new verifiable header from a header with chain root.
-    pub fn new_from_header_with_chain_root(
-        header_with_chain_root: packed::HeaderWithChainRoot,
-    ) -> Self {
-        let header = header_with_chain_root.header().into_view();
-        let uncles_hash = header_with_chain_root.uncles_hash();
-        let bytes = header_with_chain_root
-            .chain_root()
-            .calc_mmr_hash()
-            .as_bytes()
-            .pack();
-        let extension = Some(bytes);
+    /// Creates a new verifiable header from a MMR header.
+    pub fn new_from_mmr_header(mmr_header: packed::MMRHeader) -> Self {
+        let header = mmr_header.header().into_view();
+        let uncles_hash = mmr_header.uncles_hash();
+        let extension = mmr_header.extension().to_opt();
         Self::new(header, uncles_hash, extension)
     }
 

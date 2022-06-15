@@ -14555,8 +14555,8 @@ impl<'t: 'r, 'r> ::core::iter::ExactSizeIterator for HeaderDigestVecReaderIterat
     }
 }
 #[derive(Clone)]
-pub struct HeaderWithChainRoot(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for HeaderWithChainRoot {
+pub struct MMRHeader(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for MMRHeader {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -14565,16 +14565,17 @@ impl ::core::fmt::LowerHex for HeaderWithChainRoot {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for HeaderWithChainRoot {
+impl ::core::fmt::Debug for MMRHeader {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for HeaderWithChainRoot {
+impl ::core::fmt::Display for MMRHeader {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "header", self.header())?;
         write!(f, ", {}: {}", "uncles_hash", self.uncles_hash())?;
+        write!(f, ", {}: {}", "extension", self.extension())?;
         write!(f, ", {}: {}", "chain_root", self.chain_root())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -14583,10 +14584,10 @@ impl ::core::fmt::Display for HeaderWithChainRoot {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for HeaderWithChainRoot {
+impl ::core::default::Default for MMRHeader {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            120, 1, 0, 0, 16, 0, 0, 0, 224, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            124, 1, 0, 0, 20, 0, 0, 0, 228, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14599,13 +14600,13 @@ impl ::core::default::Default for HeaderWithChainRoot {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0,
+            0, 0, 0, 0, 0,
         ];
-        HeaderWithChainRoot::new_unchecked(v.into())
+        MMRHeader::new_unchecked(v.into())
     }
 }
-impl HeaderWithChainRoot {
-    pub const FIELD_COUNT: usize = 3;
+impl MMRHeader {
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -14634,25 +14635,31 @@ impl HeaderWithChainRoot {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         Byte32::new_unchecked(self.0.slice(start..end))
     }
-    pub fn chain_root(&self) -> HeaderDigest {
+    pub fn extension(&self) -> BytesOpt {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        BytesOpt::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn chain_root(&self) -> HeaderDigest {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[20..]) as usize;
             HeaderDigest::new_unchecked(self.0.slice(start..end))
         } else {
             HeaderDigest::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> HeaderWithChainRootReader<'r> {
-        HeaderWithChainRootReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> MMRHeaderReader<'r> {
+        MMRHeaderReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for HeaderWithChainRoot {
-    type Builder = HeaderWithChainRootBuilder;
-    const NAME: &'static str = "HeaderWithChainRoot";
+impl molecule::prelude::Entity for MMRHeader {
+    type Builder = MMRHeaderBuilder;
+    const NAME: &'static str = "MMRHeader";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        HeaderWithChainRoot(data)
+        MMRHeader(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -14661,10 +14668,10 @@ impl molecule::prelude::Entity for HeaderWithChainRoot {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        HeaderWithChainRootReader::from_slice(slice).map(|reader| reader.to_entity())
+        MMRHeaderReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        HeaderWithChainRootReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        MMRHeaderReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -14673,12 +14680,13 @@ impl molecule::prelude::Entity for HeaderWithChainRoot {
         Self::new_builder()
             .header(self.header())
             .uncles_hash(self.uncles_hash())
+            .extension(self.extension())
             .chain_root(self.chain_root())
     }
 }
 #[derive(Clone, Copy)]
-pub struct HeaderWithChainRootReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for HeaderWithChainRootReader<'r> {
+pub struct MMRHeaderReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for MMRHeaderReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -14687,16 +14695,17 @@ impl<'r> ::core::fmt::LowerHex for HeaderWithChainRootReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for HeaderWithChainRootReader<'r> {
+impl<'r> ::core::fmt::Debug for MMRHeaderReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for HeaderWithChainRootReader<'r> {
+impl<'r> ::core::fmt::Display for MMRHeaderReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "header", self.header())?;
         write!(f, ", {}: {}", "uncles_hash", self.uncles_hash())?;
+        write!(f, ", {}: {}", "extension", self.extension())?;
         write!(f, ", {}: {}", "chain_root", self.chain_root())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -14705,8 +14714,8 @@ impl<'r> ::core::fmt::Display for HeaderWithChainRootReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> HeaderWithChainRootReader<'r> {
-    pub const FIELD_COUNT: usize = 3;
+impl<'r> MMRHeaderReader<'r> {
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -14735,25 +14744,31 @@ impl<'r> HeaderWithChainRootReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn chain_root(&self) -> HeaderDigestReader<'r> {
+    pub fn extension(&self) -> BytesOptReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn chain_root(&self) -> HeaderDigestReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[20..]) as usize;
             HeaderDigestReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             HeaderDigestReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for HeaderWithChainRootReader<'r> {
-    type Entity = HeaderWithChainRoot;
-    const NAME: &'static str = "HeaderWithChainRootReader";
+impl<'r> molecule::prelude::Reader<'r> for MMRHeaderReader<'r> {
+    type Entity = MMRHeader;
+    const NAME: &'static str = "MMRHeaderReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        HeaderWithChainRootReader(slice)
+        MMRHeaderReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -14797,18 +14812,20 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderWithChainRootReader<'r> {
         }
         HeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        HeaderDigestReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        BytesOptReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        HeaderDigestReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
 #[derive(Debug, Default)]
-pub struct HeaderWithChainRootBuilder {
+pub struct MMRHeaderBuilder {
     pub(crate) header: Header,
     pub(crate) uncles_hash: Byte32,
+    pub(crate) extension: BytesOpt,
     pub(crate) chain_root: HeaderDigest,
 }
-impl HeaderWithChainRootBuilder {
-    pub const FIELD_COUNT: usize = 3;
+impl MMRHeaderBuilder {
+    pub const FIELD_COUNT: usize = 4;
     pub fn header(mut self, v: Header) -> Self {
         self.header = v;
         self
@@ -14817,18 +14834,23 @@ impl HeaderWithChainRootBuilder {
         self.uncles_hash = v;
         self
     }
+    pub fn extension(mut self, v: BytesOpt) -> Self {
+        self.extension = v;
+        self
+    }
     pub fn chain_root(mut self, v: HeaderDigest) -> Self {
         self.chain_root = v;
         self
     }
 }
-impl molecule::prelude::Builder for HeaderWithChainRootBuilder {
-    type Entity = HeaderWithChainRoot;
-    const NAME: &'static str = "HeaderWithChainRootBuilder";
+impl molecule::prelude::Builder for MMRHeaderBuilder {
+    type Entity = MMRHeader;
+    const NAME: &'static str = "MMRHeaderBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.header.as_slice().len()
             + self.uncles_hash.as_slice().len()
+            + self.extension.as_slice().len()
             + self.chain_root.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
@@ -14839,6 +14861,8 @@ impl molecule::prelude::Builder for HeaderWithChainRootBuilder {
         offsets.push(total_size);
         total_size += self.uncles_hash.as_slice().len();
         offsets.push(total_size);
+        total_size += self.extension.as_slice().len();
+        offsets.push(total_size);
         total_size += self.chain_root.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
@@ -14846,6 +14870,7 @@ impl molecule::prelude::Builder for HeaderWithChainRootBuilder {
         }
         writer.write_all(self.header.as_slice())?;
         writer.write_all(self.uncles_hash.as_slice())?;
+        writer.write_all(self.extension.as_slice())?;
         writer.write_all(self.chain_root.as_slice())?;
         Ok(())
     }
@@ -14853,12 +14878,12 @@ impl molecule::prelude::Builder for HeaderWithChainRootBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        HeaderWithChainRoot::new_unchecked(inner.into())
+        MMRHeader::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct HeaderWithChainRootVec(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for HeaderWithChainRootVec {
+pub struct MMRHeaderVec(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for MMRHeaderVec {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -14867,12 +14892,12 @@ impl ::core::fmt::LowerHex for HeaderWithChainRootVec {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for HeaderWithChainRootVec {
+impl ::core::fmt::Debug for MMRHeaderVec {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for HeaderWithChainRootVec {
+impl ::core::fmt::Display for MMRHeaderVec {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} [", Self::NAME)?;
         for i in 0..self.len() {
@@ -14885,13 +14910,13 @@ impl ::core::fmt::Display for HeaderWithChainRootVec {
         write!(f, "]")
     }
 }
-impl ::core::default::Default for HeaderWithChainRootVec {
+impl ::core::default::Default for MMRHeaderVec {
     fn default() -> Self {
         let v: Vec<u8> = vec![4, 0, 0, 0];
-        HeaderWithChainRootVec::new_unchecked(v.into())
+        MMRHeaderVec::new_unchecked(v.into())
     }
 }
-impl HeaderWithChainRootVec {
+impl MMRHeaderVec {
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -14908,34 +14933,34 @@ impl HeaderWithChainRootVec {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    pub fn get(&self, idx: usize) -> Option<HeaderWithChainRoot> {
+    pub fn get(&self, idx: usize) -> Option<MMRHeader> {
         if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
-    pub fn get_unchecked(&self, idx: usize) -> HeaderWithChainRoot {
+    pub fn get_unchecked(&self, idx: usize) -> MMRHeader {
         let slice = self.as_slice();
         let start_idx = molecule::NUMBER_SIZE * (1 + idx);
         let start = molecule::unpack_number(&slice[start_idx..]) as usize;
         if idx == self.len() - 1 {
-            HeaderWithChainRoot::new_unchecked(self.0.slice(start..))
+            MMRHeader::new_unchecked(self.0.slice(start..))
         } else {
             let end_idx = start_idx + molecule::NUMBER_SIZE;
             let end = molecule::unpack_number(&slice[end_idx..]) as usize;
-            HeaderWithChainRoot::new_unchecked(self.0.slice(start..end))
+            MMRHeader::new_unchecked(self.0.slice(start..end))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> HeaderWithChainRootVecReader<'r> {
-        HeaderWithChainRootVecReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> MMRHeaderVecReader<'r> {
+        MMRHeaderVecReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for HeaderWithChainRootVec {
-    type Builder = HeaderWithChainRootVecBuilder;
-    const NAME: &'static str = "HeaderWithChainRootVec";
+impl molecule::prelude::Entity for MMRHeaderVec {
+    type Builder = MMRHeaderVecBuilder;
+    const NAME: &'static str = "MMRHeaderVec";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        HeaderWithChainRootVec(data)
+        MMRHeaderVec(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -14944,10 +14969,10 @@ impl molecule::prelude::Entity for HeaderWithChainRootVec {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        HeaderWithChainRootVecReader::from_slice(slice).map(|reader| reader.to_entity())
+        MMRHeaderVecReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        HeaderWithChainRootVecReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        MMRHeaderVecReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -14957,8 +14982,8 @@ impl molecule::prelude::Entity for HeaderWithChainRootVec {
     }
 }
 #[derive(Clone, Copy)]
-pub struct HeaderWithChainRootVecReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for HeaderWithChainRootVecReader<'r> {
+pub struct MMRHeaderVecReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for MMRHeaderVecReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -14967,12 +14992,12 @@ impl<'r> ::core::fmt::LowerHex for HeaderWithChainRootVecReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for HeaderWithChainRootVecReader<'r> {
+impl<'r> ::core::fmt::Debug for MMRHeaderVecReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for HeaderWithChainRootVecReader<'r> {
+impl<'r> ::core::fmt::Display for MMRHeaderVecReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} [", Self::NAME)?;
         for i in 0..self.len() {
@@ -14985,7 +15010,7 @@ impl<'r> ::core::fmt::Display for HeaderWithChainRootVecReader<'r> {
         write!(f, "]")
     }
 }
-impl<'r> HeaderWithChainRootVecReader<'r> {
+impl<'r> MMRHeaderVecReader<'r> {
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -15002,34 +15027,34 @@ impl<'r> HeaderWithChainRootVecReader<'r> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    pub fn get(&self, idx: usize) -> Option<HeaderWithChainRootReader<'r>> {
+    pub fn get(&self, idx: usize) -> Option<MMRHeaderReader<'r>> {
         if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
-    pub fn get_unchecked(&self, idx: usize) -> HeaderWithChainRootReader<'r> {
+    pub fn get_unchecked(&self, idx: usize) -> MMRHeaderReader<'r> {
         let slice = self.as_slice();
         let start_idx = molecule::NUMBER_SIZE * (1 + idx);
         let start = molecule::unpack_number(&slice[start_idx..]) as usize;
         if idx == self.len() - 1 {
-            HeaderWithChainRootReader::new_unchecked(&self.as_slice()[start..])
+            MMRHeaderReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end_idx = start_idx + molecule::NUMBER_SIZE;
             let end = molecule::unpack_number(&slice[end_idx..]) as usize;
-            HeaderWithChainRootReader::new_unchecked(&self.as_slice()[start..end])
+            MMRHeaderReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for HeaderWithChainRootVecReader<'r> {
-    type Entity = HeaderWithChainRootVec;
-    const NAME: &'static str = "HeaderWithChainRootVecReader";
+impl<'r> molecule::prelude::Reader<'r> for MMRHeaderVecReader<'r> {
+    type Entity = MMRHeaderVec;
+    const NAME: &'static str = "MMRHeaderVecReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        HeaderWithChainRootVecReader(slice)
+        MMRHeaderVecReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -15073,40 +15098,37 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderWithChainRootVecReader<'r> {
         for pair in offsets.windows(2) {
             let start = pair[0];
             let end = pair[1];
-            HeaderWithChainRootReader::verify(&slice[start..end], compatible)?;
+            MMRHeaderReader::verify(&slice[start..end], compatible)?;
         }
         Ok(())
     }
 }
 #[derive(Debug, Default)]
-pub struct HeaderWithChainRootVecBuilder(pub(crate) Vec<HeaderWithChainRoot>);
-impl HeaderWithChainRootVecBuilder {
-    pub fn set(mut self, v: Vec<HeaderWithChainRoot>) -> Self {
+pub struct MMRHeaderVecBuilder(pub(crate) Vec<MMRHeader>);
+impl MMRHeaderVecBuilder {
+    pub fn set(mut self, v: Vec<MMRHeader>) -> Self {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: HeaderWithChainRoot) -> Self {
+    pub fn push(mut self, v: MMRHeader) -> Self {
         self.0.push(v);
         self
     }
-    pub fn extend<T: ::core::iter::IntoIterator<Item = HeaderWithChainRoot>>(
-        mut self,
-        iter: T,
-    ) -> Self {
+    pub fn extend<T: ::core::iter::IntoIterator<Item = MMRHeader>>(mut self, iter: T) -> Self {
         for elem in iter {
             self.0.push(elem);
         }
         self
     }
-    pub fn replace(&mut self, index: usize, v: HeaderWithChainRoot) -> Option<HeaderWithChainRoot> {
+    pub fn replace(&mut self, index: usize, v: MMRHeader) -> Option<MMRHeader> {
         self.0
             .get_mut(index)
             .map(|item| ::core::mem::replace(item, v))
     }
 }
-impl molecule::prelude::Builder for HeaderWithChainRootVecBuilder {
-    type Entity = HeaderWithChainRootVec;
-    const NAME: &'static str = "HeaderWithChainRootVecBuilder";
+impl molecule::prelude::Builder for MMRHeaderVecBuilder {
+    type Entity = MMRHeaderVec;
+    const NAME: &'static str = "MMRHeaderVecBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (self.0.len() + 1)
             + self
@@ -15146,12 +15168,12 @@ impl molecule::prelude::Builder for HeaderWithChainRootVecBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        HeaderWithChainRootVec::new_unchecked(inner.into())
+        MMRHeaderVec::new_unchecked(inner.into())
     }
 }
-pub struct HeaderWithChainRootVecIterator(HeaderWithChainRootVec, usize, usize);
-impl ::core::iter::Iterator for HeaderWithChainRootVecIterator {
-    type Item = HeaderWithChainRoot;
+pub struct MMRHeaderVecIterator(MMRHeaderVec, usize, usize);
+impl ::core::iter::Iterator for MMRHeaderVecIterator {
+    type Item = MMRHeader;
     fn next(&mut self) -> Option<Self::Item> {
         if self.1 >= self.2 {
             None
@@ -15162,31 +15184,27 @@ impl ::core::iter::Iterator for HeaderWithChainRootVecIterator {
         }
     }
 }
-impl ::core::iter::ExactSizeIterator for HeaderWithChainRootVecIterator {
+impl ::core::iter::ExactSizeIterator for MMRHeaderVecIterator {
     fn len(&self) -> usize {
         self.2 - self.1
     }
 }
-impl ::core::iter::IntoIterator for HeaderWithChainRootVec {
-    type Item = HeaderWithChainRoot;
-    type IntoIter = HeaderWithChainRootVecIterator;
+impl ::core::iter::IntoIterator for MMRHeaderVec {
+    type Item = MMRHeader;
+    type IntoIter = MMRHeaderVecIterator;
     fn into_iter(self) -> Self::IntoIter {
         let len = self.len();
-        HeaderWithChainRootVecIterator(self, 0, len)
+        MMRHeaderVecIterator(self, 0, len)
     }
 }
-impl<'r> HeaderWithChainRootVecReader<'r> {
-    pub fn iter<'t>(&'t self) -> HeaderWithChainRootVecReaderIterator<'t, 'r> {
-        HeaderWithChainRootVecReaderIterator(&self, 0, self.len())
+impl<'r> MMRHeaderVecReader<'r> {
+    pub fn iter<'t>(&'t self) -> MMRHeaderVecReaderIterator<'t, 'r> {
+        MMRHeaderVecReaderIterator(&self, 0, self.len())
     }
 }
-pub struct HeaderWithChainRootVecReaderIterator<'t, 'r>(
-    &'t HeaderWithChainRootVecReader<'r>,
-    usize,
-    usize,
-);
-impl<'t: 'r, 'r> ::core::iter::Iterator for HeaderWithChainRootVecReaderIterator<'t, 'r> {
-    type Item = HeaderWithChainRootReader<'t>;
+pub struct MMRHeaderVecReaderIterator<'t, 'r>(&'t MMRHeaderVecReader<'r>, usize, usize);
+impl<'t: 'r, 'r> ::core::iter::Iterator for MMRHeaderVecReaderIterator<'t, 'r> {
+    type Item = MMRHeaderReader<'t>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.1 >= self.2 {
             None
@@ -15197,7 +15215,7 @@ impl<'t: 'r, 'r> ::core::iter::Iterator for HeaderWithChainRootVecReaderIterator
         }
     }
 }
-impl<'t: 'r, 'r> ::core::iter::ExactSizeIterator for HeaderWithChainRootVecReaderIterator<'t, 'r> {
+impl<'t: 'r, 'r> ::core::iter::ExactSizeIterator for MMRHeaderVecReaderIterator<'t, 'r> {
     fn len(&self) -> usize {
         self.2 - self.1
     }
@@ -17030,20 +17048,20 @@ impl SendBlockProof {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProof::new_unchecked(self.0.slice(start..end))
     }
-    pub fn sampled_headers(&self) -> HeaderWithChainRootVec {
+    pub fn sampled_headers(&self) -> MMRHeaderVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
-        HeaderWithChainRootVec::new_unchecked(self.0.slice(start..end))
+        MMRHeaderVec::new_unchecked(self.0.slice(start..end))
     }
-    pub fn last_n_headers(&self) -> HeaderWithChainRootVec {
+    pub fn last_n_headers(&self) -> MMRHeaderVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
             let end = molecule::unpack_number(&slice[20..]) as usize;
-            HeaderWithChainRootVec::new_unchecked(self.0.slice(start..end))
+            MMRHeaderVec::new_unchecked(self.0.slice(start..end))
         } else {
-            HeaderWithChainRootVec::new_unchecked(self.0.slice(start..))
+            MMRHeaderVec::new_unchecked(self.0.slice(start..))
         }
     }
     pub fn as_reader<'r>(&'r self) -> SendBlockProofReader<'r> {
@@ -17139,20 +17157,20 @@ impl<'r> SendBlockProofReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProofReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn sampled_headers(&self) -> HeaderWithChainRootVecReader<'r> {
+    pub fn sampled_headers(&self) -> MMRHeaderVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
-        HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..end])
+        MMRHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn last_n_headers(&self) -> HeaderWithChainRootVecReader<'r> {
+    pub fn last_n_headers(&self) -> MMRHeaderVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
             let end = molecule::unpack_number(&slice[20..]) as usize;
-            HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..end])
+            MMRHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..])
+            MMRHeaderVecReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -17207,8 +17225,8 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
         }
         HeaderDigestReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         BlockProofReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        HeaderWithChainRootVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        HeaderWithChainRootVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        MMRHeaderVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        MMRHeaderVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
@@ -17216,8 +17234,8 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
 pub struct SendBlockProofBuilder {
     pub(crate) root: HeaderDigest,
     pub(crate) proof: BlockProof,
-    pub(crate) sampled_headers: HeaderWithChainRootVec,
-    pub(crate) last_n_headers: HeaderWithChainRootVec,
+    pub(crate) sampled_headers: MMRHeaderVec,
+    pub(crate) last_n_headers: MMRHeaderVec,
 }
 impl SendBlockProofBuilder {
     pub const FIELD_COUNT: usize = 4;
@@ -17229,11 +17247,11 @@ impl SendBlockProofBuilder {
         self.proof = v;
         self
     }
-    pub fn sampled_headers(mut self, v: HeaderWithChainRootVec) -> Self {
+    pub fn sampled_headers(mut self, v: MMRHeaderVec) -> Self {
         self.sampled_headers = v;
         self
     }
-    pub fn last_n_headers(mut self, v: HeaderWithChainRootVec) -> Self {
+    pub fn last_n_headers(mut self, v: MMRHeaderVec) -> Self {
         self.last_n_headers = v;
         self
     }
