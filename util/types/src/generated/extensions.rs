@@ -16136,13 +16136,7 @@ impl ::core::fmt::Debug for SendLastState {
 impl ::core::fmt::Display for SendLastState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(
-            f,
-            "{}: {}",
-            "mmr_activated_number",
-            self.mmr_activated_number()
-        )?;
-        write!(f, ", {}: {}", "last_header", self.last_header())?;
+        write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -16154,8 +16148,7 @@ impl ::core::fmt::Display for SendLastState {
 impl ::core::default::Default for SendLastState {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            56, 1, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 24, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-            16, 0, 0, 0, 224, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            44, 1, 0, 0, 12, 0, 0, 0, 12, 1, 0, 0, 0, 1, 0, 0, 16, 0, 0, 0, 224, 0, 0, 0, 0, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -16164,13 +16157,14 @@ impl ::core::default::Default for SendLastState {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendLastState::new_unchecked(v.into())
     }
 }
 impl SendLastState {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16187,23 +16181,17 @@ impl SendLastState {
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
     }
-    pub fn mmr_activated_number(&self) -> Uint64 {
+    pub fn last_header(&self) -> VerifiableHeader {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[4..]) as usize;
         let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
-    }
-    pub fn last_header(&self) -> VerifiableHeader {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
         VerifiableHeader::new_unchecked(self.0.slice(start..end))
     }
     pub fn total_difficulty(&self) -> Uint256 {
         let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let start = molecule::unpack_number(&slice[8..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[12..]) as usize;
             Uint256::new_unchecked(self.0.slice(start..end))
         } else {
             Uint256::new_unchecked(self.0.slice(start..))
@@ -16236,7 +16224,6 @@ impl molecule::prelude::Entity for SendLastState {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .mmr_activated_number(self.mmr_activated_number())
             .last_header(self.last_header())
             .total_difficulty(self.total_difficulty())
     }
@@ -16260,13 +16247,7 @@ impl<'r> ::core::fmt::Debug for SendLastStateReader<'r> {
 impl<'r> ::core::fmt::Display for SendLastStateReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(
-            f,
-            "{}: {}",
-            "mmr_activated_number",
-            self.mmr_activated_number()
-        )?;
-        write!(f, ", {}: {}", "last_header", self.last_header())?;
+        write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -16276,7 +16257,7 @@ impl<'r> ::core::fmt::Display for SendLastStateReader<'r> {
     }
 }
 impl<'r> SendLastStateReader<'r> {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16293,23 +16274,17 @@ impl<'r> SendLastStateReader<'r> {
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
     }
-    pub fn mmr_activated_number(&self) -> Uint64Reader<'r> {
+    pub fn last_header(&self) -> VerifiableHeaderReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[4..]) as usize;
         let end = molecule::unpack_number(&slice[8..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn last_header(&self) -> VerifiableHeaderReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
         VerifiableHeaderReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn total_difficulty(&self) -> Uint256Reader<'r> {
         let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
+        let start = molecule::unpack_number(&slice[8..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[12..]) as usize;
             Uint256Reader::new_unchecked(&self.as_slice()[start..end])
         } else {
             Uint256Reader::new_unchecked(&self.as_slice()[start..])
@@ -16365,24 +16340,18 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateReader<'r> {
         if offsets.windows(2).any(|i| i[0] > i[1]) {
             return ve!(Self, OffsetsNotMatch);
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        VerifiableHeaderReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        Uint256Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Uint256Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         Ok(())
     }
 }
 #[derive(Debug, Default)]
 pub struct SendLastStateBuilder {
-    pub(crate) mmr_activated_number: Uint64,
     pub(crate) last_header: VerifiableHeader,
     pub(crate) total_difficulty: Uint256,
 }
 impl SendLastStateBuilder {
-    pub const FIELD_COUNT: usize = 3;
-    pub fn mmr_activated_number(mut self, v: Uint64) -> Self {
-        self.mmr_activated_number = v;
-        self
-    }
+    pub const FIELD_COUNT: usize = 2;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
         self
@@ -16397,15 +16366,12 @@ impl molecule::prelude::Builder for SendLastStateBuilder {
     const NAME: &'static str = "SendLastStateBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
-            + self.mmr_activated_number.as_slice().len()
             + self.last_header.as_slice().len()
             + self.total_difficulty.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
         let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
-        offsets.push(total_size);
-        total_size += self.mmr_activated_number.as_slice().len();
         offsets.push(total_size);
         total_size += self.last_header.as_slice().len();
         offsets.push(total_size);
@@ -16414,7 +16380,6 @@ impl molecule::prelude::Builder for SendLastStateBuilder {
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
         }
-        writer.write_all(self.mmr_activated_number.as_slice())?;
         writer.write_all(self.last_header.as_slice())?;
         writer.write_all(self.total_difficulty.as_slice())?;
         Ok(())
