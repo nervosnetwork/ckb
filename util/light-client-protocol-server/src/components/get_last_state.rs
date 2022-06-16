@@ -26,9 +26,6 @@ impl<'a> GetLastStateProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        let consensus = self.protocol.shared.consensus();
-        let mmr_activated_number = consensus.hardfork_switch().mmr_activated_number();
-
         let active_chain = self.protocol.shared.active_chain();
         let last_hash = active_chain.tip_hash();
         let last_block = active_chain
@@ -48,7 +45,6 @@ impl<'a> GetLastStateProcess<'a> {
             .expect("checked: tip block should have block ext");
 
         let content = packed::SendLastState::new_builder()
-            .mmr_activated_number(mmr_activated_number.pack())
             .last_header(last_header)
             .total_difficulty(total_difficulty.pack())
             .build();
