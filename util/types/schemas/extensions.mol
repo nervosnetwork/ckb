@@ -318,7 +318,6 @@ table GetLastState{
 }
 
 table SendLastState{
-    mmr_activated_number:       Uint64,
     last_header:                VerifiableHeader,
     total_difficulty:           Uint256,
 }
