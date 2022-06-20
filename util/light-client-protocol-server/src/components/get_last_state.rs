@@ -31,13 +31,9 @@ impl<'a> GetLastStateProcess<'a> {
         let snapshot = self.protocol.shared.shared().snapshot();
 
         let last_hash = self.message.last_hash().to_entity();
-        let last_number = match active_chain.get_block_header(&last_hash) {
-            Some(header) => header.number(),
-            None => {
-                return StatusCode::InvalidLastBlock
-                    .with_context("last_hash is not on active chain".to_owned());
-            }
-        };
+        let last_number_opt = active_chain
+            .get_block_header(&last_hash)
+            .map(|header| header.number());
 
         let tip_hash = active_chain.tip_hash();
         let tip_block = active_chain
@@ -57,8 +53,7 @@ impl<'a> GetLastStateProcess<'a> {
             .map(|block_ext| block_ext.total_difficulty)
             .expect("checked: tip block should have block ext");
 
-        let positions = vec![leaf_index_to_pos(last_number)];
-        let (chain_root, proof) = {
+        let (chain_root, proof_opt) = {
             let mmr_size = leaf_index_to_mmr_size(tip_number - 1);
             let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
             let root = match mmr.get_root() {
@@ -68,21 +63,26 @@ impl<'a> GetLastStateProcess<'a> {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            let proof = match mmr.gen_proof(positions) {
-                Ok(proof) => proof,
-                Err(err) => {
-                    let errmsg = format!("failed to generate a proof since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
+            let proof_opt = if let Some(last_number) = last_number_opt {
+                let positions = vec![leaf_index_to_pos(last_number)];
+                match mmr.gen_proof(positions) {
+                    Ok(proof) => Some(proof.pack()),
+                    Err(err) => {
+                        let errmsg = format!("failed to generate a proof since {:?}", err);
+                        return StatusCode::InternalError.with_context(errmsg);
+                    }
                 }
+            } else {
+                None
             };
-            (root, proof)
+            (root, proof_opt)
         };
 
         let content = packed::SendLastState::new_builder()
             .tip_header(tip_header)
             .total_difficulty(total_difficulty.pack())
             .chain_root(chain_root)
-            .proof(proof.pack())
+            .proof(proof_opt.pack())
             .build();
         let message = packed::LightClientMessage::new_builder()
             .set(content)

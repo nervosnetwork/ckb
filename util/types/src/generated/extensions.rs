@@ -15289,6 +15289,169 @@ impl molecule::prelude::Builder for BlockProofBuilder {
     }
 }
 #[derive(Clone)]
+pub struct BlockProofOpt(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for BlockProofOpt {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for BlockProofOpt {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for BlockProofOpt {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        if let Some(v) = self.to_opt() {
+            write!(f, "{}(Some({}))", Self::NAME, v)
+        } else {
+            write!(f, "{}(None)", Self::NAME)
+        }
+    }
+}
+impl ::core::default::Default for BlockProofOpt {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![];
+        BlockProofOpt::new_unchecked(v.into())
+    }
+}
+impl BlockProofOpt {
+    pub fn is_none(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn is_some(&self) -> bool {
+        !self.0.is_empty()
+    }
+    pub fn to_opt(&self) -> Option<BlockProof> {
+        if self.is_none() {
+            None
+        } else {
+            Some(BlockProof::new_unchecked(self.0.clone()))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> BlockProofOptReader<'r> {
+        BlockProofOptReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for BlockProofOpt {
+    type Builder = BlockProofOptBuilder;
+    const NAME: &'static str = "BlockProofOpt";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        BlockProofOpt(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        BlockProofOptReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        BlockProofOptReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().set(self.to_opt())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct BlockProofOptReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for BlockProofOptReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for BlockProofOptReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for BlockProofOptReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        if let Some(v) = self.to_opt() {
+            write!(f, "{}(Some({}))", Self::NAME, v)
+        } else {
+            write!(f, "{}(None)", Self::NAME)
+        }
+    }
+}
+impl<'r> BlockProofOptReader<'r> {
+    pub fn is_none(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn is_some(&self) -> bool {
+        !self.0.is_empty()
+    }
+    pub fn to_opt(&self) -> Option<BlockProofReader<'r>> {
+        if self.is_none() {
+            None
+        } else {
+            Some(BlockProofReader::new_unchecked(self.as_slice()))
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for BlockProofOptReader<'r> {
+    type Entity = BlockProofOpt;
+    const NAME: &'static str = "BlockProofOptReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        BlockProofOptReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        if !slice.is_empty() {
+            BlockProofReader::verify(&slice[..], compatible)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct BlockProofOptBuilder(pub(crate) Option<BlockProof>);
+impl BlockProofOptBuilder {
+    pub fn set(mut self, v: Option<BlockProof>) -> Self {
+        self.0 = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for BlockProofOptBuilder {
+    type Entity = BlockProofOpt;
+    const NAME: &'static str = "BlockProofOptBuilder";
+    fn expected_length(&self) -> usize {
+        self.0
+            .as_ref()
+            .map(|ref inner| inner.as_slice().len())
+            .unwrap_or(0)
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        self.0
+            .as_ref()
+            .map(|ref inner| writer.write_all(inner.as_slice()))
+            .unwrap_or(Ok(()))
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        BlockProofOpt::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
 pub struct VerifiableHeader(molecule::bytes::Bytes);
 impl ::core::fmt::LowerHex for VerifiableHeader {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
@@ -16215,7 +16378,7 @@ impl ::core::fmt::Display for SendLastState {
 impl ::core::default::Default for SendLastState {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            196, 1, 0, 0, 20, 0, 0, 0, 20, 1, 0, 0, 52, 1, 0, 0, 76, 1, 0, 0, 0, 1, 0, 0, 16, 0, 0,
+            172, 1, 0, 0, 20, 0, 0, 0, 20, 1, 0, 0, 52, 1, 0, 0, 52, 1, 0, 0, 0, 1, 0, 0, 16, 0, 0,
             0, 224, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -16225,12 +16388,11 @@ impl ::core::default::Default for SendLastState {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0,
-            0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendLastState::new_unchecked(v.into())
     }
@@ -16265,11 +16427,11 @@ impl SendLastState {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         Uint256::new_unchecked(self.0.slice(start..end))
     }
-    pub fn proof(&self) -> BlockProof {
+    pub fn proof(&self) -> BlockProofOpt {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
-        BlockProof::new_unchecked(self.0.slice(start..end))
+        BlockProofOpt::new_unchecked(self.0.slice(start..end))
     }
     pub fn chain_root(&self) -> HeaderDigest {
         let slice = self.as_slice();
@@ -16374,11 +16536,11 @@ impl<'r> SendLastStateReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         Uint256Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn proof(&self) -> BlockProofReader<'r> {
+    pub fn proof(&self) -> BlockProofOptReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
-        BlockProofReader::new_unchecked(&self.as_slice()[start..end])
+        BlockProofOptReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn chain_root(&self) -> HeaderDigestReader<'r> {
         let slice = self.as_slice();
@@ -16442,7 +16604,7 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateReader<'r> {
         }
         VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Uint256Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        BlockProofReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        BlockProofOptReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         HeaderDigestReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
@@ -16451,7 +16613,7 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateReader<'r> {
 pub struct SendLastStateBuilder {
     pub(crate) tip_header: VerifiableHeader,
     pub(crate) total_difficulty: Uint256,
-    pub(crate) proof: BlockProof,
+    pub(crate) proof: BlockProofOpt,
     pub(crate) chain_root: HeaderDigest,
 }
 impl SendLastStateBuilder {
@@ -16464,7 +16626,7 @@ impl SendLastStateBuilder {
         self.total_difficulty = v;
         self
     }
-    pub fn proof(mut self, v: BlockProof) -> Self {
+    pub fn proof(mut self, v: BlockProofOpt) -> Self {
         self.proof = v;
         self
     }

@@ -301,6 +301,8 @@ table BlockProof {
     items:                  HeaderDigestVec,
 }
 
+option BlockProofOpt (BlockProof);
+
 table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
@@ -322,7 +324,7 @@ table GetLastState {
 table SendLastState {
     tip_header:                 VerifiableHeader,
     total_difficulty:           Uint256,
-    proof:                      BlockProof,
+    proof:                      BlockProofOpt,
     chain_root:                 HeaderDigest,
 }
 
