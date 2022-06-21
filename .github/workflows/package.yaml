@@ -72,7 +72,7 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.56.1
+      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.61.0
       REL_PKG: x86_64-unknown-linux-gnu.tar.gz
 
   package-for-linux-aarch64:
@@ -158,7 +158,7 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.56.1
+      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.61.0
       REL_PKG: x86_64-unknown-centos-gnu.tar.gz
 
   package-for-mac:

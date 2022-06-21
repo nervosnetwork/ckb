@@ -23,7 +23,7 @@ pub struct MockStore {
     //
     // Ref: https://doc.rust-lang.org/reference/destructors.html
     inner: Arc<ChainDB>,
-    tmp_dir: Arc<TempDir>,
+    _tmp_dir: Arc<TempDir>,
 }
 
 impl Default for MockStore {
@@ -32,7 +32,7 @@ impl Default for MockStore {
         let db = RocksDB::open_in(&tmp_dir, COLUMNS);
         MockStore {
             inner: Arc::new(ChainDB::new(db, Default::default())),
-            tmp_dir: Arc::new(tmp_dir),
+            _tmp_dir: Arc::new(tmp_dir),
         }
     }
 }

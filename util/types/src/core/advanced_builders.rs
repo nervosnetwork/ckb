@@ -568,7 +568,7 @@ impl core::BlockView {
             .uncles(
                 data.uncles()
                     .into_iter()
-                    .zip(uncle_hashes.to_owned().into_iter())
+                    .zip(uncle_hashes.clone().into_iter())
                     .map(|(data, hash)| core::UncleBlockView { data, hash })
                     .collect::<Vec<_>>(),
             )

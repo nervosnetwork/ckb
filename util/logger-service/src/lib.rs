@@ -84,7 +84,7 @@ pub(crate) fn convert_compatible_crate_name(spec: &str) -> String {
         for m in mods_part.split(',') {
             mods.push(m.to_owned());
             if m.contains('-') {
-                mods.push(m.replace("-", "_"));
+                mods.push(m.replace('-', "_"));
             }
         }
     }

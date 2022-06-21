@@ -630,8 +630,8 @@ fn print_results(mut test_results: Vec<TestResult>) {
         println!(
             "{:50} | {:10} | {:<10}",
             result.spec_name,
-            format!("{:?}", result.status),
-            format!("{} s", result.duration),
+            format_args!("{:?}", result.status),
+            format_args!("{} s", result.duration),
         );
     }
 }

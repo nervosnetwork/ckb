@@ -176,7 +176,7 @@ impl PeerRegistry {
             .values()
             .max_by_key(|group| group.len())
             .cloned()
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         // randomly evict a peer
         let mut rng = thread_rng();

@@ -38,7 +38,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.56.1.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
 
 """
 
@@ -46,7 +46,7 @@ PENDING_TYPES = set()
 
 TYMETHOD_DOT = 'tymethod.'
 HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
-RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.56.1'
+RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.61.0'
 
 NAME_PREFIX_SELF = '(&self, '
 
@@ -241,6 +241,10 @@ class RPCVar():
 
         if tag != 'a' or ('title' in attrs_dict and attrs_dict['title'] == 'goto source code'):
             return
+        # 1.61.0 new source link style
+        if tag == 'a' and (('class', 'srclink') in attrs):
+            return
+
 
         if self.ty is None:
             self.ty = attrs_dict['href']
@@ -458,9 +462,9 @@ class RPCErrorParser(HTMLParser):
         elif not self.module_doc.completed():
             self.module_doc.handle_starttag(tag, attrs)
         elif self.next_variant is None:
-            if tag == 'div':
+            if tag == 'h3':
                 attrs_dict = dict(attrs)
-                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.'):
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
                     self.next_variant = attrs_dict['id'].split('.')[1]
         elif self.variant_parser is None:
             if tag == 'div' and attrs == [("class", "docblock")]:
@@ -508,7 +512,7 @@ class EnumSchema(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if self.next_variant is None:
-            if tag == 'div':
+            if tag == 'h3':
                 attrs_dict = dict(attrs)
                 if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
                     self.next_variant = camel_to_snake(
