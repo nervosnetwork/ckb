@@ -95,13 +95,14 @@ dependencies = [
 
 [[package]]
 name = "attohttpc"
-version = "0.10.1"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baf13118df3e3dce4b5ac930641343b91b656e4e72c8f8325838b01a4b1c9d45"
+checksum = "fdb8867f378f33f78a811a8eb9bf108ad99430d7aad43315dd9319c827ef6247"
 dependencies = [
  "http",
  "log",
  "url",
+ "wildmatch",
 ]
 
 [[package]]
@@ -925,6 +926,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snap",
+ "socket2 0.4.4",
  "tempfile",
  "tentacle",
  "tokio",
@@ -2397,13 +2399,13 @@ dependencies = [
 
 [[package]]
 name = "igd"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fd32c880165b2f776af0b38d206d1cabaebcf46c166ac6ae004a5d45f7d48ef"
+checksum = "4c4e7ee8b51e541486d7040883fe1f00e2a9954bcc24fd155b7e4f03ed4b93dd"
 dependencies = [
  "attohttpc",
  "log",
- "rand 0.7.3",
+ "rand 0.8.5",
  "url",
  "xmltree",
 ]
@@ -4115,10 +4117,11 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.4.0-alpha.4"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3514445653a078dccffc4eefaf2bbbca6a1e6087e81cca24ca6757dacdedb437"
+checksum = "b5dce982ed9b672847c08a1feb56e8976586189d1ee617856a7e97fe3d748a26"
 dependencies = [
+ "async-trait",
  "bytes 1.1.0",
  "futures",
  "igd",
@@ -4129,7 +4132,8 @@ dependencies = [
  "nohash-hasher",
  "once_cell",
  "parking_lot 0.12.1",
- "rand 0.7.3",
+ "rand 0.8.5",
+ "socket2 0.4.4",
  "tentacle-multiaddr",
  "tentacle-secio",
  "thiserror",
@@ -4143,9 +4147,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-multiaddr"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faafcea0d508fc5296ca846ca1f2fcb60d740f53b02e771b407c06ae13e23c90"
+checksum = "895b25a7de42f7bba27b011495a4a48ea7f0591c079f59c8fdb07936ca8aa3d1"
 dependencies = [
  "bs58",
  "bytes 1.1.0",
@@ -4156,9 +4160,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a25404f0ad099d7ac35c4873e854a1f9772014b1c42379780f7b9f55fa464913"
+checksum = "5151f7a471124e400ac93c566839de561d8a240c5f7f08ba192d45b2f544fcca"
 dependencies = [
  "bs58",
  "bytes 1.1.0",
@@ -4404,16 +4408,16 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.4"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57fe858a787ccdafc76b67b4eb6adafa4936c3e2e876def3cc23be664c2272de"
+checksum = "d4bc9586f041e3ed234f31cd7883cd922b8f7dae2235a9d51c11be421bcbb30d"
 dependencies = [
  "bytes 1.1.0",
  "futures",
  "log",
  "nohash-hasher",
  "tokio",
- "tokio-util 0.6.10",
+ "tokio-util 0.7.3",
 ]
 
 [[package]]
@@ -4751,6 +4755,12 @@ name = "widestring"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
+
+[[package]]
+name = "wildmatch"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f44b95f62d34113cf558c93511ac93027e03e9c29a60dd0fd70e6e025c7270a"
 
 [[package]]
 name = "winapi"

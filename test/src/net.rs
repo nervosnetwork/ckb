@@ -6,9 +6,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
 use ckb_logger::info;
 use ckb_network::{
-    bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext, CKBProtocolHandler,
-    DefaultExitHandler, NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
-    SupportProtocols,
+    async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
+    CKBProtocolHandler, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
+    PeerIndex, ProtocolId, SupportProtocols,
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
@@ -205,10 +205,11 @@ impl DummyProtocolHandler {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn connected(
+    async fn connected(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -224,11 +225,15 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         let _ = self.register_tx.send((node_id, peer_index, receiver));
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+    ) {
         self.senders.lock().remove(&peer_index);
     }
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,

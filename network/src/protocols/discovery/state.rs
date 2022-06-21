@@ -35,8 +35,8 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub(crate) fn new<M: AddressManager>(
-        context: ProtocolContextMutRef,
+    pub(crate) async fn new<M: AddressManager + Send>(
+        context: ProtocolContextMutRef<'_>,
         addr_manager: &M,
     ) -> SessionState {
         let mut addr_known = AddrKnown::default();
@@ -64,7 +64,7 @@ impl SessionState {
                 listen_port: port,
             });
 
-            if context.send_message(msg).is_err() {
+            if context.send_message(msg).await.is_err() {
                 debug!("{:?} send discovery msg GetNode fail", context.session.id)
             }
 
@@ -102,7 +102,7 @@ impl SessionState {
         }
     }
 
-    pub(crate) fn send_messages(&mut self, cx: &mut ProtocolContext, id: SessionId) {
+    pub(crate) async fn send_messages(&mut self, cx: &mut ProtocolContext, id: SessionId) {
         if !self.announce_multiaddrs.is_empty() {
             let items = self
                 .announce_multiaddrs
@@ -115,7 +115,7 @@ impl SessionState {
                 announce: true,
                 items,
             }));
-            if cx.send_message_to(id, cx.proto_id, msg).is_err() {
+            if cx.send_message_to(id, cx.proto_id, msg).await.is_err() {
                 debug!("{:?} send discovery msg Nodes fail", id)
             }
         }

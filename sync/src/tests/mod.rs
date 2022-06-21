@@ -1,10 +1,11 @@
 use ckb_channel::{bounded, Receiver, Select, Sender};
+use ckb_network::async_trait;
 use ckb_network::{
     bytes::Bytes, Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId,
     TargetSession,
 };
 use ckb_util::RwLock;
-use futures::future::Future;
+use futures::{executor::block_on, future::Future};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -74,10 +75,10 @@ impl TestNode {
             self.receivers.insert(index, timer_receiver);
         });
 
-        handler.write().init(Arc::new(TestNetworkContext {
+        block_on(handler.write().init(Arc::new(TestNetworkContext {
             protocol,
             senders: self.senders.clone(),
-        }))
+        })))
     }
 
     pub fn connect(&mut self, remote: &mut TestNode, protocol: ProtocolId) {
@@ -100,25 +101,25 @@ impl TestNode {
         remote.receivers.insert(local_ch_index, local_receiver);
 
         if let Some(handler) = self.protocols.get(&protocol) {
-            handler.write().connected(
+            block_on(handler.write().connected(
                 Arc::new(TestNetworkContext {
                     protocol,
                     senders: self.senders.clone(),
                 }),
                 local_index.into(),
                 "v1",
-            )
+            ))
         }
 
         if let Some(handler) = remote.protocols.get(&protocol) {
-            handler.write().connected(
+            block_on(handler.write().connected(
                 Arc::new(TestNetworkContext {
                     protocol,
                     senders: remote.senders.clone(),
                 }),
                 local_index.into(),
                 "v1",
-            )
+            ))
         }
     }
 
@@ -153,14 +154,14 @@ impl TestNode {
                         Index::Msg(protocol, peer) => {
                             if let Ok(Msg::Bytes(payload)) = res {
                                 if let Some(handler) = protocols.get(protocol) {
-                                    handler.write().received(
+                                    block_on(handler.write().received(
                                         Arc::new(TestNetworkContext {
                                             protocol: *protocol,
                                             senders: senders.clone(),
                                         }),
                                         *peer,
                                         payload.clone(),
-                                    )
+                                    ))
                                 };
 
                                 if pred(payload) {
@@ -170,13 +171,13 @@ impl TestNode {
                         }
                         Index::Timer(protocol, timer) => {
                             if let Some(handler) = protocols.get(protocol) {
-                                handler.write().notify(
+                                block_on(handler.write().notify(
                                     Arc::new(TestNetworkContext {
                                         protocol: *protocol,
                                         senders: senders.clone(),
                                     }),
                                     *timer,
-                                )
+                                ))
                             }
                         }
                         Index::Stop => {
@@ -203,9 +204,10 @@ struct TestNetworkContext {
     senders: HashMap<Index, Sender<Msg>>,
 }
 
+#[async_trait]
 impl CKBProtocolContext for TestNetworkContext {
     // Interact with underlying p2p service
-    fn set_notify(&self, interval: Duration, token: u64) -> Result<(), ckb_network::Error> {
+    async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), ckb_network::Error> {
         let index = Index::Timer(self.protocol, token);
         if let Some(sender) = self.senders.get(&index) {
             let sender = sender.clone();
@@ -217,10 +219,68 @@ impl CKBProtocolContext for TestNetworkContext {
         Ok(())
     }
 
-    fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
+    async fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
         Ok(())
     }
 
+    async fn async_quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_send_message(proto_id, peer_index, data)
+    }
+    async fn async_quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_send_message_to(peer_index, data)
+    }
+    async fn async_quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_filter_broadcast(target, data)
+    }
+    async fn async_future_task(
+        &self,
+        _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
+        _blocking: bool,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message(proto_id, peer_index, data)
+    }
+    async fn async_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message_to(peer_index, data)
+    }
+    async fn async_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.filter_broadcast(target, data)
+    }
+    async fn async_disconnect(
+        &self,
+        peer_index: PeerIndex,
+        message: &str,
+    ) -> Result<(), ckb_network::Error> {
+        self.disconnect(peer_index, message)
+    }
     fn future_task(
         &self,
         _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
@@ -282,7 +342,7 @@ impl CKBProtocolContext for TestNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         match target {
             TargetSession::Single(peer) => self.send_message_to(peer, data).unwrap(),
-            TargetSession::Filter(peers) => {
+            TargetSession::Filter(mut peers) => {
                 for peer in self
                     .senders
                     .keys()
@@ -296,6 +356,11 @@ impl CKBProtocolContext for TestNetworkContext {
                     if peers(&peer) {
                         self.send_message_to(peer, data.clone()).unwrap();
                     }
+                }
+            }
+            TargetSession::Multi(iter) => {
+                for peer in iter {
+                    self.send_message_to(peer, data.clone()).unwrap();
                 }
             }
             TargetSession::All => {

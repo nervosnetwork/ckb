@@ -1,6 +1,7 @@
 use crate::utils::send_message_to;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
+use ckb_network::async_trait;
 use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_types::{packed, prelude::*};
 use ckb_util::RwLock;
@@ -104,10 +105,11 @@ impl Default for NetTimeProtocol {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for NetTimeProtocol {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn connected(
+    async fn connected(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -121,7 +123,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         }
     }
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
