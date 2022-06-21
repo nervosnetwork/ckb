@@ -10,8 +10,8 @@ use ckb_types::{
 
 use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
-pub(crate) struct GetBlockProofProcess<'a> {
-    message: packed::GetBlockProofReader<'a>,
+pub(crate) struct GetBlockSamplesProcess<'a> {
+    message: packed::GetBlockSamplesReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -172,9 +172,9 @@ impl BlockSampler {
     }
 }
 
-impl<'a> GetBlockProofProcess<'a> {
+impl<'a> GetBlockSamplesProcess<'a> {
     pub(crate) fn new(
-        message: packed::GetBlockProofReader<'a>,
+        message: packed::GetBlockSamplesReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -356,8 +356,7 @@ impl<'a> GetBlockProofProcess<'a> {
 
         let (root, proof) = {
             let mmr_size = leaf_index_to_mmr_size(last_block_number - 1);
-            let snapshot_ref: &Snapshot = &snapshot;
-            let mmr = ChainRootMMR::new(mmr_size, snapshot_ref);
+            let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
             let root = match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {
@@ -375,7 +374,7 @@ impl<'a> GetBlockProofProcess<'a> {
             (root, proof)
         };
 
-        let content = packed::SendBlockProof::new_builder()
+        let content = packed::SendBlockSamples::new_builder()
             .root(root)
             .proof(proof.pack())
             .sampled_headers(sampled_headers.pack())

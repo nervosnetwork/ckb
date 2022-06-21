@@ -88,8 +88,8 @@ impl LightClientProtocol {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
                 components::GetLastStateProcess::new(reader, self, peer, nc).execute()
             }
-            packed::LightClientMessageUnionReader::GetBlockProof(reader) => {
-                components::GetBlockProofProcess::new(reader, self, peer, nc).execute()
+            packed::LightClientMessageUnionReader::GetBlockSamples(reader) => {
+                components::GetBlockSamplesProcess::new(reader, self, peer, nc).execute()
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
