@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{max, min, Ordering};
 
 use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -8,7 +8,7 @@ use ckb_types::{
     core::BlockNumber, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR, U256,
 };
 
-use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{constant::LAST_N_BLOCKS, prelude::*, LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetBlockSamplesProcess<'a> {
     message: packed::GetBlockSamplesReader<'a>,
@@ -188,12 +188,16 @@ impl<'a> GetBlockSamplesProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        if !self.protocol.peer_is_lightclient(self.nc, self.peer) {
+            return StatusCode::UnexpectedProtocolMessage.into();
+        }
+
         let active_chain = self.protocol.shared.active_chain();
         let snapshot = self.protocol.shared.shared().snapshot();
 
         let last_block_hash = self.message.last_hash().to_entity();
+        let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
-        let last_n_blocks: BlockNumber = self.message.last_n_blocks().unpack();
         let mut difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
         let mut difficulties = self
             .message
@@ -206,13 +210,28 @@ impl<'a> GetBlockSamplesProcess<'a> {
             if let Some(block_header) = active_chain.get_block_header(&last_block_hash) {
                 block_header
             } else {
-                let errmsg = format!(
-                    "the last block ({:#x}) sent from the client is not existed",
-                    last_block_hash
-                );
-                return StatusCode::InvalidLastBlock.with_context(errmsg);
+                // The `difficulties` may not matched when last_block_hash not in active chain
+                // let light-client side send GetBlockSamples message again.
+                self.protocol.send_last_state(self.nc, self.peer);
+                return Status::ok();
             };
         let last_block_number = last_block_header.number();
+
+        let reorg_last_n_numbers = if start_block_number == 0
+            || active_chain
+                .get_ancestor(&last_block_hash, start_block_number)
+                .map(|header| header.hash() == start_block_hash)
+                .unwrap_or(false)
+        {
+            Vec::new()
+        } else {
+            // Genesis block doesn't has chain root.
+            let min_block_number = max(
+                1,
+                start_block_number - min(start_block_number, LAST_N_BLOCKS),
+            );
+            (min_block_number..start_block_number).collect()
+        };
 
         let sampler = BlockSampler::new(active_chain);
 
@@ -267,7 +286,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
         }
 
         let (sampled_numbers, last_n_numbers) =
-            if last_block_number - start_block_number <= last_n_blocks {
+            if last_block_number - start_block_number <= LAST_N_BLOCKS {
                 // There is not enough blocks, so we take all of them; so there is no sampled blocks.
                 let sampled_numbers = Vec::new();
                 let last_n_numbers = (start_block_number..last_block_number)
@@ -290,9 +309,9 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     return StatusCode::InvaildDifficultyBoundary.with_context(errmsg);
                 };
 
-                if last_block_number - difficulty_boundary_block_number < last_n_blocks {
+                if last_block_number - difficulty_boundary_block_number < LAST_N_BLOCKS {
                     // There is not enough blocks after the difficulty boundary, so we take more.
-                    difficulty_boundary_block_number = last_block_number - last_n_blocks;
+                    difficulty_boundary_block_number = last_block_number - LAST_N_BLOCKS;
                 }
 
                 if let Some(total_difficulty) =
@@ -327,8 +346,19 @@ impl<'a> GetBlockSamplesProcess<'a> {
                 (sampled_numbers, last_n_numbers)
             };
 
-        let (positions, sampled_headers, last_n_headers) = {
+        let (positions, reorg_last_n_headers, sampled_headers, last_n_headers) = {
             let mut positions: Vec<u64> = Vec::new();
+            let reorg_last_n_headers = match sampler.complete_headers(
+                &snapshot,
+                &mut positions,
+                &last_block_hash,
+                &reorg_last_n_numbers,
+            ) {
+                Ok(headers) => headers,
+                Err(errmsg) => {
+                    return StatusCode::InternalError.with_context(errmsg);
+                }
+            };
             let sampled_headers = match sampler.complete_headers(
                 &snapshot,
                 &mut positions,
@@ -351,7 +381,12 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            (positions, sampled_headers, last_n_headers)
+            (
+                positions,
+                reorg_last_n_headers,
+                sampled_headers,
+                last_n_headers,
+            )
         };
 
         let (root, proof) = {
@@ -373,10 +408,10 @@ impl<'a> GetBlockSamplesProcess<'a> {
             };
             (root, proof)
         };
-
         let content = packed::SendBlockSamples::new_builder()
             .root(root)
             .proof(proof.pack())
+            .reorg_last_n_headers(reorg_last_n_headers.pack())
             .sampled_headers(sampled_headers.pack())
             .last_n_headers(last_n_headers.pack())
             .build();

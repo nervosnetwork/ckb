@@ -14,6 +14,7 @@ pub mod constant;
 mod prelude;
 mod status;
 
+use prelude::LightClientProtocolReply;
 pub use status::{Status, StatusCode};
 
 pub struct LightClientProtocol {
@@ -81,17 +82,51 @@ impl LightClientProtocol {
     fn try_process(
         &mut self,
         nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
+        peer_index: PeerIndex,
         message: packed::LightClientMessageUnionReader<'_>,
     ) -> Status {
         match message {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
-                components::GetLastStateProcess::new(reader, self, peer, nc).execute()
+                components::GetLastStateProcess::new(reader, self, peer_index, nc).execute()
             }
             packed::LightClientMessageUnionReader::GetBlockSamples(reader) => {
-                components::GetBlockSamplesProcess::new(reader, self, peer, nc).execute()
+                components::GetBlockSamplesProcess::new(reader, self, peer_index, nc).execute()
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
+    }
+
+    fn peer_is_lightclient(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) -> bool {
+        nc.get_peer(peer)
+            .map(|peer| peer.is_lightclient)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn send_last_state(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Status {
+        let active_chain = self.shared.active_chain();
+
+        let tip_hash = active_chain.tip_hash();
+        let tip_block = active_chain
+            .get_block(&tip_hash)
+            .expect("checked: tip block should be existed");
+        let tip_header = packed::VerifiableHeader::new_builder()
+            .header(tip_block.header().data())
+            .uncles_hash(tip_block.calc_uncles_hash())
+            .extension(Pack::pack(&tip_block.extension()))
+            .build();
+        let total_difficulty = active_chain
+            .get_block_ext(&tip_hash)
+            .map(|block_ext| block_ext.total_difficulty)
+            .expect("checked: tip block should have block ext");
+
+        let content = packed::SendLastState::new_builder()
+            .tip_header(tip_header)
+            .total_difficulty(total_difficulty.pack())
+            .build();
+        let message = packed::LightClientMessage::new_builder()
+            .set(content)
+            .build();
+
+        nc.reply(peer, &message)
     }
 }
