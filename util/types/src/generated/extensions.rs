@@ -15773,10 +15773,7 @@ impl ::core::fmt::Display for LightClientMessage {
 }
 impl ::core::default::Default for LightClientMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            0, 0, 0, 0, 40, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![0, 0, 0, 0, 4, 0, 0, 0];
         LightClientMessage::new_unchecked(v.into())
     }
 }
@@ -16126,25 +16123,21 @@ impl ::core::fmt::Debug for GetLastState {
 impl ::core::fmt::Display for GetLastState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "last_hash", self.last_hash())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
+            write!(f, ".. ({} fields)", extra_count)?;
         }
         write!(f, " }}")
     }
 }
 impl ::core::default::Default for GetLastState {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            40, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let v: Vec<u8> = vec![4, 0, 0, 0];
         GetLastState::new_unchecked(v.into())
     }
 }
 impl GetLastState {
-    pub const FIELD_COUNT: usize = 1;
+    pub const FIELD_COUNT: usize = 0;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16160,16 +16153,6 @@ impl GetLastState {
     }
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
-    }
-    pub fn last_hash(&self) -> Byte32 {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[8..]) as usize;
-            Byte32::new_unchecked(self.0.slice(start..end))
-        } else {
-            Byte32::new_unchecked(self.0.slice(start..))
-        }
     }
     pub fn as_reader<'r>(&'r self) -> GetLastStateReader<'r> {
         GetLastStateReader::new_unchecked(self.as_slice())
@@ -16197,7 +16180,7 @@ impl molecule::prelude::Entity for GetLastState {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder().last_hash(self.last_hash())
+        Self::new_builder()
     }
 }
 #[derive(Clone, Copy)]
@@ -16219,16 +16202,15 @@ impl<'r> ::core::fmt::Debug for GetLastStateReader<'r> {
 impl<'r> ::core::fmt::Display for GetLastStateReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "last_hash", self.last_hash())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
-            write!(f, ", .. ({} fields)", extra_count)?;
+            write!(f, ".. ({} fields)", extra_count)?;
         }
         write!(f, " }}")
     }
 }
 impl<'r> GetLastStateReader<'r> {
-    pub const FIELD_COUNT: usize = 1;
+    pub const FIELD_COUNT: usize = 0;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16244,16 +16226,6 @@ impl<'r> GetLastStateReader<'r> {
     }
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
-    }
-    pub fn last_hash(&self) -> Byte32Reader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[4..]) as usize;
-        if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[8..]) as usize;
-            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-        } else {
-            Byte32Reader::new_unchecked(&self.as_slice()[start..])
-        }
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for GetLastStateReader<'r> {
@@ -16278,64 +16250,27 @@ impl<'r> molecule::prelude::Reader<'r> for GetLastStateReader<'r> {
         if slice_len != total_size {
             return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
         }
-        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
-            return Ok(());
+        if slice_len > molecule::NUMBER_SIZE && !compatible {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, !0);
         }
-        if slice_len < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
-        }
-        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        if slice_len < offset_first {
-            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
-        }
-        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
-        if field_count < Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        } else if !compatible && field_count > Self::FIELD_COUNT {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
-        };
-        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
-            .chunks_exact(molecule::NUMBER_SIZE)
-            .map(|x| molecule::unpack_number(x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            return ve!(Self, OffsetsNotMatch);
-        }
-        Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Ok(())
     }
 }
 #[derive(Debug, Default)]
-pub struct GetLastStateBuilder {
-    pub(crate) last_hash: Byte32,
-}
+pub struct GetLastStateBuilder {}
 impl GetLastStateBuilder {
-    pub const FIELD_COUNT: usize = 1;
-    pub fn last_hash(mut self, v: Byte32) -> Self {
-        self.last_hash = v;
-        self
-    }
+    pub const FIELD_COUNT: usize = 0;
 }
 impl molecule::prelude::Builder for GetLastStateBuilder {
     type Entity = GetLastState;
     const NAME: &'static str = "GetLastStateBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.last_hash.as_slice().len()
+        molecule::NUMBER_SIZE
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
-        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
-        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
-        offsets.push(total_size);
-        total_size += self.last_hash.as_slice().len();
-        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
-        for offset in offsets.into_iter() {
-            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
-        }
-        writer.write_all(self.last_hash.as_slice())?;
+        writer.write_all(&molecule::pack_number(
+            molecule::NUMBER_SIZE as molecule::Number,
+        ))?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -16366,8 +16301,6 @@ impl ::core::fmt::Display for SendLastState {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "tip_header", self.tip_header())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
-        write!(f, ", {}: {}", "proof", self.proof())?;
-        write!(f, ", {}: {}", "chain_root", self.chain_root())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -16378,8 +16311,7 @@ impl ::core::fmt::Display for SendLastState {
 impl ::core::default::Default for SendLastState {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            172, 1, 0, 0, 20, 0, 0, 0, 20, 1, 0, 0, 52, 1, 0, 0, 52, 1, 0, 0, 0, 1, 0, 0, 16, 0, 0,
-            0, 224, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            44, 1, 0, 0, 12, 0, 0, 0, 12, 1, 0, 0, 0, 1, 0, 0, 16, 0, 0, 0, 224, 0, 0, 0, 0, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -16389,16 +16321,13 @@ impl ::core::default::Default for SendLastState {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendLastState::new_unchecked(v.into())
     }
 }
 impl SendLastState {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16424,23 +16353,11 @@ impl SendLastState {
     pub fn total_difficulty(&self) -> Uint256 {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint256::new_unchecked(self.0.slice(start..end))
-    }
-    pub fn proof(&self) -> BlockProofOpt {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        BlockProofOpt::new_unchecked(self.0.slice(start..end))
-    }
-    pub fn chain_root(&self) -> HeaderDigest {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
-            HeaderDigest::new_unchecked(self.0.slice(start..end))
+            let end = molecule::unpack_number(&slice[12..]) as usize;
+            Uint256::new_unchecked(self.0.slice(start..end))
         } else {
-            HeaderDigest::new_unchecked(self.0.slice(start..))
+            Uint256::new_unchecked(self.0.slice(start..))
         }
     }
     pub fn as_reader<'r>(&'r self) -> SendLastStateReader<'r> {
@@ -16472,8 +16389,6 @@ impl molecule::prelude::Entity for SendLastState {
         Self::new_builder()
             .tip_header(self.tip_header())
             .total_difficulty(self.total_difficulty())
-            .proof(self.proof())
-            .chain_root(self.chain_root())
     }
 }
 #[derive(Clone, Copy)]
@@ -16497,8 +16412,6 @@ impl<'r> ::core::fmt::Display for SendLastStateReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "tip_header", self.tip_header())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
-        write!(f, ", {}: {}", "proof", self.proof())?;
-        write!(f, ", {}: {}", "chain_root", self.chain_root())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -16507,7 +16420,7 @@ impl<'r> ::core::fmt::Display for SendLastStateReader<'r> {
     }
 }
 impl<'r> SendLastStateReader<'r> {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16533,23 +16446,11 @@ impl<'r> SendLastStateReader<'r> {
     pub fn total_difficulty(&self) -> Uint256Reader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[8..]) as usize;
-        let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint256Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn proof(&self) -> BlockProofOptReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        BlockProofOptReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn chain_root(&self) -> HeaderDigestReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
-            HeaderDigestReader::new_unchecked(&self.as_slice()[start..end])
+            let end = molecule::unpack_number(&slice[12..]) as usize;
+            Uint256Reader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            HeaderDigestReader::new_unchecked(&self.as_slice()[start..])
+            Uint256Reader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -16604,8 +16505,6 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateReader<'r> {
         }
         VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Uint256Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        BlockProofOptReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        HeaderDigestReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
@@ -16613,25 +16512,15 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateReader<'r> {
 pub struct SendLastStateBuilder {
     pub(crate) tip_header: VerifiableHeader,
     pub(crate) total_difficulty: Uint256,
-    pub(crate) proof: BlockProofOpt,
-    pub(crate) chain_root: HeaderDigest,
 }
 impl SendLastStateBuilder {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 2;
     pub fn tip_header(mut self, v: VerifiableHeader) -> Self {
         self.tip_header = v;
         self
     }
     pub fn total_difficulty(mut self, v: Uint256) -> Self {
         self.total_difficulty = v;
-        self
-    }
-    pub fn proof(mut self, v: BlockProofOpt) -> Self {
-        self.proof = v;
-        self
-    }
-    pub fn chain_root(mut self, v: HeaderDigest) -> Self {
-        self.chain_root = v;
         self
     }
 }
@@ -16642,8 +16531,6 @@ impl molecule::prelude::Builder for SendLastStateBuilder {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.tip_header.as_slice().len()
             + self.total_difficulty.as_slice().len()
-            + self.proof.as_slice().len()
-            + self.chain_root.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -16652,18 +16539,12 @@ impl molecule::prelude::Builder for SendLastStateBuilder {
         total_size += self.tip_header.as_slice().len();
         offsets.push(total_size);
         total_size += self.total_difficulty.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.proof.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.chain_root.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
         }
         writer.write_all(self.tip_header.as_slice())?;
         writer.write_all(self.total_difficulty.as_slice())?;
-        writer.write_all(self.proof.as_slice())?;
-        writer.write_all(self.chain_root.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -16693,8 +16574,8 @@ impl ::core::fmt::Display for GetBlockSamples {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
+        write!(f, ", {}: {}", "start_hash", self.start_hash())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
-        write!(f, ", {}: {}", "last_n_blocks", self.last_n_blocks())?;
         write!(
             f,
             ", {}: {}",
@@ -16712,10 +16593,11 @@ impl ::core::fmt::Display for GetBlockSamples {
 impl ::core::default::Default for GetBlockSamples {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            108, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 64, 0, 0, 0, 72, 0, 0, 0, 104, 0, 0, 0, 0, 0,
+            132, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 128, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         GetBlockSamples::new_unchecked(v.into())
     }
@@ -16744,13 +16626,13 @@ impl GetBlockSamples {
         let end = molecule::unpack_number(&slice[8..]) as usize;
         Byte32::new_unchecked(self.0.slice(start..end))
     }
-    pub fn start_number(&self) -> Uint64 {
+    pub fn start_hash(&self) -> Byte32 {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[8..]) as usize;
         let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint64::new_unchecked(self.0.slice(start..end))
+        Byte32::new_unchecked(self.0.slice(start..end))
     }
-    pub fn last_n_blocks(&self) -> Uint64 {
+    pub fn start_number(&self) -> Uint64 {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
@@ -16800,8 +16682,8 @@ impl molecule::prelude::Entity for GetBlockSamples {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .last_hash(self.last_hash())
+            .start_hash(self.start_hash())
             .start_number(self.start_number())
-            .last_n_blocks(self.last_n_blocks())
             .difficulty_boundary(self.difficulty_boundary())
             .difficulties(self.difficulties())
     }
@@ -16826,8 +16708,8 @@ impl<'r> ::core::fmt::Display for GetBlockSamplesReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
+        write!(f, ", {}: {}", "start_hash", self.start_hash())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
-        write!(f, ", {}: {}", "last_n_blocks", self.last_n_blocks())?;
         write!(
             f,
             ", {}: {}",
@@ -16866,13 +16748,13 @@ impl<'r> GetBlockSamplesReader<'r> {
         let end = molecule::unpack_number(&slice[8..]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn start_number(&self) -> Uint64Reader<'r> {
+    pub fn start_hash(&self) -> Byte32Reader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[8..]) as usize;
         let end = molecule::unpack_number(&slice[12..]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn last_n_blocks(&self) -> Uint64Reader<'r> {
+    pub fn start_number(&self) -> Uint64Reader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
@@ -16945,7 +16827,7 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockSamplesReader<'r> {
             return ve!(Self, OffsetsNotMatch);
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         Uint64Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Uint256Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Uint256VecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
@@ -16955,8 +16837,8 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockSamplesReader<'r> {
 #[derive(Debug, Default)]
 pub struct GetBlockSamplesBuilder {
     pub(crate) last_hash: Byte32,
+    pub(crate) start_hash: Byte32,
     pub(crate) start_number: Uint64,
-    pub(crate) last_n_blocks: Uint64,
     pub(crate) difficulty_boundary: Uint256,
     pub(crate) difficulties: Uint256Vec,
 }
@@ -16966,12 +16848,12 @@ impl GetBlockSamplesBuilder {
         self.last_hash = v;
         self
     }
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_hash(mut self, v: Byte32) -> Self {
+        self.start_hash = v;
         self
     }
-    pub fn last_n_blocks(mut self, v: Uint64) -> Self {
-        self.last_n_blocks = v;
+    pub fn start_number(mut self, v: Uint64) -> Self {
+        self.start_number = v;
         self
     }
     pub fn difficulty_boundary(mut self, v: Uint256) -> Self {
@@ -16989,8 +16871,8 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_hash.as_slice().len()
+            + self.start_hash.as_slice().len()
             + self.start_number.as_slice().len()
-            + self.last_n_blocks.as_slice().len()
             + self.difficulty_boundary.as_slice().len()
             + self.difficulties.as_slice().len()
     }
@@ -17000,9 +16882,9 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
         offsets.push(total_size);
         total_size += self.last_hash.as_slice().len();
         offsets.push(total_size);
-        total_size += self.start_number.as_slice().len();
+        total_size += self.start_hash.as_slice().len();
         offsets.push(total_size);
-        total_size += self.last_n_blocks.as_slice().len();
+        total_size += self.start_number.as_slice().len();
         offsets.push(total_size);
         total_size += self.difficulty_boundary.as_slice().len();
         offsets.push(total_size);
@@ -17012,8 +16894,8 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
         }
         writer.write_all(self.last_hash.as_slice())?;
+        writer.write_all(self.start_hash.as_slice())?;
         writer.write_all(self.start_number.as_slice())?;
-        writer.write_all(self.last_n_blocks.as_slice())?;
         writer.write_all(self.difficulty_boundary.as_slice())?;
         writer.write_all(self.difficulties.as_slice())?;
         Ok(())
@@ -17046,6 +16928,12 @@ impl ::core::fmt::Display for SendBlockSamples {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "root", self.root())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
+        write!(
+            f,
+            ", {}: {}",
+            "reorg_last_n_headers",
+            self.reorg_last_n_headers()
+        )?;
         write!(f, ", {}: {}", "sampled_headers", self.sampled_headers())?;
         write!(f, ", {}: {}", "last_n_headers", self.last_n_headers())?;
         let extra_count = self.count_extra_fields();
@@ -17058,19 +16946,19 @@ impl ::core::fmt::Display for SendBlockSamples {
 impl ::core::default::Default for SendBlockSamples {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            172, 0, 0, 0, 20, 0, 0, 0, 140, 0, 0, 0, 164, 0, 0, 0, 168, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            180, 0, 0, 0, 24, 0, 0, 0, 144, 0, 0, 0, 168, 0, 0, 0, 172, 0, 0, 0, 176, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0,
-            0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendBlockSamples::new_unchecked(v.into())
     }
 }
 impl SendBlockSamples {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17099,17 +16987,23 @@ impl SendBlockSamples {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProof::new_unchecked(self.0.slice(start..end))
     }
-    pub fn sampled_headers(&self) -> HeaderWithChainRootVec {
+    pub fn reorg_last_n_headers(&self) -> HeaderWithChainRootVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
         HeaderWithChainRootVec::new_unchecked(self.0.slice(start..end))
     }
-    pub fn last_n_headers(&self) -> HeaderWithChainRootVec {
+    pub fn sampled_headers(&self) -> HeaderWithChainRootVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        HeaderWithChainRootVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn last_n_headers(&self) -> HeaderWithChainRootVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
+            let end = molecule::unpack_number(&slice[24..]) as usize;
             HeaderWithChainRootVec::new_unchecked(self.0.slice(start..end))
         } else {
             HeaderWithChainRootVec::new_unchecked(self.0.slice(start..))
@@ -17144,6 +17038,7 @@ impl molecule::prelude::Entity for SendBlockSamples {
         Self::new_builder()
             .root(self.root())
             .proof(self.proof())
+            .reorg_last_n_headers(self.reorg_last_n_headers())
             .sampled_headers(self.sampled_headers())
             .last_n_headers(self.last_n_headers())
     }
@@ -17169,6 +17064,12 @@ impl<'r> ::core::fmt::Display for SendBlockSamplesReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "root", self.root())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
+        write!(
+            f,
+            ", {}: {}",
+            "reorg_last_n_headers",
+            self.reorg_last_n_headers()
+        )?;
         write!(f, ", {}: {}", "sampled_headers", self.sampled_headers())?;
         write!(f, ", {}: {}", "last_n_headers", self.last_n_headers())?;
         let extra_count = self.count_extra_fields();
@@ -17179,7 +17080,7 @@ impl<'r> ::core::fmt::Display for SendBlockSamplesReader<'r> {
     }
 }
 impl<'r> SendBlockSamplesReader<'r> {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17208,17 +17109,23 @@ impl<'r> SendBlockSamplesReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProofReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn sampled_headers(&self) -> HeaderWithChainRootVecReader<'r> {
+    pub fn reorg_last_n_headers(&self) -> HeaderWithChainRootVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
         HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn last_n_headers(&self) -> HeaderWithChainRootVecReader<'r> {
+    pub fn sampled_headers(&self) -> HeaderWithChainRootVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn last_n_headers(&self) -> HeaderWithChainRootVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
+            let end = molecule::unpack_number(&slice[24..]) as usize;
             HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             HeaderWithChainRootVecReader::new_unchecked(&self.as_slice()[start..])
@@ -17278,6 +17185,7 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockSamplesReader<'r> {
         BlockProofReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         HeaderWithChainRootVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         HeaderWithChainRootVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        HeaderWithChainRootVecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         Ok(())
     }
 }
@@ -17285,17 +17193,22 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockSamplesReader<'r> {
 pub struct SendBlockSamplesBuilder {
     pub(crate) root: HeaderDigest,
     pub(crate) proof: BlockProof,
+    pub(crate) reorg_last_n_headers: HeaderWithChainRootVec,
     pub(crate) sampled_headers: HeaderWithChainRootVec,
     pub(crate) last_n_headers: HeaderWithChainRootVec,
 }
 impl SendBlockSamplesBuilder {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn root(mut self, v: HeaderDigest) -> Self {
         self.root = v;
         self
     }
     pub fn proof(mut self, v: BlockProof) -> Self {
         self.proof = v;
+        self
+    }
+    pub fn reorg_last_n_headers(mut self, v: HeaderWithChainRootVec) -> Self {
+        self.reorg_last_n_headers = v;
         self
     }
     pub fn sampled_headers(mut self, v: HeaderWithChainRootVec) -> Self {
@@ -17314,6 +17227,7 @@ impl molecule::prelude::Builder for SendBlockSamplesBuilder {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.root.as_slice().len()
             + self.proof.as_slice().len()
+            + self.reorg_last_n_headers.as_slice().len()
             + self.sampled_headers.as_slice().len()
             + self.last_n_headers.as_slice().len()
     }
@@ -17325,6 +17239,8 @@ impl molecule::prelude::Builder for SendBlockSamplesBuilder {
         offsets.push(total_size);
         total_size += self.proof.as_slice().len();
         offsets.push(total_size);
+        total_size += self.reorg_last_n_headers.as_slice().len();
+        offsets.push(total_size);
         total_size += self.sampled_headers.as_slice().len();
         offsets.push(total_size);
         total_size += self.last_n_headers.as_slice().len();
@@ -17334,6 +17250,7 @@ impl molecule::prelude::Builder for SendBlockSamplesBuilder {
         }
         writer.write_all(self.root.as_slice())?;
         writer.write_all(self.proof.as_slice())?;
+        writer.write_all(self.reorg_last_n_headers.as_slice())?;
         writer.write_all(self.sampled_headers.as_slice())?;
         writer.write_all(self.last_n_headers.as_slice())?;
         Ok(())
