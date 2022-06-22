@@ -316,23 +316,20 @@ union LightClientMessage {
     SendBlockSamples,
 }
 
-table GetLastState {
-    // light client's local tip hash
-    last_hash:              Byte32,
-}
+table GetLastState {}
 
 table SendLastState {
     tip_header:                 VerifiableHeader,
     total_difficulty:           Uint256,
-    proof:                      BlockProofOpt,
-    chain_root:                 HeaderDigest,
 }
 
 table GetBlockSamples {
-    // light client's local tip hash
+    // SendLastState.tip_header.hash
     last_hash:                  Byte32,
+    // Last proved tip hash
+    start_hash:                 Byte32,
+    // Last proved tip number
     start_number:               Uint64,
-    last_n_blocks:              Uint64,
     difficulty_boundary:        Uint256,
     difficulties:               Uint256Vec,
 }
@@ -340,6 +337,8 @@ table GetBlockSamples {
 table SendBlockSamples {
     root:                       HeaderDigest,
     proof:                      BlockProof,
+    // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
+    reorg_last_n_headers:       HeaderWithChainRootVec,
     sampled_headers:            HeaderWithChainRootVec,
     last_n_headers:             HeaderWithChainRootVec,
 }
