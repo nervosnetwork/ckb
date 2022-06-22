@@ -8,7 +8,7 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_metrics::{metrics, Timer};
+use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;

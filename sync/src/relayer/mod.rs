@@ -32,6 +32,7 @@ use ckb_network::{
     bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
     TargetSession,
 };
+use ckb_store::ChainStore;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockView},
@@ -294,6 +295,48 @@ impl Relayer {
                     "relayer send block when accept block error: {:?}",
                     err,
                 );
+            }
+
+            if let Some(p2p_control) = nc.p2p_control() {
+                let tip_header = packed::VerifiableHeader::new_builder()
+                    .header(boxed.header().data())
+                    .uncles_hash(boxed.calc_uncles_hash())
+                    .extension(Pack::pack(&boxed.extension()))
+                    .build();
+                let total_difficulty = self
+                    .shared
+                    .shared()
+                    .snapshot()
+                    .get_block_ext(&block_hash)
+                    .map(|block_ext| block_ext.total_difficulty)
+                    .expect("checked: new block should have block ext");
+                let light_client_message = {
+                    let content = packed::SendLastState::new_builder()
+                        .tip_header(tip_header)
+                        .total_difficulty(total_difficulty.pack())
+                        .build();
+                    packed::LightClientMessage::new_builder()
+                        .set(content)
+                        .build()
+                };
+                let light_client_peers: HashSet<PeerIndex> = nc
+                    .connected_peers()
+                    .into_iter()
+                    .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
+                    .filter(|(_id, peer)| peer.is_lightclient)
+                    .map(|(id, _)| id)
+                    .collect();
+                if let Err(err) = p2p_control.filter_broadcast(
+                    TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+                    SupportProtocols::LightClient.protocol_id(),
+                    light_client_message.as_bytes(),
+                ) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "relayer send last state to light client when accept block, error: {:?}",
+                        err,
+                    );
+                }
             }
         }
     }
