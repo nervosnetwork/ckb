@@ -8,7 +8,7 @@ use ckb_test::{
 };
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
-use clap::{value_t, App, Arg};
+use clap::{App, Arg};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
@@ -41,17 +41,18 @@ fn main() {
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 
-    let binary = value_t!(matches, "binary", PathBuf).unwrap();
-    let start_port = value_t!(matches, "port", u16).unwrap_or_else(|err| err.exit());
+    let binary = matches.value_of_t_or_exit::<PathBuf>("binary");
+    let start_port = matches.value_of_t_or_exit::<u16>("port");
     let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
     let max_time = if matches.is_present("max-time") {
-        value_t!(matches, "max-time", u64).unwrap_or_else(|err| err.exit())
+        matches.value_of_t_or_exit::<u64>("max-time")
     } else {
         0
     };
-    let worker_count = value_t!(matches, "concurrent", usize).unwrap_or_else(|err| err.exit());
-    let vendor =
-        value_t!(matches, "vendor", PathBuf).unwrap_or_else(|_| current_dir().join("vendor"));
+    let worker_count = matches.value_of_t_or_exit::<usize>("concurrent");
+    let vendor = matches
+        .value_of_t::<PathBuf>("vendor")
+        .unwrap_or_else(|_| current_dir().join("vendor"));
     let log_file_opt = matches
         .value_of("log-file")
         .map(PathBuf::from_str)
@@ -267,11 +268,11 @@ fn main() {
     drop(logger_guard);
 }
 
-fn clap_app() -> App<'static, 'static> {
+fn clap_app() -> App<'static> {
     App::new("ckb-test")
         .arg(
             Arg::with_name("binary")
-                .short("b")
+                .short('b')
                 .long("bin")
                 .takes_value(true)
                 .value_name("PATH")
@@ -280,7 +281,7 @@ fn clap_app() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("port")
-                .short("p")
+                .short('p')
                 .long("port")
                 .takes_value(true)
                 .help("Starting port number used to start ckb nodes")
@@ -297,7 +298,7 @@ fn clap_app() -> App<'static, 'static> {
         .arg(Arg::with_name("specs").multiple(true))
         .arg(
             Arg::with_name("concurrent")
-                .short("c")
+                .short('c')
                 .long("concurrent")
                 .takes_value(true)
                 .help("The number of specs can running concurrently")
@@ -327,6 +328,7 @@ fn clap_app() -> App<'static, 'static> {
         .arg(Arg::with_name("keep-tmp-data").long("keep-tmp-data").help(
             "Keep all temporary files. Default: only keep temporary file for the failed tests.",
         ))
+        .arg(Arg::with_name("vendor").long("vendor"))
 }
 
 fn filter_specs(
