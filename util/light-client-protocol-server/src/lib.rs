@@ -85,12 +85,23 @@ impl LightClientProtocol {
         peer_index: PeerIndex,
         message: packed::LightClientMessageUnionReader<'_>,
     ) -> Status {
+        if !matches!(
+            message,
+            packed::LightClientMessageUnionReader::GetLastState(_)
+        ) && !self.peer_is_lightclient(nc, peer_index)
+        {
+            return StatusCode::UnexpectedProtocolMessage.into();
+        }
+
         match message {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
                 components::GetLastStateProcess::new(reader, self, peer_index, nc).execute()
             }
             packed::LightClientMessageUnionReader::GetBlockSamples(reader) => {
                 components::GetBlockSamplesProcess::new(reader, self, peer_index, nc).execute()
+            }
+            packed::LightClientMessageUnionReader::GetBlockProof(reader) => {
+                components::GetBlockProofProcess::new(reader, self, peer_index, nc).execute()
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }

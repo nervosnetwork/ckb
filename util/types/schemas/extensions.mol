@@ -301,8 +301,6 @@ table BlockProof {
     items:                  HeaderDigestVec,
 }
 
-option BlockProofOpt (BlockProof);
-
 table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
@@ -314,6 +312,8 @@ union LightClientMessage {
     SendLastState,
     GetBlockSamples,
     SendBlockSamples,
+    GetBlockProof,
+    SendBlockProof,
 }
 
 table GetLastState {}
@@ -341,6 +341,25 @@ table SendBlockSamples {
     reorg_last_n_headers:       HeaderWithChainRootVec,
     sampled_headers:            HeaderWithChainRootVec,
     last_n_headers:             HeaderWithChainRootVec,
+}
+
+table GetBlockProof {
+    block_hash:             Byte32,
+    // Light Client's local tip hash
+    tip_hash:               Byte32,
+}
+
+table SingleBlockProof {
+    // The proof of `GetBlockProof.block_hash`
+    proof:                  BlockProof,
+    // The header of `GetBlockProof.tip_hash` and its root
+    header:                 HeaderWithChainRoot,
+}
+
+option SingleBlockProofOpt(SingleBlockProof);
+
+table SendBlockProof {
+    proof: SingleBlockProofOpt,
 }
 
 /* Types for Network/Others */
