@@ -275,14 +275,6 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     };
                 }
             }
-            // The last block should be in main chain.
-            if !sampler.active_chain().is_main_chain(&last_block_hash) {
-                let errmsg = format!(
-                    "the last block ({:#x}) sent from the client is not in the main chain",
-                    last_block_hash
-                );
-                return StatusCode::InvalidLastBlock.with_context(errmsg);
-            }
         }
 
         let (sampled_numbers, last_n_numbers) =
