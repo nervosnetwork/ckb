@@ -188,10 +188,6 @@ impl<'a> GetBlockSamplesProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        if !self.protocol.peer_is_lightclient(self.nc, self.peer) {
-            return StatusCode::UnexpectedProtocolMessage.into();
-        }
-
         let active_chain = self.protocol.shared.active_chain();
         let snapshot = self.protocol.shared.shared().snapshot();
 
