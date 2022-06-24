@@ -188,6 +188,9 @@ impl HeadersSyncController {
         }
     }
 
+    // https://github.com/rust-lang/rust-clippy/pull/8738
+    // wrong_self_convention allows is_* to take &mut self
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn is_timeout(&mut self, now_tip_ts: u64, now: u64) -> Option<bool> {
         let inspect_window = HEADERS_DOWNLOAD_INSPECT_WINDOW;
         let expected_headers_per_sec = HEADERS_DOWNLOAD_HEADERS_PER_SECOND;

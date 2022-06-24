@@ -117,9 +117,8 @@ impl ProposalTable {
                 HashSet::new(),
                 self.table
                     .range((Bound::Unbounded, Bound::Included(&number)))
-                    .map(|pair| pair.1)
+                    .flat_map(|pair| pair.1)
                     .cloned()
-                    .flatten()
                     .collect(),
             )
         } else {
@@ -129,15 +128,13 @@ impl ProposalTable {
                         Bound::Included(&proposal_start),
                         Bound::Included(&proposal_end),
                     ))
-                    .map(|pair| pair.1)
+                    .flat_map(|pair| pair.1)
                     .cloned()
-                    .flatten()
                     .collect(),
                 self.table
                     .range((Bound::Excluded(&proposal_end), Bound::Included(&number)))
-                    .map(|pair| pair.1)
+                    .flat_map(|pair| pair.1)
                     .cloned()
-                    .flatten()
                     .collect(),
             )
         };

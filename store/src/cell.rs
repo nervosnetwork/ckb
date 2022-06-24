@@ -30,7 +30,7 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     let new_cells = transactions
         .iter()
         .enumerate()
-        .map(move |(tx_index, tx)| {
+        .flat_map(move |(tx_index, tx)| {
             let tx_hash = tx.hash();
             let block_hash = block.header().hash();
             let block_number = block.header().number();
@@ -67,8 +67,7 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
 
                     (out_point, entry, data_entry)
                 })
-        })
-        .flatten();
+        });
     txn.insert_cells(new_cells)?;
 
     // mark inputs dead
@@ -76,8 +75,7 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     let deads = transactions
         .iter()
         .skip(1)
-        .map(|tx| tx.input_pts_iter())
-        .flatten();
+        .flat_map(|tx| tx.input_pts_iter());
     txn.delete_cells(deads)?;
 
     Ok(())
@@ -146,7 +144,7 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     txn.insert_cells(undo_deads)?;
 
     // undo live cells
-    let undo_cells = transactions.iter().map(|tx| tx.output_pts_iter()).flatten();
+    let undo_cells = transactions.iter().flat_map(|tx| tx.output_pts_iter());
     txn.delete_cells(undo_cells)?;
 
     Ok(())

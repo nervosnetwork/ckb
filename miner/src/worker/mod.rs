@@ -84,8 +84,7 @@ pub fn start_worker(
                 thread::Builder::new()
                     .name(worker_name.to_string())
                     .spawn(move || {
-                        let rng = || random();
-                        worker.run(rng, pb);
+                        worker.run(random, pb);
                     })
                     .expect("Start `Dummy` worker thread failed");
                 WorkerController::new(vec![worker_tx])

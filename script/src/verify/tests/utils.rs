@@ -185,18 +185,14 @@ impl TransactionScriptsVerifierWithEnv {
         self.verify_map(version, rtx, |verifier| {
             let cycles;
             let mut times = 0usize;
-            let mut init_snap: Option<TransactionSnapshot>;
-
             times += 1;
-            match verifier.resumable_verify(max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
-                }
+            let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => Some(state.try_into().unwrap()),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
                     return Ok((cycles, times));
                 }
-            }
+            };
 
             loop {
                 times += 1;

@@ -1569,7 +1569,7 @@ impl ChainRpc for ChainRpcImpl {
                     witnesses_root: block.calc_witnesses_root().unpack(),
                     proof: JsonMerkleProof {
                         indices: proof.indices().iter().map(|index| (*index).into()).collect(),
-                        lemmas: proof.lemmas().iter().map(|lemma| Unpack::<H256>::unpack(lemma)).collect(),
+                        lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
                     }
                 }
             })

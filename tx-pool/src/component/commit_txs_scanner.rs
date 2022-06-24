@@ -4,18 +4,10 @@ use ckb_util::LinkedHashMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 // A template data struct used to store modified entries when package txs
+#[derive(Default)]
 pub struct TxModifiedEntries {
     entries: HashMap<ProposalShortId, TxEntry>,
     sorted_index: BTreeSet<AncestorsScoreSortKey>,
-}
-
-impl Default for TxModifiedEntries {
-    fn default() -> Self {
-        TxModifiedEntries {
-            entries: HashMap::default(),
-            sorted_index: BTreeSet::default(),
-        }
-    }
 }
 
 impl TxModifiedEntries {

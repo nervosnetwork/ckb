@@ -88,7 +88,7 @@ fn insert_block_cell(batch: &mut StoreWriteBatch, block: &BlockView) {
     let new_cells = transactions
         .iter()
         .enumerate()
-        .map(move |(tx_index, tx)| {
+        .flat_map(move |(tx_index, tx)| {
             let tx_hash = tx.hash();
             let block_hash = block.header().hash();
             let block_number = block.header().number();
@@ -125,8 +125,7 @@ fn insert_block_cell(batch: &mut StoreWriteBatch, block: &BlockView) {
 
                     (out_point, entry, data_entry)
                 })
-        })
-        .flatten();
+        });
     batch.insert_cells(new_cells).unwrap();
 }
 
@@ -136,7 +135,6 @@ fn delete_consumed_cell(batch: &mut StoreWriteBatch, transactions: &[Transaction
     let deads = transactions
         .iter()
         .skip(1)
-        .map(|tx| tx.input_pts_iter())
-        .flatten();
+        .flat_map(|tx| tx.input_pts_iter());
     batch.delete_cells(deads).unwrap();
 }

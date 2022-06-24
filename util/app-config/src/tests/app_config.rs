@@ -1,3 +1,8 @@
+#![allow(clippy::redundant_closure)]
+
+/// https://github.com/rust-lang/rust-clippy/pull/8431
+// |    .unwrap_or_else(|err| std::panic::panic_any(err));
+// |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `std::panic::panic_any`
 use ckb_resource::{Resource, TemplateContext};
 
 use crate::{app_config::*, cli};

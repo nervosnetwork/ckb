@@ -61,12 +61,7 @@ pub async fn observe_listen_port_occupancy(
 
         for raw_addr in _addrs {
             let ip_addr: Option<SocketAddr> = match DnsResolver::new(raw_addr.clone()) {
-                Some(dns) => dns
-                    .await
-                    .ok()
-                    .as_ref()
-                    .map(multiaddr_to_socketaddr)
-                    .flatten(),
+                Some(dns) => dns.await.ok().as_ref().and_then(multiaddr_to_socketaddr),
                 None => multiaddr_to_socketaddr(raw_addr),
             };
 

@@ -351,7 +351,7 @@ impl SharedBuilder {
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
             &async_handle,
-            sender.clone(),
+            sender,
         );
 
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
@@ -366,7 +366,6 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
-            sender,
         );
 
         let pack = SharedPackage {

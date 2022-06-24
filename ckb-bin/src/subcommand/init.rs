@@ -83,13 +83,14 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 format!("{:#x}", hash)
             });
 
-    let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
-        if !args.block_assembler_args.is_empty() {
-            default_code_hash_option.as_ref()
-        } else {
-            None
-        }
-    });
+    let block_assembler_code_hash =
+        args.block_assembler_code_hash
+            .as_ref()
+            .or(if !args.block_assembler_args.is_empty() {
+                default_code_hash_option.as_ref()
+            } else {
+                None
+            });
 
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
