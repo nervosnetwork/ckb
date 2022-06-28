@@ -966,6 +966,9 @@ impl HeaderView {
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
+        if self.inner.is_genesis() {
+            return;
+        }
         self.skip_hash = self
             .clone()
             .get_ancestor(
