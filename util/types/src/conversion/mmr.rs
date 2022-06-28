@@ -27,4 +27,3 @@ impl<'r> Unpack<MMRProof> for packed::BlockProofReader<'r> {
     }
 }
 impl_conversion_for_entity_unpack!(MMRProof, BlockProof);
-impl_conversion_for_packed_optional_pack!(SingleBlockProof, SingleBlockProofOpt);
