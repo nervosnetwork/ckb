@@ -344,22 +344,21 @@ table SendBlockSamples {
 }
 
 table GetBlockProof {
-    block_hash:             Byte32,
+    // The requested block hashes
+    block_hashes:           Byte32Vec,
     // Light Client's local tip hash
     tip_hash:               Byte32,
 }
 
-table SingleBlockProof {
-    // The proof of `GetBlockProof.block_hash`
-    proof:                  BlockProof,
-    // The header of `GetBlockProof.tip_hash` and its root
-    header:                 HeaderWithChainRoot,
-}
-
-option SingleBlockProofOpt(SingleBlockProof);
-
 table SendBlockProof {
-    proof: SingleBlockProofOpt,
+    // The root of `GetBlockProof.tip_hash`
+    root:                   HeaderDigest,
+    // The proof of `GetBlockProof.block_hashs`. If `proof.mmr_size` is zero it
+    // means `tip_hash` is not in chain.
+    proof:                  BlockProof,
+    // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
+    // of tip hash it will not included in headers.
+    headers:                HeaderVec,
 }
 
 /* Types for Network/Others */
