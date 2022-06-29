@@ -38,16 +38,20 @@ impl<'a> GetBlockProofProcess<'a> {
             .collect();
         let tip_hash = self.message.tip_hash().to_entity();
 
-        let tip_header = if let Some(header) = active_chain.get_block_header(&tip_hash) {
-            header
-        } else {
-            // The tip_hash is not on the chain
-            let message = packed::LightClientMessage::new_builder()
-                .set(packed::SendBlockProof::default())
-                .build();
-            self.nc.reply(self.peer, &message);
-            return Status::ok();
-        };
+        let (tip_header, tip_uncles_hash, tip_extension) =
+            if let Some(header) = active_chain.get_block_header(&tip_hash) {
+                let tip_block = active_chain
+                    .get_block(&tip_hash)
+                    .expect("checked: tip block should be existed");
+                (header, tip_block.calc_uncles_hash(), tip_block.extension())
+            } else {
+                // The tip_hash is not on the chain
+                let message = packed::LightClientMessage::new_builder()
+                    .set(packed::SendBlockProof::default())
+                    .build();
+                self.nc.reply(self.peer, &message);
+                return Status::ok();
+            };
         let block_headers: Vec<_> = block_hashes
             .iter()
             .filter_map(|hash| active_chain.get_block_header(hash))
@@ -57,6 +61,7 @@ impl<'a> GetBlockProofProcess<'a> {
 
         let positions: Vec<_> = block_headers
             .iter()
+            .filter(|header| header.number() != tip_header.number())
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
         let mmr_size = leaf_index_to_mmr_size(tip_header.number() - 1);
@@ -75,9 +80,16 @@ impl<'a> GetBlockProofProcess<'a> {
                 return StatusCode::InternalError.with_context(errmsg);
             }
         };
+
+        let verifiable_tip_header = packed::VerifiableHeader::new_builder()
+            .header(tip_header.data())
+            .uncles_hash(tip_uncles_hash)
+            .extension(Pack::pack(&tip_extension))
+            .build();
         let content = packed::SendBlockProof::new_builder()
             .root(root)
             .proof(proof.pack())
+            .tip_header(verifiable_tip_header)
             .headers(block_headers.into_iter().map(|view| view.data()).pack())
             .build();
         let message = packed::LightClientMessage::new_builder()
