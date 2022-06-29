@@ -356,6 +356,8 @@ table SendBlockProof {
     // The proof of `GetBlockProof.block_hashs`. If `proof.mmr_size` is zero it
     // means `tip_hash` is not in chain.
     proof:                  BlockProof,
+    /// The tip header
+    tip_header:             VerifiableHeader,
     // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
     // of tip hash it will not included in headers.
     headers:                HeaderVec,

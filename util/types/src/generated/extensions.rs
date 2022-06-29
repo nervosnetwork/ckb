@@ -17447,6 +17447,7 @@ impl ::core::fmt::Display for SendBlockProof {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "root", self.root())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
+        write!(f, ", {}: {}", "tip_header", self.tip_header())?;
         write!(f, ", {}: {}", "headers", self.headers())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -17458,18 +17459,27 @@ impl ::core::fmt::Display for SendBlockProof {
 impl ::core::default::Default for SendBlockProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            164, 0, 0, 0, 16, 0, 0, 0, 136, 0, 0, 0, 160, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            168, 1, 0, 0, 20, 0, 0, 0, 140, 0, 0, 0, 164, 0, 0, 0, 164, 1, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0,
-            0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0,
+            0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 16, 0,
+            0, 0, 224, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendBlockProof::new_unchecked(v.into())
     }
 }
 impl SendBlockProof {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17498,11 +17508,17 @@ impl SendBlockProof {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProof::new_unchecked(self.0.slice(start..end))
     }
-    pub fn headers(&self) -> HeaderVec {
+    pub fn tip_header(&self) -> VerifiableHeader {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        VerifiableHeader::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn headers(&self) -> HeaderVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[20..]) as usize;
             HeaderVec::new_unchecked(self.0.slice(start..end))
         } else {
             HeaderVec::new_unchecked(self.0.slice(start..))
@@ -17537,6 +17553,7 @@ impl molecule::prelude::Entity for SendBlockProof {
         Self::new_builder()
             .root(self.root())
             .proof(self.proof())
+            .tip_header(self.tip_header())
             .headers(self.headers())
     }
 }
@@ -17561,6 +17578,7 @@ impl<'r> ::core::fmt::Display for SendBlockProofReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "root", self.root())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
+        write!(f, ", {}: {}", "tip_header", self.tip_header())?;
         write!(f, ", {}: {}", "headers", self.headers())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -17570,7 +17588,7 @@ impl<'r> ::core::fmt::Display for SendBlockProofReader<'r> {
     }
 }
 impl<'r> SendBlockProofReader<'r> {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17599,11 +17617,17 @@ impl<'r> SendBlockProofReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BlockProofReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn headers(&self) -> HeaderVecReader<'r> {
+    pub fn tip_header(&self) -> VerifiableHeaderReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        VerifiableHeaderReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn headers(&self) -> HeaderVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
+            let end = molecule::unpack_number(&slice[20..]) as usize;
             HeaderVecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             HeaderVecReader::new_unchecked(&self.as_slice()[start..])
@@ -17661,7 +17685,8 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
         }
         HeaderDigestReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         BlockProofReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        HeaderVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        VerifiableHeaderReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        HeaderVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
@@ -17669,16 +17694,21 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
 pub struct SendBlockProofBuilder {
     pub(crate) root: HeaderDigest,
     pub(crate) proof: BlockProof,
+    pub(crate) tip_header: VerifiableHeader,
     pub(crate) headers: HeaderVec,
 }
 impl SendBlockProofBuilder {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn root(mut self, v: HeaderDigest) -> Self {
         self.root = v;
         self
     }
     pub fn proof(mut self, v: BlockProof) -> Self {
         self.proof = v;
+        self
+    }
+    pub fn tip_header(mut self, v: VerifiableHeader) -> Self {
+        self.tip_header = v;
         self
     }
     pub fn headers(mut self, v: HeaderVec) -> Self {
@@ -17693,6 +17723,7 @@ impl molecule::prelude::Builder for SendBlockProofBuilder {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.root.as_slice().len()
             + self.proof.as_slice().len()
+            + self.tip_header.as_slice().len()
             + self.headers.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
@@ -17703,6 +17734,8 @@ impl molecule::prelude::Builder for SendBlockProofBuilder {
         offsets.push(total_size);
         total_size += self.proof.as_slice().len();
         offsets.push(total_size);
+        total_size += self.tip_header.as_slice().len();
+        offsets.push(total_size);
         total_size += self.headers.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
@@ -17710,6 +17743,7 @@ impl molecule::prelude::Builder for SendBlockProofBuilder {
         }
         writer.write_all(self.root.as_slice())?;
         writer.write_all(self.proof.as_slice())?;
+        writer.write_all(self.tip_header.as_slice())?;
         writer.write_all(self.headers.as_slice())?;
         Ok(())
     }
