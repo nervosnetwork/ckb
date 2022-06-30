@@ -11,10 +11,11 @@ mod tests;
 use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
 use p2p::{
+    async_trait,
     builder::MetaBuilder,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
-    service::{BlockingFlag, ProtocolHandle, ProtocolMeta, ServiceControl, TargetSession},
+    service::{ProtocolHandle, ProtocolMeta, ServiceAsyncControl, ServiceControl, TargetSession},
     traits::ServiceProtocol,
     ProtocolId, SessionId,
 };
@@ -33,17 +34,53 @@ pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
     compress::{compress, decompress},
-    network::disconnect_with_message,
+    network::{async_disconnect_with_message, disconnect_with_message},
     Behaviour, Error, NetworkState, Peer, ProtocolVersion,
 };
 
 /// Abstract protocol context
+#[async_trait]
 pub trait CKBProtocolContext: Send {
     /// Set notify to tentacle
     // Interact with underlying p2p service
-    fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
+    async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
     /// Remove notify
-    fn remove_notify(&self, token: u64) -> Result<(), Error>;
+    async fn remove_notify(&self, token: u64) -> Result<(), Error>;
+    /// Send message through quick queue
+    async fn async_quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error>;
+    /// Send message through quick queue
+    async fn async_quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error>;
+    /// Filter broadcast message through quick queue
+    async fn async_quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error>;
+    /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
+    async fn async_future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
+    /// Send message
+    async fn async_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error>;
+    /// Send message
+    async fn async_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
+    /// Filter broadcast message
+    async fn async_filter_broadcast(&self, target: TargetSession, data: Bytes)
+        -> Result<(), Error>;
+    /// Disconnect session
+    async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     /// Send message through quick queue
     fn quick_send_message(
         &self,
@@ -90,11 +127,12 @@ pub trait CKBProtocolContext: Send {
 }
 
 /// Abstract protocol handle base on tentacle service handle
+#[async_trait]
 pub trait CKBProtocolHandler: Sync + Send {
     /// Init action on service run
-    fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
+    async fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
     /// Called when opening protocol
-    fn connected(
+    async fn connected(
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
@@ -102,9 +140,14 @@ pub trait CKBProtocolHandler: Sync + Send {
     ) {
     }
     /// Called when closing protocol
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _peer_index: PeerIndex) {}
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        _peer_index: PeerIndex,
+    ) {
+    }
     /// Called when the corresponding protocol message is received
-    fn received(
+    async fn received(
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         _peer_index: PeerIndex,
@@ -112,10 +155,10 @@ pub trait CKBProtocolHandler: Sync + Send {
     ) {
     }
     /// Called when the Service receives the notify task
-    fn notify(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _token: u64) {}
+    async fn notify(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _token: u64) {}
     /// Behave like `Stream::poll`
-    fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) -> Poll<Option<()>> {
-        Poll::Ready(None)
+    async fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+        None
     }
 }
 
@@ -129,7 +172,6 @@ pub struct CKBProtocol {
     max_frame_length: usize,
     handler: Box<dyn CKBProtocolHandler>,
     network_state: Arc<NetworkState>,
-    flag: BlockingFlag,
 }
 
 impl CKBProtocol {
@@ -145,7 +187,6 @@ impl CKBProtocol {
             max_frame_length: support_protocol.max_frame_length(),
             protocol_name: support_protocol.name(),
             supported_versions: support_protocol.support_versions(),
-            flag: support_protocol.flag(),
             network_state,
             handler,
         }
@@ -159,7 +200,6 @@ impl CKBProtocol {
         max_frame_length: usize,
         handler: Box<dyn CKBProtocolHandler>,
         network_state: Arc<NetworkState>,
-        flag: BlockingFlag,
     ) -> Self {
         CKBProtocol {
             id,
@@ -172,7 +212,6 @@ impl CKBProtocol {
                 versions.sort_by(|a, b| b.cmp(a));
                 versions.to_vec()
             },
-            flag,
         }
     }
 
@@ -195,7 +234,6 @@ impl CKBProtocol {
     pub fn build(self) -> ProtocolMeta {
         let protocol_name = self.protocol_name();
         let max_frame_length = self.max_frame_length;
-        let flag = self.flag;
         let supported_versions = self
             .supported_versions
             .iter()
@@ -221,7 +259,6 @@ impl CKBProtocol {
             })
             .before_send(compress)
             .before_receive(|| Some(Box::new(decompress)))
-            .flag(flag)
             .build()
     }
 }
@@ -233,17 +270,19 @@ struct CKBHandler {
 }
 
 // Just proxy to inner handler, this struct exists for convenient unit test.
+#[async_trait]
 impl ServiceProtocol for CKBHandler {
-    fn init(&mut self, context: &mut ProtocolContext) {
+    async fn init(&mut self, context: &mut ProtocolContext) {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
-        self.handler.init(Arc::new(nc));
+        self.handler.init(Arc::new(nc)).await;
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(context.session.id) {
                 peer.protocols.insert(self.proto_id, version.to_owned());
@@ -257,13 +296,17 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.connected(Arc::new(nc), peer_index, version);
+
+        self.handler
+            .connected(Arc::new(nc), peer_index, version)
+            .await;
     }
 
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+    async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(context.session.id) {
                 peer.protocols.remove(&self.proto_id);
@@ -277,13 +320,14 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.disconnected(Arc::new(nc), peer_index);
+        self.handler.disconnected(Arc::new(nc), peer_index).await;
     }
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
+    async fn received(&mut self, context: ProtocolContextMutRef<'_>, data: Bytes) {
         if !self.network_state.is_active() {
             return;
         }
@@ -297,35 +341,34 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
-        self.handler.received(Arc::new(nc), peer_index, data);
+        self.handler.received(Arc::new(nc), peer_index, data).await;
     }
 
-    fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
+    async fn notify(&mut self, context: &mut ProtocolContext, token: u64) {
         if !self.network_state.is_active() {
             return;
         }
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
-        self.handler.notify(Arc::new(nc), token);
+        self.handler.notify(Arc::new(nc), token).await;
     }
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        _nc: &mut Context,
-        context: &mut ProtocolContext,
-    ) -> Poll<Option<()>> {
+    async fn poll(&mut self, context: &mut ProtocolContext) -> Option<()> {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().to_owned(),
+            p2p_control: context.control().to_owned().into(),
+            async_p2p_control: context.control().to_owned(),
         };
-        self.handler.poll(Arc::new(nc))
+        self.handler.poll(Arc::new(nc)).await
     }
 }
 
@@ -333,17 +376,117 @@ struct DefaultCKBProtocolContext {
     proto_id: ProtocolId,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
+    async_p2p_control: ServiceAsyncControl,
 }
 
+#[async_trait]
 impl CKBProtocolContext for DefaultCKBProtocolContext {
-    fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
-        self.p2p_control
-            .set_service_notify(self.proto_id, interval, token)?;
+    async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
+        self.async_p2p_control
+            .set_service_notify(self.proto_id, interval, token)
+            .await?;
         Ok(())
     }
-    fn remove_notify(&self, token: u64) -> Result<(), Error> {
-        self.p2p_control
-            .remove_service_notify(self.proto_id, token)?;
+    async fn remove_notify(&self, token: u64) -> Result<(), Error> {
+        self.async_p2p_control
+            .remove_service_notify(self.proto_id, token)
+            .await?;
+        Ok(())
+    }
+    async fn async_quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        trace!(
+            "[send message]: {}, to={}, length={}",
+            proto_id,
+            peer_index,
+            data.len()
+        );
+        self.async_p2p_control
+            .quick_send_message_to(peer_index, proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        trace!(
+            "[send message to]: {}, to={}, length={}",
+            self.proto_id,
+            peer_index,
+            data.len()
+        );
+        self.async_p2p_control
+            .quick_send_message_to(peer_index, self.proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_p2p_control
+            .quick_filter_broadcast(target, self.proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error> {
+        let task = if blocking {
+            Box::pin(BlockingFutureTask::new(task))
+        } else {
+            task
+        };
+        self.async_p2p_control.future_task(task).await?;
+        Ok(())
+    }
+    async fn async_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        trace!(
+            "[send message]: {}, to={}, length={}",
+            proto_id,
+            peer_index,
+            data.len()
+        );
+        self.async_p2p_control
+            .send_message_to(peer_index, proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
+        trace!(
+            "[send message to]: {}, to={}, length={}",
+            self.proto_id,
+            peer_index,
+            data.len()
+        );
+        self.async_p2p_control
+            .send_message_to(peer_index, self.proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_p2p_control
+            .filter_broadcast(target, self.proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
+        debug!("disconnect peer: {}, message: {}", peer_index, message);
+        async_disconnect_with_message(&self.async_p2p_control, peer_index, message).await?;
         Ok(())
     }
     fn quick_send_message(

@@ -5,8 +5,8 @@ use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{
-    bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
-    TargetSession,
+    async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
+    SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
@@ -421,14 +421,75 @@ fn mock_header_view(total_difficulty: u64) -> HeaderView {
     )
 }
 
+#[async_trait]
 impl CKBProtocolContext for DummyNetworkContext {
     // Interact with underlying p2p service
-    fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
+    async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!();
     }
 
-    fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
+    async fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!()
+    }
+    async fn async_future_task(
+        &self,
+        _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
+        _blocking: bool,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+
+    async fn async_quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message(proto_id, peer_index, data)
+    }
+    async fn async_quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message_to(peer_index, data)
+    }
+    async fn async_quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.filter_broadcast(target, data)
+    }
+    async fn async_send_message(
+        &self,
+        _proto_id: ProtocolId,
+        _peer_index: PeerIndex,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_send_message_to(
+        &self,
+        _peer_index: PeerIndex,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_filter_broadcast(
+        &self,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_disconnect(
+        &self,
+        peer_index: PeerIndex,
+        _msg: &str,
+    ) -> Result<(), ckb_network::Error> {
+        self.disconnected.lock().insert(peer_index);
+        Ok(())
     }
 
     fn future_task(

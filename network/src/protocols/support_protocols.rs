@@ -1,7 +1,7 @@
 use crate::ProtocolId;
 use p2p::{
     builder::MetaBuilder,
-    service::{BlockingFlag, ProtocolHandle, ProtocolMeta},
+    service::{ProtocolHandle, ProtocolMeta},
     traits::ServiceProtocol,
 };
 use tokio_util::codec::length_delimited;
@@ -117,30 +117,6 @@ impl SupportProtocols {
         }
     }
 
-    /// Blocking flag
-    pub fn flag(&self) -> BlockingFlag {
-        match self {
-            SupportProtocols::Ping
-            | SupportProtocols::Discovery
-            | SupportProtocols::Identify
-            | SupportProtocols::Feeler
-            | SupportProtocols::DisconnectMessage
-            | SupportProtocols::Time
-            | SupportProtocols::Alert => {
-                let mut no_blocking_flag = BlockingFlag::default();
-                no_blocking_flag.disable_all();
-                no_blocking_flag
-            }
-            SupportProtocols::Sync | SupportProtocols::RelayV2 => {
-                let mut blocking_recv_flag = BlockingFlag::default();
-                blocking_recv_flag.disable_connected();
-                blocking_recv_flag.disable_disconnected();
-                blocking_recv_flag.disable_notify();
-                blocking_recv_flag
-            }
-        }
-    }
-
     /// Builder with service handle
     // a helper fn to build `ProtocolMeta`
     pub fn build_meta_with_service_handle<
@@ -160,7 +136,6 @@ impl From<SupportProtocols> for MetaBuilder {
         MetaBuilder::default()
             .id(p.protocol_id())
             .support_versions(p.support_versions())
-            .flag(p.flag())
             .name(move |_| p.name())
             .codec(move || {
                 Box::new(

@@ -29,8 +29,8 @@ use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{
-    bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
-    TargetSession,
+    async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
+    SupportProtocols, TargetSession,
 };
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
@@ -248,6 +248,7 @@ impl Relayer {
     }
 
     /// Accept a new block from network
+    #[allow(clippy::needless_collect)]
     pub fn accept_block(
         &self,
         nc: &dyn CKBProtocolContext,
@@ -279,14 +280,14 @@ impl Relayer {
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
 
-            let selected_peers: HashSet<PeerIndex> = nc
+            let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
                 .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
             if let Err(err) = nc.quick_filter_broadcast(
-                TargetSession::Filter(Box::new(move |id| selected_peers.contains(id))),
+                TargetSession::Multi(Box::new(selected_peers.into_iter())),
                 message.as_bytes(),
             ) {
                 debug_target!(
@@ -655,20 +656,25 @@ impl Relayer {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for Relayer {
-    fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
+    async fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         // todo: remove when the asynchronous verification is completed
         nc.set_notify(Duration::from_secs(5), SEARCH_ORPHAN_POOL_TOKEN)
+            .await
             .expect("set_notify at init is ok");
     }
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -757,7 +763,7 @@ impl CKBProtocolHandler for Relayer {
         }
 
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg);
+        tokio::task::block_in_place(|| self.process(nc, peer_index, msg));
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "process message={}, peer={}, cost={:?}",
@@ -767,7 +773,7 @@ impl CKBProtocolHandler for Relayer {
         );
     }
 
-    fn connected(
+    async fn connected(
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -782,7 +788,11 @@ impl CKBProtocolHandler for Relayer {
         );
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+    ) {
         info_target!(
             crate::LOG_TARGET_RELAY,
             "RelayProtocol.disconnected peer={}",
@@ -792,7 +802,7 @@ impl CKBProtocolHandler for Relayer {
         self.rate_limiter.lock().retain_recent();
     }
 
-    fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
+    async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         // If self is in the IBD state, don't trigger any relayer notify.
         if self.shared.active_chain().is_initial_block_download() {
             return;

@@ -33,8 +33,9 @@ ipnetwork = "0.18"
 serde_json = "1.0"
 bloom-filters = "0.1"
 ckb-spawn = { path = "../util/spawn", version = "= 0.104.0-pre" }
+socket2 = "0.4"
 
-p2p = { version="=0.4.0-alpha.4", package="tentacle", features = ["upnp", "parking_lot"] }
+p2p = { version="0.4.0", package="tentacle", features = ["upnp", "parking_lot"] }
 
 [features]
 with_sentry = ["sentry"]

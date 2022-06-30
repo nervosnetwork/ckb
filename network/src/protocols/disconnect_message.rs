@@ -1,5 +1,6 @@
 use ckb_logger::{debug, info};
 use p2p::{
+    async_trait,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
@@ -17,10 +18,11 @@ impl DisconnectMessageProtocol {
     }
 }
 
+#[async_trait]
 impl ServiceProtocol for DisconnectMessageProtocol {
-    fn init(&mut self, _context: &mut ProtocolContext) {}
+    async fn init(&mut self, _context: &mut ProtocolContext) {}
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: Bytes) {
+    async fn received(&mut self, context: ProtocolContextMutRef<'_>, data: Bytes) {
         let session_id = context.session.id;
         if let Ok(message) = String::from_utf8(data.to_vec()) {
             info!(
@@ -34,12 +36,12 @@ impl ServiceProtocol for DisconnectMessageProtocol {
                 session_id
             );
         }
-        if let Err(err) = context.disconnect(session_id) {
+        if let Err(err) = context.disconnect(session_id).await {
             debug!("Disconnect {:?} failed, error: {:?}", session_id, err);
         }
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         debug!(
             "DisconnectMessageProtocol connected, peer={}",
             context.session.id
@@ -51,7 +53,7 @@ impl ServiceProtocol for DisconnectMessageProtocol {
         });
     }
 
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+    async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         debug!(
             "DisconnectMessageProtocol disconnected, peer={}",
             context.session.id
