@@ -32,7 +32,7 @@ ckb-network = { path = "../network", version = "= 0.104.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.104.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.104.0-pre" }
 ckb-db = { path = "../db", version = "= 0.104.0-pre" }
-sentry = { version = "0.23.0", optional = true }
+sentry = { version = "0.26.0", optional = true }
 serde_json = "1.0"
 rand = "0.8.4"
 hyper = { version = "0.14", features = ["http1", "client"] }
