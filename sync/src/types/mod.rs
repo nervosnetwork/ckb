@@ -692,6 +692,11 @@ impl InflightBlocks {
             self.restart_number = 0;
         }
 
+        // Since each environment is different, the policy here must also be dynamically adjusted
+        // according to the current environment, and a low-level limit is given here, since frequent
+        // restarting of a task consumes more than a low-level limit
+        let timeout_limit = self.time_analyzer.low_time;
+
         let restart_number = &mut self.restart_number;
         trace.retain(|key, time| {
             // In the normal state, trace will always empty
@@ -700,9 +705,9 @@ impl InflightBlocks {
             // it means that there is an anomaly in the sync less than tip + 1, i.e. some nodes are stuck,
             // at which point it will be recorded as the timestamp at that time.
             //
-            // If the time exceeds 1s, delete the task and halve the number of
+            // If the time exceeds low time limit, delete the task and halve the number of
             // executable tasks for the corresponding node
-            if now > 1000 + *time {
+            if now > timeout_limit + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
                         if should_punish && adjustment {
@@ -733,10 +738,9 @@ impl InflightBlocks {
 
         if self.restart_number >= block.number {
             // All new requests smaller than restart_number mean that they are cleaned up and
-            // cannot be immediately marked as cleaned up again, so give it a normal response time of 1.5s.
-            // (timeout check is 1s, plus 0.5s given in advance)
+            // cannot be immediately marked as cleaned up again.
             self.trace_number
-                .insert(block.clone(), unix_time_as_millis() + 500);
+                .insert(block.clone(), unix_time_as_millis());
         }
 
         let download_scheduler = self
