@@ -162,6 +162,14 @@ function check_dependencies_for() {
             printf "Warn: [%s::%s] in <%s>\n" \
               "${deptype}" "${dependency}" "${pkgroot}"
             ;;
+          ckb_db)
+            # The ckb_db under root is kept for the purpose of using package features
+            if [ "$(basename "$pkgroot")" != "." ]; then
+              printf "Error: [%s::%s] in <%s>\n" \
+                "${deptype}" "${dependency}" "${pkgroot}"
+              ERRCNT=$((ERRCNT + 1))
+            fi
+            ;;
           tokio_yamux)
             if [ "$(basename "$pkgroot")" != "network" ]; then
               printf "Error: [%s::%s] in <%s>\n" \
