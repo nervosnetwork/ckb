@@ -3,12 +3,12 @@ use ckb_types::{
     packed::Byte32,
 };
 
-/// TODO(doc): @quake
+/// Trait for header storage
 pub trait HeaderProvider {
-    /// TODO(doc): @quake
+    /// Get the header of the given block hash
     fn get_header(&self, hash: &Byte32) -> Option<HeaderView>;
 
-    /// Return timestamp and block_number of the corresponding block_hash, and hash of parent block
+    /// Get timestamp and block_number of the corresponding block_hash, and hash of parent block
     fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         let header = self.get_header(block_hash).expect("parent header exist");
         (
@@ -18,7 +18,7 @@ pub trait HeaderProvider {
         )
     }
 
-    /// Return past block median time, **including the timestamp of the given one**
+    /// Get past block median time, **including the timestamp of the given one**
     fn block_median_time(&self, block_hash: &Byte32, median_block_count: usize) -> u64 {
         let mut timestamps: Vec<u64> = Vec::with_capacity(median_block_count);
         let mut block_hash = block_hash.clone();

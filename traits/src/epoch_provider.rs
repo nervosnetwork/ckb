@@ -1,10 +1,10 @@
 use ckb_types::core::{EpochExt, HeaderView};
 
-/// Trait for epoch data store.
+/// Trait for epoch storage.
 pub trait EpochProvider {
-    /// Gets corresponding `EpochExt` by block header
+    /// Get corresponding `EpochExt` by block header
     fn get_epoch_ext(&self, block_header: &HeaderView) -> Option<EpochExt>;
-    /// Gets corresponding epoch progress information by block header
+    /// Get corresponding epoch progress information by block header
     fn get_block_epoch(&self, block_header: &HeaderView) -> Option<BlockEpoch>;
 }
 
