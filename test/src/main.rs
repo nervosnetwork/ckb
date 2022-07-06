@@ -415,7 +415,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(DepentTxInSameBlock),
         // TODO enable these after proposed/pending pool tip verify logic changing
         // Box::new(CellbaseMaturity),
-        Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
@@ -529,8 +528,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckBlockExtension),
         Box::new(CheckVmVersion),
         Box::new(CheckVmBExtension),
-        Box::new(ImmatureHeaderDeps),
-        Box::new(DelayTxs),
     ];
     specs.shuffle(&mut thread_rng());
     specs

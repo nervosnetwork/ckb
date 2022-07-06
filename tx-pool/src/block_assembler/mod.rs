@@ -21,7 +21,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{OverlayCellChecker, ResolveOptions, TransactionsChecker},
+        cell::{OverlayCellChecker, TransactionsChecker},
         BlockNumber, Capacity, Cycle, EpochExt, EpochNumberWithFraction, ScriptHashType,
         TransactionBuilder, TransactionView, UncleBlockView, Version,
     },
@@ -525,24 +525,17 @@ impl BlockAssembler {
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase, 0, Capacity::zero(), 0);
         let entries_iter = iter::once(dummy_cellbase_entry).chain(entries.into_iter());
 
-        let resolve_opts = {
-            let hardfork_switch = consensus.hardfork_switch();
-            let epoch_number = current_epoch.number();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-
         let rtxs: Vec<_> = block_in_place(|| {
             entries_iter
                 .enumerate()
                 .filter_map(|(index, entry)| {
                     let overlay_cell_checker =
                         OverlayCellChecker::new(&transactions_checker, snapshot);
-                    if let Err(err) = entry.rtx.check(
-                        &mut seen_inputs,
-                        &overlay_cell_checker,
-                        snapshot,
-                        resolve_opts,
-                    ) {
+                    if let Err(err) =
+                        entry
+                            .rtx
+                            .check(&mut seen_inputs, &overlay_cell_checker, snapshot)
+                    {
                         error!(
                             "resolve transactions when build block template, \
                              tip_number: {}, tip_hash: {}, error: {:?}",

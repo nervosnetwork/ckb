@@ -74,7 +74,7 @@ impl Reject {
             Reject::Malformed(_) => true,
             Reject::DeclaredWrongCycles(..) => true,
             Reject::Verification(err) => is_malformed_from_verification(err),
-            Reject::Resolve(OutPointError::OverMaxDepExpansionLimit { ban }) => *ban,
+            Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => true,
             _ => false,
         }
     }

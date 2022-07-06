@@ -92,18 +92,7 @@ fn run(data: &[u8]) {
     };
 
     let provider = MockDataLoader {};
-    let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-        .as_builder()
-        .rfc_0032(0)
-        .build()
-        .unwrap();
-    let consensus = ConsensusBuilder::default()
-        .hardfork_switch(hardfork_switch)
-        .build();
-
-    let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
-    let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &provider, &tx_verify_env);
+    let verifier = TransactionScriptsVerifier::new(&rtx, &provider);
     let _ = verifier.verify(10_000_000);
 }
 

@@ -167,17 +167,17 @@ impl HardForkSwitch {
             .rfc_0038(self.rfc_0038())
     }
 
-    /// Creates a new instance that all hard fork features are disabled forever.
-    pub fn new_without_any_enabled() -> Self {
+    /// Creates a new mirana instance.
+    pub fn new_mirana() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
-            .disable_rfc_0028()
-            .disable_rfc_0029()
-            .disable_rfc_0030()
-            .disable_rfc_0031()
-            .disable_rfc_0032()
-            .disable_rfc_0036()
-            .disable_rfc_0038()
+            .rfc_0028(5414)
+            .rfc_0029(0)
+            .rfc_0030(0)
+            .rfc_0031(0)
+            .rfc_0032(0)
+            .rfc_0036(0)
+            .rfc_0038(0)
             .build()
             .unwrap()
     }

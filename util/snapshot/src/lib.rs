@@ -218,19 +218,9 @@ impl HeaderChecker for Snapshot {
         if !self.is_main_chain(block_hash) {
             return Err(OutPointError::InvalidHeader(block_hash.clone()));
         }
-        match self.get_block_header(block_hash) {
-            Some(header) => {
-                let threshold =
-                    self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
-                let current = self.tip_header().epoch().to_rational();
-                if current < threshold {
-                    Err(OutPointError::ImmatureHeader(block_hash.clone()))
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(OutPointError::InvalidHeader(block_hash.clone())),
-        }
+        self.get_block_header(block_hash)
+            .ok_or_else(|| OutPointError::InvalidHeader(block_hash.clone()))?;
+        Ok(())
     }
 }
 

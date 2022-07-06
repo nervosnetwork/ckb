@@ -10,7 +10,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{resolve_transaction, setup_system_cell_cache, ResolveOptions},
+        cell::{resolve_transaction, setup_system_cell_cache},
         BlockView, Capacity, DepType, FeeRate, ScriptHashType, TransactionView,
     },
     h160, h256,
@@ -146,7 +146,6 @@ fn bench(c: &mut Criterion) {
         )
     });
 
-    let resolve_opts = ResolveOptions::new();
     group.bench_with_input(
         BenchmarkId::new("check_resolve", SIZE),
         &SIZE,
@@ -169,8 +168,7 @@ fn bench(c: &mut Criterion) {
                     while i > 0 {
                         let mut seen_inputs = HashSet::new();
                         for rtx in &rtxs {
-                            rtx.check(&mut seen_inputs, snapshot, snapshot, resolve_opts)
-                                .unwrap();
+                            rtx.check(&mut seen_inputs, snapshot, snapshot).unwrap();
                         }
                         i -= 1;
                     }

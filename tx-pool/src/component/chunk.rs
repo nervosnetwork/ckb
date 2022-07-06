@@ -104,10 +104,4 @@ impl ChunkQueue {
             .insert(tx.proposal_short_id(), Entry { tx, remote })
             .is_none()
     }
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-        self.clean_front();
-        self.shrink_to_fit()
-    }
 }

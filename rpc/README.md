@@ -1392,13 +1392,13 @@ Response
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
         "hardfork_features": [
-            { "rfc": "0028", "epoch_number": null },
-            { "rfc": "0029", "epoch_number": null },
-            { "rfc": "0030", "epoch_number": null },
-            { "rfc": "0031", "epoch_number": null },
-            { "rfc": "0032", "epoch_number": null },
-            { "rfc": "0036", "epoch_number": null },
-            { "rfc": "0038", "epoch_number": null }
+            { "rfc": "0028", "epoch_number": "0x1526" },
+            { "rfc": "0029", "epoch_number": "0x0" },
+            { "rfc": "0030", "epoch_number": "0x0" },
+            { "rfc": "0031", "epoch_number": "0x0" },
+            { "rfc": "0032", "epoch_number": "0x0" },
+            { "rfc": "0036", "epoch_number": "0x0" },
+            { "rfc": "0038", "epoch_number": "0x0" }
         ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
@@ -2946,8 +2946,6 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 ######### Errors
 
 *   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to “passthrough”.
-
-*   [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](#error-poolrejectedtransactionbyilltransactionchecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
 
 *   [`PoolRejectedTransactionByMinFeeRate (-1104)`](#error-poolrejectedtransactionbyminfeerate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 
