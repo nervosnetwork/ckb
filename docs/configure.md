@@ -16,8 +16,9 @@ Command `ckb init` initializes a directory by exporting the config files.
 Some config file may refer to other files, for example, `chain.spec` in
 `ckb.toml` and `system_cells` in chain spec file. The file is referred via
 either absolute path, or a path relative to the directory containing the
-config file currently being parsed. Take following directory hierarchy as an
-example:
+config file currently being parsed. 
+
+Take the following directory hierarchy as an example:
 
 ```
 ckb.toml
@@ -56,11 +57,11 @@ Here is an example to export config files for Pudge, the testnet.
 ckb init --chain testnet
 ```
 
-Nodes running different chain specs cannot synchronize with each other, so be carefully when editing this option.
+Nodes running different chain specs cannot synchronize with each other, so be careful when editing this option.
 
 The dev chain reads the chain spec from file `specs/dev.toml`, developers can edit to switch between different PoW engines.
 
-CKB now supports following PoW Engines.
+CKB now supports the following PoW Engines.
 
 ### Eaglesong
 
