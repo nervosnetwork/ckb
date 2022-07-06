@@ -40,7 +40,7 @@ case $GITHUB_WORKFLOW in
     if [[ $github_workflow_os == 'windows' ]]; then
       BINARY_NAME="ckb.exe"
     fi
-    make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+    make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration_run
     ;;
   ci_quick_checks*)
     echo "ci_quick_check"

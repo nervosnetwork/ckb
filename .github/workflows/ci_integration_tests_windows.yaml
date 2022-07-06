@@ -50,8 +50,8 @@ jobs:
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
         GITHUB_REPOSITORY: ${{ github.repositoty }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_integration_tests_windows:
-    name: ci_integration_tests_windows
+  ci_integration_build_windows:
+    name: ci_integration_build_windows
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
     timeout-minutes: 70
@@ -67,6 +67,21 @@ jobs:
         scoop install git
         scoop bucket add extras
         scoop install llvm yasm
+    - run: |
+        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+            make integration_build
+        else
+          echo "skip job"
+          exit 0
+        fi
+      shell: bash
+  ci_integration_tests_windows:
+    name: ci_integration_tests_windows
+    needs: [prologue, ci_integration_build_windows]
+    runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
+    timeout-minutes: 70
+    steps:
+    - uses: actions/checkout@v2
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh

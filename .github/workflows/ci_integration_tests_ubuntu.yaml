@@ -50,13 +50,38 @@ jobs:
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
         GITHUB_REPOSITORY: ${{ github.repositoty }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_integration_tests_ubuntu:
-    name: ci_integration_tests_ubuntu
+  ci_integration_build_ubuntu:
+    name: ci_integration_build_ubuntu
     needs: prologue
     timeout-minutes: 70
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
+    - run: |
+        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+            make integration_build
+        else
+          echo "skip job"
+          exit 0
+        fi
+      shell: bash
+    - uses: actions/upload-artifact@v3
+      with:
+        name: ${{ github.sha }}-${{ runner.os }}-binary
+        path: target/release/ckb
+  ci_integration_tests_ubuntu:
+    name: ci_integration_tests_ubuntu
+    needs: [prologue, ci_integration_build_ubuntu]
+    timeout-minutes: 70
+    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Clean download target
+      run: rm -f target/release/ckb
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ github.sha }}-${{ runner.os }}-binary
+        path: target/release/
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
@@ -75,10 +100,16 @@ jobs:
       RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
   ci_cli_bats_test:
     name: ci_cli_bats_test
-    needs: prologue
+    needs: [prologue, ci_integration_build_ubuntu]
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
+    - name: Clean download target
+      run: rm -f target/release/ckb
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ github.sha }}-${{ runner.os }}-binary
+        path: target/release/
     - name: make and copy ckb binary and testcases to bats_testbed directory
       run: |
         make build

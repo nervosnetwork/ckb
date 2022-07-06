@@ -66,10 +66,16 @@ setup-ckb-test:
 submodule-init:
 	git submodule update --init
 
-.PHONY: integration
-integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
+.PHONY: integration_build
+integration_build: submodule-init setup-ckb-test ## build integration tests.
 	cargo build --release --features "deadlock_detection,with_sentry"
+
+.PHONY: integration_run
+integration_run:  ## Run integration tests in "test" dir.
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
+
+.PHONY: integration
+integration: integration_build integration_run ## Run integration tests in "test" dir.
 
 .PHONY: integration-release
 integration-release: submodule-init setup-ckb-test prod
