@@ -16,8 +16,6 @@ const RPC_MAX_VM_VERSION: u8 = 1;
 const MAX_VM_VERSION: u8 = 1;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2021_START_EPOCH: u64 = 0;
-
 const TEST_CASES_COUNT: usize = (RPC_MAX_VM_VERSION as usize + 1 + 1) * 2;
 const INITIAL_INPUTS_COUNT: usize = 1 + TEST_CASES_COUNT * 2;
 
@@ -84,12 +82,6 @@ impl Spec for CheckVmVersion {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.permanent_difficulty_in_dummy = Some(true);
         spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0032 = Some(CKB2021_START_EPOCH);
-        }
     }
 }
 

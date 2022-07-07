@@ -97,8 +97,9 @@ impl Spec for SendDefectedBinary {
             .build();
         info!("Send 1 secp tx with defected binary");
 
-        let _ret = node.rpc_client().send_transaction_result(tx.data().into());
-        node.mine(20);
+        let ret = node.rpc_client().send_transaction_result(tx.data().into());
+        assert!(ret.is_ok(), "expect ok but got {:?}", ret);
+        node.mine_until_transaction_confirm(&tx.hash());
         assert!(is_transaction_committed(node, &tx));
     }
 
