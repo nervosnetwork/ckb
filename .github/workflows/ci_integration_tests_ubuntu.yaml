@@ -112,7 +112,6 @@ jobs:
         path: target/release/
     - name: make and copy ckb binary and testcases to bats_testbed directory
       run: |
-        make build
         mkdir -p /tmp/bats_testbed
         cp target/release/ckb /tmp/bats_testbed/
         cp util/app-config/src/tests/*.bats /tmp/bats_testbed/
