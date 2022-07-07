@@ -16,7 +16,7 @@ Command `ckb init` initializes a directory by exporting the config files.
 Some config file may refer to other files, for example, `chain.spec` in
 `ckb.toml` and `system_cells` in chain spec file. The file is referred via
 either absolute path, or a path relative to the directory containing the
-config file currently being parsed. 
+config file currently being parsed.
 
 Take the following directory hierarchy as an example:
 
