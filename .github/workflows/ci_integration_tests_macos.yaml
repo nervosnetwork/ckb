@@ -52,7 +52,7 @@ jobs:
   ci_integration_tests_macos:
     name: ci_integration_tests_macos
     needs: prologue
-    timeout-minutes: 70
+    timeout-minutes: 140
     runs-on: macos-11
     steps:
     - uses: actions/checkout@v2

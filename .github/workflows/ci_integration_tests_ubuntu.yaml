@@ -53,7 +53,7 @@ jobs:
   ci_integration_tests_ubuntu:
     name: ci_integration_tests_ubuntu
     needs: prologue
-    timeout-minutes: 70
+    timeout-minutes: 140
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
     - uses: actions/checkout@v2
