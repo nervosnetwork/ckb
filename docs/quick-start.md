@@ -1,15 +1,15 @@
 # Quick Start
 
-Following steps will assume that the shell can find the executable `ckb`.
+The following steps will assume that the shell can find the executable `ckb`.
 
-First creates a directory to run CKB
+First create a directory to run CKB
 
 ```shell
 mkdir ckb-dev
 cd ckb-dev
 ```
 
-All the following commands will run in this same directory.
+All the following commands will run in the same directory.
 
 Then init the directory with the default config files.
 
