@@ -54,7 +54,7 @@ jobs:
     name: ci_integration_tests_windows
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
-    timeout-minutes: 70
+    timeout-minutes: 140
     steps:
     - uses: actions/checkout@v2
     - name: install required tools

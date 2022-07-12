@@ -367,7 +367,7 @@ class RPCMethod():
         if self.rpc_var_parser is not None:
             if tag == 'div' and (attrs == [("class", "docblock")] or attrs == [("class", "stab deprecated")]):
                 self.rpc_var_parser = None
-                self.doc_parser = MarkdownParser(title_level=4)
+                self.doc_parser = MarkdownParser(title_level=1)
                 if attrs == [("class", "stab deprecated")]:
                     self.doc_parser.append("\n")
                     self.parsing_stability = True

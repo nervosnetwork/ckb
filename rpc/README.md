@@ -183,7 +183,7 @@ Sends an alert.
 
 This RPC returns `null` on success.
 
-######### Errors
+###### Errors
 
 *   [`AlertFailedToVerifySignatures (-1000)`](#error-alertfailedtoverifysignatures) - Some signatures in the request are invalid.
 
@@ -191,7 +191,7 @@ This RPC returns `null` on success.
 
 *   `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -265,13 +265,13 @@ A cell is live if
 
 Returns the information about a block by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the block hash.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns a block or null. When the RPC returns a block, the block hash must equal to the parameter `block_hash`.
 
@@ -281,7 +281,7 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -381,13 +381,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
-######### Params
+###### Params
 
 *   `block_number` - the block number.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns the block when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
@@ -397,13 +397,13 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Errors
+###### Errors
 
 *   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
 
 *   [`DatabaseIsCorrupt (-202)`](#error-databaseiscorrupt) - The data read from database is dirty. Please report it as a bug.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -503,13 +503,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the information about a block header by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the block hash.
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 The RPC returns a header or null. When the RPC returns a header, the block hash must equal to the parameter `block_hash`.
 
@@ -519,7 +519,7 @@ When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block header serialized by molecule using schema `table Header`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -581,13 +581,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block number.
 
-######### Params
+###### Params
 
 *   `block_number` - Number of a block
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 The RPC returns the block header when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
@@ -597,11 +597,11 @@ When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block header serialized by molecule using schema `table Header`.
 
-######### Errors
+###### Errors
 
 *   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -663,19 +663,19 @@ The response looks like below when `verbosity` is 0.
 
 Returns the information about a transaction requested by transaction hash.
 
-######### Returns
+###### Returns
 
 This RPC returns `null` if the transaction is not committed in the [canonical chain](#canonical-chain) nor the transaction memory pool.
 
 If the transaction is in the chain, the block hash is also returned.
 
-######### Params
+###### Params
 
 *   `tx_hash` - Hash of a transaction
 
 *   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
 
-######### Returns
+###### Returns
 
 When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release. It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
 
@@ -683,7 +683,7 @@ When verbosity is 1: The RPC does not return the transaction content and the fie
 
 When verbosity is 2: if tx_status.status is pending, proposed, or committed, the RPC returns the transaction content as field transaction, otherwise the field is null.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -765,17 +765,17 @@ Response
 
 Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified `block_number`.
 
-######### Params
+###### Params
 
 *   `block_number` - Block number
 
-######### Returns
+###### Returns
 
 The RPC returns the block hash when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
 Because of [chain reorganization](#chain-reorganization), the PRC may return null or even different block hashes in different invocations with the same `block_number`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -813,17 +813,17 @@ Returns the header with the highest block number in the [canonical chain](#canon
 
 Because of [chain reorganization](#chain-reorganization), the block number returned can be less than previous invocations and different invocations may return different block headers with the same block number.
 
-######### Params
+###### Params
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 When `verbosity` is 1, the RPC returns a JSON object as the `result`. See HeaderView for the schema.
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the header serialized by molecule using schema `table Header`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -883,7 +883,7 @@ The response looks like below when `verbosity` is 0.
 
 Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
 
-######### Returns
+###### Returns
 
 This RPC tells whether a cell is live or not.
 
@@ -891,13 +891,13 @@ If the cell is live, the RPC will return details about the cell. Otherwise, the 
 
 If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the result.
 
-######### Params
+###### Params
 
 *   `out_point` - Reference to the cell by transaction hash and output index.
 
 *   `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client does not need the data, it should set this to `false` to save bandwidth.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -955,7 +955,7 @@ Returns the highest block number in the [canonical chain](#canonical-chain).
 
 Because of [chain reorganization](#chain-reorganization), the returned block number may be less than a value returned in the previous invocation.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -990,7 +990,7 @@ Returns the epoch with the highest number in the [canonical chain](#canonical-ch
 
 Pay attention that like blocks with the specific block number may change because of [chain reorganization](#chain-reorganization), This RPC may return different epochs which have the same epoch number.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1029,17 +1029,17 @@ Response
 
 Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
 
-######### Params
+###### Params
 
 *   `epoch_number` - Epoch number
 
-######### Returns
+###### Returns
 
 The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch number returned by [`get_current_epoch`](#method-get_current_epoch) and returns null otherwise.
 
 Because of [chain reorganization](#chain-reorganization), for the same `epoch_number`, this RPC may return null or different epochs in different invocations.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1088,15 +1088,15 @@ In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rew
 
 Because of the delay, this RPC returns null if the block rewards are not finalized yet. For example, the economic state for block 89 is only available when the number returned by [`get_tip_block_number`](#method-get_tip_block_number) is greater than or equal to 100.
 
-######### Params
+###### Params
 
 *   `block_hash` - Specifies the block hash which rewards should be analyzed.
 
-######### Returns
+###### Returns
 
 If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and its rewards have been finalized, return the block rewards analysis for this block. A special case is that the return value for genesis block is null.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1146,13 +1146,13 @@ Response
 
 Returns a Merkle proof that transactions are included in a block.
 
-######### Params
+###### Params
 
 *   `tx_hashes` - Transaction hashes, all transactions must be in the same block
 
 *   `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1195,11 +1195,11 @@ Response
 
 Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
-######### Parameters
+###### Parameters
 
 *   `transaction_proof` - proof generated by [`get_transaction_proof`](#method-get_transaction_proof).
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1245,13 +1245,13 @@ Response
 
 Returns the information about a fork block by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the fork block hash.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to the parameter `block_hash`.
 
@@ -1261,7 +1261,7 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1359,11 +1359,11 @@ The response looks like below when `verbosity` is 0.
 
 Return various consensus parameters.
 
-######### Returns
+###### Returns
 
 If any hardfork feature has `epoch=null`, it means the feature will never be activated.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1438,17 +1438,17 @@ Response
 
 Returns the past median time by block hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
 
-######### Returns
+###### Returns
 
 When the given block hash is not on the current canonical chain, this RPC returns null; otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
 
 Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1496,13 +1496,13 @@ This method will not check the transaction validity, but only run the lock scrip
 
 It is used to debug transaction scripts and query how many cycles the scripts consume.
 
-######### Errors
+###### Errors
 
 *   [`TransactionFailedToResolve (-301)`](#error-transactionfailedtoresolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 
 *   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - There is a script returns with an error.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1579,7 +1579,7 @@ Response
 
 Calculates the maximum withdrawal one can get, given a referenced DAO cell, and a withdrawing block hash.
 
-######### Params
+###### Params
 
 *   `out_point` - Reference to the DAO cell, the depositing transaction’s output.
 
@@ -1589,19 +1589,19 @@ option 1, the assumed reference block hash for withdrawing phase 1 transaction, 
 
 option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction’s output.
 
-######### Returns
+###### Returns
 
 The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
 
 In CKB, scripts cannot get the information about in which block the transaction is committed. A workaround is letting the transaction reference a block hash so the script knows that the transaction is committed at least after the reference block.
 
-######### Errors
+###### Errors
 
 *   [`DaoError (-5)`](#error-daoerror) - The given out point is not a valid cell for DAO computation.
 
 *   [`CKBInternalError (-1)`](#error-ckbinternalerror) - Mathematics overflow.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1646,7 +1646,7 @@ RPC for Integration Test.
 
 process block without any block verification.
 
-######### Params
+###### Params
 
 *
     `data` - block data(in binary).
@@ -1656,7 +1656,7 @@ process block without any block verification.
     `broadcast` - true to enable broadcast(relay) the block to other peers.
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1737,11 +1737,11 @@ Response
 
 Truncate chain to specified tip hash.
 
-######### Params
+###### Params
 
 *   `target_tip_hash` - specified header hash
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1778,7 +1778,7 @@ Generate block with block_assembler_config, process the block(with verification)
 
 and broadcast the block.
 
-######### Params
+###### Params
 
 *
     `block_assembler_script` - specified block assembler script
@@ -1788,7 +1788,7 @@ and broadcast the block.
     `block_assembler_message` - specified block assembler message
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1823,11 +1823,11 @@ Response
 
 Add transaction to tx-pool.
 
-######### Params
+###### Params
 
 *   `transaction` - specified transaction to add
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1899,11 +1899,11 @@ Generate block with block template, attach calculated dao field to build new blo
 
 then process block and broadcast the block.
 
-######### Params
+###### Params
 
 *   `block_template` - specified transaction to add
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2010,11 +2010,11 @@ Response
 
 Return calculated dao field according to specified block template.
 
-######### Params
+###### Params
 
 *   `block_template` - specified block template
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2131,7 +2131,7 @@ Returns block template for miners.
 
 Miners can assemble the new block from the template. The RPC is designed to allow miners to remove transactions and adding new transactions to the block.
 
-######### Params
+###### Params
 
 *   `bytes_limit` - the max serialization size in bytes of the block. (**Optional:** the default is the consensus limit.)
 
@@ -2139,7 +2139,7 @@ Miners can assemble the new block from the template. The RPC is designed to allo
 
 *   `max_version` - the max block version. (**Optional:** the default is one configured in the current client version.)
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2248,13 +2248,13 @@ Response
 
 Submit new block to the network.
 
-######### Params
+###### Params
 
 *   `work_id` - The same work ID returned from [`get_block_template`](#method-get_block_template).
 
 *   `block` - The assembled block from the block template and which PoW puzzle has been resolved.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2345,7 +2345,7 @@ Returns the local node information.
 
 The local node means the node itself which is serving the RPC.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2409,7 +2409,7 @@ Response
 
 Returns the connected peers’ information.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2559,7 +2559,7 @@ Response
 
 Returns all banned IPs/Subnets.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2599,7 +2599,7 @@ Response
 
 Clears all banned IPs/Subnets.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2637,7 +2637,7 @@ Response
 
 Inserts or deletes an IP/Subnet from the banned list
 
-######### Params
+###### Params
 
 *   `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:
     *   “192.168.0.2” bans a single IP
@@ -2653,7 +2653,7 @@ Inserts or deletes an IP/Subnet from the banned list
 
 *   `reason` - Ban reason, optional parameter.
 
-######### Errors
+###### Errors
 
 *   [`InvalidParams (-32602)`](#error-invalidparams)
     *   Expected `address` to be a valid IP address with an optional netmask.
@@ -2661,7 +2661,7 @@ Inserts or deletes an IP/Subnet from the banned list
     *   Expected `command` to be in the list [insert, delete].
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2700,7 +2700,7 @@ Response
 
 Returns chain synchronization state of this node.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2743,11 +2743,11 @@ Response
 
 Disable/enable all p2p network activity
 
-######### Params
+###### Params
 
 *   `state` - true to enable networking, false to disable
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2784,7 +2784,7 @@ Response
 
 Attempts to add a node to the peers list and try connecting to it.
 
-######### Params
+###### Params
 
 *   `peer_id` - The node id of the node.
 
@@ -2820,7 +2820,7 @@ In both of these examples,
 
 *   and `address` is `/ip4/192.168.2.100/tcp/8114`
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2857,13 +2857,13 @@ Response
 
 Attempts to remove a node from the peers list and try disconnecting from it.
 
-######### Params
+###### Params
 
 *   `peer_id` - The peer id of the node.
 
 This is the last part of a full P2P address. For example, in address “/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS”, the `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2898,7 +2898,7 @@ Response
 
 Requests that a ping is sent to all connected peers, to measure ping time.
 
-######### Examples
+###### Examples
 
 Requests
 
@@ -2937,13 +2937,13 @@ RPC Module Pool for transaction memory pool.
 
 Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
-######### Params
+###### Params
 
 *   `transaction` - The transaction.
 
 *   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is “well_known_scripts_only”).
 
-######### Errors
+###### Errors
 
 *   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to “passthrough”.
 
@@ -2959,7 +2959,7 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 
 *   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - Failed to verify the transaction.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3034,15 +3034,15 @@ Response
 
 Removes a transaction and all transactions which depends on it from tx pool if it exists.
 
-######### Params
+###### Params
 
 *   `tx_hash` - Hash of a transaction.
 
-######### Returns
+###### Returns
 
 If the transaction exists, return true; otherwise, return false.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3077,7 +3077,7 @@ Response
 
 Returns the transaction pool information.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3120,7 +3120,7 @@ Response
 
 Removes all transactions from the transaction pool.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3154,11 +3154,11 @@ Response
 
 Returns all transaction ids in tx pool as a json array of string transaction ids.
 
-######### Params
+###### Params
 
 *   `verbose` - True for a json object, false for array of transaction ids, default=false
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3205,7 +3205,7 @@ Response
 
 Returns whether tx-pool service is started, ready for request.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3242,7 +3242,7 @@ RPC Module Stats for getting various statistic data.
 
 Returns statistics about the chain.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3331,11 +3331,11 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
 
 Subscribes to a topic.
 
-######### Params
+###### Params
 
 *   `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
 
-######### Returns
+###### Returns
 
 This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed topics to the current RPC connection. The subscript ID is also attached as `params.subscription` in the push messages.
 
@@ -3354,33 +3354,33 @@ Example push message:
 ```
 
 
-######### Topics
+###### Topics
 
-######### `new_tip_header`
+###### `new_tip_header`
 
 Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
 
 The type of the `params.result` in the push message is [`HeaderView`](#type-headerview).
 
-######### `new_tip_block`
+###### `new_tip_block`
 
 Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
 
 The type of the `params.result` in the push message is [`BlockView`](#type-blockview).
 
-######### `new_transaction`
+###### `new_transaction`
 
 Subscribers will get notified when a new transaction is submitted to the pool.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
 
-######### `proposed_transaction`
+###### `proposed_transaction`
 
 Subscribers will get notified when an in-pool transaction is proposed by chain.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
 
-######### `rejected_transaction`
+###### `rejected_transaction`
 
 Subscribers will get notified when a pending transaction is rejected by tx-pool.
 
@@ -3392,7 +3392,7 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 *   the second item type is [`PoolTransactionReject`](#type-pooltransactionreject).
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3428,11 +3428,11 @@ Response
 
 Unsubscribes from a subscribed topic.
 
-######### Params
+###### Params
 
 *   `id` - Subscription ID
 
-######### Examples
+###### Examples
 
 Request
 
