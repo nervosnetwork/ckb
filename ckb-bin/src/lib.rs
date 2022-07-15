@@ -12,6 +12,9 @@ use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
 use std::time::Duration;
 
+#[cfg(feature = "with_pyroscope")]
+use helper::PyroscopeGuard;
+
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -64,6 +67,13 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
 
     raise_fd_limit();
 
+    #[cfg(feature = "with_pyroscope")]
+    let pyroscope_guard = {
+        let mut guard = PyroscopeGuard::new();
+        guard.start()?;
+        guard
+    };
+
     let ret = match cmd {
         cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle),
@@ -76,6 +86,9 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         cli::CMD_DB_REPAIR => subcommand::db_repair(setup.db_repair(matches)?),
         _ => unreachable!(),
     };
+
+    #[cfg(feature = "with_pyroscope")]
+    pyroscope_guard.shutdown()?;
 
     runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
     ret

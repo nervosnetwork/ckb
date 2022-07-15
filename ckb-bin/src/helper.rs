@@ -1,6 +1,16 @@
 use ckb_logger::info;
 use std::io::{stdin, stdout, Write};
 
+#[cfg(feature = "with_pyroscope")]
+use ckb_app_config::ExitCode;
+#[cfg(feature = "with_pyroscope")]
+use pyroscope::{
+    pyroscope::{PyroscopeAgentReady, PyroscopeAgentRunning},
+    PyroscopeAgent,
+};
+#[cfg(feature = "with_pyroscope")]
+use pyroscope_pprofrs::{pprof_backend, PprofConfig};
+
 #[cfg(not(feature = "deadlock_detection"))]
 pub fn deadlock_detection() {}
 
@@ -58,5 +68,65 @@ pub fn prompt(msg: &str) -> String {
 pub fn raise_fd_limit() {
     if let Some(limit) = fdlimit::raise_fd_limit() {
         info!("raise_fd_limit newly-increased limit: {}", limit);
+    }
+}
+
+#[cfg(feature = "with_pyroscope")]
+pub struct PyroscopeGuard {
+    ready: Option<PyroscopeAgent<PyroscopeAgentReady>>,
+    running: Option<PyroscopeAgent<PyroscopeAgentRunning>>,
+}
+
+#[cfg(feature = "with_pyroscope")]
+impl PyroscopeGuard {
+    pub fn new() -> PyroscopeGuard {
+        if let Some((host, name, auth)) = Self::params() {
+            if let Ok(ready) = PyroscopeAgent::builder(&host, &name)
+                .backend(pprof_backend(PprofConfig::new().sample_rate(100)))
+                .auth_token(&auth)
+                .build()
+            {
+                println!("Pyroscope ready {} {} {}", host, name, auth);
+                return PyroscopeGuard {
+                    ready: Some(ready),
+                    running: None,
+                };
+            }
+        }
+        PyroscopeGuard {
+            ready: None,
+            running: None,
+        }
+    }
+
+    fn params() -> Option<(String, String, String)> {
+        use std::env;
+
+        let host = env::var("PYROSCOPE_HOST").ok()?;
+        let name = env::var("PYROSCOPE_NAME").ok()?;
+        let auth = env::var("PYROSCOPE_AUTH").ok()?;
+        Some((host, name, auth))
+    }
+
+    pub fn start(&mut self) -> Result<(), ExitCode> {
+        if let Some(ready) = self.ready.take() {
+            self.running = Some(ready.start().map_err(|e| {
+                eprintln!("Pyroscope error: {}", e);
+                ExitCode::Failure
+            })?);
+        }
+        Ok(())
+    }
+
+    pub fn shutdown(mut self) -> Result<(), ExitCode> {
+        if let Some(running) = self.running.take() {
+            let ready = running.stop().map_err(|e| {
+                eprintln!("Pyroscope error: {}", e);
+                ExitCode::Failure
+            })?;
+
+            ready.shutdown()
+        }
+        Ok(())
     }
 }
