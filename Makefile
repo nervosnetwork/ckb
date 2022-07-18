@@ -6,6 +6,8 @@ VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
+CKB_FEATURES ?= deadlock_detection,with_sentry
+CKB_BENCH_FEATURES ?= ci
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
 BINARY_NAME ?= "ckb"
@@ -18,11 +20,11 @@ GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_
 ##@ Testing
 .PHONY: test
 test: quick-test ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --all -- --nocapture --ignored
+	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture --ignored
 
 .PHONY: quick-test
 quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --all -- --nocapture
+	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture
 
 .PHONY: cov-install-tools
 cov-install-tools:
@@ -68,7 +70,7 @@ submodule-init:
 
 .PHONY: integration
 integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
-	cargo build --release --features "deadlock_detection,with_sentry"
+	cargo build --release --features ${CKB_FEATURES}
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
@@ -180,7 +182,7 @@ check-licenses: ## Use cargo-deny to check licenses for all dependencies.
 
 .PHONY: bench-test
 bench-test:
-	cd benches && cargo bench --features ci -- --test
+	cd benches && cargo bench --features ${CKB_BENCH_FEATURES} -- --test
 
 ##@ Continuous Integration
 
