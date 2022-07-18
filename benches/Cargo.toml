@@ -42,3 +42,4 @@ harness = false
 [features]
 default = []
 ci = []
+portable = ["ckb-store/portable", "ckb-chain/portable"]

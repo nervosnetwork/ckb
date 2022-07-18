@@ -42,3 +42,7 @@ tempfile = "3.0"
 [features]
 default = []
 mock = ["faux"]
+portable = [
+    "ckb-store/portable",
+    "ckb-dao/portable"
+]
