@@ -378,7 +378,6 @@ version = "0.104.0-pre"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
- "ckb-db",
  "tikv-jemallocator",
 ]
 

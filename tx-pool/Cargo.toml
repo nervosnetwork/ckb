@@ -45,3 +45,9 @@ ckb-hash = { path = "../util/hash", version = "= 0.104.0-pre" }
 default = []
 internal = []
 with_sentry = ["sentry"]
+portable = [
+    "ckb-db/portable",
+    "ckb-store/portable",
+    "ckb-snapshot/portable",
+    "ckb-dao/portable"
+]
