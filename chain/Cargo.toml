@@ -44,5 +44,4 @@ default = []
 mock = ["faux"]
 portable = [
     "ckb-store/portable",
-    "ckb-dao/portable"
 ]

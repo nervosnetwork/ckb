@@ -20,9 +20,3 @@ ckb-db = { path = "../../db", version = "= 0.104.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.104.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.104.0-pre" }
 tempfile = "3.0"
-
-[features]
-portable = [
-    "ckb-db/portable",
-    "ckb-store/portable",
-]
