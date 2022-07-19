@@ -49,5 +49,4 @@ portable = [
     "ckb-db/portable",
     "ckb-store/portable",
     "ckb-snapshot/portable",
-    "ckb-dao/portable"
 ]
