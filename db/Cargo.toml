@@ -13,8 +13,12 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.104.0-rc1" }
 ckb-logger = { path = "../util/logger", version = "= 0.104.0-rc1" }
 ckb-error = { path = "../error", version = "= 0.104.0-rc1" }
 libc = "0.2"
-rocksdb = { package = "ckb-rocksdb", version ="=0.18.2", features = ["snappy"], default-features = false }
+rocksdb = { package = "ckb-rocksdb", version ="=0.18.3", features = ["snappy"], default-features = false }
 ckb-db-schema = { path = "../db-schema", version = "= 0.104.0-rc1" }
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[features]
+default = []
+portable = ["rocksdb/portable"]

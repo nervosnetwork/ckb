@@ -25,10 +25,18 @@ case $GITHUB_WORKFLOW in
     ;;
   ci_unit_test*)
     echo "ci_unit_tests"
+    github_workflow_os=$(echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}')
+    if [[ $github_workflow_os == 'macos' ]]; then
+      export CKB_FEATURES="deadlock_detection,with_sentry,portable"
+    fi
     make test
     ;;
   ci_benchmarks*)
     echo "ci_benchmarks_test"
+    github_workflow_os=$(echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}')
+    if [[ $github_workflow_os == 'macos' ]]; then
+      export CKB_BENCH_FEATURES="ci,portable"
+    fi
     make bench-test
     ;;
   ci_integration_tests*)
@@ -39,6 +47,9 @@ case $GITHUB_WORKFLOW in
     export BINARY_NAME=${BINARY_NAME:-"ckb"}
     if [[ $github_workflow_os == 'windows' ]]; then
       BINARY_NAME="ckb.exe"
+    fi
+    if [[ $github_workflow_os == 'macos' ]]; then
+      export CKB_FEATURES="deadlock_detection,with_sentry,portable"
     fi
     make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
     ;;

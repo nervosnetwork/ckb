@@ -27,3 +27,6 @@ ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.104.0-rc1" }
 ckb-channel = { path = "../util/channel", version = "= 0.104.0-rc1" }
 ckb-constant = { path = "../util/constant", version = "= 0.104.0-rc1" }
 faketime = "0.2.0"
+
+[features]
+portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable"]
