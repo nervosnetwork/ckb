@@ -1,6 +1,6 @@
 [package]
 name = "ckb-snapshot"
-version = "0.104.0-rc1"
+version = "0.104.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,15 +11,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.104.0-rc1" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.104.0-rc1" }
-ckb-store = { path = "../../store", version = "= 0.104.0-rc1" }
-ckb-db = { path = "../../db", version = "= 0.104.0-rc1" }
-ckb-traits = { path = "../../traits", version = "= 0.104.0-rc1" }
-ckb-proposal-table = { path = "../proposal-table", version = "= 0.104.0-rc1" }
+ckb-types = { path = "../types", version = "= 0.104.0" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.104.0" }
+ckb-store = { path = "../../store", version = "= 0.104.0" }
+ckb-db = { path = "../../db", version = "= 0.104.0" }
+ckb-traits = { path = "../../traits", version = "= 0.104.0" }
+ckb-proposal-table = { path = "../proposal-table", version = "= 0.104.0" }
 arc-swap = "1.3"
-ckb-db-schema = { path = "../../db-schema", version = "= 0.104.0-rc1" }
-ckb-freezer = { path = "../../freezer", version = "= 0.104.0-rc1" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.104.0" }
+ckb-freezer = { path = "../../freezer", version = "= 0.104.0" }
 
 [features]
 portable = [

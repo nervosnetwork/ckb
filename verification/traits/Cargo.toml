@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification-traits"
-version = "0.104.0-rc1"
+version = "0.104.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -10,4 +10,4 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 bitflags = "1.0"
-ckb-error = { path = "../../error", version = "= 0.104.0-rc1" }
+ckb-error = { path = "../../error", version = "= 0.104.0" }
