@@ -242,6 +242,7 @@ impl HardForkSwitch {
             .rfc_0032(0)
             .rfc_0036(0)
             .rfc_0038(0)
+            .disable_rfc_tmp1()
             .build()
             .unwrap()
     }

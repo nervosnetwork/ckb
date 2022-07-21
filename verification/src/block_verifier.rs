@@ -250,17 +250,17 @@ impl BlockExtensionVerifier {
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
-        let hardfork_switch = self.consensus.hardfork_switch();
+        // let hardfork_switch = self.consensus.hardfork_switch();
         let extra_fields_count = block.data().count_extra_fields();
 
-        let mmr_activated_number = self.consensus.hardfork_switch().mmr_activated_number();
-        let has_chain_root = block.number() >= mmr_activated_number;
+        // let mmr_activated_number = self.consensus.hardfork_switch().mmr_activated_number();
+        // let has_chain_root = block.number() >= mmr_activated_number;
 
         match extra_fields_count {
             0 => {
-                if has_chain_root {
-                    return Err(BlockErrorKind::NoBlockExtension.into());
-                }
+                // if has_chain_root {
+                //     return Err(BlockErrorKind::NoBlockExtension.into());
+                // }
             }
             1 => {
                 let extension = if let Some(data) = block.extension() {
@@ -274,9 +274,9 @@ impl BlockExtensionVerifier {
                 if extension.len() > 96 {
                     return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
                 }
-                if has_chain_root && extension.len() != 32 {
-                    return Err(BlockErrorKind::InvalidBlockExtension.into());
-                }
+                // if has_chain_root && extension.len() != 32 {
+                //     return Err(BlockErrorKind::InvalidBlockExtension.into());
+                // }
                 // Requires checks of the chain root in `chain/find_fork`
                 // if `has_chain_root && extension.len() == 32`
             }

@@ -129,33 +129,6 @@ impl SupportProtocols {
         }
     }
 
-    /// Blocking flag
-    pub fn flag(&self) -> BlockingFlag {
-        match self {
-            SupportProtocols::Ping
-            | SupportProtocols::Discovery
-            | SupportProtocols::Identify
-            | SupportProtocols::Feeler
-            | SupportProtocols::DisconnectMessage
-            | SupportProtocols::Time
-            | SupportProtocols::Alert => {
-                let mut no_blocking_flag = BlockingFlag::default();
-                no_blocking_flag.disable_all();
-                no_blocking_flag
-            }
-            SupportProtocols::Sync
-            | SupportProtocols::RelayV2
-            | SupportProtocols::LightClient
-            | SupportProtocols::Filter => {
-                let mut blocking_recv_flag = BlockingFlag::default();
-                blocking_recv_flag.disable_connected();
-                blocking_recv_flag.disable_disconnected();
-                blocking_recv_flag.disable_notify();
-                blocking_recv_flag
-            }
-        }
-    }
-
     /// Builder with service handle
     // a helper fn to build `ProtocolMeta`
     pub fn build_meta_with_service_handle<

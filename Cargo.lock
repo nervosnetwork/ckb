@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-block-filter"
-version = "0.104.0-pre"
+version = "0.105.0-pre"
 dependencies = [
  "ckb-channel",
  "ckb-logger",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "0.104.0-pre"
+version = "0.105.0-pre"
 dependencies = [
  "ckb-logger",
  "ckb-merkle-mountain-range",
