@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use ckb_logger::{debug, error, info, trace, warn};
-use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_sync::SyncShared;
 use ckb_types::{packed, prelude::*};
 
@@ -27,10 +27,11 @@ impl LightClientProtocol {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for LightClientProtocol {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn connected(
+    async fn connected(
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -39,11 +40,11 @@ impl CKBProtocolHandler for LightClientProtocol {
         info!("LightClient({}).connected peer={}", version, peer);
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer: PeerIndex) {
+    async fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer: PeerIndex) {
         info!("LightClient.disconnected peer={}", peer);
     }
 
-    fn received(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer: PeerIndex, data: Bytes) {
+    async fn received(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer: PeerIndex, data: Bytes) {
         trace!("LightClient.received peer={}", peer);
 
         let msg = match packed::LightClientMessageReader::from_slice(&data) {

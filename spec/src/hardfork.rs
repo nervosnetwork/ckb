@@ -105,7 +105,7 @@ impl HardForkConfig {
         b.build()
     }
 
-    fn update_builder_for_edition_2021(
+    fn update_builder_via_edition(
         &self,
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,

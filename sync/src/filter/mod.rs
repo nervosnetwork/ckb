@@ -12,7 +12,7 @@ use ckb_hash::blake2b_256;
 use ckb_logger::{debug_target, error_target, info_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{
-    bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
+    async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
 };
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
@@ -111,10 +111,11 @@ impl BlockFilter {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for BlockFilter {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -154,7 +155,7 @@ impl CKBProtocolHandler for BlockFilter {
         );
     }
 
-    fn connected(
+    async fn connected(
         &mut self,
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -167,7 +168,7 @@ impl CKBProtocolHandler for BlockFilter {
         );
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info_target!(
             crate::LOG_TARGET_FILTER,
             "FilterProtocol.disconnected peer={}",
