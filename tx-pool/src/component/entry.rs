@@ -63,6 +63,12 @@ impl TxEntry {
         &self.rtx.transaction
     }
 
+    /// Converts a Entry into a TransactionView
+    /// This consumes the Entry
+    pub fn into_transaction(self) -> TransactionView {
+        self.rtx.transaction
+    }
+
     /// Return proposal_short_id of transaction
     pub fn proposal_short_id(&self) -> ProposalShortId {
         self.transaction().proposal_short_id()
