@@ -51,7 +51,12 @@ fn test_halving_epoch_reward() {
         .build();
     let genesis_epoch = consensus.genesis_epoch_ext();
 
-    let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
+    let header = |epoch: &EpochExt, number: u64| {
+        HeaderBuilder::default()
+            .number(number.pack())
+            .epoch(epoch.number_with_fraction(number).pack())
+            .build()
+    };
 
     struct DummyEpochProvider(EpochExt);
     impl EpochProvider for DummyEpochProvider {
@@ -79,7 +84,7 @@ fn test_halving_epoch_reward() {
     {
         let epoch = consensus
             .next_epoch_ext(
-                &header(genesis_epoch.length() - 1),
+                &header(&genesis_epoch, genesis_epoch.length() - 1),
                 &DummyEpochProvider(genesis_epoch.clone()),
             )
             .expect("test: get next epoch")
@@ -100,7 +105,7 @@ fn test_halving_epoch_reward() {
     // first_halving_epoch_number - 1
     let epoch = consensus
         .next_epoch_ext(
-            &header(epoch.start_number() + epoch.length() - 1),
+            &header(&epoch, epoch.start_number() + epoch.length() - 1),
             &DummyEpochProvider(epoch),
         )
         .expect("test: get next epoch")
@@ -110,7 +115,7 @@ fn test_halving_epoch_reward() {
     // first_halving_epoch_number
     let epoch = consensus
         .next_epoch_ext(
-            &header(epoch.start_number() + epoch.length() - 1),
+            &header(&epoch, epoch.start_number() + epoch.length() - 1),
             &DummyEpochProvider(epoch),
         )
         .expect("test: get next epoch")
@@ -124,7 +129,7 @@ fn test_halving_epoch_reward() {
     // first_halving_epoch_number + 1
     let epoch = consensus
         .next_epoch_ext(
-            &header(epoch.start_number() + epoch.length() - 1),
+            &header(&epoch, epoch.start_number() + epoch.length() - 1),
             &DummyEpochProvider(epoch),
         )
         .expect("test: get next epoch")
@@ -151,7 +156,7 @@ fn test_halving_epoch_reward() {
     // first_halving_epoch_number * 4 - 1
     let epoch = consensus
         .next_epoch_ext(
-            &header(epoch.start_number() + epoch.length() - 1),
+            &header(&epoch, epoch.start_number() + epoch.length() - 1),
             &DummyEpochProvider(epoch),
         )
         .expect("test: get next epoch")
@@ -165,7 +170,7 @@ fn test_halving_epoch_reward() {
     // first_halving_epoch_number * 4
     let epoch = consensus
         .next_epoch_ext(
-            &header(epoch.start_number() + epoch.length() - 1),
+            &header(&epoch, epoch.start_number() + epoch.length() - 1),
             &DummyEpochProvider(epoch),
         )
         .expect("test: get next epoch")

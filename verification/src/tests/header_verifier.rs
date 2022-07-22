@@ -15,6 +15,8 @@ use ckb_types::{
 };
 use faketime::unix_time_as_millis;
 
+use super::BuilderBaseOnBlockNumber;
+
 fn mock_median_time_context() -> MockMedianTime {
     let now = unix_time_as_millis();
     let timestamps = (0..100).map(|_| now).collect();
@@ -45,9 +47,8 @@ fn test_timestamp() {
     let fake_block_median_time_context = mock_median_time_context();
     let parent_hash = fake_block_median_time_context.get_block_hash(99);
     let timestamp = unix_time_as_millis() + 1;
-    let header = HeaderBuilder::default()
+    let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
-        .number(100u64.pack())
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(
@@ -69,8 +70,7 @@ fn test_timestamp_too_old() {
 
     let min = unix_time_as_millis();
     let timestamp = unix_time_as_millis() - 1;
-    let header = HeaderBuilder::default()
-        .number(100u64.pack())
+    let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
         .timestamp(timestamp.pack())
         .build();
@@ -99,8 +99,7 @@ fn test_timestamp_too_new() {
 
     let max = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
     let timestamp = max + 1;
-    let header = HeaderBuilder::default()
-        .number(100u64.pack())
+    let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
         .timestamp(timestamp.pack())
         .build();
@@ -120,8 +119,8 @@ fn test_timestamp_too_new() {
 
 #[test]
 fn test_number() {
-    let parent = HeaderBuilder::default().number(10u64.pack()).build();
-    let header = HeaderBuilder::default().number(10u64.pack()).build();
+    let parent = HeaderBuilder::new_with_number(10).build();
+    let header = HeaderBuilder::new_with_number(10).build();
 
     let verifier = NumberVerifier::new(&parent, &header);
     assert_error_eq!(
@@ -136,7 +135,10 @@ fn test_number() {
 #[test]
 fn test_epoch() {
     {
-        let parent = HeaderBuilder::default().number(1u64.pack()).build();
+        let parent = HeaderBuilder::default()
+            .number(1u64.pack())
+            .epoch(EpochNumberWithFraction::new(1, 1, 10).pack())
+            .build();
         let epochs_malformed = vec![
             EpochNumberWithFraction::new_unchecked(1, 0, 0),
             EpochNumberWithFraction::new_unchecked(1, 10, 0),

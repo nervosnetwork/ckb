@@ -1,5 +1,5 @@
 use ckb_types::{
-    core::{BlockBuilder, BlockNumber},
+    core::{BlockBuilder, BlockNumber, EpochNumberWithFraction},
     prelude::*,
 };
 
@@ -28,8 +28,10 @@ fn test_candidate_uncles_max_size() {
 
     let mut blocks = Vec::new();
     for i in 0..(MAX_CANDIDATE_UNCLES + 3) {
+        let number = i as BlockNumber;
         let block = BlockBuilder::default()
-            .number((i as BlockNumber).pack())
+            .number(number.pack())
+            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 10000).pack())
             .build()
             .as_uncle();
         blocks.push(block);

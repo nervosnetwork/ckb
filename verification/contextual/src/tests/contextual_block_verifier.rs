@@ -37,6 +37,7 @@ fn gen_block(
         .parent_hash(parent_header.hash())
         .timestamp(now.pack())
         .number(number.pack())
+        .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack())
         .compact_target(compact_target.pack())
         .nonce(nonce.pack())
         .build();

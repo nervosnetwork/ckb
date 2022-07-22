@@ -4,7 +4,7 @@
 //! block number to enable MMR and create all MMR nodes before that block to make sure that the
 //! index of MMR leaf is EQUAL to the block number.
 //!
-//! ```
+//! ```text
 //!          height                position
 //!
 //!             3                     14
@@ -89,7 +89,7 @@ use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as
 
 use crate::{
     core,
-    core::{BlockNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
+    core::{BlockNumber, EpochNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
     packed,
     prelude::*,
     utilities::compact_to_difficulty,
@@ -241,20 +241,6 @@ impl Merge for MergeHeaderDigest {
             return Err(MMRError::MergeError(errmsg));
         }
 
-        // 3. Check difficulties when in the same epoch.
-        let lhs_end_compact_target: u32 = lhs.end_compact_target().unpack();
-        let rhs_start_compact_target: u32 = rhs.start_compact_target().unpack();
-        if lhs_end_epoch.number() == rhs_start_epoch.number()
-            && lhs_end_compact_target != rhs_start_compact_target
-        {
-            // In the same epoch, all compact targets should be same.
-            let errmsg = format!(
-                "failed since the compact targets should be same for epochs ([-,{:#}], [{:#},-])",
-                lhs_end_epoch, rhs_start_epoch
-            );
-            return Err(MMRError::MergeError(errmsg));
-        }
-
         Ok(Self::Item::new_builder()
             .hash(hash.pack())
             .total_difficulty(total_difficulty.pack())
@@ -323,11 +309,11 @@ impl VerifiableHeader {
     /// Creates a new verifiable header from a header with chain root.
     pub fn new_from_header_with_chain_root(
         header_with_chain_root: packed::HeaderWithChainRoot,
-        mmr_activated_number: BlockNumber,
+        mmr_activated_epoch: EpochNumber,
     ) -> Self {
         let header = header_with_chain_root.header().into_view();
         let uncles_hash = header_with_chain_root.uncles_hash();
-        let extension = if header.number() >= mmr_activated_number {
+        let extension = if header.epoch().number() >= mmr_activated_epoch {
             let bytes = header_with_chain_root
                 .chain_root()
                 .calc_mmr_hash()
@@ -343,10 +329,10 @@ impl VerifiableHeader {
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(
         &self,
-        mmr_activated_number: BlockNumber,
+        mmr_activated_epoch: EpochNumber,
         expected_root_hash_opt: Option<&packed::Byte32>,
     ) -> bool {
-        let has_chain_root = self.header().number() >= mmr_activated_number;
+        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root
             && !self
                 .extension()
