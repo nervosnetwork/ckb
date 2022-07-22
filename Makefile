@@ -74,7 +74,7 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
-integration-release: submodule-init setup-ckb-test prod
+integration-release: submodule-init setup-ckb-test build
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
