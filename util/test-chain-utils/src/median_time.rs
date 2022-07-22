@@ -19,6 +19,9 @@ pub struct MockMedianTime {
 #[doc(hidden)]
 pub const MOCK_MEDIAN_TIME_COUNT: usize = 11;
 
+#[doc(hidden)]
+pub const MOCK_EPOCH_LENGTH: BlockNumber = 1000;
+
 impl HeaderProvider for MockMedianTime {
     fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
         self.headers.get(hash).cloned()
@@ -41,9 +44,18 @@ impl MockMedianTime {
                 .iter()
                 .enumerate()
                 .map(|(idx, timestamp)| {
+                    let number = idx as BlockNumber;
                     let header = HeaderBuilder::default()
                         .timestamp(timestamp.pack())
-                        .number((idx as u64).pack())
+                        .number(number.pack())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                number % MOCK_EPOCH_LENGTH,
+                                number / MOCK_EPOCH_LENGTH,
+                                MOCK_EPOCH_LENGTH,
+                            )
+                            .pack(),
+                        )
                         .build();
                     (header.hash(), header)
                 })

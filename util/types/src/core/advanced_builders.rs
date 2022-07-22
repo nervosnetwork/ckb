@@ -95,7 +95,7 @@ impl ::std::default::Default for HeaderBuilder {
             proposals_hash: Default::default(),
             compact_target: DIFF_TWO.pack(),
             extra_hash: Default::default(),
-            epoch: core::EpochNumberWithFraction::new(0, 0, 1).pack(),
+            epoch: core::EpochNumberWithFraction::new_unchecked(0, 0, 0).pack(),
             dao: Default::default(),
             nonce: Default::default(),
         }

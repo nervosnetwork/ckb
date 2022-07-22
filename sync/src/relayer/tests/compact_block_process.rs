@@ -8,7 +8,7 @@ use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{BlockBuilder, Capacity, HeaderBuilder, TransactionBuilder},
+    core::{BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
 };
 use faketime::unix_time_as_millis;
@@ -108,6 +108,7 @@ fn test_unknow_parent() {
         .header(
             HeaderBuilder::default()
                 .number(5.pack())
+                .epoch(EpochNumberWithFraction::new(1, 5, 1000).pack())
                 .timestamp(unix_time_as_millis().pack())
                 .build(),
         )
@@ -335,7 +336,10 @@ fn test_accept_block() {
         .uncle(uncle.as_uncle())
         .build();
 
-    let mock_block_1 = BlockBuilder::default().number(4.pack()).build();
+    let mock_block_1 = BlockBuilder::default()
+        .number(4.pack())
+        .epoch(EpochNumberWithFraction::new(1, 4, 1000).pack())
+        .build();
     let mock_compact_block_1 = CompactBlock::build_from_block(&mock_block_1, &Default::default());
 
     let mock_block_2 = block.as_advanced_builder().number(7.pack()).build();

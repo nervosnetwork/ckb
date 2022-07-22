@@ -4,7 +4,7 @@ use ckb_db_schema::COLUMNS;
 use ckb_occupied_capacity::IntoCapacity;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
-    core::{BlockBuilder, BlockExt, HeaderBuilder, TransactionBuilder},
+    core::{BlockBuilder, BlockExt, EpochNumberWithFraction, HeaderBuilder, TransactionBuilder},
     packed::ProposalShortId,
     prelude::*,
 };
@@ -142,7 +142,12 @@ fn test_proposal_reward() {
     let p6 = tx6.proposal_short_id();
 
     let block_10 = BlockBuilder::default()
-        .header(HeaderBuilder::default().number(10u64.pack()).build())
+        .header(
+            HeaderBuilder::default()
+                .number(10u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 10, 1000).pack())
+                .build(),
+        )
         .proposal(p1.clone())
         .build();
 
@@ -154,6 +159,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(11u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 11, 1000).pack())
                 .parent_hash(block_10.hash())
                 .build(),
         )
@@ -165,6 +171,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(12u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 12, 1000).pack())
                 .parent_hash(block_11.hash())
                 .build(),
         )
@@ -175,6 +182,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(13u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 13, 1000).pack())
                 .parent_hash(block_12.hash())
                 .build(),
         )
@@ -186,6 +194,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(14u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 14, 1000).pack())
                 .parent_hash(block_13.hash())
                 .build(),
         )
@@ -198,6 +207,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(15u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 15, 1000).pack())
                 .parent_hash(block_14.hash())
                 .build(),
         )
@@ -208,6 +218,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(16u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 16, 1000).pack())
                 .parent_hash(block_15.hash())
                 .build(),
         )
@@ -216,6 +227,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(17u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 17, 1000).pack())
                 .parent_hash(block_16.hash())
                 .build(),
         )
@@ -224,6 +236,7 @@ fn test_proposal_reward() {
         .header(
             HeaderBuilder::default()
                 .number(18u64.pack())
+                .epoch(EpochNumberWithFraction::new(1, 18, 1000).pack())
                 .parent_hash(block_17.hash())
                 .build(),
         )
