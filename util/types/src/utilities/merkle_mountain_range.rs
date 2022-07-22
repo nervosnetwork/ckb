@@ -89,7 +89,7 @@ use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as
 
 use crate::{
     core,
-    core::{BlockNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
+    core::{BlockNumber, EpochNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
     packed,
     prelude::*,
     utilities::compact_to_difficulty,
@@ -309,11 +309,11 @@ impl VerifiableHeader {
     /// Creates a new verifiable header from a header with chain root.
     pub fn new_from_header_with_chain_root(
         header_with_chain_root: packed::HeaderWithChainRoot,
-        mmr_activated_number: BlockNumber,
+        mmr_activated_epoch: EpochNumber,
     ) -> Self {
         let header = header_with_chain_root.header().into_view();
         let uncles_hash = header_with_chain_root.uncles_hash();
-        let extension = if header.number() >= mmr_activated_number {
+        let extension = if header.epoch().number() >= mmr_activated_epoch {
             let bytes = header_with_chain_root
                 .chain_root()
                 .calc_mmr_hash()
@@ -329,10 +329,10 @@ impl VerifiableHeader {
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(
         &self,
-        mmr_activated_number: BlockNumber,
+        mmr_activated_epoch: EpochNumber,
         expected_root_hash_opt: Option<&packed::Byte32>,
     ) -> bool {
-        let has_chain_root = self.header().number() >= mmr_activated_number;
+        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root
             && !self
                 .extension()
