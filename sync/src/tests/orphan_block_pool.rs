@@ -9,10 +9,12 @@ use std::thread;
 use crate::orphan_block_pool::OrphanBlockPool;
 
 fn gen_block(parent_header: &HeaderView) -> BlockView {
+    let number = parent_header.number() + 1;
     BlockBuilder::default()
         .parent_hash(parent_header.hash())
         .timestamp(unix_time_as_millis().pack())
-        .number((parent_header.number() + 1).pack())
+        .number(number.pack())
+        .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack())
         .nonce((parent_header.nonce() + 1).pack())
         .build()
 }

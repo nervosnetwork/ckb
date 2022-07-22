@@ -4,7 +4,7 @@
 //! block number to enable MMR and create all MMR nodes before that block to make sure that the
 //! index of MMR leaf is EQUAL to the block number.
 //!
-//! ```
+//! ```text
 //!          height                position
 //!
 //!             3                     14
@@ -236,20 +236,6 @@ impl Merge for MergeHeaderDigest {
         if !rhs_start_epoch.is_successor_of(lhs_end_epoch) && !lhs_end_epoch.is_genesis() {
             let errmsg = format!(
                 "failed since the epochs isn't continuous ([-,{:#}], [{:#},-])",
-                lhs_end_epoch, rhs_start_epoch
-            );
-            return Err(MMRError::MergeError(errmsg));
-        }
-
-        // 3. Check difficulties when in the same epoch.
-        let lhs_end_compact_target: u32 = lhs.end_compact_target().unpack();
-        let rhs_start_compact_target: u32 = rhs.start_compact_target().unpack();
-        if lhs_end_epoch.number() == rhs_start_epoch.number()
-            && lhs_end_compact_target != rhs_start_compact_target
-        {
-            // In the same epoch, all compact targets should be same.
-            let errmsg = format!(
-                "failed since the compact targets should be same for epochs ([-,{:#}], [{:#},-])",
                 lhs_end_epoch, rhs_start_epoch
             );
             return Err(MMRError::MergeError(errmsg));
