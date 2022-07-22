@@ -1312,25 +1312,16 @@ pub struct Consensus {
     pub hardfork_features: Vec<HardForkFeature>,
 }
 
-/// The epoch number or block number when a hardfork feature is enabled.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum HardForkNumber {
-    EpochNumber(Option<EpochNumber>),
-    BlockNumber(Option<BlockNumber>),
-}
-
 /// The information about one hardfork feature.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct HardForkFeature {
     /// The related RFC ID.
     pub rfc: String,
-    /// The first epoch (or block) when the feature is enabled, `null` indicates that the RFC has never been enabled.
-    #[serde(flatten)]
-    pub value: HardForkNumber,
+    /// The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
+    pub epoch_number: Option<EpochNumber>,
 }
 
-fn convert_epoch(number: core::EpochNumber) -> Option<EpochNumber> {
+fn convert(number: core::EpochNumber) -> Option<EpochNumber> {
     if number == core::EpochNumber::MAX {
         None
     } else {
@@ -1338,42 +1329,26 @@ fn convert_epoch(number: core::EpochNumber) -> Option<EpochNumber> {
     }
 }
 
-fn convert_block(number: core::BlockNumber) -> Option<BlockNumber> {
-    if number == core::BlockNumber::MAX {
-        None
-    } else {
-        Some(number.into())
-    }
-}
-
 impl HardForkFeature {
-    /// Creates a new struct for a feature which is enabled since a new epoch.
-    pub fn new_for_epoch(rfc: &str, value: Option<EpochNumber>) -> Self {
+    /// Creates a new struct.
+    pub fn new(rfc: &str, epoch_number: Option<EpochNumber>) -> Self {
         Self {
             rfc: rfc.to_owned(),
-            value: HardForkNumber::EpochNumber(value),
-        }
-    }
-
-    /// Creates a new struct for a feature which is enabled since a new epoch.
-    pub fn new_for_block(rfc: &str, value: Option<BlockNumber>) -> Self {
-        Self {
-            rfc: rfc.to_owned(),
-            value: HardForkNumber::BlockNumber(value),
+            epoch_number,
         }
     }
 
     /// Returns a list of hardfork features from a hardfork switch.
     pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
         vec![
-            Self::new_for_epoch("0028", convert_epoch(switch.rfc_0028())),
-            Self::new_for_epoch("0029", convert_epoch(switch.rfc_0029())),
-            Self::new_for_epoch("0030", convert_epoch(switch.rfc_0030())),
-            Self::new_for_epoch("0031", convert_epoch(switch.rfc_0031())),
-            Self::new_for_epoch("0032", convert_epoch(switch.rfc_0032())),
-            Self::new_for_epoch("0036", convert_epoch(switch.rfc_0036())),
-            Self::new_for_epoch("0038", convert_epoch(switch.rfc_0038())),
-            Self::new_for_block("tmp1", convert_block(switch.rfc_tmp1())),
+            Self::new("0028", convert(switch.rfc_0028())),
+            Self::new("0029", convert(switch.rfc_0029())),
+            Self::new("0030", convert(switch.rfc_0030())),
+            Self::new("0031", convert(switch.rfc_0031())),
+            Self::new("0032", convert(switch.rfc_0032())),
+            Self::new("0036", convert(switch.rfc_0036())),
+            Self::new("0038", convert(switch.rfc_0038())),
+            Self::new("tmp1", convert(switch.rfc_tmp1())),
         ]
     }
 }

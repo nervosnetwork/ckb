@@ -714,7 +714,7 @@ impl ChainService {
         }
 
         let consensus = self.shared.consensus();
-        let mmr_activated_number = consensus.hardfork_switch().mmr_activated_number();
+        let mmr_activated_epoch = consensus.hardfork_switch().mmr_activated_epoch();
 
         let start_block_header = attached_blocks[0].header();
 
@@ -723,11 +723,10 @@ impl ChainService {
         let mut mmr = ChainRootMMR::new(mmr_size, txn);
 
         for block in attached_blocks.iter() {
-            let block_number = block.number();
-            let has_chain_root = block_number >= mmr_activated_number;
+            let has_chain_root = block.epoch().number() >= mmr_activated_epoch;
             trace!(
                 "light-client: attach block#{} (chain root: {})",
-                block_number,
+                block.number(),
                 has_chain_root
             );
             if has_chain_root {

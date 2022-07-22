@@ -3,7 +3,7 @@
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_types::core::{
     hardfork::{HardForkSwitch, HardForkSwitchBuilder},
-    BlockNumber, EpochNumber,
+    EpochNumber,
 };
 use serde::{Deserialize, Serialize};
 
@@ -57,10 +57,8 @@ pub struct HardForkConfig {
     /// Ref: CKB RFC 0038
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_0038: Option<EpochNumber>,
-
     // TODO(light-client) update the description
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rfc_tmp1: Option<BlockNumber>,
+    pub rfc_tmp1: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -87,8 +85,8 @@ impl HardForkConfig {
             b,
             mainnet::CKB2021_START_EPOCH,
             mainnet::RFC0028_START_EPOCH,
+            mainnet::RFCTMP1_START_EPOCH,
         )?;
-        b = self.update_builder_for_light_client(b, mainnet::MMR_ACTIVATED_BLOCK)?;
         b.build()
     }
 
@@ -100,8 +98,8 @@ impl HardForkConfig {
             b,
             testnet::CKB2021_START_EPOCH,
             testnet::RFC0028_START_EPOCH,
+            testnet::RFCTMP1_START_EPOCH,
         )?;
-        b = self.update_builder_for_light_client(b, testnet::MMR_ACTIVATED_BLOCK)?;
         b.build()
     }
 
@@ -110,6 +108,7 @@ impl HardForkConfig {
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
         rfc_0028_start: EpochNumber,
+        rfc_tmp1_start: EpochNumber,
     ) -> Result<HardForkSwitchBuilder, String> {
         let builder = builder
             .rfc_0028(check_default!(self, rfc_0028, rfc_0028_start))
@@ -118,23 +117,15 @@ impl HardForkConfig {
             .rfc_0031(check_default!(self, rfc_0031, ckb2021))
             .rfc_0032(check_default!(self, rfc_0032, ckb2021))
             .rfc_0036(check_default!(self, rfc_0036, ckb2021))
-            .rfc_0038(check_default!(self, rfc_0038, ckb2021));
-        Ok(builder)
-    }
-
-    fn update_builder_for_light_client(
-        &self,
-        builder: HardForkSwitchBuilder,
-        mmr_activated_number: BlockNumber,
-    ) -> Result<HardForkSwitchBuilder, String> {
-        let builder = builder.rfc_tmp1(check_default!(self, rfc_tmp1, mmr_activated_number));
+            .rfc_0038(check_default!(self, rfc_0038, ckb2021))
+            .rfc_tmp1(check_default!(self, rfc_tmp1, rfc_tmp1_start));
         Ok(builder)
     }
 
     /// Converts to a hard fork switch.
     ///
-    /// Enable features which are set to `None` at the user provided epoch (or block).
-    pub fn complete_with_default(&self) -> Result<HardForkSwitch, String> {
+    /// Enable features which are set to `None` at the user provided epoch.
+    pub fn complete_with_default(&self, default: EpochNumber) -> Result<HardForkSwitch, String> {
         if self.rfc_tmp1.map(|v| v == 0).unwrap_or(false) {
             let errmsg = "Found the hard fork feature parameter \"rfc_tmp1\" is \
                 in the chain specification file, and its value is 0.
@@ -142,14 +133,14 @@ impl HardForkConfig {
             return Err(errmsg.to_string());
         }
         HardForkSwitch::new_builder()
-            .rfc_0028(self.rfc_0028.unwrap_or(EpochNumber::MAX))
-            .rfc_0029(self.rfc_0029.unwrap_or(EpochNumber::MAX))
-            .rfc_0030(self.rfc_0030.unwrap_or(EpochNumber::MAX))
-            .rfc_0031(self.rfc_0031.unwrap_or(EpochNumber::MAX))
-            .rfc_0032(self.rfc_0032.unwrap_or(EpochNumber::MAX))
-            .rfc_0036(self.rfc_0036.unwrap_or(EpochNumber::MAX))
-            .rfc_0038(self.rfc_0038.unwrap_or(EpochNumber::MAX))
-            .rfc_tmp1(self.rfc_tmp1.unwrap_or(BlockNumber::MAX))
+            .rfc_0028(self.rfc_0028.unwrap_or(default))
+            .rfc_0029(self.rfc_0029.unwrap_or(default))
+            .rfc_0030(self.rfc_0030.unwrap_or(default))
+            .rfc_0031(self.rfc_0031.unwrap_or(default))
+            .rfc_0032(self.rfc_0032.unwrap_or(default))
+            .rfc_0036(self.rfc_0036.unwrap_or(default))
+            .rfc_0038(self.rfc_0038.unwrap_or(default))
+            .rfc_tmp1(self.rfc_tmp1.unwrap_or(default))
             .build()
     }
 }

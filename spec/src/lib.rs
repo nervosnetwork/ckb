@@ -497,7 +497,7 @@ impl ChainSpec {
         match self.name.as_str() {
             mainnet::CHAIN_SPEC_NAME => config.complete_mainnet(),
             testnet::CHAIN_SPEC_NAME => config.complete_testnet(),
-            _ => config.complete_with_default(),
+            _ => config.complete_with_default(EpochNumber::MAX),
         }
         .map_err(Into::into)
     }

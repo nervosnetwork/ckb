@@ -8,5 +8,5 @@ pub const RFC0028_START_EPOCH: u64 = 3113;
 pub const CKB2021_START_EPOCH: u64 = 0;
 
 // TODO(light-client) update the block number.
-/// First block which saves the MMR root hash into its header.
-pub const MMR_ACTIVATED_BLOCK: u64 = u64::MAX;
+/// First epoch which saves the MMR root hash into its header.
+pub const RFCTMP1_START_EPOCH: u64 = u64::MAX;
