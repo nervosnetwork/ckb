@@ -168,7 +168,11 @@ impl CKBProtocolHandler for BlockFilter {
         );
     }
 
-    async fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+    ) {
         info_target!(
             crate::LOG_TARGET_FILTER,
             "FilterProtocol.disconnected peer={}",

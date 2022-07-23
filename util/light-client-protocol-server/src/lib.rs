@@ -44,7 +44,12 @@ impl CKBProtocolHandler for LightClientProtocol {
         info!("LightClient.disconnected peer={}", peer);
     }
 
-    async fn received(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, peer: PeerIndex, data: Bytes) {
+    async fn received(
+        &mut self,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer: PeerIndex,
+        data: Bytes,
+    ) {
         trace!("LightClient.received peer={}", peer);
 
         let msg = match packed::LightClientMessageReader::from_slice(&data) {
