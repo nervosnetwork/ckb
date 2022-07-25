@@ -132,7 +132,7 @@ prod: ## Build binary for production release.
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,ckb-db/portable"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
