@@ -1,3 +1,24 @@
+# [v0.104.0](https://github.com/nervosnetwork/ckb/compare/v0.103.0...v0.104.0) (2022-07-19)
+
+### Features
+
+* #3329: Background update block_template (@zhangsoledad)
+* #3427: Remove compatibility codes from the network (@driftluo)
+* #3438: Remove snapshot compatible code (@driftluo)
+* #3479: Log in utc time (@zhangsoledad)
+
+### Bug Fixes
+
+* #3387 **rpc:** Disconnect session of peers when invoke rpc set_ban (@chanhsu001)
+* #3417: Fix typo for hash_type note (@DGideas)
+* #3426: Runtime shutdown (@zhangsoledad)
+* #3445: Ambiguous dao error messages (@zhangsoledad)
+
+### Improvements
+
+* #3391: Improve sync header map (@zhangsoledad)
+* #3478: Perf sync (@driftluo)
+
 # [v0.103.0](https://github.com/nervosnetwork/ckb/compare/v0.101.8...v0.103.0) (2022-04-11)
 
 ### Features
