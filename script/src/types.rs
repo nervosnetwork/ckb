@@ -6,10 +6,8 @@ use ckb_types::{
 };
 use ckb_vm::{
     machine::{VERSION0, VERSION1},
-    memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
     snapshot::{make_snapshot, Snapshot},
-    CoreMachine as _, Error as VMInternalError, Memory, SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
-    RISCV_PAGESIZE,
+    Error as VMInternalError, SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -103,19 +101,13 @@ pub(crate) type Machine<'a> = TraceMachine<'a, CoreMachine>;
 pub struct ResumableMachine<'a> {
     machine: Machine<'a>,
     pub(crate) program_bytes_cycles: Option<Cycle>,
-    pub(crate) enable_2021: bool,
 }
 
 impl<'a> ResumableMachine<'a> {
-    pub(crate) fn new(
-        machine: Machine<'a>,
-        program_bytes_cycles: Option<Cycle>,
-        enable_2021: bool,
-    ) -> Self {
+    pub(crate) fn new(machine: Machine<'a>, program_bytes_cycles: Option<Cycle>) -> Self {
         ResumableMachine {
             machine,
             program_bytes_cycles,
-            enable_2021,
         }
     }
 
@@ -137,10 +129,8 @@ impl<'a> ResumableMachine<'a> {
 
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
         if let Some(cycles) = self.program_bytes_cycles {
-            if self.enable_2021 {
-                self.add_cycles(cycles)?;
-                self.program_bytes_cycles = None;
-            }
+            self.add_cycles(cycles)?;
+            self.program_bytes_cycles = None;
         }
         self.machine.run()
     }
@@ -242,10 +232,6 @@ pub struct TransactionState<'a> {
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
-    /// enable snapshot page dirty flags
-    pub enable_backup_page_flags: bool,
-    /// tracing data as code page index
-    pub flags_tracing: Vec<(u64, u64)>,
 }
 
 impl TransactionState<'_> {
@@ -285,32 +271,12 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
             vm,
             current_cycles,
             limit_cycles,
-            enable_backup_page_flags,
-            flags_tracing,
         } = state;
 
         let (snap, current_cycles) = if let Some(mut vm) = vm {
             // we should not capture snapshot if load program failed by exceeded cycles
             if vm.program_loaded() {
                 let vm_cycles = vm.cycles();
-                // To be consistent with the mainnet, add this flag to enable this behavior after hardfork
-                if !enable_backup_page_flags {
-                    for (addr, memory_size) in flags_tracing {
-                        let mut current_addr = addr;
-                        while current_addr < addr + memory_size {
-                            let page = current_addr / RISCV_PAGESIZE as u64;
-                            vm.machine
-                                .machine
-                                .memory_mut()
-                                .clear_flag(page, FLAG_EXECUTABLE | FLAG_FREEZED)
-                                .map_err(|e| {
-                                    ScriptError::VMInternalError(format!("{:?}", e))
-                                        .unknown_source()
-                                })?;
-                            current_addr += RISCV_PAGESIZE as u64;
-                        }
-                    }
-                }
                 (
                     Some((
                         make_snapshot(&mut vm.machine.machine).map_err(|e| {

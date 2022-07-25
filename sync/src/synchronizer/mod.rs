@@ -27,8 +27,8 @@ use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::metrics;
 use ckb_network::{
-    bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl,
-    SupportProtocols,
+    async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
+    ServiceControl, SupportProtocols,
 };
 use ckb_types::{
     core::{self, BlockNumber},
@@ -658,22 +658,28 @@ impl Synchronizer {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for Synchronizer {
-    fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
+    async fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
         nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN)
+            .await
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN)
+            .await
             .expect("set_notify at init is ok");
     }
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -746,7 +752,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
 
         let start_time = Instant::now();
-        self.process(nc.as_ref(), peer_index, msg);
+        tokio::task::block_in_place(|| self.process(nc.as_ref(), peer_index, msg));
         debug!(
             "process message={}, peer={}, cost={:?}",
             msg.item_name(),
@@ -755,7 +761,7 @@ impl CKBProtocolHandler for Synchronizer {
         );
     }
 
-    fn connected(
+    async fn connected(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -765,7 +771,11 @@ impl CKBProtocolHandler for Synchronizer {
         self.on_connected(nc.as_ref(), peer_index);
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+    ) {
         let sync_state = self.shared().state();
         if let Some(peer_state) = sync_state.disconnected(peer_index) {
             info!("SyncProtocol.disconnected peer={}", peer_index);
@@ -794,7 +804,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
     }
 
-    fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
+    async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         if !self.peers().state.is_empty() {
             let start_time = Instant::now();
             trace!("start notify token={}", token);
@@ -810,7 +820,7 @@ impl CKBProtocolHandler for Synchronizer {
                             self.shared.state().write_inflight_blocks().adjustment = false;
                         }
                         self.shared.state().peers().clear_unknown_list();
-                        if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).is_err() {
+                        if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).await.is_err() {
                             trace!("remove ibd block fetch fail");
                         }
                     }

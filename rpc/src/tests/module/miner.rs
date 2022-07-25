@@ -13,25 +13,6 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 #[ignore]
 fn test_get_block_template_cache() {
     let suite = setup();
-    // block template cache will expire after 3 seconds
-    {
-        let response_old = suite.rpc(&RpcTestRequest {
-            id: 42,
-            jsonrpc: "2.0".to_string(),
-            method: "get_block_template".to_string(),
-            params: vec![],
-        });
-
-        sleep(Duration::from_secs(4));
-        let response_new = suite.rpc(&RpcTestRequest {
-            id: 42,
-            jsonrpc: "2.0".to_string(),
-            method: "get_block_template".to_string(),
-            params: vec![],
-        });
-        assert_ne!(response_old.json(), response_new.json());
-    }
-
     // block template cache will expire when new uncle block is added to the chain
     {
         let response_old = suite.rpc(&RpcTestRequest {

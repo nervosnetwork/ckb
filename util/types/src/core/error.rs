@@ -31,16 +31,9 @@ pub enum OutPointError {
     #[error("InvalidHeader({0})")]
     InvalidHeader(Byte32),
 
-    /// There is a dependency header that is immature yet.
-    #[error("ImmatureHeader({0})")]
-    ImmatureHeader(Byte32),
-
     /// Over max dep expansion limit.
     #[error("OverMaxDepExpansionLimit")]
-    OverMaxDepExpansionLimit {
-        /// If ban nodes for this error.
-        ban: bool,
-    },
+    OverMaxDepExpansionLimit,
 }
 
 impl From<OutPointError> for Error {

@@ -5,7 +5,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-use ckb_metrics::{metrics, Timer};
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
@@ -93,13 +92,11 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
-/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<'a, DL> {
-    pub(crate) compatible: CompatibleVerifier<'a>,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
     pub(crate) script: ScriptVerifier<'a, DL>,
@@ -118,14 +115,13 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualTransactionVerifier {
-            compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
             time_relative: TimeRelativeTransactionVerifier::new(
                 rtx,
                 consensus,
                 data_loader,
                 tx_env,
             ),
-            script: ScriptVerifier::new(rtx, consensus, data_loader, tx_env),
+            script: ScriptVerifier::new(rtx, data_loader),
             capacity: CapacityVerifier::new(rtx, consensus.dao_type_hash()),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
@@ -133,13 +129,10 @@ where
 
     /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<(VerifyResult, Capacity), Error> {
-        let timer = Timer::start();
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
         let ret = self.script.resumable_verify(limit_cycles)?;
-        metrics!(timing, "ckb.resumable_verify", timer.stop());
         Ok((ret, fee))
     }
 
@@ -147,8 +140,6 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
-        let timer = Timer::start();
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -157,7 +148,6 @@ where
             self.script.verify(max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(Completed { cycles, fee })
     }
 
@@ -170,8 +160,6 @@ where
         skip_script_verify: bool,
         snapshot: &TransactionSnapshot,
     ) -> Result<Completed, Error> {
-        let timer = Timer::start();
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -180,7 +168,6 @@ where
             self.script.complete(snapshot, max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.complete_suspend_verified_tx", timer.stop());
         Ok(Completed { cycles, fee })
     }
 }
@@ -308,35 +295,21 @@ pub struct ScriptVerifier<'a, DL> {
 
 impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
     /// Creates a new ScriptVerifier
-    pub fn new(
-        resolved_transaction: &'a ResolvedTransaction,
-        consensus: &'a Consensus,
-        data_loader: &'a DL,
-        tx_env: &'a TxVerifyEnv,
-    ) -> Self {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, data_loader: &'a DL) -> Self {
         ScriptVerifier {
-            inner: TransactionScriptsVerifier::new(
-                resolved_transaction,
-                consensus,
-                data_loader,
-                tx_env,
-            ),
+            inner: TransactionScriptsVerifier::new(resolved_transaction, data_loader),
         }
     }
 
     /// Perform script verification
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let timer = Timer::start();
         let cycle = self.inner.verify(max_cycles)?;
-        metrics!(timing, "ckb.verified_script", timer.stop());
         Ok(cycle)
     }
 
     /// Perform resumable script verification
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
         let ret = self.inner.resumable_verify(limit_cycles)?;
-        metrics!(timing, "ckb.resumable_verify_script", timer.stop());
         Ok(ret)
     }
 
@@ -346,10 +319,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         snapshot: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
-
         let ret = self.inner.resume_from_snap(snapshot, limit_cycles)?;
-        metrics!(timing, "ckb.resume_verify", timer.stop());
         Ok(ret)
     }
 
@@ -359,9 +329,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         state: TransactionState<'a>,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let timer = Timer::start();
         let ret = self.inner.resume_from_state(state, limit_cycles)?;
-        metrics!(timing, "ckb.resume_verify", timer.stop());
         Ok(ret)
     }
 
@@ -371,10 +339,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
         snapshot: &TransactionSnapshot,
         max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
-        let timer = Timer::start();
-
         let ret = self.inner.complete(snapshot, max_cycles)?;
-        metrics!(timing, "ckb.complete_verify", timer.stop());
         Ok(ret)
     }
 
@@ -407,67 +372,6 @@ impl<'a> EmptyVerifier<'a> {
         } else {
             Ok(())
         }
-    }
-}
-
-/// Check compatible between different versions CKB clients.
-///
-/// When a new client with hardfork features released, before the hardfork started, the old CKB
-/// clients will still be able to work.
-/// So, the new CKB client have to add several necessary checks to avoid fork attacks.
-///
-/// After hardfork, the old clients will be no longer available. Then we can delete all code in
-/// this verifier until next hardfork.
-pub struct CompatibleVerifier<'a> {
-    rtx: &'a ResolvedTransaction,
-    consensus: &'a Consensus,
-    tx_env: &'a TxVerifyEnv,
-}
-
-impl<'a> CompatibleVerifier<'a> {
-    pub fn new(
-        rtx: &'a ResolvedTransaction,
-        consensus: &'a Consensus,
-        tx_env: &'a TxVerifyEnv,
-    ) -> Self {
-        Self {
-            rtx,
-            consensus,
-            tx_env,
-        }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        let proposal_window = self.consensus.tx_proposal_window();
-        let epoch_number = self.tx_env.epoch_number(proposal_window);
-        if !self
-            .consensus
-            .hardfork_switch()
-            .is_vm_version_1_and_syscalls_2_enabled(epoch_number)
-        {
-            for ht in self
-                .rtx
-                .transaction
-                .outputs()
-                .into_iter()
-                .map(|output| output.lock().hash_type())
-            {
-                let hash_type: ScriptHashType = ht.try_into().map_err(|_| {
-                    let val: u8 = ht.into();
-                    // This couldn't happen, because we already check it.
-                    TransactionError::Internal {
-                        description: format!("unknown hash type {:02x}", val),
-                    }
-                })?;
-                if hash_type == ScriptHashType::Data1 {
-                    return Err(TransactionError::Compatible {
-                        feature: "VM Version 1",
-                    }
-                    .into());
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -749,19 +653,12 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
-                    let proposal_window = self.consensus.tx_proposal_window();
-                    let epoch_number = self.tx_env.epoch_number(proposal_window);
-                    let hardfork_switch = self.consensus.hardfork_switch();
-                    if hardfork_switch.is_check_length_in_epoch_since_enabled(epoch_number) {
-                        if !epoch_number_with_fraction.is_well_formed_increment() {
-                            return Err((TransactionError::InvalidSince { index }).into());
-                        }
-                        let a = self.tx_env.epoch().to_rational();
-                        let b = epoch_number_with_fraction.normalize().to_rational();
-                        if a < b {
-                            return Err((TransactionError::Immature { index }).into());
-                        }
-                    } else if self.tx_env.epoch() < epoch_number_with_fraction.normalize() {
+                    if !epoch_number_with_fraction.is_well_formed_increment() {
+                        return Err((TransactionError::InvalidSince { index }).into());
+                    }
+                    let a = self.tx_env.epoch().to_rational();
+                    let b = epoch_number_with_fraction.normalize().to_rational();
+                    if a < b {
                         return Err((TransactionError::Immature { index }).into());
                     }
                 }
@@ -800,12 +697,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     }
                 }
                 Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
-                    let proposal_window = self.consensus.tx_proposal_window();
-                    let epoch_number = self.tx_env.epoch_number(proposal_window);
-                    let hardfork_switch = self.consensus.hardfork_switch();
-                    if hardfork_switch.is_check_length_in_epoch_since_enabled(epoch_number)
-                        && !epoch_number_with_fraction.is_well_formed_increment()
-                    {
+                    if !epoch_number_with_fraction.is_well_formed_increment() {
                         return Err((TransactionError::InvalidSince { index }).into());
                     }
                     let a = self.tx_env.epoch().to_rational();
@@ -900,12 +792,10 @@ impl<'a> OutputsDataVerifier<'a> {
 /// Context-dependent checks exclude script
 ///
 /// Contains:
-/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualWithoutScriptTransactionVerifier<'a, DL> {
-    pub(crate) compatible: CompatibleVerifier<'a>,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
     pub(crate) capacity: CapacityVerifier<'a>,
     pub(crate) fee_calculator: FeeCalculator<'a, DL>,
@@ -923,7 +813,6 @@ where
         tx_env: &'a TxVerifyEnv,
     ) -> Self {
         ContextualWithoutScriptTransactionVerifier {
-            compatible: CompatibleVerifier::new(rtx, consensus, tx_env),
             time_relative: TimeRelativeTransactionVerifier::new(
                 rtx,
                 consensus,
@@ -937,12 +826,9 @@ where
 
     /// Perform verification
     pub fn verify(&self) -> Result<Capacity, Error> {
-        let timer = Timer::start();
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
-        metrics!(timing, "ckb.contextual_verified_tx", timer.stop());
         Ok(fee)
     }
 }

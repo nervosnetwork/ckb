@@ -1,9 +1,5 @@
 use crate::{
-    util::{
-        cell::gen_spendable,
-        check::{assert_epoch_should_less_than, is_transaction_committed},
-        mining::{mine, mine_until_bool, mine_until_epoch},
-    },
+    util::{cell::gen_spendable, check::is_transaction_committed},
     utils::{assert_send_transaction_fail, wait_until},
     Node, Spec,
 };
@@ -20,7 +16,7 @@ const RPC_MAX_VM_VERSION: u8 = 1;
 const MAX_VM_VERSION: u8 = 1;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2021_START_EPOCH: u64 = 10;
+const CKB2021_START_EPOCH: u64 = 0;
 
 const TEST_CASES_COUNT: usize = (RPC_MAX_VM_VERSION as usize + 1 + 1) * 2;
 const INITIAL_INPUTS_COUNT: usize = 1 + TEST_CASES_COUNT * 2;
@@ -50,13 +46,10 @@ impl Spec for CheckVmVersion {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-
         let node = &nodes[0];
         let node1 = &nodes[1];
 
-        mine(node, 1);
+        node.mine(1);
         node1.connect(node);
 
         {
@@ -65,12 +58,6 @@ impl Spec for CheckVmVersion {
                 .map(|input| packed::CellInput::new(input.out_point, 0));
             let script = NewScript::new_with_id(node, 0, &mut inputs);
             let runner = CheckVmVersionTestRunner::new(node);
-
-            info!("CKB v2019:");
-            runner.run_all_tests(&mut inputs, &script, 0);
-
-            assert_epoch_should_less_than(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
-            mine_until_epoch(node, ckb2019_last_epoch, epoch_length - 4, epoch_length);
 
             info!("CKB v2021:");
             runner.run_all_tests(&mut inputs, &script, 1);
@@ -156,7 +143,7 @@ impl NewScript {
             .output_data(data.clone())
             .build();
         node.submit_transaction(&tx);
-        mine_until_bool(node, || is_transaction_committed(node, &tx));
+        node.mine_until_bool(|| is_transaction_committed(node, &tx));
         tx
     }
 
@@ -311,7 +298,8 @@ impl<'a> CheckVmVersionTestRunner<'a> {
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
         debug!(">>> >>> submit: transaction {:#x}.", tx.hash());
         self.node.submit_transaction(tx);
-        mine_until_bool(self.node, || is_transaction_committed(self.node, tx));
+        self.node
+            .mine_until_bool(|| is_transaction_committed(self.node, tx));
     }
 
     fn run_all_tests(

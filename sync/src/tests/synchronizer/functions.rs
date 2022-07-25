@@ -5,8 +5,8 @@ use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{
-    bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
-    TargetSession,
+    async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
+    SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
@@ -16,7 +16,9 @@ use ckb_types::{
         cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder,
         HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
     },
-    packed::{Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder},
+    packed::{
+        self, Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
+    },
     prelude::*,
     utilities::difficulty_to_compact,
     U256,
@@ -34,9 +36,9 @@ use std::{
 };
 
 use crate::{
-    synchronizer::{BlockFetcher, BlockProcess, HeadersProcess, Synchronizer},
+    synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
     types::{HeaderView, HeadersSyncController, IBDState, PeerState},
-    Status, SyncShared,
+    Status, StatusCode, SyncShared,
 };
 
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
@@ -419,17 +421,75 @@ fn mock_header_view(total_difficulty: u64) -> HeaderView {
     )
 }
 
+#[async_trait]
 impl CKBProtocolContext for DummyNetworkContext {
-    fn ckb2021(&self) -> bool {
-        false
-    }
     // Interact with underlying p2p service
-    fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
+    async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!();
     }
 
-    fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
+    async fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!()
+    }
+    async fn async_future_task(
+        &self,
+        _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
+        _blocking: bool,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+
+    async fn async_quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message(proto_id, peer_index, data)
+    }
+    async fn async_quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.send_message_to(peer_index, data)
+    }
+    async fn async_quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.filter_broadcast(target, data)
+    }
+    async fn async_send_message(
+        &self,
+        _proto_id: ProtocolId,
+        _peer_index: PeerIndex,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_send_message_to(
+        &self,
+        _peer_index: PeerIndex,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_filter_broadcast(
+        &self,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_disconnect(
+        &self,
+        peer_index: PeerIndex,
+        _msg: &str,
+    ) -> Result<(), ckb_network::Error> {
+        self.disconnected.lock().insert(peer_index);
+        Ok(())
     }
 
     fn future_task(
@@ -501,7 +561,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {}
     // Other methods
     fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
+        ProtocolId::new(1)
     }
 }
 
@@ -1103,6 +1163,43 @@ fn test_fix_last_common_header() {
             case, last_common, best_known, expected, actual,
         );
     }
+}
+
+#[test]
+fn get_blocks_process() {
+    let consensus = Consensus::default();
+    let (chain_controller, shared, synchronizer) = start_chain(Some(consensus));
+
+    let num = 2;
+    for i in 1..num {
+        insert_block(&chain_controller, &shared, u128::from(i), i);
+    }
+
+    let genesis_hash = shared.consensus().genesis_hash();
+    let message_with_genesis = packed::GetBlocks::new_builder()
+        .block_hashes(vec![genesis_hash].pack())
+        .build();
+
+    let nc = mock_network_context(1);
+    let peer: PeerIndex = 1.into();
+    let process = GetBlocksProcess::new(message_with_genesis.as_reader(), &synchronizer, peer, &nc);
+    assert_eq!(
+        process.execute(),
+        StatusCode::RequestGenesis.with_context("Request genesis block")
+    );
+
+    let hash = shared.snapshot().get_block_hash(1).unwrap();
+    let message_with_dup = packed::GetBlocks::new_builder()
+        .block_hashes(vec![hash.clone(), hash].pack())
+        .build();
+
+    let nc = mock_network_context(1);
+    let peer: PeerIndex = 1.into();
+    let process = GetBlocksProcess::new(message_with_dup.as_reader(), &synchronizer, peer, &nc);
+    assert_eq!(
+        process.execute(),
+        StatusCode::RequestDuplicate.with_context("Request duplicate block")
+    );
 }
 
 #[test]

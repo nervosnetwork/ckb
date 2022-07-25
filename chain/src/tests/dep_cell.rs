@@ -182,7 +182,7 @@ fn test_package_txs_with_deps() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 5
+    while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 4)
     {
         block_template = shared
             .get_block_template(None, None, None)
@@ -277,7 +277,7 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     // proposal txs
     {
-        while (Into::<u64>::into(block_template.number)) != 1 {
+        while Into::<u64>::into(block_template.number) != 1 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -300,7 +300,7 @@ fn test_package_txs_with_deps_unstable_sort() {
 
     // skip gap
     {
-        while (Into::<u64>::into(block_template.number)) != 2 {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -326,7 +326,7 @@ fn test_package_txs_with_deps_unstable_sort() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 7
+    while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 6)
     {
         block_template = shared
             .get_block_template(None, None, None)
@@ -416,7 +416,7 @@ fn test_package_txs_with_deps2() {
 
     // proposal txs
     {
-        while (Into::<u64>::into(block_template.number)) != 1 {
+        while Into::<u64>::into(block_template.number) != 1 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -439,7 +439,7 @@ fn test_package_txs_with_deps2() {
 
     // skip gap
     {
-        while (Into::<u64>::into(block_template.number)) != 2 {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -465,7 +465,7 @@ fn test_package_txs_with_deps2() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 7
+    while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 6)
     {
         block_template = shared
             .get_block_template(None, None, None)
@@ -548,7 +548,9 @@ fn test_package_txs_with_deps_priority() {
 
     // proposal txs
     {
-        while (Into::<u64>::into(block_template.number)) != 1 {
+        while !(Into::<u64>::into(block_template.number) == 1
+            && block_template.proposals.len() == 2)
+        {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -564,7 +566,7 @@ fn test_package_txs_with_deps_priority() {
 
     // skip gap
     {
-        while (Into::<u64>::into(block_template.number)) != 2 {
+        while Into::<u64>::into(block_template.number) != 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
@@ -584,7 +586,7 @@ fn test_package_txs_with_deps_priority() {
     }
 
     // get block template with txs
-    while (Into::<u64>::into(block_template.number)) != 3 && block_template.transactions.len() != 2
+    while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 1)
     {
         block_template = shared
             .get_block_template(None, None, None)

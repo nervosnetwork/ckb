@@ -1,6 +1,5 @@
 use crate::util::cell::gen_spendable;
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::{mine, mine_until_bool};
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -34,7 +33,7 @@ impl Spec for CellBeingCellDepThenSpentInSameBlockTestSubmitBlock {
         let tx_a = {
             let tx_a = always_success_transaction(node0, input_a);
             node0.submit_transaction(&tx_a);
-            mine_until_bool(node0, || is_transaction_committed(node0, &tx_a));
+            node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
             tx_a
         };
 
@@ -64,7 +63,7 @@ impl Spec for CellBeingCellDepThenSpentInSameBlockTestSubmitBlock {
             .proposal(tx_c.proposal_short_id())
             .build();
         node0.submit_block(&block);
-        mine(node0, node0.consensus().tx_proposal_window().closest());
+        node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Create block commits B and C in order
         let block = node0
@@ -107,7 +106,7 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
         let tx_a = {
             let tx_a = always_success_transaction(node0, input_a);
             node0.submit_transaction(&tx_a);
-            mine_until_bool(node0, || is_transaction_committed(node0, &tx_a));
+            node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
             tx_a
         };
 
@@ -137,7 +136,7 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
             .proposal(tx_c.proposal_short_id())
             .build();
         node0.submit_block(&block);
-        mine(node0, node0.consensus().tx_proposal_window().closest());
+        node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Create block commits B and C in order
         let block = node0
@@ -194,7 +193,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
         let tx_a = {
             let tx_a = always_success_transaction(node0, input_a);
             node0.submit_transaction(&tx_a);
-            mine_until_bool(node0, || is_transaction_committed(node0, &tx_a));
+            node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
             tx_a
         };
 
@@ -265,7 +264,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
             .proposal(tx_c.proposal_short_id())
             .build();
         node0.submit_block(&block);
-        mine(node0, node0.consensus().tx_proposal_window().closest());
+        node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Submit B and C
         //
@@ -276,7 +275,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
         node0.submit_transaction(&tx_b);
 
         // Inside `mine`, RPC `get_block_template` will be involved, that's our testing interface.
-        mine(node0, node0.consensus().tx_proposal_window().farthest());
+        node0.mine(node0.consensus().tx_proposal_window().farthest());
 
         assert!(is_transaction_committed(node0, &tx_b));
         if b_weightier_than_c {

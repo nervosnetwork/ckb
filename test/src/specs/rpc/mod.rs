@@ -1,6 +1,8 @@
 mod get_block_median_time;
 mod get_block_template;
 mod get_blockchain_info;
+#[cfg(target_os = "linux")]
+mod set_ban;
 mod submit_block;
 mod transaction_proof;
 mod truncate;
@@ -8,6 +10,8 @@ mod truncate;
 pub use get_block_median_time::*;
 pub use get_block_template::*;
 pub use get_blockchain_info::*;
+#[cfg(target_os = "linux")]
+pub use set_ban::*;
 pub use submit_block::*;
 pub use transaction_proof::*;
 pub use truncate::*;

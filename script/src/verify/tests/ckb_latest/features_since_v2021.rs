@@ -953,7 +953,6 @@ fn load_code_with_snapshot() {
     let mut cycles = 0;
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
-    let should_be_invalid_permission = script_version < ScriptVersion::V1;
     let result = verifier.verify_map(script_version, &rtx, |mut verifier| {
         let mut init_snap: Option<TransactionSnapshot> = None;
 
@@ -963,32 +962,19 @@ fn load_code_with_snapshot() {
 
         let snap = init_snap.take().unwrap();
         let result = verifier.resume_from_snap(&snap, max_cycles);
-        if should_be_invalid_permission {
-            let vm_error = VmError::MemWriteOnExecutablePage;
-            let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
-            assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
-        } else {
-            match result.unwrap() {
-                VerifyResult::Suspended(state) => {
-                    panic!("should be completed, {:?}", state);
-                }
-                VerifyResult::Completed(cycle) => {
-                    assert!(
-                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                        "Any group execution is complete, this must be empty"
-                    );
-                    cycles = cycle;
-                }
+
+        match result.unwrap() {
+            VerifyResult::Suspended(state) => {
+                panic!("should be completed, {:?}", state);
+            }
+            VerifyResult::Completed(cycle) => {
+                cycles = cycle;
             }
         }
 
         verifier.set_skip_pause(true);
         verifier.verify(max_cycles)
     });
-
-    if should_be_invalid_permission {
-        return;
-    }
 
     let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
@@ -1058,7 +1044,6 @@ fn load_code_with_snapshot_more_times() {
     let mut cycles = 0;
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
-    let should_be_invalid_permission = script_version < ScriptVersion::V1;
 
     verifier.verify_map(script_version, &rtx, |verifier| {
         let mut init_snap: Option<TransactionSnapshot> = None;
@@ -1070,32 +1055,18 @@ fn load_code_with_snapshot_more_times() {
         loop {
             let snap = init_snap.take().unwrap();
             let result = verifier.resume_from_snap(&snap, max_cycles);
-            if should_be_invalid_permission {
-                let vm_error = VmError::MemWriteOnExecutablePage;
-                let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
-                assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
-                break;
-            } else {
-                match result.unwrap() {
-                    VerifyResult::Suspended(state) => {
-                        init_snap = Some(state.try_into().unwrap());
-                    }
-                    VerifyResult::Completed(cycle) => {
-                        assert!(
-                            verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                            "Any group execution is complete, this must be empty"
-                        );
-                        cycles = cycle;
-                        break;
-                    }
+
+            match result.unwrap() {
+                VerifyResult::Suspended(state) => {
+                    init_snap = Some(state.try_into().unwrap());
+                }
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    break;
                 }
             }
         }
     });
-
-    if should_be_invalid_permission {
-        return;
-    }
 
     let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
     let cycles_once = result.unwrap();

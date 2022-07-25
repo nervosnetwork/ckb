@@ -1,5 +1,8 @@
-use ckb_types::{core::BlockNumber, core::UncleBlockView};
+use ckb_types::core::{BlockNumber, EpochExt, UncleBlockView};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+
+use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 
 #[cfg(not(test))]
 const MAX_CANDIDATE_UNCLES: usize = 128;
@@ -100,6 +103,50 @@ impl CandidateUncles {
             }
         }
         false
+    }
+
+    /// Get uncles from snapshot and current states.
+    // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
+    // (1) they are in the same epoch, sharing the same difficulty;
+    // (2) height(B2) > height(B1);
+    // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
+    // and (4) B2 is the first block in its chain to refer to B1.
+    pub fn prepare_uncles(
+        &mut self,
+        snapshot: &Snapshot,
+        current_epoch_ext: &EpochExt,
+    ) -> Vec<UncleBlockView> {
+        let candidate_number = snapshot.tip_number() + 1;
+        let epoch_number = current_epoch_ext.number();
+        let max_uncles_num = snapshot.consensus().max_uncles_num();
+        let mut uncles: Vec<UncleBlockView> = Vec::with_capacity(max_uncles_num);
+        let mut removed = Vec::new();
+
+        for uncle in self.values() {
+            if uncles.len() == max_uncles_num {
+                break;
+            }
+            let parent_hash = uncle.header().parent_hash();
+            // we should keep candidate util next epoch
+            if uncle.compact_target() != current_epoch_ext.compact_target()
+                || uncle.epoch().number() != epoch_number
+            {
+                removed.push(uncle.clone());
+            } else if !snapshot.is_main_chain(&uncle.hash())
+                && !snapshot.is_uncle(&uncle.hash())
+                && uncle.number() < candidate_number
+                && (uncles.iter().any(|u| u.hash() == parent_hash)
+                    || snapshot.is_main_chain(&parent_hash)
+                    || snapshot.is_uncle(&parent_hash))
+            {
+                uncles.push(uncle.clone());
+            }
+        }
+
+        for r in removed {
+            self.remove_by_number(&r);
+        }
+        uncles
     }
 }
 

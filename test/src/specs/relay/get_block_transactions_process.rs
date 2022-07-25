@@ -1,4 +1,4 @@
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::{Net, Node, Spec};
 use ckb_network::{bytes::Bytes, SupportProtocols};
 use ckb_types::{
@@ -17,11 +17,11 @@ impl Spec for MissingUncleRequest {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node);
 
-        mine(node, 1);
+        node.mine(1);
 
         let builder = node.new_block_builder(None, None, None);
         let block1 = builder.clone().nonce(0.pack()).build();
@@ -42,7 +42,7 @@ impl Spec for MissingUncleRequest {
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
-        net.send(node, SupportProtocols::Relay, message.as_bytes());
+        net.send(node, SupportProtocols::RelayV2, message.as_bytes());
 
         let ret = net.should_receive(node, |data: &Bytes| {
             RelayMessage::from_slice(data)

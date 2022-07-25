@@ -1,5 +1,4 @@
 use crate::node::waiting_for_sync;
-use crate::util::mining::mine;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::{
     build_block, build_compact_block, build_get_blocks, build_header, now_ms, sleep, wait_until,
@@ -28,10 +27,7 @@ impl Spec for BlockSyncFromOne {
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
-        (0..3).for_each(|_| {
-            mine(node0, 1);
-        });
-
+        node0.mine(3);
         node1.connect(node0);
 
         let ret = wait_until(10, || {
@@ -271,7 +267,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::Relay],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
         );
         net.connect(node0);
         let rpc_client = node0.rpc_client();
@@ -297,7 +293,7 @@ impl Spec for BlockSyncRelayerCollaboration {
         assert!(!ret, "node0 should stay the same");
 
         sync_block(&net, node0, &first);
-        net.send(node0, SupportProtocols::Relay, build_compact_block(&last));
+        net.send(node0, SupportProtocols::RelayV2, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);
         info!("{}", rpc_client.get_tip_block_number());
@@ -444,13 +440,13 @@ impl Spec for SyncTooNewBlock {
         node1.connect(node0);
 
         // sync node0 node2
-        mine(node2, 6);
+        node2.mine(6);
         node2.connect(node0);
         waiting_for_sync(&[node0, node2]);
         node2.disconnect(node0);
 
         sleep(15); // GET_HEADERS_TIMEOUT 15s
-        mine(node0, 1);
+        node0.mine(1);
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
@@ -503,13 +499,26 @@ impl Spec for HeaderSyncCycle {
 }
 
 fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
+    use std::thread::sleep;
+
     let rpc_client = node.rpc_client();
     let mut blocks = Vec::with_capacity(offsets.len());
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
+        let next_number = template.number.value() + 1;
+
         template.current_time = (template.current_time.value() + offset).into();
         rpc_client.generate_block_with_template(template.clone());
         blocks.push(packed::Block::from(template).into_view());
+
+        while rpc_client
+            .get_block_template(None, None, None)
+            .number
+            .value()
+            != next_number
+        {
+            sleep(Duration::from_millis(100));
+        }
     }
     blocks
 }

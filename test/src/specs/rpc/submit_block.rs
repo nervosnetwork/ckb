@@ -1,4 +1,3 @@
-use crate::util::mining::{mine_until_epoch, mine_until_out_bootstrap_period};
 use crate::utils::now_ms;
 use crate::{Node, Spec};
 use ckb_types::{
@@ -14,8 +13,8 @@ impl Spec for RpcSubmitBlock {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-        mine_until_out_bootstrap_period(node0);
-        mine_until_out_bootstrap_period(node1);
+        node0.mine_until_out_bootstrap_period();
+        node1.mine_until_out_bootstrap_period();
 
         // build block with wrong block number
         let block = node0
@@ -48,8 +47,7 @@ impl Spec for RpcSubmitBlock {
         // build block with wrong epoch
         let tip_header: HeaderView = node0.rpc_client().get_tip_header().into();
         let tip_epoch = tip_header.epoch();
-        mine_until_epoch(
-            node0,
+        node0.mine_until_epoch(
             tip_epoch.number(),
             tip_epoch.length() - 1,
             tip_epoch.length(),

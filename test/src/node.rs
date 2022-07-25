@@ -5,7 +5,7 @@ use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::TxPoolInfo;
+use ckb_jsonrpc_types::{BlockTemplate, TxPoolInfo};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
@@ -319,8 +319,8 @@ impl Node {
     }
 
     // Convenient way to construct an uncle block
-    pub fn construct_uncle(&self) -> BlockView {
-        let block = self.new_block(None, None, None);
+    pub fn construct_uncle(&self) -> (BlockView, BlockView) {
+        let block = self.new_block_without_uncles(None, None, None);
         // Make sure the uncle block timestamp is different from
         // the next block timestamp in main fork.
         // Firstly construct uncle block which timestamp
@@ -328,20 +328,11 @@ impl Node {
         // the new block in main fork which timestamp is greater than
         // or equal to the current time.
         let timestamp = block.timestamp();
-        loop {
-            let timestamp_next: u64 = self
-                .rpc_client()
-                .get_block_template(None, None, None)
-                .current_time
-                .into();
-            if timestamp_next > timestamp {
-                break;
-            }
-        }
-        block
+        let uncle = block
             .as_advanced_builder()
-            .timestamp(timestamp.pack())
-            .build()
+            .timestamp((timestamp + 1).pack())
+            .build();
+        (block, uncle)
     }
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
@@ -429,15 +420,13 @@ impl Node {
         }
         let mut instant = Instant::now();
         while instant.elapsed() < Duration::from_secs(10) {
-            sleep(std::time::Duration::from_secs(1));
+            sleep(std::time::Duration::from_millis(100));
             chain_tip = rpc_client.get_tip_header();
             let prev_tx_pool_tip = tx_pool_tip;
             tx_pool_tip = rpc_client.tx_pool_info();
             if chain_tip.hash == tx_pool_tip.tip_hash {
                 return;
-            } else if prev_tx_pool_tip.tip_hash != tx_pool_tip.tip_hash
-                && tx_pool_tip.tip_number.value() < chain_tip.inner.number.value()
-            {
+            } else if prev_tx_pool_tip.tip_hash != tx_pool_tip.tip_hash {
                 instant = Instant::now();
             }
         }
@@ -457,6 +446,17 @@ impl Node {
         }
     }
 
+    pub fn new_block_without_uncles(
+        &self,
+        bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
+        max_version: Option<u32>,
+    ) -> BlockView {
+        self.new_block_builder(bytes_limit, proposals_limit, max_version)
+            .set_uncles(vec![])
+            .build()
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
@@ -465,6 +465,31 @@ impl Node {
     ) -> BlockView {
         self.new_block_builder(bytes_limit, proposals_limit, max_version)
             .build()
+    }
+
+    pub fn new_block_with_blocking<B>(&self, blocking: B) -> BlockView
+    where
+        B: Fn(&BlockTemplate) -> bool,
+    {
+        self.new_block_builder_with_blocking(blocking).build()
+    }
+
+    pub fn new_block_builder_with_blocking<B>(&self, blocking: B) -> BlockBuilder
+    where
+        B: Fn(&BlockTemplate) -> bool,
+    {
+        let mut count = 0;
+        let mut template = self.rpc_client().get_block_template(None, None, None);
+        while blocking(&template) {
+            sleep(Duration::from_millis(50));
+            template = self.rpc_client().get_block_template(None, None, None);
+            count += 1;
+
+            if count > 100 {
+                panic!("mine_with_blocking timeout");
+            }
+        }
+        Block::from(template).as_advanced_builder()
     }
 
     pub fn new_block_builder(

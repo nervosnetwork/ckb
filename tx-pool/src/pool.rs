@@ -13,23 +13,16 @@ use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
-        cell::{
-            resolve_transaction_with_options, OverlayCellChecker, OverlayCellProvider,
-            ResolveOptions, ResolvedTransaction,
-        },
+        cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
-        Cycle, TransactionView,
+        Cycle, TransactionView, UncleBlockView,
     },
     packed::{Byte32, ProposalShortId},
 };
 use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
-use faketime::unix_time_as_millis;
 use lru::LruCache;
 use std::collections::HashSet;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
@@ -44,8 +37,6 @@ pub struct TxPool {
     pub(crate) proposed: ProposedPool,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
-    /// last txs updated timestamp, used by getblocktemplate
-    pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     // sum of all tx_pool tx's virtual sizes.
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
@@ -92,11 +83,7 @@ pub struct TxPoolInfo {
 
 impl TxPool {
     /// Create new TxPool
-    pub fn new(
-        config: TxPoolConfig,
-        snapshot: Arc<Snapshot>,
-        last_txs_updated_at: Arc<AtomicU64>,
-    ) -> TxPool {
+    pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
         let recent_reject = build_recent_reject(&config);
         let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
         TxPool {
@@ -104,7 +91,6 @@ impl TxPool {
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
-            last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
             config,
@@ -168,11 +154,7 @@ impl TxPool {
             return false;
         }
         trace!("add_pending {}", entry.transaction().hash());
-        let inserted = self.pending.add_entry(entry);
-        if inserted {
-            self.touch_last_txs_updated_at();
-        }
-        inserted
+        self.pending.add_entry(entry)
     }
 
     /// Add tx which proposed but still uncommittable to gap pool
@@ -184,22 +166,7 @@ impl TxPool {
     /// Add tx to proposed pool
     pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         trace!("add_proposed {}", entry.transaction().hash());
-        self.proposed.add_entry(entry).map(|inserted| {
-            if inserted {
-                self.touch_last_txs_updated_at();
-            }
-            inserted
-        })
-    }
-
-    pub(crate) fn touch_last_txs_updated_at(&self) {
-        self.last_txs_updated_at
-            .store(unix_time_as_millis(), Ordering::SeqCst);
-    }
-
-    /// Get last txs in tx-pool update timestamp
-    pub fn get_last_txs_updated_at(&self) -> u64 {
-        self.last_txs_updated_at.load(Ordering::SeqCst)
+        self.proposed.add_entry(entry)
     }
 
     /// Returns true if the tx-pool contains a tx with specified id.
@@ -403,7 +370,6 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
-        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
@@ -411,12 +377,11 @@ impl TxPool {
         let pending_and_proposed_provider =
             OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction_with_options(
+        resolve_transaction(
             tx,
             &mut seen_inputs,
             &pending_and_proposed_provider,
             snapshot,
-            resolve_opts,
         )
         .map_err(Reject::Resolve)
     }
@@ -424,7 +389,6 @@ impl TxPool {
     pub(crate) fn check_rtx_from_pending_and_proposed(
         &self,
         rtx: &ResolvedTransaction,
-        resolve_opts: ResolveOptions,
     ) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
@@ -432,42 +396,25 @@ impl TxPool {
         let pending_and_proposed_checker =
             OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
         let mut seen_inputs = HashSet::new();
-        rtx.check(
-            &mut seen_inputs,
-            &pending_and_proposed_checker,
-            snapshot,
-            resolve_opts,
-        )
-        .map_err(Reject::Resolve)
+        rtx.check(&mut seen_inputs, &pending_and_proposed_checker, snapshot)
+            .map_err(Reject::Resolve)
     }
 
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
-        resolve_opts: ResolveOptions,
     ) -> Result<ResolvedTransaction, Reject> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction_with_options(
-            tx,
-            &mut seen_inputs,
-            &cell_provider,
-            snapshot,
-            resolve_opts,
-        )
-        .map_err(Reject::Resolve)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
     }
 
-    pub(crate) fn check_rtx_from_proposed(
-        &self,
-        rtx: &ResolvedTransaction,
-        resolve_opts: ResolveOptions,
-    ) -> Result<(), Reject> {
+    pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
         let snapshot = self.snapshot();
         let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &cell_checker, snapshot, resolve_opts)
+        rtx.check(&mut seen_inputs, &cell_checker, snapshot)
             .map_err(Reject::Resolve)
     }
 
@@ -480,14 +427,7 @@ impl TxPool {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
-
-        let resolve_opts = {
-            let proposal_window = snapshot.consensus().tx_proposal_window();
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            let hardfork_switch = snapshot.consensus().hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-        self.check_rtx_from_pending_and_proposed(&rtx, resolve_opts)?;
+        self.check_rtx_from_pending_and_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
@@ -510,14 +450,7 @@ impl TxPool {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
-
-        let resolve_opts = {
-            let proposal_window = snapshot.consensus().tx_proposal_window();
-            let epoch_number = tx_env.epoch_number(proposal_window);
-            let hardfork_switch = snapshot.consensus().hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-        self.check_rtx_from_proposed(&rtx, resolve_opts)?;
+        self.check_rtx_from_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
@@ -608,19 +541,51 @@ impl TxPool {
         txs.append(&mut self.pending.drain());
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
-        self.touch_last_txs_updated_at();
+        // self.touch_last_txs_updated_at();
         txs
     }
 
-    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>, last_txs_updated_at: Arc<AtomicU64>) {
+    pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>) {
         self.pending = PendingQueue::new();
         self.gap = PendingQueue::new();
         self.proposed = ProposedPool::new(self.config.max_ancestors_count);
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-        self.last_txs_updated_at = last_txs_updated_at;
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
+    }
+
+    pub(crate) fn package_proposals(
+        &self,
+        proposals_limit: u64,
+        uncles: &[UncleBlockView],
+    ) -> HashSet<ProposalShortId> {
+        let uncle_proposals = uncles
+            .iter()
+            .flat_map(|u| u.data().proposals().into_iter())
+            .collect();
+        self.get_proposals(proposals_limit as usize, &uncle_proposals)
+    }
+
+    pub(crate) fn package_txs(
+        &self,
+        max_block_cycles: Cycle,
+        txs_size_limit: usize,
+    ) -> (Vec<TxEntry>, usize, Cycle) {
+        let (entries, size, cycles) =
+            CommitTxsScanner::new(self.proposed()).txs_to_commit(txs_size_limit, max_block_cycles);
+
+        if !entries.is_empty() {
+            ckb_logger::info!(
+                "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
+                entries.len(),
+                size,
+                txs_size_limit,
+                cycles,
+                max_block_cycles
+            );
+        }
+        (entries, size, cycles)
     }
 }
 

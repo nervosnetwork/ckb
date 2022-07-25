@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
@@ -23,7 +21,6 @@ pub struct LoadCellData<'a, DL> {
     resolved_cell_deps: &'a [CellMeta],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
-    tracing_data_as_code_pages: &'a RefCell<Vec<(u64, u64)>>,
 }
 
 impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
@@ -34,7 +31,6 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
         resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-        tracing_data_as_code_pages: &'a RefCell<Vec<(u64, u64)>>,
     ) -> LoadCellData<'a, DL> {
         LoadCellData {
             data_loader,
@@ -43,7 +39,6 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
             resolved_cell_deps,
             group_inputs,
             group_outputs,
-            tracing_data_as_code_pages,
         }
     }
 
@@ -121,10 +116,6 @@ impl<'a, DL: CellDataProvider + 'a> LoadCellData<'a, DL> {
             Some(data),
             0,
         )?;
-        // tracing data as code page index
-        self.tracing_data_as_code_pages
-            .borrow_mut()
-            .push((addr, memory_size));
 
         machine.add_cycles_no_checking(transferred_byte_cycles(memory_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));

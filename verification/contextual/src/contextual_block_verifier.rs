@@ -5,7 +5,6 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_logger::error_target;
-use ckb_metrics::{metrics, Timer};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
@@ -63,20 +62,10 @@ impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
         if !self.store.is_main_chain(block_hash) {
             return Err(OutPointError::InvalidHeader(block_hash.clone()));
         }
-        match self.store.get_block_header(block_hash) {
-            Some(header) => {
-                let tip_header = self.store.get_tip_header().expect("tip should exist");
-                let threshold =
-                    self.consensus.cellbase_maturity().to_rational() + header.epoch().to_rational();
-                let current = tip_header.epoch().to_rational();
-                if current < threshold {
-                    Err(OutPointError::ImmatureHeader(block_hash.clone()))
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(OutPointError::InvalidHeader(block_hash.clone())),
-        }
+        self.store
+            .get_block_header(block_hash)
+            .ok_or_else(|| OutPointError::InvalidHeader(block_hash.clone()))?;
+        Ok(())
     }
 }
 
@@ -365,7 +354,6 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         handle: &Handle,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
-        let timer = Timer::start();
         // We should skip updating tx_verify_cache about the cellbase tx,
         // putting it in cache that will never be used until lru cache expires.
         let fetched_cache = if self.resolved.len() > 1 {
@@ -465,7 +453,6 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             });
         }
 
-        metrics!(timing, "ckb.contextual_verified_block_txs", timer.stop());
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
@@ -538,7 +525,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         handle: &Handle,
         switch: Switch,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
-        let timer = Timer::start();
         let parent_hash = block.data().header().raw().parent_hash();
         let header = block.header();
         let parent = self
@@ -587,7 +573,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             handle,
             switch.disable_script(),
         )?;
-        metrics!(timing, "ckb.contextual_verified_block", timer.stop());
         Ok(ret)
     }
 }

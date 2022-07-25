@@ -8,7 +8,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        Capacity, CapacityResult, HeaderView, ScriptHashType,
+        Capacity, CapacityResult, EpochExt, HeaderView, ScriptHashType,
     },
     packed::{Byte32, CellOutput, Script, WitnessArgs},
     prelude::*,
@@ -71,14 +71,12 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         Ok(Capacity::shannons(reward))
     }
 
-    /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
-    ///
-    /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
-    /// [`extract_dao_data`]: ../ckb_dao_utils/fn.extract_dao_data.html
-    pub fn dao_field(
+    /// Calculates the new dao field with specified [`EpochExt`].
+    pub fn dao_field_with_current_epoch(
         &self,
         rtxs: &[ResolvedTransaction],
         parent: &HeaderView,
+        current_block_epoch: &EpochExt,
     ) -> Result<Byte32, DaoError> {
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
@@ -98,11 +96,6 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         // issuance for each block(which will only be issued on chain
         // after the finalization delay), not the capacities generated
         // in the cellbase of current block.
-        let current_block_epoch = self
-            .consensus
-            .next_epoch_ext(parent, self.data_loader)
-            .ok_or(DaoError::InvalidHeader)?
-            .epoch();
         let current_block_number = parent.number() + 1;
         let current_g2 = current_block_epoch.secondary_block_issuance(
             current_block_number,
@@ -134,6 +127,23 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .ok_or(DaoError::Overflow)?;
 
         Ok(pack_dao_data(current_ar, current_c, current_s, current_u))
+    }
+
+    /// Calculates the new dao field after packaging these transactions. It returns the dao field in [`Byte32`] format. Please see [`extract_dao_data`] if you intend to see the detailed content.
+    ///
+    /// [`Byte32`]: ../ckb_types/packed/struct.Byte32.html
+    /// [`extract_dao_data`]: ../ckb_dao_utils/fn.extract_dao_data.html
+    pub fn dao_field(
+        &self,
+        rtxs: &[ResolvedTransaction],
+        parent: &HeaderView,
+    ) -> Result<Byte32, DaoError> {
+        let current_block_epoch = self
+            .consensus
+            .next_epoch_ext(parent, self.data_loader)
+            .ok_or(DaoError::InvalidHeader)?
+            .epoch();
+        self.dao_field_with_current_epoch(rtxs, parent, &current_block_epoch)
     }
 
     /// Returns the total transactions fee of `rtx`.

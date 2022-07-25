@@ -1,4 +1,3 @@
-use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_BYTES;
 use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
 use ckb_db::RocksDB;
@@ -11,9 +10,8 @@ use ckb_test_chain_utils::{
 };
 use ckb_types::{
     core::{
-        capacity_bytes, cell::CellMetaBuilder, hardfork::HardForkSwitch, Capacity, Cycle, DepType,
-        EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType, TransactionBuilder,
-        TransactionInfo,
+        capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, ScriptHashType,
+        TransactionBuilder, TransactionInfo,
     },
     h256,
     packed::{
@@ -118,8 +116,6 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
     //
     // Ref: https://doc.rust-lang.org/reference/destructors.html
     store: ChainDB,
-    version_1_enabled_at: EpochNumber,
-    consensus: Consensus,
     _tmp_dir: TempDir,
 }
 
@@ -128,19 +124,8 @@ impl TransactionScriptsVerifierWithEnv {
         let tmp_dir = TempDir::new().unwrap();
         let db = RocksDB::open_in(&tmp_dir, COLUMNS);
         let store = ChainDB::new(db, Default::default());
-        let version_1_enabled_at = 10;
-        let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-            .as_builder()
-            .rfc_0032(version_1_enabled_at)
-            .build()
-            .unwrap();
-        let consensus = ConsensusBuilder::default()
-            .hardfork_switch(hardfork_switch)
-            .build();
         Self {
             store,
-            version_1_enabled_at,
-            consensus,
             _tmp_dir: tmp_dir,
         }
     }
@@ -185,22 +170,14 @@ impl TransactionScriptsVerifierWithEnv {
         self.verify_map(version, rtx, |verifier| {
             let cycles;
             let mut times = 0usize;
-            let mut init_snap: Option<TransactionSnapshot>;
-
             times += 1;
-            match verifier.resumable_verify(max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
-                }
+            let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => Some(state.try_into().unwrap()),
                 VerifyResult::Completed(cycle) => {
-                    assert!(
-                        verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                        "Any group execution is complete, this must be empty"
-                    );
                     cycles = cycle;
                     return Ok((cycles, times));
                 }
-            }
+            };
 
             loop {
                 times += 1;
@@ -210,10 +187,6 @@ impl TransactionScriptsVerifierWithEnv {
                         init_snap = Some(state.try_into().unwrap());
                     }
                     VerifyResult::Completed(cycle) => {
-                        assert!(
-                            verifier.tracing_data_as_code_pages.borrow().is_empty(),
-                            "Any group execution is complete, this must be empty"
-                        );
                         cycles = cycle;
                         break;
                     }
@@ -226,7 +199,7 @@ impl TransactionScriptsVerifierWithEnv {
 
     pub(crate) fn verify_map<R, F>(
         &self,
-        version: ScriptVersion,
+        _version: ScriptVersion,
         rtx: &ResolvedTransaction,
         mut verify_func: F,
     ) -> R
@@ -234,17 +207,7 @@ impl TransactionScriptsVerifierWithEnv {
         F: FnMut(TransactionScriptsVerifier<'_, DataLoaderWrapper<'_, ChainDB>>) -> R,
     {
         let data_loader = DataLoaderWrapper::new(&self.store);
-
-        let epoch = match version {
-            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
-            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
-        };
-        let header = HeaderView::new_advanced_builder()
-            .epoch(epoch.pack())
-            .build();
-        let tx_env = TxVerifyEnv::new_commit(&header);
-
-        let verifier = TransactionScriptsVerifier::new(rtx, &self.consensus, &data_loader, &tx_env);
+        let verifier = TransactionScriptsVerifier::new(rtx, &data_loader);
         verify_func(verifier)
     }
 }

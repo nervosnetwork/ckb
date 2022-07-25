@@ -1,11 +1,12 @@
-use crate::network::disconnect_with_message;
+use crate::network::async_disconnect_with_message;
 use crate::NetworkState;
 use ckb_logger::debug;
 use p2p::{
+    async_trait,
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 
 /// Feeler
 /// Currently do nothing, CKBProtocol auto refresh peer_store after connected.
@@ -19,18 +20,13 @@ impl Feeler {
     }
 }
 
+#[async_trait]
 impl ServiceProtocol for Feeler {
-    fn init(&mut self, _context: &mut ProtocolContext) {}
+    async fn init(&mut self, _context: &mut ProtocolContext) {}
 
-    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, _version: &str) {
         let session = context.session;
-        if self.network_state.ckb2021.load(Ordering::SeqCst) && version != "2" {
-            self.network_state
-                .peer_store
-                .lock()
-                .mut_addr_manager()
-                .remove(&session.address);
-        } else if context.session.ty.is_outbound() {
+        if context.session.ty.is_outbound() {
             self.network_state.with_peer_store_mut(|peer_store| {
                 peer_store.add_outbound_addr(session.address.clone());
             });
@@ -38,13 +34,13 @@ impl ServiceProtocol for Feeler {
 
         debug!("peer={} FeelerProtocol.connected", session.address);
         if let Err(err) =
-            disconnect_with_message(context.control(), session.id, "feeler connection")
+            async_disconnect_with_message(context.control(), session.id, "feeler connection").await
         {
             debug!("Disconnect failed {:?}, error: {:?}", session.id, err);
         }
     }
 
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+    async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         let session = context.session;
         self.network_state.with_peer_registry_mut(|reg| {
             reg.remove_feeler(&session.address);

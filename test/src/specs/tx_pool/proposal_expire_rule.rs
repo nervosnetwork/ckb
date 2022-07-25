@@ -1,4 +1,3 @@
-use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::{Node, Spec};
 use ckb_logger::info;
 use ckb_types::core::BlockNumber;
@@ -11,7 +10,7 @@ impl Spec for ProposalExpireRuleForCommittingAndExpiredAtOneTime {
     //       committed and expired.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
-        mine_until_out_bootstrap_period(node);
+        node.mine_until_out_bootstrap_period();
 
         let tx = node.new_transaction_spend_tip_cellbase();
         node.submit_transaction(&tx);

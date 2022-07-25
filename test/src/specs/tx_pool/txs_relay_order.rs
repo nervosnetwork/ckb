@@ -1,5 +1,5 @@
 use crate::node::{connect_all, waiting_for_sync};
-use crate::util::mining::{mine_until_out_bootstrap_period, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::utils::sleep;
 use crate::{Node, Spec};
 use ckb_types::core::FeeRate;
@@ -22,7 +22,7 @@ impl Spec for TxsRelayOrder {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
         waiting_for_sync(nodes);
         // build chain txs
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];

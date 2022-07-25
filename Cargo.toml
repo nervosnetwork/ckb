@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.103.0"
+version = "0.104.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -8,14 +8,14 @@ build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-rust-version = "1.56.1"
+rust-version = "1.61.0"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.103.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.104.0" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.103.0" }
-ckb-bin = { path = "ckb-bin", version = "= 0.103.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.104.0" }
+ckb-bin = { path = "ckb-bin", version = "= 0.104.0" }
 
 [dev-dependencies]
 
@@ -96,6 +96,11 @@ opt-level = 3
 [profile.bench.build-override]
 opt-level = 3
 
+[profile.prod]
+inherits = "release"
+lto = true
+codegen-units = 1
+
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 tikv-jemallocator = { version = "0.4.0", features = ["unprefixed_malloc_on_supported_platforms"] }
 
@@ -105,3 +110,4 @@ deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
 profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
+portable = ["ckb-bin/portable"]

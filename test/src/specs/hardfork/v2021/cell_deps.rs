@@ -1,17 +1,14 @@
 use crate::{
     util::{
         cell::gen_spendable,
-        check::{
-            assert_epoch_should_greater_than, assert_epoch_should_less_than,
-            is_transaction_committed,
-        },
-        mining::{mine, mine_until_bool, mine_until_epoch},
+        check::{assert_epoch_should_greater_than, is_transaction_committed},
     },
     utils::assert_send_transaction_fail,
     Node, Spec,
 };
 use ckb_jsonrpc_types as rpc;
 use ckb_logger::{info, trace};
+use ckb_types::packed::Byte32;
 use ckb_types::{
     core::{self, TransactionView},
     packed,
@@ -20,7 +17,7 @@ use ckb_types::{
 use std::fmt;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2021_START_EPOCH: u64 = 12;
+const CKB2021_START_EPOCH: u64 = 0;
 
 // In `CheckCellDepsTestRunner::create_celldep_set()`:
 // - Deploy 6 scripts.
@@ -50,7 +47,6 @@ enum ExpectedResult {
     MultipleMatchesInputLock,
     MultipleMatchesInputType,
     MultipleMatchesOutputType,
-    OverMaxDepExpansionLimitNotBan,
     OverMaxDepExpansionLimitBan,
 }
 
@@ -61,7 +57,6 @@ const DUP: ExpectedResult = ER::DuplicateCellDeps;
 const MMIL: ExpectedResult = ER::MultipleMatchesInputLock;
 const MMIT: ExpectedResult = ER::MultipleMatchesInputType;
 const MMOT: ExpectedResult = ER::MultipleMatchesOutputType;
-const MDEL_NOTBAN: ExpectedResult = ER::OverMaxDepExpansionLimitNotBan;
 const MDEL_BAN: ExpectedResult = ER::OverMaxDepExpansionLimitBan;
 
 // Use identifiers with same length to align the test cases matrix, to make it more readable.
@@ -127,9 +122,6 @@ struct CellDepSet {
 
 #[derive(Debug, Clone, Copy)]
 enum RunnerState {
-    V2019,
-    OneBlockBeforeV2021,
-    FirstBlockOfV2021,
     V2021,
 }
 
@@ -152,16 +144,7 @@ impl Spec for CheckCellDeps {
             .map(|input| packed::CellInput::new(input.out_point, 0));
         let mut runner = CheckCellDepsTestRunner::new(node, &mut inputs);
 
-        runner.switch_v2019();
-        runner.run_v2019_tests();
-
-        runner.switch_one_block_before_v2021();
-        runner.run_v2019_tests();
-
-        runner.switch_first_block_of_v2021();
-        runner.run_v2021_tests();
-
-        runner.switch_v2021();
+        runner.start_at = node.get_tip_block_number();
         runner.run_v2021_tests();
     }
 
@@ -172,8 +155,8 @@ impl Spec for CheckCellDeps {
             spec.params.hardfork = Some(Default::default());
         }
         if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0029 = Some(CKB2021_START_EPOCH);
-            switch.rfc_0038 = Some(CKB2021_START_EPOCH);
+            switch.rfc_0029 = Some(0);
+            switch.rfc_0038 = Some(0);
         }
     }
 }
@@ -251,7 +234,7 @@ impl NewScript {
             .output_data(data.clone())
             .build();
         node.submit_transaction(&tx);
-        mine_until_bool(node, || is_transaction_committed(node, &tx));
+        node.mine_until_bool(|| is_transaction_committed(node, &tx));
         tx
     }
 
@@ -315,15 +298,10 @@ impl ExpectedResult {
                  Verification failed Script(TransactionScriptError \
                  { source: Outputs[0].Type, cause: MultipleMatches })",
             ),
-            Self::OverMaxDepExpansionLimitNotBan => Some(
-                "{\"code\":-301,\"message\":\"TransactionFailedToResolve: \
-                 Resolve failed OverMaxDepExpansionLimit\",\
-                 \"data\":\"Resolve(OverMaxDepExpansionLimit { ban: false })\"}",
-            ),
             Self::OverMaxDepExpansionLimitBan => Some(
                 "{\"code\":-301,\"message\":\"TransactionFailedToResolve: \
                  Resolve failed OverMaxDepExpansionLimit\",\
-                 \"data\":\"Resolve(OverMaxDepExpansionLimit { ban: true })\"}",
+                 \"data\":\"Resolve(OverMaxDepExpansionLimit)\"}",
             ),
         }
     }
@@ -360,9 +338,6 @@ impl fmt::Display for ScriptType {
 impl fmt::Display for RunnerState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::V2019 => write!(f, "v2019"),
-            Self::OneBlockBeforeV2021 => write!(f, "v2021-"),
-            Self::FirstBlockOfV2021 => write!(f, "v2021"),
             Self::V2021 => write!(f, "v2021+"),
         }
     }
@@ -374,7 +349,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let start_at = node.get_tip_block_number();
         let checkpoint = start_at;
         let inputs = inputs.collect();
-        let state = RunnerState::V2019;
+        let state = RunnerState::V2021;
         Self {
             node,
             deps,
@@ -387,7 +362,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn submit_transaction_until_committed_to(node: &Node, tx: &TransactionView) {
         node.submit_transaction(tx);
-        mine_until_bool(node, || is_transaction_committed(node, tx));
+        node.mine_until_bool(|| is_transaction_committed(node, tx));
     }
 
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
@@ -396,45 +371,16 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     }
 
     fn restore_to_checkpoint(&self) {
+        self.node.wait_for_tx_pool();
         let block_hash = self.node.get_block_by_number(self.checkpoint).hash();
-        self.node.rpc_client().truncate(block_hash);
+        self.node.rpc_client().truncate(block_hash.clone());
+        self.wait_block_assembler_reset(block_hash);
+        self.node.wait_for_tx_pool();
     }
 
-    fn switch_v2019(&mut self) {
-        let block_hash = self.node.get_block_by_number(self.start_at).hash();
-        self.node.rpc_client().truncate(block_hash);
-
-        self.checkpoint = self.node.get_tip_block_number();
-        self.state = RunnerState::V2019;
-    }
-
-    fn switch_one_block_before_v2021(&mut self) {
-        self.switch_v2019();
-
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
-        let length = GENESIS_EPOCH_LENGTH;
-
-        assert_epoch_should_less_than(self.node, ckb2019_last_epoch, 0, length);
-        mine_until_epoch(self.node, ckb2019_last_epoch, 0, length);
-
-        self.checkpoint = self.node.get_tip_block_number();
-        self.state = RunnerState::OneBlockBeforeV2021;
-    }
-
-    fn switch_first_block_of_v2021(&mut self) {
-        self.switch_one_block_before_v2021();
-        mine(self.node, 1);
-
-        self.checkpoint = self.node.get_tip_block_number();
-        self.state = RunnerState::FirstBlockOfV2021;
-    }
-
-    fn switch_v2021(&mut self) {
-        self.switch_one_block_before_v2021();
-        mine(self.node, 1 + GENESIS_EPOCH_LENGTH * 2);
-
-        self.checkpoint = self.node.get_tip_block_number();
-        self.state = RunnerState::V2021;
+    fn wait_block_assembler_reset(&self, block_hash: Byte32) {
+        self.node
+            .new_block_with_blocking(|template| template.parent_hash != block_hash.unpack());
     }
 }
 
@@ -722,24 +668,8 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     }
 
     fn adjust_tip_before_test(&self) {
-        let ckb2019_last_epoch = CKB2021_START_EPOCH - 1;
         let length = GENESIS_EPOCH_LENGTH;
-        let blocks_to_commit_a_tx = self.node.consensus().tx_proposal_window().0 + 1;
-        let index = length - blocks_to_commit_a_tx;
         match self.state {
-            RunnerState::V2019 => {
-                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
-            }
-            RunnerState::OneBlockBeforeV2021 => {
-                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
-
-                mine_until_epoch(self.node, ckb2019_last_epoch, index - 1, length);
-            }
-            RunnerState::FirstBlockOfV2021 => {
-                assert_epoch_should_less_than(self.node, ckb2019_last_epoch, index - 1, length);
-
-                mine_until_epoch(self.node, ckb2019_last_epoch, index, length);
-            }
             RunnerState::V2021 => {
                 assert_epoch_should_greater_than(self.node, CKB2021_START_EPOCH, 0, length);
             }
@@ -780,250 +710,6 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             self.submit_transaction_until_committed(&tx);
         }
         self.restore_to_checkpoint();
-    }
-
-    fn run_v2019_tests(&self) {
-        // Category: only one single code type cell dep
-        self.test_single_code_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_single_code_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_single_code_type(CT::In, HT::Type, ST::Lock, PASS);
-        self.test_single_code_type(CT::In, HT::Type, ST::Type, PASS);
-        //
-        self.test_single_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_single_code_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_single_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_single_code_type(CT::Ot, HT::Type, ST::Type, PASS);
-        //
-        self.test_single_code_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: only one dep group type cell dep
-        self.test_single_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_single_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_single_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
-        self.test_single_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
-        //
-        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_single_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_single_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
-        //
-        self.test_single_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: two duplicate code type cell deps
-        self.test_duplicate_code_type(CT::In, HT::Data, ST::Lock, DUP);
-        self.test_duplicate_code_type(CT::In, HT::Data, ST::Type, DUP);
-        self.test_duplicate_code_type(CT::In, HT::Type, ST::Lock, DUP);
-        self.test_duplicate_code_type(CT::In, HT::Type, ST::Type, DUP);
-        //
-        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Lock, DUP);
-        self.test_duplicate_code_type(CT::Ot, HT::Data, ST::Type, DUP);
-        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Lock, DUP);
-        self.test_duplicate_code_type(CT::Ot, HT::Type, ST::Type, DUP);
-        //
-        self.test_duplicate_code_type(CT::No, HT::Data, ST::Lock, DUP);
-        // Category: two duplicate dep group type cell deps
-        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Lock, DUP);
-        self.test_duplicate_depgroup_type(CT::In, HT::Data, ST::Type, DUP);
-        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Lock, DUP);
-        self.test_duplicate_depgroup_type(CT::In, HT::Type, ST::Type, DUP);
-        //
-        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Lock, DUP);
-        self.test_duplicate_depgroup_type(CT::Ot, HT::Data, ST::Type, DUP);
-        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Lock, DUP);
-        self.test_duplicate_depgroup_type(CT::Ot, HT::Type, ST::Type, DUP);
-        //
-        self.test_duplicate_depgroup_type(CT::No, HT::Data, ST::Lock, DUP);
-        // Category: two different code type cell deps have same data
-        self.test_same_data_code_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_code_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_code_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_data_code_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_code_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_code_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_data_code_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: two different dep group type cell deps have same out point
-        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_outpoint_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_outpoint_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_outpoint_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_outpoint_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: two dep group type cell deps have different out points which have same data
-        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_data_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_data_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have duplicate out points
-        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_duplicate_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_duplicate_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_duplicate_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_duplicate_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have different out points which have same data and
-        // same type.
-        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have different out points which have same data and
-        // different type.
-        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::In, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have same out point with a code type cell dep.
-        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_code_dep_for_hybrid_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_code_dep_for_hybrid_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_code_dep_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have a dep which has same data and same type with
-        // a code type cell dep.
-        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_same_data_same_type_for_hybrid_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_same_type_for_hybrid_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_same_data_same_type_for_hybrid_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have a dep which has same data but different type
-        // with a code type cell dep, and the type in the code type cell dep is required.
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have a dep which has same data but different type
-        // with a code type cell dep, and the type in the dep group type cell dep is required.
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, PASS);
-        //
-        self.test_same_data_diff_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: two different code type cell deps have same type but different data
-        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_code_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_diff_data_same_type_code_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_code_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_diff_data_same_type_code_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_diff_data_same_type_code_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: two different code type cell deps have same data but different types
-        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_diff_data_same_type_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_diff_data_same_type_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_diff_data_same_type_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have different out points which have same type but
-        // different data.
-        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_diff_data_same_type_in_depgroup_type(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_diff_data_same_type_in_depgroup_type(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_diff_data_same_type_in_depgroup_type(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have same type with a code type cell dep but
-        // different data, and the data in the code type cell dep is required.
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_diff_data_same_type_for_hybrid_type_v1(CT::No, HT::Data, ST::Lock, PASS);
-        // Category: a dep group type cell dep have same type with a code type cell dep but
-        // different data, and the data in the dep group type cell dep is required.
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Lock, MMIL);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::In, HT::Type, ST::Type, MMIT);
-        //
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Data, ST::Type, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Lock, PASS);
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::Ot, HT::Type, ST::Type, MMOT);
-        //
-        self.test_diff_data_same_type_for_hybrid_type_v2(CT::No, HT::Data, ST::Lock, PASS);
-
-        // Category: dep expansion count is 2048.
-        self.test_dep_expansion_count_2048(PASS);
-        // Category: dep expansion count is 2049.
-        self.test_dep_expansion_count_2049(MDEL_NOTBAN);
     }
 
     fn run_v2021_tests(&self) {

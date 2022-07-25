@@ -10,6 +10,5 @@ mod load_input_data_hash_cell;
 mod non_contextual_block_txs_verify;
 mod reward;
 mod truncate;
-mod txs_verify_cache;
 mod uncle;
 mod util;

@@ -209,7 +209,7 @@ impl DAOVerifier {
     pub fn I(&self, i: BlockNumber) -> u64 {
         let mut sum = 0u64;
         for tx in self.blocks[i as usize].transactions() {
-            for o in tx.input_pts_iter().into_iter() {
+            for o in tx.input_pts_iter() {
                 if o.is_null() {
                     continue;
                 }

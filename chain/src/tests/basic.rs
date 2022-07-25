@@ -369,9 +369,10 @@ fn test_genesis_transaction_fetch() {
         .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
 
+    let dao = genesis_dao_data(vec![&tx]).unwrap();
     let root_hash = tx.hash();
-
     let genesis_block = BlockBuilder::default()
+        .dao(dao)
         .transaction(tx)
         .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .build();

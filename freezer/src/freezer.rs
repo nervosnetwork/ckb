@@ -30,10 +30,10 @@ struct Inner {
 pub struct Freezer {
     inner: Arc<Mutex<Inner>>,
     number: Arc<AtomicU64>,
-    /// file lock to prevent double opens
-    pub(crate) lock: Arc<File>,
     /// stop flag
     pub stopped: Arc<AtomicBool>,
+    /// file lock to prevent double opens
+    pub(crate) _lock: Arc<File>,
 }
 
 impl Freezer {
@@ -68,8 +68,8 @@ impl Freezer {
         Ok(Freezer {
             number: Arc::clone(&inner.files.number),
             inner: Arc::new(Mutex::new(inner)),
-            lock: Arc::new(lock),
             stopped: Arc::new(AtomicBool::new(false)),
+            _lock: Arc::new(lock),
         })
     }
 

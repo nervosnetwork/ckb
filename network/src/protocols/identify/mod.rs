@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use ckb_logger::{debug, error, trace, warn};
 use p2p::{
+    async_trait,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
@@ -18,7 +19,6 @@ mod protocol;
 
 use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols};
 use ckb_types::{packed, prelude::*};
-use std::sync::atomic::Ordering;
 
 use protocol::IdentifyMessage;
 
@@ -58,15 +58,16 @@ impl MisbehaveResult {
 }
 
 /// The trait to communicate with underlying peer storage
+#[async_trait]
 pub trait Callback: Clone + Send {
     // Register open protocol
     fn register(&self, context: &ProtocolContextMutRef, version: &str);
     // remove registered identify protocol
     fn unregister(&self, context: &ProtocolContextMutRef);
     /// Received custom message
-    fn received_identify(
+    async fn received_identify(
         &mut self,
-        context: &mut ProtocolContextMutRef,
+        context: &mut ProtocolContextMutRef<'_>,
         identify: &[u8],
     ) -> MisbehaveResult;
     /// Get custom identify message
@@ -195,19 +196,23 @@ impl RemoteInfo {
     }
 }
 
+#[async_trait]
 impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
-    fn init(&mut self, context: &mut ProtocolContext) {
+    async fn init(&mut self, context: &mut ProtocolContext) {
         let proto_id = context.proto_id;
-        if let Err(err) = context.set_service_notify(
-            proto_id,
-            Duration::from_secs(CHECK_TIMEOUT_INTERVAL),
-            CHECK_TIMEOUT_TOKEN,
-        ) {
+        if let Err(err) = context
+            .set_service_notify(
+                proto_id,
+                Duration::from_secs(CHECK_TIMEOUT_INTERVAL),
+                CHECK_TIMEOUT_TOKEN,
+            )
+            .await
+        {
             error!("IdentifyProtocol init error: {:?}", err)
         }
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         let session = context.session;
         debug!("IdentifyProtocol connected, session: {:?}", session);
 
@@ -233,10 +238,11 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
         let data = IdentifyMessage::new(listen_addrs, session.address.clone(), identify).encode();
         let _ = context
             .quick_send_message(data)
+            .await
             .map_err(|err| error!("IdentifyProtocol quick_send_message, error: {:?}", err));
     }
 
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+    async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         self.remote_infos
             .remove(&context.session.id)
             .expect("RemoteInfo must exists");
@@ -247,7 +253,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
         self.callback.unregister(&context);
     }
 
-    fn received(&mut self, mut context: ProtocolContextMutRef, data: Bytes) {
+    async fn received(&mut self, mut context: ProtocolContextMutRef<'_>, data: Bytes) {
         let session = context.session;
         match IdentifyMessage::decode(&data) {
             Some(message) => {
@@ -262,17 +268,18 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         "IdentifyProtocol disconnect session {:?}, reason: duplicate",
                         session
                     );
-                    let _ = context.disconnect(session.id);
+                    let _ = context.disconnect(session.id).await;
                 }
                 if let MisbehaveResult::Disconnect = self
                     .callback
                     .received_identify(&mut context, message.identify)
+                    .await
                 {
                     error!(
                         "IdentifyProtocol disconnect session {:?}, reason: invalid identify message",
                         session,
                     );
-                    let _ = context.disconnect(session.id);
+                    let _ = context.disconnect(session.id).await;
                 }
                 if let MisbehaveResult::Disconnect =
                     self.process_listens(&mut context, message.listen_addrs.clone())
@@ -281,7 +288,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         "IdentifyProtocol disconnect session {:?}, reason: invalid listen addrs: {:?}",
                         session, message.listen_addrs,
                     );
-                    let _ = context.disconnect(session.id);
+                    let _ = context.disconnect(session.id).await;
                 }
                 if let MisbehaveResult::Disconnect =
                     self.process_observed(&mut context, message.observed_addr.clone())
@@ -290,7 +297,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         "IdentifyProtocol disconnect session {:?}, reason: invalid observed addr: {}",
                         session, message.observed_addr,
                     );
-                    let _ = context.disconnect(session.id);
+                    let _ = context.disconnect(session.id).await;
                 }
             }
             None => {
@@ -303,18 +310,18 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                     .misbehave(&info.session, Misbehavior::InvalidData)
                     .is_disconnect()
                 {
-                    let _ = context.disconnect(session.id);
+                    let _ = context.disconnect(session.id).await;
                 }
             }
         }
     }
 
-    fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
+    async fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         for (session_id, info) in &self.remote_infos {
             if !info.has_received && (info.connected_at + info.timeout) <= Instant::now() {
                 let misbehave_result = self.callback.misbehave(&info.session, Misbehavior::Timeout);
                 if misbehave_result.is_disconnect() {
-                    let _ = context.disconnect(*session_id);
+                    let _ = context.disconnect(*session_id).await;
                 }
             }
         }
@@ -350,6 +357,7 @@ impl IdentifyCallback {
     }
 }
 
+#[async_trait]
 impl Callback for IdentifyCallback {
     fn register(&self, context: &ProtocolContextMutRef, version: &str) {
         self.network_state.with_peer_registry_mut(|reg| {
@@ -357,13 +365,7 @@ impl Callback for IdentifyCallback {
                 peer.protocols.insert(context.proto_id, version.to_owned());
             })
         });
-        if self.network_state.ckb2021.load(Ordering::SeqCst) && version != "2" {
-            self.network_state
-                .peer_store
-                .lock()
-                .mut_addr_manager()
-                .remove(&context.session.address);
-        } else if context.session.ty.is_outbound() {
+        if context.session.ty.is_outbound() {
             // why don't set inbound here?
             // because inbound address can't feeler during staying connected
             // and if set it to peer store, it will be broadcast to the entire network,
@@ -375,18 +377,7 @@ impl Callback for IdentifyCallback {
     }
 
     fn unregister(&self, context: &ProtocolContextMutRef) {
-        let version = self
-            .network_state
-            .with_peer_registry_mut(|reg| {
-                reg.get_peer_mut(context.session.id)
-                    .map(|peer| peer.protocols.remove(&context.proto_id))
-            })
-            .flatten()
-            .map(|version| version != "2")
-            .unwrap_or_default();
-
-        if self.network_state.ckb2021.load(Ordering::SeqCst) && version {
-        } else if context.session.ty.is_outbound() {
+        if context.session.ty.is_outbound() {
             // Due to the filtering strategy of the peer store, if the node is
             // disconnected after a long connection is maintained for more than seven days,
             // it is possible that the node will be accidentally evicted, so it is necessary
@@ -403,15 +394,15 @@ impl Callback for IdentifyCallback {
         self.identify.encode()
     }
 
-    fn received_identify(
+    async fn received_identify(
         &mut self,
-        context: &mut ProtocolContextMutRef,
+        context: &mut ProtocolContextMutRef<'_>,
         identify: &[u8],
     ) -> MisbehaveResult {
         match self.identify.verify(identify) {
             None => {
                 self.network_state.ban_session(
-                    context.control(),
+                    &context.control().clone().into(),
                     context.session.id,
                     BAN_ON_NOT_SAME_NET,
                     "The nodes are not on the same network".to_string(),
@@ -434,29 +425,24 @@ impl Callback for IdentifyCallback {
                         .network_state
                         .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
                     {
-                        let _ = context.open_protocols(
-                            context.session.id,
-                            TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
-                        );
+                        let _ = context
+                            .open_protocols(
+                                context.session.id,
+                                TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
+                            )
+                            .await;
                     } else if flags.contains(self.identify.flags) {
                         registry_client_version(client_version);
 
-                        let ckb2021 = self
-                            .network_state
-                            .ckb2021
-                            .load(std::sync::atomic::Ordering::SeqCst);
                         // The remote end can support all local protocols.
-                        let _ = context.open_protocols(
-                            context.session.id,
-                            TargetProtocol::Filter(Box::new(move |id| {
-                                if ckb2021 {
+                        let _ = context
+                            .open_protocols(
+                                context.session.id,
+                                TargetProtocol::Filter(Box::new(move |id| {
                                     id != &SupportProtocols::Feeler.protocol_id()
-                                        && id != &SupportProtocols::Relay.protocol_id()
-                                } else {
-                                    id != &SupportProtocols::Feeler.protocol_id()
-                                }
-                            })),
-                        );
+                                })),
+                            )
+                            .await;
                     } else {
                         // The remote end cannot support all local protocols.
                         warn!("IdentifyProtocol close session, reason: the peer's flag does not meet the requirement");

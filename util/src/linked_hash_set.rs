@@ -180,6 +180,11 @@ where
             other,
         }
     }
+
+    /// Clears the set of all value.
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
 }
 
 impl<T: Hash + Eq> Default for LinkedHashSet<T, DefaultBuildHasher> {

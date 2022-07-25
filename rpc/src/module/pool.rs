@@ -3,10 +3,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Script, Transaction, TxPoolInfo};
 use ckb_logger::error;
-use ckb_script::IllTransactionChecker;
-use ckb_shared::{shared::Shared, Snapshot};
+use ckb_shared::shared::Shared;
 use ckb_types::{core, packed, prelude::*, H256};
-use ckb_verification::{Since, SinceMetric, TxVerifyEnv};
+use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -25,7 +24,6 @@ pub trait PoolRpc {
     /// ## Errors
     ///
     /// * [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
-    /// * [`PoolRejectedTransactionByIllTransactionChecker (-1103)`](../enum.RPCError.html#variant.PoolRejectedTransactionByIllTransactionChecker) - Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
     /// * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
     /// * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
     /// * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
@@ -279,7 +277,6 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
     min_fee_rate: core::FeeRate,
-    reject_ill_transactions: bool,
     well_known_lock_scripts: Vec<packed::Script>,
     well_known_type_scripts: Vec<packed::Script>,
 }
@@ -288,7 +285,6 @@ impl PoolRpcImpl {
     pub fn new(
         shared: Shared,
         min_fee_rate: core::FeeRate,
-        reject_ill_transactions: bool,
         mut extra_well_known_lock_scripts: Vec<packed::Script>,
         mut extra_well_known_type_scripts: Vec<packed::Script>,
     ) -> PoolRpcImpl {
@@ -303,7 +299,6 @@ impl PoolRpcImpl {
         PoolRpcImpl {
             shared,
             min_fee_rate,
-            reject_ill_transactions,
             well_known_lock_scripts,
             well_known_type_scripts,
         }
@@ -418,22 +413,6 @@ impl PoolRpc for PoolRpcImpl {
                 ),
                 e,
             ));
-        }
-
-        if self.reject_ill_transactions {
-            let snapshot: &Snapshot = &self.shared.snapshot();
-            let consensus = snapshot.consensus();
-            let tx_env = {
-                let tip_header = snapshot.tip_header();
-                TxVerifyEnv::new_submit(tip_header)
-            };
-            if let Err(e) = IllTransactionChecker::new(&tx, consensus, &tx_env).check() {
-                return Err(RPCError::custom_with_data(
-                    RPCError::PoolRejectedTransactionByIllTransactionChecker,
-                    "The transaction is rejected by IllTransactionChecker",
-                    e,
-                ));
-            }
         }
 
         let tx_pool = self.shared.tx_pool_controller();

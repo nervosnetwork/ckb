@@ -61,18 +61,10 @@ pub struct FreezerFiles {
 }
 
 /// An instance of IndexEntry represents an entry inside of a index files
+#[derive(Default)]
 pub struct IndexEntry {
     pub file_id: FileId,
     pub offset: u64,
-}
-
-impl Default for IndexEntry {
-    fn default() -> Self {
-        IndexEntry {
-            file_id: 0,
-            offset: 0,
-        }
-    }
 }
 
 impl IndexEntry {

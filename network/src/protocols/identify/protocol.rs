@@ -24,7 +24,7 @@ impl<'a> IdentifyMessage<'a> {
 
     pub(crate) fn encode(self) -> Bytes {
         let identify = packed::Bytes::new_builder()
-            .set(self.identify.to_vec().into_iter().map(Into::into).collect())
+            .set(self.identify.iter().copied().map(Into::into).collect())
             .build();
         let observed_addr = packed::Address::new_builder()
             .bytes(

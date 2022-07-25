@@ -30,7 +30,7 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
         node.submit_block(&uncle);
         node.submit_transaction(&tx);
 
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.uncles.is_empty());
         assert_eq!(
             vec![uncle.hash()],
             block

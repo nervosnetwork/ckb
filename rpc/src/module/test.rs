@@ -1,10 +1,7 @@
 use crate::error::RPCError;
-use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    AsEpochNumberWithFraction, Block, BlockTemplate, Byte32, JsonBytes, Script, Transaction,
-};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -13,8 +10,7 @@ use ckb_types::{
     core::{
         self,
         cell::{
-            resolve_transaction_with_options, OverlayCellProvider, ResolveOptions,
-            ResolvedTransaction, TransactionsProvider,
+            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
         BlockView,
     },
@@ -163,9 +159,7 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "generate_block",
-    ///   "params": [
-    ///     null, null
-    ///   ]
+    ///   "params": []
     /// }
     /// ```
     ///
@@ -180,11 +174,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "generate_block")]
-    fn generate_block(
-        &self,
-        block_assembler_script: Option<Script>,
-        block_assembler_message: Option<JsonBytes>,
-    ) -> Result<H256>;
+    fn generate_block(&self) -> Result<H256>;
 
     /// Add transaction to tx-pool.
     ///
@@ -483,7 +473,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             let message = packed::RelayMessage::new_builder().set(content).build();
             if let Err(err) = self
                 .network_controller
-                .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+                .quick_broadcast(SupportProtocols::RelayV2.protocol_id(), message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
             }
@@ -528,29 +518,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(())
     }
 
-    fn generate_block(
-        &self,
-        block_assembler_script: Option<Script>,
-        block_assembler_message: Option<JsonBytes>,
-    ) -> Result<H256> {
+    fn generate_block(&self) -> Result<H256> {
         let tx_pool = self.shared.tx_pool_controller();
-        let snapshot = Arc::clone(&self.shared.snapshot());
-        let block_assembler_config = block_assembler_script.map(|script| BlockAssemblerConfig {
-            code_hash: script.code_hash,
-            hash_type: script.hash_type,
-            args: script.args,
-            message: block_assembler_message.unwrap_or_default(),
-            use_binary_version_as_message_prefix: false,
-            binary_version: "TEST".to_string(),
-        });
         let block_template = tx_pool
-            .get_block_template_with_block_assembler_config(
-                None,
-                None,
-                None,
-                snapshot,
-                block_assembler_config,
-            )
+            .get_block_template(None, None, None)
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
@@ -586,7 +557,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .expect("parent header should be stored");
         let mut seen_inputs = HashSet::new();
 
-        let txs: Vec<_> = packed::Block::from(block_template.clone())
+        let txs: Vec<_> = packed::Block::from(block_template)
             .transactions()
             .into_iter()
             .map(|tx| tx.into_view())
@@ -594,21 +565,14 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let transactions_provider = TransactionsProvider::new(txs.as_slice().iter());
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-        let resolve_opts = {
-            let epoch_number = block_template.epoch.epoch_number();
-            let hardfork_switch = consensus.hardfork_switch();
-            ResolveOptions::new().apply_current_features(hardfork_switch, epoch_number)
-        };
-
         let rtxs = txs
             .iter()
             .map(|tx| {
-                resolve_transaction_with_options(
+                resolve_transaction(
                     tx.clone(),
                     &mut seen_inputs,
                     &overlay_cell_provider,
                     snapshot,
-                    resolve_opts,
                 )
                 .map_err(|err| {
                     error!(
@@ -642,7 +606,7 @@ impl IntegrationTestRpcImpl {
         // announce new block
         if let Err(err) = self
             .network_controller
-            .quick_broadcast(SupportProtocols::Relay.protocol_id(), message.as_bytes())
+            .quick_broadcast(SupportProtocols::RelayV2.protocol_id(), message.as_bytes())
         {
             error!("Broadcast new block failed: {:?}", err);
         }

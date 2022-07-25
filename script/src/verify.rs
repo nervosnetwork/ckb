@@ -12,9 +12,8 @@ use crate::{
         CoreMachine, Machine, ResumableMachine, ScriptGroup, ScriptGroupType, ScriptVersion,
         TransactionSnapshot, TransactionState, VerifyResult,
     },
-    verify_env::TxVerifyEnv,
 };
-use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
+use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
@@ -127,8 +126,6 @@ impl Binaries {
 /// future, we might refactor this to share buffer to achieve zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
-    consensus: &'a Consensus,
-    tx_env: &'a TxVerifyEnv,
 
     debug_printer: Box<dyn Fn(&Byte32, &str)>,
 
@@ -140,8 +137,6 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 
     lock_groups: BTreeMap<Byte32, ScriptGroup>,
     type_groups: BTreeMap<Byte32, ScriptGroup>,
-    // Vec<(addr, size)>, can be remove after hardfork
-    pub(crate) tracing_data_as_code_pages: RefCell<Vec<(u64, u64)>>,
 
     #[cfg(test)]
     skip_pause: RefCell<bool>,
@@ -156,9 +151,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// * `data_loader` - used to load cell data.
     pub fn new(
         rtx: &'a ResolvedTransaction,
-        consensus: &'a Consensus,
         data_loader: &'a DL,
-        tx_env: &'a TxVerifyEnv,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
@@ -229,8 +222,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         TransactionScriptsVerifier {
             data_loader,
-            consensus,
-            tx_env,
             binaries_by_data_hash,
             binaries_by_type_hash,
             outputs,
@@ -244,7 +235,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     debug!("script group: {} DEBUG OUTPUT: {}", hash, message);
                 },
             ),
-            tracing_data_as_code_pages: RefCell::new(Vec::new()),
             #[cfg(test)]
             skip_pause: RefCell::new(false),
         }
@@ -350,7 +340,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             self.resolved_cell_deps(),
             group_inputs,
             group_outputs,
-            &self.tracing_data_as_code_pages,
         )
     }
 
@@ -400,19 +389,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
                         Binaries::Unique(_, ref lazy) => Ok(lazy.access(self.data_loader)),
-                        Binaries::Duplicate(_, ref lazy) => {
-                            let proposal_window = self.consensus.tx_proposal_window();
-                            let epoch_number = self.tx_env.epoch_number(proposal_window);
-                            if self
-                                .consensus
-                                .hardfork_switch()
-                                .is_allow_multiple_matches_on_identical_data_enabled(epoch_number)
-                            {
-                                Ok(lazy.access(self.data_loader))
-                            } else {
-                                Err(ScriptError::MultipleMatches)
-                            }
-                        }
+                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(self.data_loader)),
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
@@ -422,37 +399,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
-        // If the proposal window is allowed to prejudge on the vm version,
-        // it will cause proposal tx to start a new vm in the blocks before hardfork,
-        // destroying the assumption that the transaction execution only uses the old vm
-        // before hardfork, leading to unexpected network splits.
-        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
-        let hardfork_switch = self.consensus.hardfork_switch();
-        hardfork_switch.is_vm_version_1_and_syscalls_2_enabled(epoch_number)
-    }
-
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &'a Script) -> Result<ScriptVersion, ScriptError> {
-        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
-            ScriptHashType::Data1 => {
-                if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok(ScriptVersion::V1)
-                } else {
-                    Err(ScriptError::InvalidVmVersion(1))
-                }
-            }
-            ScriptHashType::Type => {
-                if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok(ScriptVersion::V1)
-                } else {
-                    Ok(ScriptVersion::V0)
-                }
-            }
+            ScriptHashType::Data1 => Ok(ScriptVersion::V1),
+            ScriptHashType::Type => Ok(ScriptVersion::V1),
         }
     }
 
@@ -502,8 +456,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             vm,
             current_cycles,
             limit_cycles,
-            enable_backup_page_flags: self.is_vm_version_1_and_syscalls_2_enabled(),
-            flags_tracing: self.tracing_data_as_code_pages.borrow().clone(),
         }
     }
 
@@ -671,7 +623,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             vm.set_max_cycles(limit_cycles);
             match vm.run() {
                 Ok(code) => {
-                    self.tracing_data_as_code_pages.borrow_mut().clear();
                     if code == 0 {
                         current_used =
                             wrapping_cycles_add(current_used, vm.cycles(), current_group)?;
@@ -688,7 +639,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         return Ok(VerifyResult::Suspended(state));
                     }
                     error => {
-                        self.tracing_data_as_code_pages.borrow_mut().clear();
                         return Err(ScriptError::VMInternalError(format!("{:?}", error))
                             .source(current_group)
                             .into());
@@ -987,7 +937,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
-        self.tracing_data_as_code_pages.borrow_mut().clear();
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
@@ -1023,7 +972,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 return Ok(ChunkState::suspended(ResumableMachine::new(
                     machine,
                     Some(program_bytes_cycles),
-                    self.is_vm_version_1_and_syscalls_2_enabled(),
                 )));
             }
             load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
@@ -1031,7 +979,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         match machine.run() {
             Ok(code) => {
-                self.tracing_data_as_code_pages.borrow_mut().clear();
                 if code == 0 {
                     Ok(ChunkState::Completed(machine.machine.cycles()))
                 } else {
@@ -1040,16 +987,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded => {
-                    Ok(ChunkState::suspended(ResumableMachine::new(
-                        machine,
-                        None,
-                        self.is_vm_version_1_and_syscalls_2_enabled(),
-                    )))
+                    Ok(ChunkState::suspended(ResumableMachine::new(machine, None)))
                 }
-                _ => {
-                    self.tracing_data_as_code_pages.borrow_mut().clear();
-                    Err(ScriptError::VMInternalError(format!("{:?}", error)))
-                }
+                _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
             },
         }
     }

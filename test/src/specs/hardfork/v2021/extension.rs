@@ -1,9 +1,6 @@
 use crate::{
     node::waiting_for_sync,
-    util::{
-        check::{assert_epoch_should_be, assert_submit_block_fail, assert_submit_block_ok},
-        mining::{mine, mine_until_epoch, mine_until_out_bootstrap_period},
-    },
+    util::check::{assert_submit_block_fail, assert_submit_block_ok},
     utils::wait_until,
 };
 use crate::{Node, Spec};
@@ -12,7 +9,6 @@ use ckb_types::prelude::*;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
 
-const ERROR_UNKNOWN_FIELDS: &str = "Invalid: Block(UnknownFields(";
 const ERROR_EMPTY_EXT: &str = "Invalid: Block(EmptyBlockExtension(";
 const ERROR_MAX_LIMIT: &str = "Invalid: Block(ExceededMaximumBlockExtensionBytes(";
 
@@ -24,52 +20,7 @@ impl Spec for CheckBlockExtension {
     fn run(&self, nodes: &mut Vec<Node>) {
         {
             let node = &nodes[0];
-            let epoch_length = GENESIS_EPOCH_LENGTH;
-
-            mine_until_out_bootstrap_period(node);
-
-            assert_epoch_should_be(node, 1, 2, epoch_length);
-            {
-                info!("CKB v2019, empty extension field is failed");
-                test_extension_via_size(node, Some(0), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            {
-                info!("CKB v2019, overlength extension field is failed");
-                test_extension_via_size(node, Some(97), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            for size in &[1, 16, 32, 64, 96] {
-                info!("CKB v2019, {}-bytes extension field is failed", size);
-                test_extension_via_size(node, Some(*size), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            assert_epoch_should_be(node, 1, 2, epoch_length);
-            {
-                info!("CKB v2019, no extension field is passed");
-                test_extension_via_size(node, None, Ok(()));
-            }
-            assert_epoch_should_be(node, 1, 3, epoch_length);
-
-            mine_until_epoch(node, 1, epoch_length - 2, epoch_length);
-            {
-                info!("CKB v2019, empty extension field is failed (boundary)");
-                test_extension_via_size(node, Some(0), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            {
-                info!("CKB v2019, overlength extension field is failed (boundary)");
-                test_extension_via_size(node, Some(97), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            for size in &[1, 16, 32, 64, 96] {
-                info!(
-                    "CKB v2019, {}-bytes extension field is failed (boundary)",
-                    size
-                );
-                test_extension_via_size(node, Some(*size), Err(ERROR_UNKNOWN_FIELDS));
-            }
-            {
-                info!("CKB v2019, no extension field is passed (boundary)");
-                test_extension_via_size(node, None, Ok(()));
-            }
-            assert_epoch_should_be(node, 1, epoch_length - 1, epoch_length);
-
+            node.mine_until_out_bootstrap_period();
             {
                 info!("CKB v2021, empty extension field is failed (boundary)");
                 test_extension_via_size(node, Some(0), Err(ERROR_EMPTY_EXT));
@@ -78,7 +29,6 @@ impl Spec for CheckBlockExtension {
                 info!("CKB v2021, overlength extension field is failed (boundary)");
                 test_extension_via_size(node, Some(97), Err(ERROR_MAX_LIMIT));
             }
-            assert_epoch_should_be(node, 1, epoch_length - 1, epoch_length);
             for size in &[1, 16, 32, 64, 96] {
                 info!(
                     "CKB v2021, {}-bytes extension field is passed (boundary)",
@@ -90,9 +40,6 @@ impl Spec for CheckBlockExtension {
                 info!("CKB v2021, no extension field is passed (boundary)");
                 test_extension_via_size(node, None, Ok(()));
             }
-            assert_epoch_should_be(node, 2, 5, epoch_length);
-
-            mine_until_epoch(node, 4, 0, epoch_length);
             {
                 info!("CKB v2021, empty extension field is failed");
                 test_extension_via_size(node, Some(0), Err(ERROR_EMPTY_EXT));
@@ -101,7 +48,6 @@ impl Spec for CheckBlockExtension {
                 info!("CKB v2021, overlength extension field is failed");
                 test_extension_via_size(node, Some(97), Err(ERROR_MAX_LIMIT));
             }
-            assert_epoch_should_be(node, 4, 0, epoch_length);
             for size in &[1, 16, 32, 64, 96] {
                 info!("CKB v2021, {}-bytes extension field is passed", size);
                 test_extension_via_size(node, Some(*size), Ok(()));
@@ -110,7 +56,6 @@ impl Spec for CheckBlockExtension {
                 info!("CKB v2021, no extension field is passed");
                 test_extension_via_size(node, None, Ok(()));
             }
-            assert_epoch_should_be(node, 4, 6, epoch_length);
         }
 
         {
@@ -156,7 +101,7 @@ impl Spec for CheckBlockExtension {
             });
             assert!(ret, "node2 should get same tip header with node0");
 
-            mine(node2, 5);
+            node2.mine(5);
 
             info!("test sync blocks");
             waiting_for_sync(nodes);
@@ -184,5 +129,6 @@ fn test_extension_via_size(node: &Node, size: Option<usize>, result: Result<(), 
         assert_submit_block_fail(node, &block, errmsg);
     } else {
         assert_submit_block_ok(node, &block);
+        node.new_block_with_blocking(|template| template.number.value() != (block.number() + 1));
     }
 }

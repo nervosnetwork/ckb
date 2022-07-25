@@ -1,4 +1,4 @@
-use crate::util::{mining::mine_until_out_bootstrap_period, transaction::relay_tx};
+use crate::util::transaction::relay_tx;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::Status;
@@ -15,12 +15,12 @@ impl Spec for OrphanTxAccepted {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 
@@ -56,12 +56,12 @@ impl Spec for OrphanTxRejected {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
         net.connect(node0);
 

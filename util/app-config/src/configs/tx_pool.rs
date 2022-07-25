@@ -3,6 +3,7 @@ use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use url::Url;
 
 // The default values are set in the legacy version.
 /// Transaction pool configuration
@@ -57,10 +58,30 @@ pub struct BlockAssemblerConfig {
     /// A field to store the block miner client version, non-configurable options.
     #[serde(skip)]
     pub binary_version: String,
+    /// A field to control update interval millis
+    #[serde(default = "default_update_interval_millis")]
+    pub update_interval_millis: u64,
+    /// Notify url
+    #[serde(default)]
+    pub notify: Vec<Url>,
+    /// Notify scripts
+    #[serde(default)]
+    pub notify_scripts: Vec<String>,
+    /// Notify timeout
+    #[serde(default = "default_notify_timeout_millis")]
+    pub notify_timeout_millis: u64,
 }
 
 const fn default_use_binary_version_as_message_prefix() -> bool {
     true
+}
+
+const fn default_update_interval_millis() -> u64 {
+    800
+}
+
+const fn default_notify_timeout_millis() -> u64 {
+    800
 }
 
 impl TxPoolConfig {

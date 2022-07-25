@@ -34,6 +34,14 @@ impl From<packed::ProposalShortId> for ProposalShortId {
     }
 }
 
+impl<'a> From<&'a packed::ProposalShortId> for ProposalShortId {
+    fn from(core: &'a packed::ProposalShortId) -> ProposalShortId {
+        let mut inner = [0u8; 10];
+        inner.copy_from_slice(core.as_slice());
+        ProposalShortId::new(inner)
+    }
+}
+
 impl From<ProposalShortId> for packed::ProposalShortId {
     fn from(json: ProposalShortId) -> Self {
         json.into_inner().pack()

@@ -44,6 +44,10 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         message: Default::default(),
         use_binary_version_as_message_prefix: false,
         binary_version: "BENCH".to_string(),
+        update_interval_millis: 800,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
     }
 }
 
@@ -186,10 +190,18 @@ fn bench(c: &mut Criterion) {
                                     tx_pool.submit_local_tx(tx).unwrap().expect("submit_tx");
                                 }
                             }
-                            let block_template = tx_pool
-                                .get_block_template(None, None, None, Arc::clone(&snapshot))
+
+                            let mut block_template = tx_pool
+                                .get_block_template(None, None, None)
                                 .unwrap()
                                 .expect("get_block_template");
+
+                            while block_template.number != (snapshot.tip_number() + 1).into() {
+                                block_template = tx_pool
+                                    .get_block_template(None, None, None)
+                                    .unwrap()
+                                    .expect("get_block_template");
+                            }
                             let raw_block: Block = block_template.into();
                             let raw_header = raw_block.header().raw();
                             let header = Header::new_builder()

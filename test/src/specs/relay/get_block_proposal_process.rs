@@ -1,5 +1,5 @@
 use crate::util::cell::{gen_spendable, get_spendable};
-use crate::util::mining::{mine, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transactions_with_rand_data;
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
@@ -26,7 +26,7 @@ impl Spec for ProposalRespondSizelimit {
 
             proposal_ids.push(transaction.proposal_short_id());
 
-            mine(node0, 3);
+            node0.mine_until_transaction_confirm(&transaction.hash());
 
             // spend all new cell
             cells = get_spendable(node0);
@@ -38,7 +38,7 @@ impl Spec for ProposalRespondSizelimit {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Relay],
+            vec![SupportProtocols::RelayV2],
         );
 
         let tip = node0.get_tip_block_number();
@@ -52,7 +52,7 @@ impl Spec for ProposalRespondSizelimit {
 
         net.connect(node0);
 
-        net.send(node0, SupportProtocols::Relay, message.as_bytes());
+        net.send(node0, SupportProtocols::RelayV2, message.as_bytes());
 
         assert!(
             node0.rpc_client().get_banned_addresses().is_empty(),

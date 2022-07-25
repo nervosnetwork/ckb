@@ -20,7 +20,6 @@ use std::{
 };
 
 use ckb_app_config::NetworkConfig;
-use futures::StreamExt;
 use p2p::{
     builder::ServiceBuilder,
     multiaddr::{Multiaddr, Protocol},
@@ -213,7 +212,7 @@ fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
 
     let peer_id = network_state.local_peer_id().clone();
 
-    let control = p2p_service.control().clone();
+    let control = p2p_service.control().clone().into();
     let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
     static RT: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
@@ -234,11 +233,7 @@ fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
             .unwrap();
         listen_addr.push(Protocol::P2P(Cow::Owned(peer_id.into_bytes())));
         addr_sender.send(listen_addr).unwrap();
-        loop {
-            if p2p_service.next().await.is_none() {
-                break;
-            }
-        }
+        p2p_service.run().await
     });
 
     let listen_addr = addr_receiver.recv().unwrap();

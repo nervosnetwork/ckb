@@ -1,5 +1,4 @@
 use crate::specs::tx_pool::utils::prepare_tx_family;
-use crate::util::mining::mine;
 use crate::utils::{blank, commit, propose};
 use crate::{Node, Spec};
 use std::collections::HashSet;
@@ -19,7 +18,7 @@ impl Spec for HandlingDescendantsOfProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -30,7 +29,7 @@ impl Spec for HandlingDescendantsOfProposed {
         //    blocks, even after `tx_family.a` expiring, out of `tx_family.a`'s proposal window
         node.submit_block(&propose(node, &[family.a()]));
         (0..=window.farthest() + window.closest()).for_each(|_| {
-            let block = node.new_block(None, None, None);
+            let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
             assert!(
                 block
                     .union_proposal_ids()
@@ -45,7 +44,7 @@ impl Spec for HandlingDescendantsOfProposed {
         // 3. At this point, `tx_family.a` has been moved in pending-pool since it is
         //    out of proposal-window. Hence miner will propose `tx_family.a` and `tx_family.b`
         //    in the next blocks.
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
         assert_eq!(
             vec![
                 family.a().proposal_short_id(),
@@ -68,7 +67,7 @@ impl Spec for HandlingDescendantsOfCommitted {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -82,7 +81,7 @@ impl Spec for HandlingDescendantsOfCommitted {
         }); // continuously submit blank blocks.
         node.submit_block(&commit(node, &[family.a()]));
 
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
         assert_eq!(
             vec![family.b().proposal_short_id()]
                 .into_iter()
@@ -105,7 +104,7 @@ impl Spec for ProposeOutOfOrder {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Put `tx_family` into pending-pool.
         let family = prepare_tx_family(node);
@@ -119,7 +118,7 @@ impl Spec for ProposeOutOfOrder {
         });
 
         // 3. Expect committing `[tx_family.a, tx_family.b]`.
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.transactions.len() != 2);
         assert_eq!(
             [family.a().to_owned(), family.b().to_owned()],
             block.transactions()[1..],
@@ -135,7 +134,7 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Propose `tx_family.a` into gap-pool.
         let family = prepare_tx_family(node);
@@ -144,7 +143,7 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
 
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.proposals.len() != 2);
         assert!(
             block
                 .union_proposal_ids()
@@ -163,7 +162,7 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Propose `tx_family.a` into proposed-pool.
         let family = prepare_tx_family(node);
@@ -175,7 +174,7 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
 
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
-        let block = node.new_block(None, None, None);
+        let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
         assert!(
             block
                 .union_proposal_ids()
@@ -194,7 +193,7 @@ impl Spec for ProposeTransactionButParentNot {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         let window = node.consensus().tx_proposal_window();
-        mine(node, window.farthest() + 2);
+        node.mine(window.farthest() + 2);
 
         // 1. Propose `tx_family.a` and `tx_family.b` into pending-pool.
         let family = prepare_tx_family(node);

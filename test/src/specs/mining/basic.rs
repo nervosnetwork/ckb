@@ -1,8 +1,6 @@
-use crate::generic::{GetCommitTxIds, GetProposalTxIds};
+use crate::generic::GetCommitTxIds;
 use crate::util::cell::gen_spendable;
-use crate::util::mining::mine;
 use crate::util::transaction::always_success_transaction;
-use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::prelude::*;
@@ -21,19 +19,9 @@ impl Spec for MiningBasic {
         let cells = gen_spendable(node, 1);
         let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
+        node.mine_until_transaction_confirm(&transaction.hash());
 
-        mine(node, 1);
-        let block1 = node.get_tip_block();
-
-        assert_eq!(
-            block1.get_proposal_tx_ids(),
-            transaction.get_proposal_tx_ids(),
-        );
-
-        // skip (proposal_window.closest - 1) block
-        mine(node, DEFAULT_TX_PROPOSAL_WINDOW.0);
         let block3 = node.get_tip_block();
-
         assert_eq!(block3.get_commit_tx_ids(), transaction.get_commit_tx_ids());
     }
 }

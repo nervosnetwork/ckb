@@ -20,19 +20,24 @@ use crate::services::{
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
 use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::metrics;
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Condvar, Mutex, RwLock};
-use futures::{channel::mpsc::Sender, Future, StreamExt};
+use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
 use p2p::{
+    async_trait,
     builder::ServiceBuilder,
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{Multiaddr, Protocol},
     secio::{self, error::SecioError, PeerId},
-    service::{ProtocolHandle, Service, ServiceError, ServiceEvent, TargetProtocol, TargetSession},
+    service::{
+        ProtocolHandle, Service, ServiceAsyncControl, ServiceError, ServiceEvent, TargetProtocol,
+        TargetSession,
+    },
     traits::ServiceHandle,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     yamux::config::Config as YamuxConfig,
@@ -81,8 +86,6 @@ pub struct NetworkState {
     /// Node supported protocols
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
-
-    pub(crate) ckb2021: AtomicBool,
 }
 
 impl NetworkState {
@@ -133,14 +136,7 @@ impl NetworkState {
             local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
-            ckb2021: AtomicBool::new(false),
         })
-    }
-
-    /// fork flag
-    pub fn ckb2021(self, init: bool) -> Self {
-        self.ckb2021.store(init, Ordering::SeqCst);
-        self
     }
 
     pub(crate) fn report_session(
@@ -187,13 +183,21 @@ impl NetworkState {
                 duration.as_secs(),
                 reason
             );
+            metrics!(
+                counter,
+                "ckb.network.ban_peer",
+                1,
+                "peer_addr" => addr.to_string(),
+                "duration" => duration.as_secs().to_string(),
+                "reason" => reason.clone(),
+            );
             if let Some(peer) = self.with_peer_registry_mut(|reg| reg.remove_peer(session_id)) {
+                let message = format!("Ban for {} seconds, reason: {}", duration.as_secs(), reason);
                 self.peer_store.lock().ban_addr(
                     &peer.connected_addr,
                     duration.as_millis() as u64,
                     reason,
                 );
-                let message = format!("Ban for {} seconds", duration.as_secs());
                 if let Err(err) =
                     disconnect_with_message(p2p_control, peer.session_id, message.as_str())
                 {
@@ -515,13 +519,12 @@ impl ExitHandler for DefaultExitHandler {
 }
 
 impl<T> EventHandler<T> {
-    fn inbound_eviction(&self, context: &mut ServiceContext) {
+    fn inbound_eviction(&self) -> Vec<PeerIndex> {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
 
             if status.max_inbound <= status.non_whitelist_inbound.saturating_add(10) {
-                for (index, peer) in self
-                    .network_state
+                self.network_state
                     .with_peer_registry(|registry| {
                         registry
                             .peers()
@@ -532,25 +535,20 @@ impl<T> EventHandler<T> {
                     })
                     .into_iter()
                     .enumerate()
-                {
-                    if index & 0x1 != 0 {
-                        if let Err(err) = disconnect_with_message(
-                            context.control(),
-                            peer,
-                            "bootnode random eviction",
-                        ) {
-                            debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
-                            return;
-                        }
-                    }
-                }
+                    .filter_map(|(index, peer)| if index & 0x1 != 0 { Some(peer) } else { None })
+                    .collect()
+            } else {
+                Vec::new()
             }
+        } else {
+            Vec::new()
         }
     }
 }
 
+#[async_trait]
 impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
-    fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
+    async fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError { address, error } => {
                 let mut public_addrs = self.network_state.public_addrs.write();
@@ -588,7 +586,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 let message = format!("ProtocolError id={}", proto_id);
                 // Ban because misbehave of remote peer
                 self.network_state.ban_session(
-                    context.control(),
+                    &context.control().clone().into(),
                     id,
                     Duration::from_secs(300),
                     message,
@@ -627,10 +625,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
             ServiceError::ProtocolHandleError { proto_id, error } => {
                 debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
 
-                if let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error {
+                let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error;
+                {
                     if let Some(id) = opt_session_id {
                         self.network_state.ban_session(
-                            context.control(),
+                            &context.control().clone().into(),
                             id,
                             Duration::from_secs(300),
                             format!("protocol {} panic when process peer message", proto_id),
@@ -652,7 +651,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
         }
     }
 
-    fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
+    async fn handle_event(&mut self, context: &mut ServiceContext, event: ServiceEvent) {
         // When session disconnect update status anyway
         match event {
             ServiceEvent::SessionOpen { session_context } => {
@@ -662,7 +661,19 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 );
                 self.network_state.dial_success(&session_context.address);
 
-                self.inbound_eviction(context);
+                let iter = self.inbound_eviction();
+
+                for peer in iter {
+                    if let Err(err) = async_disconnect_with_message(
+                        context.control(),
+                        peer,
+                        "bootnode random eviction",
+                    )
+                    .await
+                    {
+                        debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
+                    }
+                }
 
                 if self
                     .network_state
@@ -679,11 +690,13 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                                 "evict peer (disconnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.connected_addr,
                             );
-                            if let Err(err) = disconnect_with_message(
+                            if let Err(err) = async_disconnect_with_message(
                                 context.control(),
                                 evicted_peer.session_id,
                                 "evict because accepted better peer",
-                            ) {
+                            )
+                            .await
+                            {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     evicted_peer.session_id, err
@@ -699,11 +712,13 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err, session_context.id, session_context.address,
                             );
-                            if let Err(err) = disconnect_with_message(
+                            if let Err(err) = async_disconnect_with_message(
                                 context.control(),
                                 session_context.id,
                                 "reject peer connection",
-                            ) {
+                            )
+                            .await
+                            {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     session_context.id, err
@@ -718,7 +733,6 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                     "SessionClose({}, {})",
                     session_context.id, session_context.address,
                 );
-
                 let peer_exists = self.network_state.with_peer_registry_mut(|reg| {
                     // should make sure feelers is clean
                     reg.remove_feeler(&session_context.address);
@@ -938,8 +952,24 @@ impl<T: ExitHandler> NetworkService<T> {
                             if matches!(init, BindType::Tcp) {
                                 continue;
                             }
-                            service_builder = service_builder.tcp_bind(addr.clone());
-                            init.transform(TransportType::Tcp)
+                            if let Some(addr) = multiaddr_to_socketaddr(addr) {
+                                use p2p::service::TcpSocket;
+                                service_builder =
+                                    service_builder.tcp_config(move |socket: TcpSocket| {
+                                        let socket_ref = socket2::SockRef::from(&socket);
+                                        #[cfg(all(
+                                            unix,
+                                            not(target_os = "solaris"),
+                                            not(target_os = "illumos")
+                                        ))]
+                                        socket_ref.set_reuse_port(true)?;
+
+                                        socket_ref.set_reuse_address(true)?;
+                                        socket_ref.bind(&addr.into())?;
+                                        Ok(socket)
+                                    });
+                                init.transform(TransportType::Tcp)
+                            }
                         }
                     }
                 }
@@ -961,7 +991,7 @@ impl<T: ExitHandler> NetworkService<T> {
         let dump_peer_store_service = DumpPeerStoreService::new(Arc::clone(&network_state));
         let protocol_type_checker_service = ProtocolTypeCheckerService::new(
             Arc::clone(&network_state),
-            p2p_service.control().to_owned(),
+            p2p_service.control().to_owned().into(),
             required_protocol_ids,
         );
         let mut bg_services = vec![
@@ -971,7 +1001,7 @@ impl<T: ExitHandler> NetworkService<T> {
         if config.outbound_peer_service_enabled() {
             let outbound_peer_service = OutboundPeerService::new(
                 Arc::clone(&network_state),
-                p2p_service.control().to_owned(),
+                p2p_service.control().to_owned().into(),
                 Duration::from_secs(config.connect_outbound_interval_secs),
             );
             bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
@@ -999,11 +1029,12 @@ impl<T: ExitHandler> NetworkService<T> {
     pub fn start<S: Spawn>(self, handle: &S) -> Result<NetworkController, Error> {
         let config = self.network_state.config.clone();
 
+        let p2p_control: ServiceControl = self.p2p_service.control().to_owned().into();
+
         // dial whitelist_nodes
         for addr in self.network_state.config.whitelist_peers() {
             debug!("dial whitelist_peers {:?}", addr);
-            self.network_state
-                .dial_identify(self.p2p_service.control(), addr);
+            self.network_state.dial_identify(&p2p_control, addr);
         }
 
         // get bootnodes
@@ -1030,8 +1061,7 @@ impl<T: ExitHandler> NetworkService<T> {
         // dial half bootnodes
         for addr in bootnodes {
             debug!("dial bootnode {:?}", addr);
-            self.network_state
-                .dial_identify(self.p2p_service.control(), addr);
+            self.network_state.dial_identify(&p2p_control, addr);
         }
 
         let Self {
@@ -1041,7 +1071,6 @@ impl<T: ExitHandler> NetworkService<T> {
             bg_services,
             version,
         } = self;
-        let p2p_control = p2p_service.control().to_owned();
 
         // NOTE: for ensure background task finished
         let (bg_signals, bg_receivers): (Vec<_>, Vec<_>) = bg_services
@@ -1056,15 +1085,12 @@ impl<T: ExitHandler> NetworkService<T> {
         let (start_sender, start_receiver) = mpsc::channel();
         {
             let network_state = Arc::clone(&network_state);
-            let p2p_control = p2p_control.clone();
+            let p2p_control: ServiceAsyncControl = p2p_control.clone().into();
             handle.spawn_task(async move {
                 for addr in &config.listen_addresses {
                     match p2p_service.listen(addr.to_owned()).await {
                         Ok(listen_address) => {
-                            info!(
-                                "Listen on address: {}",
-                                listen_address
-                            );
+                            info!("Listen on address: {}", listen_address);
                             network_state
                                 .listened_addrs
                                 .write()
@@ -1084,32 +1110,18 @@ impl<T: ExitHandler> NetworkService<T> {
                     };
                 }
                 start_sender.send(Ok(())).unwrap();
+                tokio::spawn(async move { p2p_service.run().await });
                 loop {
                     tokio::select! {
-                        Some(_) = p2p_service.next() => {},
                         _ = &mut receiver => {
-                            for peer in network_state.peer_registry.read().peers().values() {
-                                info!("Disconnect peer {}", peer.connected_addr);
-                                if let Err(err) =
-                                    disconnect_with_message(&p2p_control, peer.session_id, "shutdown")
-                                {
-                                    debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
-                                }
-                            }
+                            let _ = p2p_control.shutdown().await;
                             // Drop senders to stop all corresponding background task
                             drop(bg_signals);
 
                             break;
                         },
                         else => {
-                            for peer in network_state.peer_registry.read().peers().values() {
-                                info!("Disconnect peer {}", peer.connected_addr);
-                                if let Err(err) =
-                                    disconnect_with_message(&p2p_control, peer.session_id, "shutdown")
-                                {
-                                    debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
-                                }
-                            }
+                            let _ = p2p_control.shutdown().await;
                             // Drop senders to stop all corresponding background task
                             drop(bg_signals);
 
@@ -1156,16 +1168,6 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
-    /// set ckb2021 start
-    pub fn init_ckb2021(&self) {
-        self.network_state.ckb2021.store(true, Ordering::SeqCst);
-    }
-
-    /// get ckb2021 flag
-    pub fn load_ckb2021(&self) -> bool {
-        self.network_state.ckb2021.load(Ordering::SeqCst)
-    }
-
     /// Node listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)
@@ -1230,6 +1232,7 @@ impl NetworkController {
 
     /// Ban an ip
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) {
+        self.disconnect_peers_in_ip_range(address, &ban_reason);
         self.network_state
             .peer_store
             .lock()
@@ -1259,6 +1262,23 @@ impl NetworkController {
     pub fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
         self.network_state
             .ban_session(&self.p2p_control, peer_index, duration, reason);
+    }
+
+    /// disconnect peers with matched peer_ip or peer_ip_network, eg: 192.168.0.2 or 192.168.0.0/24
+    fn disconnect_peers_in_ip_range(&self, address: IpNetwork, reason: &str) {
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers().iter().for_each(|(peer_index, peer)| {
+                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr) {
+                    if address.contains(addr.ip()) {
+                        let _ = disconnect_with_message(
+                            &self.p2p_control,
+                            *peer_index,
+                            &format!("Ban peer {}, reason: {}", addr.ip(), reason),
+                        );
+                    }
+                }
+            })
+        });
     }
 
     fn try_broadcast(
@@ -1378,4 +1398,23 @@ pub(crate) fn disconnect_with_message(
         )?;
     }
     control.disconnect(peer_index)
+}
+
+pub(crate) async fn async_disconnect_with_message(
+    control: &ServiceAsyncControl,
+    peer_index: SessionId,
+    message: &str,
+) -> Result<(), SendErrorKind> {
+    if !message.is_empty() {
+        let data = Bytes::from(message.as_bytes().to_vec());
+        // Must quick send, otherwise this message will be dropped.
+        control
+            .quick_send_message_to(
+                peer_index,
+                SupportProtocols::DisconnectMessage.protocol_id(),
+                data,
+            )
+            .await?;
+    }
+    control.disconnect(peer_index).await
 }

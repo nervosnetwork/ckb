@@ -1,4 +1,3 @@
-use crate::util::mining::mine;
 use crate::Node;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::{CellInput, OutPoint};
@@ -69,7 +68,7 @@ impl TxFamily {
 pub fn prepare_tx_family(node: &Node) -> TxFamily {
     // Ensure the generated transactions are conform to the cellbase mature rule
     let ancestor = node.new_transaction_spend_tip_cellbase();
-    mine(node, node.consensus().cellbase_maturity().index());
+    node.mine(node.consensus().cellbase_maturity().index());
 
     TxFamily::init(ancestor)
 }

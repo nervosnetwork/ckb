@@ -6,7 +6,7 @@ use std::{
 
 use ckb_logger::{debug, error, trace, warn};
 use p2p::{
-    bytes,
+    async_trait, bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
@@ -45,7 +45,7 @@ pub struct DiscoveryProtocol<M> {
     addr_mgr: M,
 }
 
-impl<M: AddressManager> DiscoveryProtocol<M> {
+impl<M: AddressManager + Send> DiscoveryProtocol<M> {
     pub fn new(addr_mgr: M, announce_check_interval: Option<Duration>) -> DiscoveryProtocol<M> {
         DiscoveryProtocol {
             sessions: HashMap::default(),
@@ -55,8 +55,9 @@ impl<M: AddressManager> DiscoveryProtocol<M> {
     }
 }
 
-impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
-    fn init(&mut self, context: &mut ProtocolContext) {
+#[async_trait]
+impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
+    async fn init(&mut self, context: &mut ProtocolContext) {
         debug!("protocol [discovery({})]: init", context.proto_id);
         context
             .set_service_notify(
@@ -65,10 +66,11 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                     .unwrap_or(ANNOUNCE_CHECK_INTERVAL),
                 0,
             )
+            .await
             .expect("set discovery notify fail")
     }
 
-    fn connected(&mut self, context: ProtocolContextMutRef, version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         let session = context.session;
         debug!(
             "DiscoveryProtocol connected, session: {:?}, version: {}",
@@ -78,42 +80,26 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions.insert(
-            session.id,
-            SessionState::new(context, &self.addr_mgr, version == "2"),
-        );
+        self.sessions
+            .insert(session.id, SessionState::new(context, &self.addr_mgr).await);
     }
 
-    fn disconnected(&mut self, context: ProtocolContextMutRef) {
+    async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         let session = context.session;
         self.sessions.remove(&session.id);
         self.addr_mgr.unregister(session.id, context.proto_id);
         debug!("DiscoveryProtocol disconnected, session {:?}", session);
     }
 
-    fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
+    async fn received(&mut self, context: ProtocolContextMutRef<'_>, data: bytes::Bytes) {
         let session = context.session;
         trace!("[received message]: length={}", data.len());
 
         let mgr = &mut self.addr_mgr;
-        let mut check = |behavior: Misbehavior| -> bool {
-            if mgr.misbehave(session, &behavior).is_disconnect() {
-                if context.disconnect(session.id).is_err() {
-                    error!("disconnect {:?} send fail", session.id)
-                }
-                true
-            } else {
-                false
-            }
-        };
+        let mut check =
+            |behavior: Misbehavior| -> bool { mgr.misbehave(session, &behavior).is_disconnect() };
 
-        let v2 = self
-            .sessions
-            .get(&session.id)
-            .map(|state| state.v2)
-            .unwrap_or(false);
-
-        match decode(&data, v2) {
+        match decode(&data) {
             Some(item) => {
                 match item {
                     DiscoveryMessage::GetNodes {
@@ -123,6 +109,9 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                     } => {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
+                                if context.disconnect(session.id).await.is_err() {
+                                    debug!("disconnect {:?} send fail", session.id)
+                                }
                                 return;
                             }
 
@@ -168,8 +157,8 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                                 items,
                             };
 
-                            let msg = encode(DiscoveryMessage::Nodes(nodes), v2);
-                            if context.send_message(msg).is_err() {
+                            let msg = encode(DiscoveryMessage::Nodes(nodes));
+                            if context.send_message(msg).await.is_err() {
                                 debug!("{:?} send discovery msg Nodes fail", session.id)
                             }
                         }
@@ -177,6 +166,9 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                     DiscoveryMessage::Nodes(nodes) => {
                         if let Some(misbehavior) = verify_nodes_message(&nodes) {
                             if check(misbehavior) {
+                                if context.disconnect(session.id).await.is_err() {
+                                    debug!("disconnect {:?} send fail", session.id)
+                                }
                                 return;
                             }
                         }
@@ -184,7 +176,11 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if !nodes.announce && state.received_nodes {
                                 warn!("already received Nodes(announce=false) message");
-                                check(Misbehavior::DuplicateFirstNodes);
+                                if check(Misbehavior::DuplicateFirstNodes)
+                                    && context.disconnect(session.id).await.is_err()
+                                {
+                                    debug!("disconnect {:?} send fail", session.id)
+                                }
                             } else {
                                 let addrs = nodes
                                     .items
@@ -211,7 +207,7 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
                     .addr_mgr
                     .misbehave(session, &Misbehavior::InvalidData)
                     .is_disconnect()
-                    && context.disconnect(session.id).is_err()
+                    && context.disconnect(session.id).await.is_err()
                 {
                     debug!("disconnect {:?} send fail", session.id)
                 }
@@ -219,23 +215,20 @@ impl<M: AddressManager> ServiceProtocol for DiscoveryProtocol<M> {
         }
     }
 
-    fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
+    async fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         let now = Instant::now();
-        let addr_mgr = &self.addr_mgr;
         // get announce list
-        let announce_list: Vec<_> = self
-            .sessions
-            .iter_mut()
-            .filter_map(|(id, state)| {
-                // send all announce addr to remote
-                state.send_messages(context, *id);
-                // check timer
-                state
-                    .check_timer(now, ANNOUNCE_INTERVAL)
-                    .filter(|addr| addr_mgr.is_valid_addr(addr))
-                    .cloned()
-            })
-            .collect();
+        let mut announce_list = Vec::new();
+        for (id, state) in self.sessions.iter_mut() {
+            state.send_messages(context, *id).await;
+
+            if let Some(addr) = state
+                .check_timer(now, ANNOUNCE_INTERVAL)
+                .filter(|addr| self.addr_mgr.is_valid_addr(addr))
+            {
+                announce_list.push(addr.clone());
+            }
+        }
 
         if !announce_list.is_empty() {
             let mut rng = rand::thread_rng();

@@ -252,16 +252,8 @@ impl Launcher {
             self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
-        let fork_enable = {
-            let epoch = shared.snapshot().tip_header().epoch().number();
-            shared
-                .consensus()
-                .hardfork_switch
-                .is_vm_version_1_and_syscalls_2_enabled(epoch)
-        };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
-                .map(|t| NetworkState::ckb2021(t, fork_enable))
                 .expect("Init network state failed"),
         );
 
@@ -280,17 +272,9 @@ impl Launcher {
 
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV2,
-                Box::new(relayer.clone().v2()),
+                Box::new(relayer),
                 Arc::clone(&network_state),
             ));
-
-            if !fork_enable {
-                protocols.push(CKBProtocol::new_with_support_protocol(
-                    SupportProtocols::Relay,
-                    Box::new(relayer),
-                    Arc::clone(&network_state),
-                ))
-            }
         }
 
         if support_protocols.contains(&SupportProtocol::Time) {
@@ -337,7 +321,6 @@ impl Launcher {
             .enable_pool(
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
-                self.args.config.rpc.reject_ill_transactions,
                 self.args
                     .config
                     .rpc

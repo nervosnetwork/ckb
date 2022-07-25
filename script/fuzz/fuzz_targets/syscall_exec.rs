@@ -147,17 +147,7 @@ fn run(data: FuzzData) {
     };
 
     let proivder = MockDataLoader {};
-    let hardfork_switch = HardForkSwitch::new_without_any_enabled()
-        .as_builder()
-        .rfc_0032(0)
-        .build()
-        .unwrap();
-    let consensus = ConsensusBuilder::default()
-        .hardfork_switch(hardfork_switch)
-        .build();
-    let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
-    let verifier = TransactionScriptsVerifier::new(&rtx, &consensus, &proivder, &tx_verify_env);
+    let verifier = TransactionScriptsVerifier::new(&rtx, &proivder);
 
     let result = verifier.verify(10_000_000_000);
     assert!(result.is_ok());

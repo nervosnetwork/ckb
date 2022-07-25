@@ -1,4 +1,3 @@
-use crate::util::mining::mine_until_out_bootstrap_period;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::{RawTxPool, TxPoolIds};
 use ckb_logger::info;
@@ -12,7 +11,7 @@ impl Spec for GetRawTxPool {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &mut nodes[0];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Generate 6 txs on node0");
         let mut txs_hash = vec![node0.generate_transaction()];

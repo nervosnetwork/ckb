@@ -1,7 +1,7 @@
 use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::cell::gen_spendable;
 use crate::util::check::{is_transaction_committed, is_transaction_pending};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period, out_ibd_mode};
+use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -27,7 +27,7 @@ impl Spec for ChainFork1 {
         let node1 = &nodes[1];
 
         info!("Generate 2 blocks (A, B) on node0");
-        mine(node0, 2);
+        node0.mine(2);
 
         info!("Connect node0 to node1");
         node1.connect(node0);
@@ -36,9 +36,9 @@ impl Spec for ChainFork1 {
         node0.disconnect(node1);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
 
         info!("Reconnect node0 to node1");
         node0.connect(node1);
@@ -67,7 +67,7 @@ impl Spec for ChainFork2 {
         let node2 = &nodes[2];
 
         info!("Generate 2 blocks (A, B) on node0");
-        mine(node0, 2);
+        node0.mine(2);
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -77,20 +77,20 @@ impl Spec for ChainFork2 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
         info!("Reconnect node1");
         node0.connect(node1);
         waiting_for_sync(&[node0, node1]);
 
         info!("Generate 2 blocks (F, G) on node2");
-        mine(node2, 2);
+        node2.mine(2);
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
@@ -114,7 +114,7 @@ impl Spec for ChainFork3 {
         let node2 = &nodes[2];
 
         info!("Generate DEFAULT_TX_PROPOSAL_WINDOW.1 + 2 blocks (A, B) on node0");
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -125,14 +125,14 @@ impl Spec for ChainFork3 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
         info!("Generate 1 block (F) with invalid reward cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
@@ -161,7 +161,7 @@ impl Spec for ChainFork3 {
 
         info!("Generate 2 block (G) on node2");
         info!("Reconnect node2");
-        mine(node2, 2);
+        node2.mine(2);
         node2.connect(node0);
         waiting_for_sync(&[node0, node2]);
     }
@@ -183,7 +183,7 @@ impl Spec for ChainFork4 {
         let node2 = &nodes[2];
 
         info!("Generate 2 blocks (A, B) on node0");
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -194,14 +194,14 @@ impl Spec for ChainFork4 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
         info!("Generate 1 block (F) with capacity overflow cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
@@ -230,7 +230,7 @@ impl Spec for ChainFork4 {
         node2.connect_and_wait_ban(node1);
 
         info!("Generate 1 block (G) on node2");
-        mine(node2, 2);
+        node2.mine(2);
         waiting_for_sync(&[node0, node2]);
     }
 }
@@ -254,7 +254,7 @@ impl Spec for ChainFork5 {
         let cells = gen_spendable(node0, 1);
         let transaction = always_success_transaction(node0, &cells[0]);
         node0.submit_transaction(&transaction);
-        mine(node0, 1);
+        node0.mine_with_blocking(|template| template.proposals.len() != 1);
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
@@ -264,14 +264,14 @@ impl Spec for ChainFork5 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 1 blocks (D) on node1");
-        mine(node1, 1);
+        node1.mine(1);
         info!("Generate 1 blocks (E) with transaction on node1");
         let block = {
             let block = node1.new_block(None, None, None);
@@ -299,7 +299,7 @@ impl Spec for ChainFork5 {
 
         info!("Generate 2 block (G) on node2");
         info!("Reconnect node2");
-        mine(node2, 2);
+        node2.mine(2);
         node2.connect(node0);
         waiting_for_sync(&[node0, node2]);
     }
@@ -321,7 +321,7 @@ impl Spec for ChainFork6 {
         let node2 = &nodes[2];
 
         info!("Generate 2 blocks (A, B) on node0");
-        mine(node0, 2);
+        node0.mine(2);
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -332,14 +332,14 @@ impl Spec for ChainFork6 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_transaction = node1.new_transaction(h256!("0x1").pack());
@@ -355,7 +355,7 @@ impl Spec for ChainFork6 {
         node2.connect_and_wait_ban(node1);
 
         info!("Generate 2 block (G) on node2");
-        mine(node2, 2);
+        node2.mine(2);
         node2.connect(node0);
         waiting_for_sync(&[node0, node2]);
     }
@@ -377,7 +377,7 @@ impl Spec for ChainFork7 {
         let node2 = &nodes[2];
 
         info!("Generate 12 blocks (A, B) on node0");
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         info!("Connect all nodes");
         node1.connect(node0);
@@ -388,14 +388,14 @@ impl Spec for ChainFork7 {
         disconnect_all(nodes);
 
         info!("Generate 1 block (C) on node0");
-        mine(node0, 1);
+        node0.mine(1);
         node0.connect(node2);
         waiting_for_sync(&[node0, node2]);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        mine(node1, 2);
+        node1.mine(2);
         info!("Generate 1 block (F) with spending invalid index transaction on node1");
         let block = node1.new_block(None, None, None);
         let transaction = node1.new_transaction_spend_tip_cellbase();
@@ -425,7 +425,7 @@ impl Spec for ChainFork7 {
 
         info!("Generate 1 block (G) on node2");
         node2.connect(node0);
-        mine(node2, 2);
+        node2.mine(2);
         waiting_for_sync(&[node0, node2]);
     }
 }
@@ -446,19 +446,19 @@ impl Spec for LongForks {
         let node2 = &nodes[2];
 
         // test_node == node1 == chain1, height = 139 = PER_FETCH_BLOCK_LIMIT + 10 + 1
-        mine(node1, PER_FETCH_BLOCK_LIMIT + 10);
+        node1.mine(PER_FETCH_BLOCK_LIMIT + 10);
         test_node.connect(node1);
         waiting_for_sync(&[test_node, node1]);
         test_node.disconnect(node1);
 
         // test_node == node2 == chain2, height = 149 = PER_FETCH_BLOCK_LIMIT + 20 + 1
-        mine(node2, PER_FETCH_BLOCK_LIMIT + 20);
+        node2.mine(PER_FETCH_BLOCK_LIMIT + 20);
         test_node.connect(node2);
         waiting_for_sync(&[test_node, node2]);
         test_node.disconnect(node2);
 
         // test_node == node1 == chain1, height = 169 = PER_FETCH_BLOCK_LIMIT + 10 + 30 + 1
-        mine(node1, 30);
+        node1.mine(30);
         test_node.connect(node1);
         waiting_for_sync(&[test_node, node1]);
     }
@@ -481,30 +481,30 @@ impl Spec for ForksContainSameTransactions {
         let node2 = &nodes[2];
         let target_node = &nodes[3];
 
-        mine_until_out_bootstrap_period(node0);
+        node0.mine_until_out_bootstrap_period();
 
         let transaction = node0.new_transaction_spend_tip_cellbase();
 
         // Build `chain0`, contain the target `transaction`, with length = 41
         {
-            mine(node0, 20);
+            node0.mine(20);
             node0.submit_transaction(&transaction);
-            mine(node0, 20);
+            node0.mine(20);
         }
 
         // Build `chain1`, contain the target `transaction`, with length = 61
         {
             // `sleep` to make sure that the chain1[2] != chain2[2]
             sleep(Duration::from_millis(1));
-            mine(node1, 30);
+            node1.mine(30);
             node1.submit_transaction(&transaction);
-            mine(node1, 40);
+            node1.mine(40);
         }
 
         // Build `chain2`, all the blocks are empty, with length = 51
         {
             sleep(Duration::from_millis(1));
-            mine(node2, 60);
+            node2.mine(60);
         }
 
         let (rpc_client0, rpc_client1, rpc_client2) =
@@ -560,9 +560,9 @@ impl Spec for ForksContainSameUncle {
         out_ibd_mode(nodes);
 
         info!("(1) Construct an uncle before fork point");
-        let uncle = node_a.construct_uncle();
-        mine(node_a, 1);
-        mine(node_b, 1);
+        let (block, uncle) = node_a.construct_uncle();
+        node_a.submit_block(&block);
+        node_b.mine(1);
 
         info!("(2) Add `uncle` into different forks in node_a and node_b");
         node_a.submit_block(&uncle);
@@ -580,7 +580,7 @@ impl Spec for ForksContainSameUncle {
         node_b.submit_block(&block_b);
 
         info!("(3) Make node_b's fork longer(to help check whether is synchronized)");
-        mine(node_b, 1);
+        node_b.mine(1);
 
         info!("(4) Connect node_a and node_b, expect that they sync into convergence");
         node_a.connect(node_b);
@@ -610,7 +610,7 @@ impl Spec for ForkedTransaction {
 
         // `node0` doesn't have `tx`      => TxStatus: None
         {
-            mine(node0, 1 + 2 * finalization_delay_length);
+            node0.mine(1 + 2 * finalization_delay_length);
             let tx_status = node0.rpc_client().get_transaction(tx.hash());
             assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
         }
@@ -618,7 +618,7 @@ impl Spec for ForkedTransaction {
         // `node1` have `tx` on main-fork => TxStatus: Some(Committed)
         {
             node1.submit_transaction(&tx);
-            mine(node1, 2 * finalization_delay_length);
+            node1.mine(2 * finalization_delay_length);
             assert!(is_transaction_committed(node1, &tx));
         }
 

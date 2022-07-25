@@ -2,7 +2,6 @@ use crate::specs::dao::dao_user::DAOUser;
 use crate::specs::dao::dao_verifier::DAOVerifier;
 use crate::specs::dao::utils::{ensure_committed, goto_target_point};
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::utils::generate_utxo_set;
 use crate::{Node, Spec};
 use ckb_chain_spec::IssuedCell;
@@ -119,11 +118,11 @@ impl Spec for SpendSatoshiCell {
             .witness(witness.pack())
             .build();
 
-        mine(node0, 1);
+        node0.mine(1);
         node0
             .rpc_client()
             .send_transaction(transaction.data().into());
-        mine(node0, 3);
+        node0.mine_until_transaction_confirm(&tx_hash);
         // cellbase occupied capacity minus satoshi cell
         let cellbase_used_capacity = Capacity::bytes(CELLBASE_USED_BYTES).unwrap();
         assert!(is_transaction_committed(node0, &transaction));

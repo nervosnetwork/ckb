@@ -110,11 +110,11 @@ pub struct Memory {
     // Size of physical memory being used
     resident: u64,
     // Number of shared pages
-    shared: u64,
+    _shared: u64,
     // The size of executable virtual memory owned by the program
-    text: u64,
+    _text: u64,
     // Size of the program data segment and the user state stack
-    data: u64,
+    _data: u64,
 }
 
 impl FromStr for Memory {
@@ -140,7 +140,7 @@ impl FromStr for Memory {
                     .map(|value| value * *page_size)
                     .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
             })?;
-        let shared = parts
+        let _shared = parts
             .next()
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
             .and_then(|value| {
@@ -148,7 +148,7 @@ impl FromStr for Memory {
                     .map(|value| value * *page_size)
                     .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
             })?;
-        let text = parts
+        let _text = parts
             .next()
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
             .and_then(|value| {
@@ -158,7 +158,7 @@ impl FromStr for Memory {
             })?;
         // ignore the size of the library in the virtual memory space of the task being imaged
         let _lrs = parts.next();
-        let data = parts
+        let _data = parts
             .next()
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
             .and_then(|value| {
@@ -169,9 +169,9 @@ impl FromStr for Memory {
         Ok(Memory {
             size,
             resident,
-            shared,
-            text,
-            data,
+            _shared,
+            _text,
+            _data,
         })
     }
 }

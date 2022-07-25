@@ -2,7 +2,6 @@ use crate::component::chunk::Entry;
 use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
-use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -124,13 +123,11 @@ impl ChunkProcess {
     fn loop_resume<'a, DL: CellDataProvider + HeaderProvider>(
         &mut self,
         rtx: &'a ResolvedTransaction,
-        consensus: &'a Consensus,
         data_loader: &'a DL,
-        tx_env: &'a TxVerifyEnv,
         mut init_snap: Option<Arc<TransactionSnapshot>>,
         max_cycles: Cycle,
     ) -> Result<State, Reject> {
-        let script_verifier = ScriptVerifier::new(rtx, consensus, data_loader, tx_env);
+        let script_verifier = ScriptVerifier::new(rtx, data_loader);
         let mut tmp_state: Option<ScriptVerifyState> = None;
 
         let completed: Cycle = loop {
@@ -279,14 +276,7 @@ impl ChunkProcess {
             consensus.max_block_cycles()
         };
 
-        let ret = self.loop_resume(
-            &rtx,
-            &consensus,
-            &data_loader,
-            &tx_env,
-            init_snap,
-            max_cycles,
-        );
+        let ret = self.loop_resume(&rtx, &data_loader, init_snap, max_cycles);
         let state = try_or_return_with_snapshot!(ret, snapshot);
 
         let completed: Completed = match state {
@@ -321,6 +311,8 @@ impl ChunkProcess {
             .submit_entry(completed, tip_hash, entry, status)
             .await;
         try_or_return_with_snapshot!(ret, snapshot);
+
+        self.service.notify_block_assembler(status).await;
 
         self.service
             .after_process(tx, remote, &submit_snapshot, &Ok(completed))

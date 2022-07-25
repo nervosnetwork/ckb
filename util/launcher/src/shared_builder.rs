@@ -5,7 +5,7 @@
 use crate::migrate::Migrate;
 use ckb_app_config::ExitCode;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
-use ckb_async_runtime::{new_global_runtime, Handle};
+use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_channel::Receiver;
@@ -150,6 +150,8 @@ impl SharedBuilder {
 
         thread_local! {
             static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
+            // NOTICE：we can't put the runtime directly into thread_local here,
+            // on windows the runtime in thread_local will get stuck when dropping
             static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
         }
 
@@ -177,7 +179,11 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: runtime.borrow().get_or_init(new_global_runtime).0.clone(),
+            async_handle: runtime
+                .borrow()
+                .get_or_init(new_background_runtime)
+                .0
+                .clone(),
         })
     }
 }
@@ -345,7 +351,7 @@ impl SharedBuilder {
             block_assembler_config,
             Arc::clone(&txs_verify_cache),
             &async_handle,
-            sender.clone(),
+            sender,
         );
 
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
@@ -360,7 +366,6 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
-            sender,
         );
 
         let pack = SharedPackage {

@@ -103,6 +103,10 @@ pub enum StatusCode {
     HeadersIsInvalid = 415,
     /// Too many unknown transactions
     TooManyUnknownTransactions = 416,
+    /// Request Genesis
+    RequestGenesis = 417,
+    /// Request Duplicate data
+    RequestDuplicate = 418,
 
     ///////////////////////////////////
     //      Warning 5xx              //

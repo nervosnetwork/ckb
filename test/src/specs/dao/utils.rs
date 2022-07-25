@@ -1,17 +1,17 @@
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::Node;
 use ckb_types::core::EpochNumberWithFraction;
 use ckb_types::{core::TransactionView, packed::OutPoint};
 
 /// Send the given transaction and make it committed
 pub(crate) fn ensure_committed(node: &Node, transaction: &TransactionView) -> OutPoint {
-    let commit_elapsed = node.consensus().tx_proposal_window().closest() + 2;
+    let closest = node.consensus().tx_proposal_window().closest();
+    let tx_hash = transaction.hash();
     node.rpc_client()
         .send_transaction(transaction.data().into());
-    mine(node, commit_elapsed);
+    node.mine_until_transaction_confirm_with_windows(&tx_hash, closest);
     assert!(is_transaction_committed(node, transaction));
-    OutPoint::new(transaction.hash(), 0)
+    OutPoint::new(tx_hash, 0)
 }
 
 /// A helper function keep the node growing until into the target EpochNumberWithFraction.
@@ -25,6 +25,6 @@ pub(crate) fn goto_target_point(node: &Node, target_point: EpochNumberWithFracti
             break;
         }
 
-        mine(node, 1);
+        node.mine(1);
     }
 }

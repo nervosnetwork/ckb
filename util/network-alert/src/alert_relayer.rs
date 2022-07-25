@@ -11,7 +11,9 @@ use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_app_config::NetworkAlertConfig;
 use ckb_logger::{debug, info, trace};
-use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_network::{
+    async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
+};
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
@@ -72,10 +74,11 @@ impl AlertRelayer {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for AlertRelayer {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn connected(
+    async fn connected(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -91,7 +94,8 @@ impl CKBProtocolHandler for AlertRelayer {
         }
     }
 
-    fn received(
+    #[allow(clippy::needless_collect)]
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -159,13 +163,13 @@ impl CKBProtocolHandler for AlertRelayer {
         // mark sender as known
         self.mark_as_known(peer_index, alert_id);
         // broadcast message
-        let selected_peers: HashSet<PeerIndex> = nc
+        let selected_peers: Vec<PeerIndex> = nc
             .connected_peers()
             .into_iter()
             .filter(|peer| self.mark_as_known(*peer, alert_id))
             .collect();
         if let Err(err) = nc.quick_filter_broadcast(
-            TargetSession::Filter(Box::new(move |id| selected_peers.contains(id))),
+            TargetSession::Multi(Box::new(selected_peers.into_iter())),
             data,
         ) {
             debug!("alert broadcast error: {:?}", err);

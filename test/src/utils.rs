@@ -1,6 +1,5 @@
 use crate::global::PORT_COUNTER;
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::{Node, TXOSet};
 use ckb_network::bytes::Bytes;
 use ckb_types::{
@@ -178,6 +177,7 @@ pub fn since_from_absolute_timestamp(timestamp: u64) -> u64 {
 }
 
 pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, message: &str) {
+    node.wait_for_tx_pool();
     let result = node
         .rpc_client()
         .send_transaction_result(transaction.data().into());
@@ -194,6 +194,14 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
         message,
         error_string,
     );
+}
+
+pub fn assert_send_transaction_ok(node: &Node, transaction: &TransactionView) {
+    node.wait_for_tx_pool();
+    let result = node
+        .rpc_client()
+        .send_transaction_result(transaction.data().into());
+    assert!(result.is_ok(), "result: {:?}", result.unwrap_err());
 }
 
 /// Return a random path located on temp_dir
@@ -219,13 +227,13 @@ pub fn temp_path(case_name: &str, suffix: &str) -> PathBuf {
 pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     // Ensure all the cellbases will be used later are already mature.
     let cellbase_maturity = node.consensus().cellbase_maturity();
-    mine(node, cellbase_maturity.index());
+    node.mine(cellbase_maturity.index());
 
     // Explode these mature cellbases into multiple cells
     let mut n_outputs = 0;
     let mut txs = Vec::new();
     while n > n_outputs {
-        mine(node, 1);
+        node.mine(1);
         let mature_number = node.get_tip_block_number() - cellbase_maturity.index();
         let mature_block = node.get_block_by_number(mature_number);
         let mature_cellbase = mature_block.transaction(0).unwrap();
@@ -244,13 +252,14 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
         node.submit_transaction(tx);
     });
     while txs.iter().any(|tx| !is_transaction_committed(node, tx)) {
-        mine(node, node.consensus().finalization_delay_length());
+        node.mine(node.consensus().finalization_delay_length());
     }
 
     let mut utxos = TXOSet::default();
     txs.iter()
         .for_each(|tx| utxos.extend(Into::<TXOSet>::into(tx)));
     utxos.truncate(n);
+    node.wait_for_tx_pool();
     utxos
 }
 

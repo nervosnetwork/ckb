@@ -1,16 +1,15 @@
 use crate::utils::{find_available_port, message_name, temp_path, wait_until};
 use crate::Node;
 use ckb_app_config::NetworkConfig;
-use ckb_async_runtime::new_global_runtime;
+use ckb_async_runtime::{new_global_runtime, Runtime};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
 use ckb_logger::info;
 use ckb_network::{
-    bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext, CKBProtocolHandler,
-    DefaultExitHandler, NetworkController, NetworkService, NetworkState, PeerIndex, ProtocolId,
-    SupportProtocols,
+    async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
+    CKBProtocolHandler, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
+    PeerIndex, ProtocolId, SupportProtocols,
 };
-use ckb_stop_handler::StopHandler;
 use ckb_util::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,7 +25,7 @@ pub struct Net {
     controller: NetworkController,
     register_rx: Receiver<(String, PeerIndex, Receiver<NetMessage>)>,
     receivers: HashMap<String, (PeerIndex, Receiver<NetMessage>)>,
-    _async_runtime_stop: StopHandler<()>,
+    _async_runtime: Runtime,
 }
 
 impl Net {
@@ -64,7 +63,7 @@ impl Net {
                 )
             })
             .collect();
-        let (async_handle, async_runtime_stop) = new_global_runtime();
+        let (async_handle, async_runtime) = new_global_runtime();
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
@@ -82,7 +81,7 @@ impl Net {
             controller,
             register_rx,
             receivers: Default::default(),
-            _async_runtime_stop: async_runtime_stop,
+            _async_runtime: async_runtime,
         }
     }
 
@@ -206,10 +205,11 @@ impl DummyProtocolHandler {
     }
 }
 
+#[async_trait]
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
+    async fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
-    fn connected(
+    async fn connected(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
@@ -225,11 +225,15 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         let _ = self.register_tx.send((node_id, peer_index, receiver));
     }
 
-    fn disconnected(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, peer_index: PeerIndex) {
+    async fn disconnected(
+        &mut self,
+        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_index: PeerIndex,
+    ) {
         self.senders.lock().remove(&peer_index);
     }
 
-    fn received(
+    async fn received(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,

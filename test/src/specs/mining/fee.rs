@@ -2,7 +2,6 @@ use crate::assertion::reward_assertion::*;
 use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::util::cell::{as_input, gen_spendable};
 use crate::util::check::is_transaction_committed;
-use crate::util::mining::mine;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
@@ -29,12 +28,14 @@ impl Spec for FeeOfTransaction {
         let cells = gen_spendable(node, 1);
         let transaction = always_success_transaction(node, &cells[0]);
         node.submit_transaction(&transaction);
+        let tx_hash = transaction.hash();
 
         let txs = vec![transaction];
         let closest = DEFAULT_TX_PROPOSAL_WINDOW.0;
         let number_to_propose = node.get_tip_block_number() + 1;
         let number_to_commit = number_to_propose + closest;
-        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
+        node.mine_until_transaction_confirm(&tx_hash);
+        node.mine(2 * FINALIZATION_DELAY_LENGTH);
 
         assert_eq!(
             node.get_block_by_number(number_to_propose)
@@ -89,11 +90,12 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
             node.submit_transaction(tx);
         });
 
-        let number_to_propose = node.get_tip_block_number() + 1;
-        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
+        let proposed = node.mine_with_blocking(|template| template.proposals.len() != txs.len());
+        node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+        node.mine_with_blocking(|template| template.transactions.len() != txs.len());
 
         assert_eq!(
-            node.get_block_by_number(number_to_propose)
+            node.get_block_by_number(proposed)
                 .get_proposal_tx_ids()
                 .len(),
             txs.get_proposal_tx_ids().len()
@@ -153,7 +155,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
                 max_block_proposals_limit,
             );
         });
-        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
+        node.mine(2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         check_fee(node);
@@ -179,7 +181,7 @@ impl Spec for ProposeButNotCommit {
         let transaction = always_success_transaction(feed_node, &cells[0]);
         let txs = vec![transaction];
         feed_node.submit_transaction(&txs[0]);
-        mine(feed_node, 1);
+        feed_node.mine(1);
 
         let feed_blocks: Vec<_> = (1..feed_node.get_tip_block_number())
             .map(|number| feed_node.get_block_by_number(number))
@@ -188,7 +190,7 @@ impl Spec for ProposeButNotCommit {
         feed_blocks.iter().for_each(|block| {
             target_node.submit_block(block);
         });
-        mine(target_node, 2 * FINALIZATION_DELAY_LENGTH);
+        target_node.mine(2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(!is_transaction_committed(target_node, &txs[0]));
     }
@@ -212,7 +214,7 @@ impl Spec for ProposeDuplicated {
                 .proposal(tx.proposal_short_id())
                 .build()
                 .as_uncle();
-            mine(node, 1);
+            node.mine(1);
             uncle
         };
         let uncle2 = {
@@ -222,7 +224,7 @@ impl Spec for ProposeDuplicated {
                 .nonce(99999.pack())
                 .build()
                 .as_uncle();
-            mine(node, 1);
+            node.mine(1);
             uncle
         };
 
@@ -234,7 +236,7 @@ impl Spec for ProposeDuplicated {
         node.submit_transaction(tx);
         node.submit_block(&block);
 
-        mine(node, 2 * FINALIZATION_DELAY_LENGTH);
+        node.mine(2 * FINALIZATION_DELAY_LENGTH);
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         check_fee(node);

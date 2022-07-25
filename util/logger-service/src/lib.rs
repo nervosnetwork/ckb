@@ -2,7 +2,6 @@
 
 use ansi_term::Colour;
 use backtrace::Backtrace;
-use chrono::prelude::{DateTime, Local};
 use ckb_channel::{self, unbounded};
 use env_logger::filter::{Builder, Filter};
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
@@ -12,6 +11,10 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs, panic, process, sync, thread};
+use time::{
+    format_description::{self, FormatItem},
+    OffsetDateTime,
+};
 
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
@@ -20,6 +23,7 @@ use ckb_util::{strings, Mutex, RwLock};
 mod tests;
 
 static CONTROL_HANDLE: OnceCell<ckb_channel::Sender<Message>> = OnceCell::new();
+static FORMAT: OnceCell<Vec<FormatItem<'static>>> = OnceCell::new();
 static RE: OnceCell<regex::Regex> = OnceCell::new();
 
 enum Message {
@@ -84,7 +88,7 @@ pub(crate) fn convert_compatible_crate_name(spec: &str) -> String {
         for m in mods_part.split(',') {
             mods.push(m.to_owned());
             if m.contains('-') {
-                mods.push(m.replace("-", "_"));
+                mods.push(m.replace('-', "_"));
             }
         }
     }
@@ -407,24 +411,32 @@ impl Log for Logger {
             let thread = thread::current();
             let thread_name = thread.name().unwrap_or("*unnamed*");
 
-            let with_color = {
-                let thread_name = format!("{}", Colour::Blue.bold().paint(thread_name));
-                let dt: DateTime<Local> = Local::now();
-                let timestamp = dt.format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
-                format!(
-                    "{} {} {} {}  {}",
-                    Colour::Black.bold().paint(timestamp),
-                    thread_name,
-                    record.level(),
-                    record.target(),
-                    record.args()
+            let utc = OffsetDateTime::now_utc();
+            let fmt = FORMAT.get_or_init(|| {
+                format_description::parse(
+                    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3] \
+                    [offset_hour sign:mandatory]:[offset_minute]",
                 )
-            };
-            let _ = self.sender.send(Message::Record {
-                is_match,
-                extras,
-                data: with_color,
+                .expect("DateTime format_description")
             });
+            if let Ok(dt) = utc.format(&fmt) {
+                let with_color = {
+                    let thread_name = format!("{}", Colour::Blue.bold().paint(thread_name));
+                    format!(
+                        "{} {} {} {}  {}",
+                        Colour::Black.bold().paint(dt),
+                        thread_name,
+                        record.level(),
+                        record.target(),
+                        record.args()
+                    )
+                };
+                let _ = self.sender.send(Message::Record {
+                    is_match,
+                    extras,
+                    data: with_color,
+                });
+            }
         }
     }
 

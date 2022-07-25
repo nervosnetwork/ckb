@@ -2,9 +2,9 @@
 
 Support for different platforms are organized into three tiers, each with a different set of guarantees.
 
-The CKB Rust code base uses the [Assembly based interpreter mode](https://github.com/nervosnetwork/ckb-vm#notes-on-different-modes) (ASM mode) of the CKB VM. This must be considered as a consensus rule in Lina, the mainnet and Aggron, the testnet.
+The CKB Rust code base uses the [Assembly based interpreter mode](https://github.com/nervosnetwork/ckb-vm#notes-on-different-modes) (ASM mode) of the CKB VM. This must be considered as a consensus rule in Mirana, the mainnet and Pudge, the testnet.
 
-Miners connecting to Lina (the mainnet) and Aggron (the testnet) must use Tier 1 or Tier 2 platforms, where Tier 1 is recommended.
+Miners connecting to Mirana (the mainnet) and Pudge (the testnet) must use Tier 1 or Tier 2 platforms, where Tier 1 is recommended.
 
 The other nodes should use Tier 1 or Tier 2 platforms as well.
 

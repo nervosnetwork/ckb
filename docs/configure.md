@@ -16,8 +16,9 @@ Command `ckb init` initializes a directory by exporting the config files.
 Some config file may refer to other files, for example, `chain.spec` in
 `ckb.toml` and `system_cells` in chain spec file. The file is referred via
 either absolute path, or a path relative to the directory containing the
-config file currently being parsed. Take following directory hierarchy as an
-example:
+config file currently being parsed.
+
+Take the following directory hierarchy as an example:
 
 ```
 ckb.toml
@@ -41,7 +42,7 @@ Then edit the generated config files according to the in-line comments.
 ## Chain Spec
 
 The option `chain.spec` configures the chain spec, which controls which kind of chain to run.
-This option is set to Lina, the mainnet by default.
+This option is set to Mirana, the mainnet by default.
 
 The subcommand `init` supports exporting the default options for different
 chains. The following command lists all supported chains.
@@ -50,17 +51,17 @@ chains. The following command lists all supported chains.
 ckb init --list-chains
 ```
 
-Here is an example to export config files for Aggron, the testnet.
+Here is an example to export config files for Pudge, the testnet.
 
 ```
 ckb init --chain testnet
 ```
 
-Nodes running different chain specs cannot synchronize with each other, so be carefully when editing this option.
+Nodes running different chain specs cannot synchronize with each other, so be careful when editing this option.
 
 The dev chain reads the chain spec from file `specs/dev.toml`, developers can edit to switch between different PoW engines.
 
-CKB now supports following PoW Engines.
+CKB now supports the following PoW Engines.
 
 ### Eaglesong
 

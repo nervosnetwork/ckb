@@ -1,5 +1,4 @@
 use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family};
-use crate::util::mining::{mine, mine_until_out_bootstrap_period};
 use crate::utils::{blank, propose};
 use crate::{Node, Spec};
 use ckb_types::core::BlockView;
@@ -28,7 +27,7 @@ impl Spec for ReorgHandleProposals {
         let node_b = &nodes[1];
         let window = node_a.consensus().tx_proposal_window();
 
-        mine_until_out_bootstrap_period(node_a);
+        node_a.mine_until_out_bootstrap_period();
         let family = prepare_tx_family(node_a);
         dump_chain(node_a).iter().for_each(|block| {
             node_b.submit_block(block);
@@ -79,8 +78,8 @@ impl Spec for ReorgHandleProposals {
         // fork-A, whose valid proposals are `[tx_family.a]` which be able to be committed.
         assert_new_block_committed(node_a, &[]);
         assert_new_block_committed(node_b, &[family.a().clone()]);
-        mine(node_a, 1);
-        mine(node_b, 1);
+        node_a.mine(1);
+        node_b.mine(1);
     }
 }
 

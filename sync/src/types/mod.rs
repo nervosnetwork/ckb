@@ -45,7 +45,7 @@ mod header_map;
 
 use crate::utils::send_message;
 use ckb_types::core::EpochNumber;
-pub use header_map::HeaderMapLru as HeaderMap;
+pub use header_map::HeaderMap;
 
 const FILTER_SIZE: usize = 20000;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
@@ -188,6 +188,9 @@ impl HeadersSyncController {
         }
     }
 
+    // https://github.com/rust-lang/rust-clippy/pull/8738
+    // wrong_self_convention allows is_* to take &mut self
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn is_timeout(&mut self, now_tip_ts: u64, now: u64) -> Option<bool> {
         let inspect_window = HEADERS_DOWNLOAD_INSPECT_WINDOW;
         let expected_headers_per_sec = HEADERS_DOWNLOAD_HEADERS_PER_SECOND;
@@ -689,6 +692,11 @@ impl InflightBlocks {
             self.restart_number = 0;
         }
 
+        // Since each environment is different, the policy here must also be dynamically adjusted
+        // according to the current environment, and a low-level limit is given here, since frequent
+        // restarting of a task consumes more than a low-level limit
+        let timeout_limit = self.time_analyzer.low_time;
+
         let restart_number = &mut self.restart_number;
         trace.retain(|key, time| {
             // In the normal state, trace will always empty
@@ -697,9 +705,9 @@ impl InflightBlocks {
             // it means that there is an anomaly in the sync less than tip + 1, i.e. some nodes are stuck,
             // at which point it will be recorded as the timestamp at that time.
             //
-            // If the time exceeds 1s, delete the task and halve the number of
+            // If the time exceeds low time limit, delete the task and halve the number of
             // executable tasks for the corresponding node
-            if now > 1000 + *time {
+            if now > timeout_limit + *time {
                 if let Some(state) = states.remove(key) {
                     if let Some(d) = download_schedulers.get_mut(&state.peer) {
                         if should_punish && adjustment {
@@ -730,10 +738,9 @@ impl InflightBlocks {
 
         if self.restart_number >= block.number {
             // All new requests smaller than restart_number mean that they are cleaned up and
-            // cannot be immediately marked as cleaned up again, so give it a normal response time of 1.5s.
-            // (timeout check is 1s, plus 0.5s given in advance)
+            // cannot be immediately marked as cleaned up again.
             self.trace_number
-                .insert(block.clone(), unix_time_as_millis() + 500);
+                .insert(block.clone(), unix_time_as_millis());
         }
 
         let download_scheduler = self
@@ -958,25 +965,22 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn build_skip<F, G>(
-        &mut self,
-        tip_number: BlockNumber,
-        mut get_header_view: F,
-        fast_scanner: G,
-    ) where
+    pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
+    where
         F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
-        let store_first = self.number() <= tip_number;
-        self.skip_hash = get_header_view(&self.parent_hash(), Some(store_first))
-            .and_then(|parent| {
-                parent.get_ancestor(
-                    tip_number,
-                    get_skip_height(self.number()),
-                    get_header_view,
-                    fast_scanner,
-                )
-            })
+        if self.inner.is_genesis() {
+            return;
+        }
+        self.skip_hash = self
+            .clone()
+            .get_ancestor(
+                tip_number,
+                get_skip_height(self.number()),
+                get_header_view,
+                fast_scanner,
+            )
             .map(|header| header.hash());
     }
 
@@ -1150,10 +1154,14 @@ impl SyncShared {
             )
         };
         let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
+        ckb_logger::info!(
+            "header_map.memory_limit {}",
+            sync_config.header_map.memory_limit
+        );
         let header_map = HeaderMap::new(
             tmpdir,
-            sync_config.header_map.primary_limit,
-            sync_config.header_map.backend_close_threshold,
+            sync_config.header_map.memory_limit.as_u64() as usize,
+            shared.async_handle(),
         );
 
         let state = SyncState {
@@ -1586,10 +1594,6 @@ impl SyncState {
             return;
         }
 
-        assert!(
-            self.header_map.contains_key(&header.hash()),
-            "HeaderView must exists in header_map before set best header"
-        );
         metrics!(gauge, "ckb.shared_best_number", header.number() as i64);
         *self.shared_best_header.write() = header;
     }
