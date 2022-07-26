@@ -10,18 +10,21 @@ use ckb_sync::SyncShared;
 use ckb_types::{packed, prelude::*};
 
 mod components;
-pub mod constant;
+mod constant;
 mod prelude;
 mod status;
 
 use prelude::LightClientProtocolReply;
 pub use status::{Status, StatusCode};
 
+/// Light client protocol handler.
 pub struct LightClientProtocol {
+    /// Sync shared state.
     pub shared: Arc<SyncShared>,
 }
 
 impl LightClientProtocol {
+    /// Create a new light client protocol handler.
     pub fn new(shared: Arc<SyncShared>) -> Self {
         Self { shared }
     }

@@ -1910,6 +1910,7 @@ pub struct ActiveChain {
     state: Arc<SyncState>,
 }
 
+#[doc(hidden)]
 impl ActiveChain {
     fn store(&self) -> &ChainDB {
         self.shared.store()
