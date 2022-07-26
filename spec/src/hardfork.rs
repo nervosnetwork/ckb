@@ -57,7 +57,7 @@ pub struct HardForkConfig {
     /// Ref: CKB RFC 0038
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_0038: Option<EpochNumber>,
-    // TODO(light-client) update the description
+    /// TODO(light-client) update the description
     pub rfc_tmp1: Option<EpochNumber>,
 }
 

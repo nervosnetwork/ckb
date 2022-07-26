@@ -26,6 +26,7 @@ pub struct BlockFilter {
 }
 
 impl BlockFilter {
+    /// Create a new block filter protocol handler
     pub fn new(shared: Arc<SyncShared>) -> Self {
         Self { shared }
     }

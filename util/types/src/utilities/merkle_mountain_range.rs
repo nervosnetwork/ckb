@@ -96,9 +96,11 @@ use crate::{
     U256,
 };
 
+/// A struct to implement MMR `Merge` trait
 pub struct MergeHeaderDigest;
-
+/// MMR root
 pub type ChainRootMMR<S> = MMR<packed::HeaderDigest, MergeHeaderDigest, S>;
+/// MMR proof
 pub type MMRProof = MerkleProof<packed::HeaderDigest, MergeHeaderDigest>;
 
 /// A Header and the fields which are used to do verification for its extra hash.
@@ -110,18 +112,21 @@ pub struct VerifiableHeader {
 }
 
 impl core::BlockView {
+    /// Get the MMR header digest of the block
     pub fn digest(&self) -> packed::HeaderDigest {
         self.header().digest()
     }
 }
 
 impl core::HeaderView {
+    /// Get the MMR header digest of the header
     pub fn digest(&self) -> packed::HeaderDigest {
         self.data().digest()
     }
 }
 
 impl packed::Header {
+    /// Get the MMR header digest of the header
     pub fn digest(&self) -> packed::HeaderDigest {
         let raw = self.raw();
         packed::HeaderDigest::new_builder()
@@ -139,6 +144,7 @@ impl packed::Header {
 }
 
 impl packed::HeaderDigest {
+    /// Verify the MMR header digest
     pub fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
         let start_number: BlockNumber = self.start_number().unpack();
@@ -333,25 +339,22 @@ impl VerifiableHeader {
         expected_root_hash_opt: Option<&packed::Byte32>,
     ) -> bool {
         let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
-        if has_chain_root
-            && !self
+        if has_chain_root {
+            let is_extension_beginning_with_mmr_chain_root = self
                 .extension()
                 .map(|extension| {
                     let actual_extension_data = extension.raw_data();
-                    if actual_extension_data.len() < 32
+                    actual_extension_data.len() < 32
                         || expected_root_hash_opt
-                            .map(|hash| &actual_extension_data.slice(..32) != hash.as_slice())
+                            .map(|hash| actual_extension_data.slice(..32) != hash.as_slice())
                             .unwrap_or(false)
-                    {
-                        false
-                    } else {
-                        true
-                    }
                 })
-                .unwrap_or(false)
-        {
-            return false;
+                .unwrap_or(false);
+            if !is_extension_beginning_with_mmr_chain_root {
+                return false;
+            }
         }
+
         let expected_extension_hash = self
             .extension()
             .map(|extension| extension.calc_raw_data_hash());

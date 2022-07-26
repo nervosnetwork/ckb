@@ -84,7 +84,7 @@ fn test_halving_epoch_reward() {
     {
         let epoch = consensus
             .next_epoch_ext(
-                &header(&genesis_epoch, genesis_epoch.length() - 1),
+                &header(genesis_epoch, genesis_epoch.length() - 1),
                 &DummyEpochProvider(genesis_epoch.clone()),
             )
             .expect("test: get next epoch")

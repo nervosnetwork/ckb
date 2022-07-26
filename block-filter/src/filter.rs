@@ -7,11 +7,13 @@ use std::thread;
 
 const THREAD_NAME: &str = "ckb-block-filter-thread";
 
+/// A block filter creation service
 pub struct BlockFilter {
     db: ChainDB,
 }
 
 impl BlockFilter {
+    /// Create a new block filter service
     pub fn new(db: ChainDB) -> Self {
         Self { db }
     }
