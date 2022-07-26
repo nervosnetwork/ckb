@@ -6,13 +6,14 @@ use ckb_db::{
 };
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
-    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
+    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
+use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus},
@@ -335,6 +336,60 @@ impl StoreTransaction {
             self.delete(COLUMN_CELL, &key)?;
             self.delete(COLUMN_CELL_DATA, &key)?;
             self.delete(COLUMN_CELL_DATA_HASH, &key)?;
+        }
+        Ok(())
+    }
+
+    /// Inserts a header digest.
+    pub fn insert_header_digest(
+        &self,
+        position_u64: u64,
+        header_digest: &packed::HeaderDigest,
+    ) -> Result<(), Error> {
+        let position: packed::Uint64 = position_u64.pack();
+        self.insert_raw(
+            COLUMN_CHAIN_ROOT_MMR,
+            position.as_slice(),
+            header_digest.as_slice(),
+        )
+    }
+
+    /// Deletes a header digest.
+    pub fn delete_header_digest(&self, position_u64: u64) -> Result<(), Error> {
+        let position: packed::Uint64 = position_u64.pack();
+        self.delete(COLUMN_CHAIN_ROOT_MMR, position.as_slice())
+    }
+
+    /// insert block filter data
+    pub fn insert_block_filter(
+        &self,
+        block_hash: &packed::Byte32,
+        filter_data: &packed::Bytes,
+    ) -> Result<(), Error> {
+        self.insert_raw(
+            COLUMN_BLOCK_FILTER,
+            block_hash.as_slice(),
+            filter_data.as_slice(),
+        )?;
+        self.insert_raw(
+            COLUMN_META,
+            META_LATEST_BUILT_FILTER_DATA_KEY,
+            block_hash.as_slice(),
+        )
+    }
+}
+
+impl MMRStore<packed::HeaderDigest> for &StoreTransaction {
+    fn get_elem(&self, pos: u64) -> MMRResult<Option<packed::HeaderDigest>> {
+        Ok(self.get_header_digest(pos))
+    }
+
+    fn append(&mut self, pos: u64, elems: Vec<packed::HeaderDigest>) -> MMRResult<()> {
+        for (offset, elem) in elems.iter().enumerate() {
+            let pos: u64 = pos + (offset as u64);
+            self.insert_header_digest(pos, elem).map_err(|err| {
+                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
+            })?;
         }
         Ok(())
     }

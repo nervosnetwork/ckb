@@ -1183,6 +1183,11 @@ impl NetworkController {
         self.network_state.node_id()
     }
 
+    /// p2p service control
+    pub fn p2p_control(&self) -> &ServiceControl {
+        &self.p2p_control
+    }
+
     /// Dial remote node
     pub fn add_node(&self, address: Multiaddr) {
         self.network_state.add_node(&self.p2p_control, address)

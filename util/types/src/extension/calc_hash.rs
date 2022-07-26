@@ -320,3 +320,13 @@ impl<'r> packed::AlertReader<'r> {
     }
 }
 impl_calc_special_hash_for_entity!(Alert, calc_alert_hash);
+
+impl<'r> packed::HeaderDigestReader<'r> {
+    /// Calculates the hash for [self.as_slice()] as the MMR node hash.
+    ///
+    /// [self.as_slice()]: ../prelude/trait.Reader.html#tymethod.as_slice
+    pub fn calc_mmr_hash(&self) -> packed::Byte32 {
+        self.calc_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(HeaderDigest, calc_mmr_hash);

@@ -17,6 +17,7 @@ use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_network::{
     observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, NetworkController,
@@ -28,7 +29,7 @@ use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
-use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
@@ -277,11 +278,30 @@ impl Launcher {
             ));
         }
 
+        if support_protocols.contains(&SupportProtocol::Filter) {
+            let filter = BlockFilter::new(Arc::clone(&sync_shared));
+
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Filter,
+                Box::new(filter),
+                Arc::clone(&network_state),
+            ));
+        }
+
         if support_protocols.contains(&SupportProtocol::Time) {
             let net_timer = NetTimeProtocol::default();
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::Time,
                 Box::new(net_timer),
+                Arc::clone(&network_state),
+            ));
+        }
+
+        if support_protocols.contains(&SupportProtocol::LightClient) {
+            let light_client = LightClientProtocol::new(Arc::clone(&sync_shared));
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::LightClient,
+                Box::new(light_client),
                 Arc::clone(&network_state),
             ));
         }

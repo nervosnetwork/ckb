@@ -1,0 +1,17 @@
+[package]
+name = "ckb-light-client-protocol-server"
+version = "0.105.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2021"
+description = "Server-side implementation for CKB light client protocol."
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[dependencies]
+ckb-network = { path = "../../network", version = "= 0.105.0-pre" }
+ckb-sync = { path = "../../sync", version = "= 0.105.0-pre" }
+ckb-shared = { path = "../../shared", version = "= 0.105.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
+ckb-types = { path = "../types", version = "= 0.105.0-pre" }
+ckb-merkle-mountain-range = "0.4.0"

@@ -57,6 +57,8 @@ pub struct HardForkConfig {
     /// Ref: CKB RFC 0038
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rfc_0038: Option<EpochNumber>,
+    /// TODO(light-client) update the description
+    pub rfc_tmp1: Option<EpochNumber>,
 }
 
 macro_rules! check_default {
@@ -83,6 +85,7 @@ impl HardForkConfig {
             b,
             mainnet::CKB2021_START_EPOCH,
             mainnet::RFC0028_START_EPOCH,
+            mainnet::RFCTMP1_START_EPOCH,
         )?;
         b.build()
     }
@@ -95,6 +98,7 @@ impl HardForkConfig {
             b,
             testnet::CKB2021_START_EPOCH,
             testnet::RFC0028_START_EPOCH,
+            testnet::RFCTMP1_START_EPOCH,
         )?;
         b.build()
     }
@@ -104,6 +108,7 @@ impl HardForkConfig {
         builder: HardForkSwitchBuilder,
         ckb2021: EpochNumber,
         rfc_0028_start: EpochNumber,
+        rfc_tmp1_start: EpochNumber,
     ) -> Result<HardForkSwitchBuilder, String> {
         let builder = builder
             .rfc_0028(check_default!(self, rfc_0028, rfc_0028_start))
@@ -112,7 +117,8 @@ impl HardForkConfig {
             .rfc_0031(check_default!(self, rfc_0031, ckb2021))
             .rfc_0032(check_default!(self, rfc_0032, ckb2021))
             .rfc_0036(check_default!(self, rfc_0036, ckb2021))
-            .rfc_0038(check_default!(self, rfc_0038, ckb2021));
+            .rfc_0038(check_default!(self, rfc_0038, ckb2021))
+            .rfc_tmp1(check_default!(self, rfc_tmp1, rfc_tmp1_start));
         Ok(builder)
     }
 
@@ -120,6 +126,12 @@ impl HardForkConfig {
     ///
     /// Enable features which are set to `None` at the user provided epoch.
     pub fn complete_with_default(&self, default: EpochNumber) -> Result<HardForkSwitch, String> {
+        if self.rfc_tmp1.map(|v| v == 0).unwrap_or(false) {
+            let errmsg = "Found the hard fork feature parameter \"rfc_tmp1\" is \
+                in the chain specification file, and its value is 0.
+                But it should NOT be 0 since genesis block doesn't has chain root.";
+            return Err(errmsg.to_string());
+        }
         HardForkSwitch::new_builder()
             .rfc_0028(self.rfc_0028.unwrap_or(default))
             .rfc_0029(self.rfc_0029.unwrap_or(default))
@@ -128,6 +140,7 @@ impl HardForkConfig {
             .rfc_0032(self.rfc_0032.unwrap_or(default))
             .rfc_0036(self.rfc_0036.unwrap_or(default))
             .rfc_0038(self.rfc_0038.unwrap_or(default))
+            .rfc_tmp1(self.rfc_tmp1.unwrap_or(default))
             .build()
     }
 }

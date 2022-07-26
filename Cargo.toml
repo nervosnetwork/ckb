@@ -52,6 +52,7 @@ members = [
     "util/types",
     "util/jsonrpc-types",
     "freezer",
+    "block-filter",
     "resource",
     "pow",
     "util/dao/utils",

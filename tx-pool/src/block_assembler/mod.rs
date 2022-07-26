@@ -11,11 +11,12 @@ use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
-use ckb_error::AnyError;
+use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 use ckb_logger::{debug, error, trace};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -30,6 +31,7 @@ use ckb_types::{
         Transaction,
     },
     prelude::*,
+    utilities::merkle_mountain_range::ChainRootMMR,
 };
 use faketime::unix_time_as_millis;
 use hyper::{client::HttpConnector, Body, Client, Method, Request};
@@ -88,9 +90,10 @@ impl BlockAssembler {
         let cellbase = Self::build_cellbase(&config, &snapshot)
             .expect("build cellbase for BlockAssembler initial");
 
-        let extension: Option<packed::Bytes> = None;
+        let extension =
+            Self::build_extension(&snapshot).expect("build extension for BlockAssembler initial");
         let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension);
+            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
 
         let dao = Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])
             .expect("calc_dao for BlockAssembler initial");
@@ -104,6 +107,9 @@ impl BlockAssembler {
             .work_id(work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
         let template = builder.build();
 
         let size = TemplateSize {
@@ -137,6 +143,7 @@ impl BlockAssembler {
         let current_template = &current.template;
         let uncles = &current_template.uncles;
 
+        let extension = Self::build_extension(&current.snapshot)?;
         let (proposals, txs, txs_size, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -149,7 +156,7 @@ impl BlockAssembler {
                 current_template.cellbase.data(),
                 uncles,
                 proposals.iter(),
-                None,
+                extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes
@@ -182,6 +189,9 @@ impl BlockAssembler {
                 current.template.current_time,
             ))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
 
         current.template = builder.build();
         current.size.txs = txs_size;
@@ -212,9 +222,9 @@ impl BlockAssembler {
         let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
         let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
 
-        let extension: Option<packed::Bytes> = None;
+        let extension = Self::build_extension(&snapshot)?;
         let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension);
+            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
 
         let dao = Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])?;
 
@@ -226,6 +236,9 @@ impl BlockAssembler {
             .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
+        if let Some(data) = extension {
+            builder.extension(data);
+        }
         let template = builder.build();
 
         trace!(
@@ -336,28 +349,32 @@ impl BlockAssembler {
         }
     }
 
-    pub(crate) async fn update_transactions(&self, tx_pool: &RwLock<TxPool>) {
+    pub(crate) async fn update_transactions(
+        &self,
+        tx_pool: &RwLock<TxPool>,
+    ) -> Result<(), AnyError> {
         let mut current = self.current.lock().await;
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;
+        let extension = Self::build_extension(&current.snapshot)?;
         let (txs, new_txs_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
-                return;
+                return Ok(());
             }
 
             let basic_block_size = Self::basic_block_size(
                 current_template.cellbase.data(),
                 &current_template.uncles,
                 current_template.proposals.iter(),
-                None,
+                extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
 
             if txs_size_limit.is_none() {
-                return;
+                return Ok(());
             }
 
             let max_block_cycles = consensus.max_block_cycles();
@@ -384,6 +401,9 @@ impl BlockAssembler {
                     current.template.current_time,
                 ))
                 .dao(dao);
+            if let Some(data) = extension {
+                builder.extension(data);
+            }
             current.template = builder.build();
             current.size.txs = new_txs_size;
             current.size.total = new_total_size;
@@ -397,6 +417,7 @@ impl BlockAssembler {
                 current.template.transactions.len(),
             );
         }
+        Ok(())
     }
 
     pub(crate) async fn get_current(&self) -> JsonBlockTemplate {
@@ -470,6 +491,25 @@ impl BlockAssembler {
         };
 
         Ok(tx)
+    }
+
+    pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {
+        let consensus = snapshot.consensus();
+        let tip_header = snapshot.tip_header();
+
+        let candidate_number = tip_header.number() + 1;
+        let mmr_activated_epoch = consensus.hardfork_switch().mmr_activated_epoch();
+        if tip_header.epoch().minimum_epoch_number_after_n_blocks(1) >= mmr_activated_epoch {
+            let mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+            let mmr = ChainRootMMR::new(mmr_size, snapshot);
+            let chain_root = mmr
+                .get_root()
+                .map_err(|e| InternalErrorKind::MMR.other(e))?;
+            let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+            Ok(Some(bytes))
+        } else {
+            Ok(None)
+        }
     }
 
     pub(crate) async fn prepare_uncles(

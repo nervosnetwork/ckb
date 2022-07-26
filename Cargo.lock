@@ -178,6 +178,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
+name = "bitcoin_hashes"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b375d62f341cef9cd9e77793ec8f1db3fc9ce2e4d57e982c8fe697a2c16af3b6"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +495,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-block-filter"
+version = "0.105.0-pre"
+dependencies = [
+ "ckb-channel",
+ "ckb-logger",
+ "ckb-notify",
+ "ckb-store",
+ "ckb-types",
+ "golomb-coded-set",
+]
+
+[[package]]
 name = "ckb-build-info"
 version = "0.105.0-pre"
 
@@ -505,6 +523,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-metrics",
  "ckb-network",
  "ckb-proposal-table",
@@ -724,6 +743,7 @@ version = "0.105.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
+ "ckb-block-filter",
  "ckb-build-info",
  "ckb-chain",
  "ckb-chain-spec",
@@ -734,6 +754,7 @@ dependencies = [
  "ckb-error",
  "ckb-freezer",
  "ckb-jsonrpc-types",
+ "ckb-light-client-protocol-server",
  "ckb-logger",
  "ckb-migration-template",
  "ckb-network",
@@ -769,6 +790,18 @@ dependencies = [
  "libc",
  "pkg-config",
  "rust-ini",
+]
+
+[[package]]
+name = "ckb-light-client-protocol-server"
+version = "0.105.0-pre"
+dependencies = [
+ "ckb-logger",
+ "ckb-merkle-mountain-range",
+ "ckb-network",
+ "ckb-shared",
+ "ckb-sync",
+ "ckb-types",
 ]
 
 [[package]]
@@ -816,6 +849,15 @@ dependencies = [
  "once_cell",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
+]
+
+[[package]]
+name = "ckb-merkle-mountain-range"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "530710c310c455ced794feaa13f284c4c5d40ae5d82875392a83da7c5f84a8db"
+dependencies = [
+ "cfg-if 0.1.10",
 ]
 
 [[package]]
@@ -1167,6 +1209,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-proposal-table",
  "ckb-store",
  "ckb-traits",
@@ -1197,6 +1240,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
@@ -1218,6 +1262,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-hash",
  "ckb-launcher",
  "ckb-logger",
  "ckb-metrics",
@@ -1300,6 +1345,7 @@ dependencies = [
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-reward-calculator",
  "ckb-snapshot",
@@ -1329,6 +1375,7 @@ dependencies = [
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
+ "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
  "ckb-rational",
  "derive_more",
@@ -2193,6 +2240,14 @@ dependencies = [
  "log",
  "plain",
  "scroll",
+]
+
+[[package]]
+name = "golomb-coded-set"
+version = "0.1.0"
+source = "git+https://github.com/TheWaWaR/golomb-coded-set#a7dee669ae2b73ead2c69649ca45c17065905558"
+dependencies = [
+ "bitcoin_hashes",
 ]
 
 [[package]]

@@ -378,9 +378,16 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
             .dao(dao)
             .transaction(cellbase)
@@ -395,9 +402,16 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
             .dao(dao)
             .transaction(cellbase)
@@ -412,10 +426,17 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(difficulty + U256::from(inc)).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .dao(dao)
             .transaction(cellbase)
             .build();

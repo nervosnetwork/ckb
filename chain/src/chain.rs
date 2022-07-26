@@ -7,6 +7,7 @@ use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
@@ -21,9 +22,13 @@ use ckb_types::{
         BlockExt, BlockNumber, BlockView, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
+    prelude::*,
+    utilities::merkle_mountain_range::ChainRootMMR,
     U256,
 };
-use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
+use ckb_verification::{
+    BlockErrorKind, BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier,
+};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
 use faketime::unix_time_as_millis;
@@ -439,6 +444,8 @@ impl ChainService {
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
             self.rollback(&fork, &db_txn)?;
 
+            self.update_chain_root_mmr_after_check(&fork, &db_txn)?;
+
             // update and verify chain root
             // MUST update index before reconcile_main_chain
             self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
@@ -694,6 +701,55 @@ impl ChainService {
         self.find_fork_until_latest_common(fork, &mut index);
 
         is_sorted_assert(fork);
+    }
+
+    pub(crate) fn update_chain_root_mmr_after_check<'a>(
+        &'a self,
+        fork: &ForkChanges,
+        txn: &StoreTransaction,
+    ) -> Result<(), Error> {
+        let attached_blocks = fork.attached_blocks();
+        if attached_blocks.is_empty() {
+            return Ok(());
+        }
+
+        let consensus = self.shared.consensus();
+        let mmr_activated_epoch = consensus.hardfork_switch().mmr_activated_epoch();
+
+        let start_block_header = attached_blocks[0].header();
+
+        let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
+        trace!("light-client: new chain root MMR with size = {}", mmr_size);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn);
+
+        for block in attached_blocks.iter() {
+            let has_chain_root = block.epoch().number() >= mmr_activated_epoch;
+            trace!(
+                "light-client: attach block#{} (chain root: {})",
+                block.number(),
+                has_chain_root
+            );
+            if has_chain_root {
+                let chain_root = mmr
+                    .get_root()
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let actual_root_hash = chain_root.calc_mmr_hash();
+                let extension = block
+                    .extension()
+                    .expect("should be checked in BlockVerifier/BlockExtensionVerifier");
+                let expected_root_hash = Byte32::new_unchecked(extension.raw_data().slice(..32));
+                if actual_root_hash != expected_root_hash {
+                    return Err(BlockErrorKind::InvalidChainRoot.into());
+                }
+            }
+            mmr.push(block.digest())
+                .map_err(|e| InternalErrorKind::MMR.other(e))?;
+        }
+
+        trace!("light-client: commit");
+        // Before commit, all new MMR nodes are in memory only.
+        mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
+        Ok(())
     }
 
     // we found new best_block

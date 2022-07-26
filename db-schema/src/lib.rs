@@ -3,7 +3,7 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 16;
+pub const COLUMNS: u32 = 18;
 /// Column store chain index
 pub const COLUMN_INDEX: Col = "0";
 /// Column store block's header
@@ -38,11 +38,17 @@ pub const COLUMN_NUMBER_HASH: Col = "13";
 pub const COLUMN_CELL_DATA_HASH: Col = "14";
 /// Column store block extension data
 pub const COLUMN_BLOCK_EXTENSION: Col = "15";
+/// Column store chain root MMR data
+pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
+/// Column store filter data for client-side filtering
+pub const COLUMN_BLOCK_FILTER: Col = "17";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
 pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 /// META_CURRENT_EPOCH_KEY tracks the latest known epoch
 pub const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
+/// META_FILTER_DATA_KEY tracks the latest built filter data block hash
+pub const META_LATEST_BUILT_FILTER_DATA_KEY: &[u8] = b"LATEST_BUILT_FILTER_DATA";
 
 /// CHAIN_SPEC_HASH_KEY tracks the hash of chain spec which created current database
 pub const CHAIN_SPEC_HASH_KEY: &[u8] = b"chain-spec-hash";

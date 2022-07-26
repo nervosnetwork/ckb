@@ -1348,6 +1348,7 @@ impl HardForkFeature {
             Self::new("0032", convert(switch.rfc_0032())),
             Self::new("0036", convert(switch.rfc_0036())),
             Self::new("0038", convert(switch.rfc_0038())),
+            Self::new("tmp1", convert(switch.rfc_tmp1())),
         ]
     }
 }
