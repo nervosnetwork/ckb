@@ -277,7 +277,7 @@ fn test_full_dead_transaction() {
     let root_tx = &shared.consensus().genesis_block().transactions()[1];
     let tx1 = create_multi_outputs_transaction(root_tx, vec![0], 1, vec![1]);
 
-    for is_new_chain in vec![false, true] {
+    for is_new_chain in [false, true] {
         parent = block.header();
         for i in 2..switch_fork_number {
             let compact_target = parent.compact_target();

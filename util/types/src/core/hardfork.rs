@@ -149,7 +149,7 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: CKB RFC 0038
     pub rfc_0038: Option<EpochNumber>,
-    // TODO(light-client) update the description and the rfc link
+    /// TODO(light-client) update the description and the rfc link
     pub rfc_tmp1: Option<EpochNumber>,
 }
 

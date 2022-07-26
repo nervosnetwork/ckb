@@ -1183,6 +1183,7 @@ impl NetworkController {
         self.network_state.node_id()
     }
 
+    /// p2p service control
     pub fn p2p_control(&self) -> &ServiceControl {
         &self.p2p_control
     }

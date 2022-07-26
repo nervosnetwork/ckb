@@ -94,7 +94,7 @@ impl Status {
     /// Whether the session should be banned.
     pub fn should_ban(&self) -> Option<Duration> {
         let code = self.code as u16;
-        if code < 400 || code >= 500 {
+        if !(400..500).contains(&code) {
             None
         } else {
             Some(constant::BAD_MESSAGE_BAN_TIME)
@@ -104,7 +104,7 @@ impl Status {
     /// Whether a warning log should be output.
     pub fn should_warn(&self) -> bool {
         let code = self.code as u16;
-        500 <= code && code < 600
+        (500..600).contains(&code)
     }
 
     /// Returns the status code.
