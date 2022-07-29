@@ -92,7 +92,8 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
-pub(crate) const SOFT_FORK_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
+pub(crate) const MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
+pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 
 /// The struct represent CKB two-step-transaction-confirmation params
 ///
@@ -283,7 +284,6 @@ impl ConsensusBuilder {
                 permanent_difficulty_in_dummy: false,
                 hardfork_switch: HardForkSwitch::new_mirana(),
                 deployments: HashMap::new(),
-                soft_fork_activation_threshold: SOFT_FORK_ACTIVATION_THRESHOLD,
                 versionbits_caches: VersionBitsCache::default(),
             },
         }
@@ -472,6 +472,13 @@ impl ConsensusBuilder {
         self.inner.hardfork_switch = hardfork_switch;
         self
     }
+
+    /// Sets a soft fork deployments for the new Consensus.
+    pub fn softfork_deployments(mut self, deployments: HashMap<DeploymentPos, Deployment>) -> Self {
+        self.inner.versionbits_caches = VersionBitsCache::new(deployments.keys());
+        self.inner.deployments = deployments;
+        self
+    }
 }
 
 /// Struct Consensus defines various parameters that influence chain consensus
@@ -550,8 +557,8 @@ pub struct Consensus {
     pub hardfork_switch: HardForkSwitch,
     /// Soft fork deployments
     pub deployments: HashMap<DeploymentPos, Deployment>,
+    /// Soft fork state cache
     pub versionbits_caches: VersionBitsCache,
-    pub soft_fork_activation_threshold: Ratio,
 }
 
 // genesis difficulty should not be zero

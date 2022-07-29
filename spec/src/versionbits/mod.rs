@@ -41,6 +41,7 @@ pub enum ActiveMode {
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum DeploymentPos {
     Testdummy,
+    LightClient,
 }
 
 /// VersionBitsIndexer
@@ -55,12 +56,13 @@ pub trait VersionBitsIndexer {
 ///Struct for each individual consensus rule change using soft fork.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Deployment {
-    bit: u8,
-    start: EpochNumber,
-    timeout: EpochNumber,
-    min_activation_epoch: EpochNumber,
-    period: EpochNumber,
-    active_mode: ActiveMode,
+    pub(crate) bit: u8,
+    pub(crate) start: EpochNumber,
+    pub(crate) timeout: EpochNumber,
+    pub(crate) min_activation_epoch: EpochNumber,
+    pub(crate) period: EpochNumber,
+    pub(crate) active_mode: ActiveMode,
+    pub(crate) threshold: Ratio,
 }
 
 type Cache = Mutex<HashMap<Byte32, ThresholdState>>;
@@ -73,6 +75,15 @@ pub struct VersionBitsCache {
 }
 
 impl VersionBitsCache {
+    pub fn new<'a>(deployments: impl Iterator<Item = &'a DeploymentPos>) -> Self {
+        let caches: HashMap<_, _> = deployments
+            .map(|pos| (*pos, Mutex::new(HashMap::new())))
+            .collect();
+        VersionBitsCache {
+            caches: Arc::new(caches),
+        }
+    }
+
     pub fn cache(&self, pos: &DeploymentPos) -> &Cache {
         &self.caches[pos]
     }
@@ -263,7 +274,7 @@ impl<'a> VersionBitsConditionChecker for VersionBits<'a> {
     }
 
     fn threshold(&self) -> Ratio {
-        self.consensus.soft_fork_activation_threshold
+        self.deployment().threshold
     }
 }
 
