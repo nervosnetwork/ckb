@@ -364,7 +364,7 @@ impl Synchronizer {
         if protect_outbound {
             sync_state
                 .n_protected_outbound_peers()
-                .fetch_add(1, Ordering::Release);
+                .fetch_add(1, Ordering::AcqRel);
         }
 
         self.peers().sync_connected(
@@ -509,7 +509,7 @@ impl Synchronizer {
                     self.shared()
                         .state()
                         .n_sync_started()
-                        .fetch_add(1, Ordering::Release);
+                        .fetch_add(1, Ordering::AcqRel);
                 }
             }
 
@@ -785,7 +785,7 @@ impl CKBProtocolHandler for Synchronizer {
                 // fetch_sub wraps around on overflow, we still check manually
                 // panic here to prevent some bug be hidden silently.
                 assert_ne!(
-                    sync_state.n_sync_started().fetch_sub(1, Ordering::Release),
+                    sync_state.n_sync_started().fetch_sub(1, Ordering::AcqRel),
                     0,
                     "n_sync_started overflow when disconnects"
                 );
@@ -796,7 +796,7 @@ impl CKBProtocolHandler for Synchronizer {
                 assert_ne!(
                     sync_state
                         .n_protected_outbound_peers()
-                        .fetch_sub(1, Ordering::Release),
+                        .fetch_sub(1, Ordering::AcqRel),
                     0,
                     "n_protected_outbound_peers overflow when disconnects"
                 );

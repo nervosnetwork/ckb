@@ -1605,7 +1605,7 @@ impl SyncState {
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                self.n_sync_started().fetch_sub(1, Ordering::AcqRel),
                 0,
                 "n_sync_started overflow when suspend_sync"
             );
@@ -1616,7 +1616,7 @@ impl SyncState {
     pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.n_sync_started().fetch_sub(1, Ordering::Release),
+                self.n_sync_started().fetch_sub(1, Ordering::AcqRel),
                 0,
                 "n_sync_started overflow when tip_synced"
             );
