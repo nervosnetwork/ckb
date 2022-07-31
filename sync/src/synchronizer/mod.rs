@@ -342,17 +342,10 @@ impl Synchronizer {
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let pid = SupportProtocols::Sync.protocol_id();
-        let (is_outbound, is_whitelist, is_2021edition) = nc
+        let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
-            .map(|peer| {
-                (
-                    peer.is_outbound(),
-                    peer.is_whitelist,
-                    peer.protocols.get(&pid).map(|v| v == "2").unwrap_or(false),
-                )
-            })
-            .unwrap_or((false, false, false));
+            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
+            .unwrap_or((false, false));
 
         let sync_state = self.shared().state();
         let protect_outbound = is_outbound
@@ -373,7 +366,6 @@ impl Synchronizer {
                 is_outbound,
                 is_whitelist,
                 is_protect: protect_outbound,
-                is_2021edition,
             },
         );
     }

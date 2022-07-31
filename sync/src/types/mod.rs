@@ -140,7 +140,6 @@ pub struct PeerFlags {
     pub is_outbound: bool,
     pub is_protect: bool,
     pub is_whitelist: bool,
-    pub is_2021edition: bool,
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -911,12 +910,6 @@ impl Peers {
 
     pub fn get_flag(&self, peer: PeerIndex) -> Option<PeerFlags> {
         self.state.get(&peer).map(|state| state.peer_flags)
-    }
-
-    pub fn is_2021edition(&self, peer: PeerIndex) -> Option<bool> {
-        self.state
-            .get(&peer)
-            .map(|state| state.peer_flags.is_2021edition)
     }
 }
 
