@@ -362,6 +362,8 @@ impl<T: Eq + Hash> Filter<T> {
 #[derive(Default)]
 pub struct Peers {
     pub state: DashMap<PeerIndex, PeerState>,
+    pub n_sync_started: AtomicUsize,
+    pub n_protected_outbound_peers: AtomicUsize,
 }
 
 #[derive(Debug, Clone)]
@@ -804,7 +806,24 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn sync_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
+    pub fn sync_connected(&self, peer: PeerIndex, is_outbound: bool, is_whitelist: bool) {
+        let protect_outbound = is_outbound
+            && self
+                .n_protected_outbound_peers
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+                    if x < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT {
+                        Some(x + 1)
+                    } else {
+                        None
+                    }
+                })
+                .is_ok();
+
+        let peer_flags = PeerFlags {
+            is_outbound,
+            is_whitelist,
+            is_protect: protect_outbound,
+        };
         self.state
             .entry(peer)
             .and_modify(|state| {
@@ -858,8 +877,29 @@ impl Peers {
         // TODO:
     }
 
-    pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        self.state.remove(&peer).map(|(_, peer_state)| peer_state)
+    pub fn disconnected(&self, peer: PeerIndex) {
+        if let Some(peer_state) = self.state.remove(&peer).map(|(_, peer_state)| peer_state) {
+            if peer_state.sync_started() {
+                // It shouldn't happen
+                // fetch_sub wraps around on overflow, we still check manually
+                // panic here to prevent some bug be hidden silently.
+                assert_ne!(
+                    self.n_sync_started.fetch_sub(1, Ordering::AcqRel),
+                    0,
+                    "n_sync_started overflow when disconnects"
+                );
+            }
+
+            // Protection node disconnected
+            if peer_state.peer_flags.is_protect {
+                assert_ne!(
+                    self.n_protected_outbound_peers
+                        .fetch_sub(1, Ordering::AcqRel),
+                    0,
+                    "n_protected_outbound_peers overflow when disconnects"
+                );
+            }
+        }
     }
 
     pub fn insert_unknown_header_hash(&self, peer: PeerIndex, hash: Byte32) {
@@ -1158,8 +1198,6 @@ impl SyncShared {
         );
 
         let state = SyncState {
-            n_sync_started: AtomicUsize::new(0),
-            n_protected_outbound_peers: AtomicUsize::new(0),
             shared_best_header,
             header_map,
             block_status_map: DashMap::new(),
@@ -1486,9 +1524,6 @@ impl PartialOrd for UnknownTxHashPriority {
 }
 
 pub struct SyncState {
-    n_sync_started: AtomicUsize,
-    n_protected_outbound_peers: AtomicUsize,
-
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
     header_map: HeaderMap,
@@ -1533,11 +1568,7 @@ impl SyncState {
     }
 
     pub fn n_sync_started(&self) -> &AtomicUsize {
-        &self.n_sync_started
-    }
-
-    pub fn n_protected_outbound_peers(&self) -> &AtomicUsize {
-        &self.n_protected_outbound_peers
+        &self.peers.n_sync_started
     }
 
     pub fn peers(&self) -> &Peers {
@@ -1598,7 +1629,7 @@ impl SyncState {
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.n_sync_started().fetch_sub(1, Ordering::AcqRel),
+                self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
                 0,
                 "n_sync_started overflow when suspend_sync"
             );
@@ -1609,7 +1640,7 @@ impl SyncState {
     pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.n_sync_started().fetch_sub(1, Ordering::AcqRel),
+                self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
                 0,
                 "n_sync_started overflow when tip_synced"
             );
@@ -1828,9 +1859,9 @@ impl SyncState {
         }
     }
 
-    pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
+    pub fn disconnected(&self, pi: PeerIndex) {
         self.write_inflight_blocks().remove_by_peer(pi);
-        self.peers().disconnected(pi)
+        self.peers().disconnected(pi);
     }
 
     pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
