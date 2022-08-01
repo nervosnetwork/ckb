@@ -52,7 +52,6 @@ members = [
     "util/types",
     "util/jsonrpc-types",
     "freezer",
-    "block-filter",
     "resource",
     "pow",
     "util/dao/utils",
@@ -69,6 +68,7 @@ members = [
     "db-migration",
     "util/network-alert",
     "store",
+    "block-filter",
     "util/chain-iter",
     "util/test-chain-utils",
     "util/dao",
@@ -84,6 +84,7 @@ members = [
     "util/instrument",
     "rpc",
     "util/launcher/migration-template",
+    "util/light-client-protocol-server",
     "util/launcher",
     "ckb-bin"
 ]

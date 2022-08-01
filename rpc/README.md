@@ -1398,8 +1398,7 @@ Response
             { "rfc": "0031", "epoch_number": "0x0" },
             { "rfc": "0032", "epoch_number": "0x0" },
             { "rfc": "0036", "epoch_number": "0x0" },
-            { "rfc": "0038", "epoch_number": "0x0" },
-            { "rfc": "tmp1", "epoch_number": null }
+            { "rfc": "0038", "epoch_number": "0x0" }
         ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
@@ -2198,7 +2197,7 @@ Response
         ],
         "version": "0x0",
         "witnesses": [
-          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000000000020206d657373616765"
         ]
       },
       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"

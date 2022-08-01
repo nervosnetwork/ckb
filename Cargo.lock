@@ -1424,6 +1424,7 @@ dependencies = [
  "ckb-error",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-reward-calculator",
  "ckb-shared",
  "ckb-store",

@@ -10,6 +10,7 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
+use ckb_chain_spec::versionbits::DeploymentPos;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::{
@@ -511,13 +512,14 @@ impl BlockAssembler {
     }
 
     pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {
-        let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
-
-        let candidate_number = tip_header.number() + 1;
-        let mmr_activated_epoch = consensus.hardfork_switch().mmr_activated_epoch();
-        if tip_header.epoch().minimum_epoch_number_after_n_blocks(1) >= mmr_activated_epoch {
-            let mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+        let mmr_activate = snapshot.versionbits_active(DeploymentPos::LightClient);
+        if mmr_activate {
+            // Actually, should use candidate_number here, but +1 - 1 == tip_number,
+            // the intermediate process omitted
+            // let candidate_number = tip_header.number() + 1;
+            // mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+            let mmr_size = leaf_index_to_mmr_size(tip_header.number());
             let mmr = ChainRootMMR::new(mmr_size, snapshot);
             let chain_root = mmr
                 .get_root()

@@ -1,3 +1,6 @@
+//! Versionbits 9 defines a finite-state-machine to deploy a softfork in multiple stages.
+//!
+
 use crate::consensus::Consensus;
 use ckb_types::{
     core::{EpochExt, EpochNumber, HeaderView, Ratio, TransactionView, Version},
@@ -5,7 +8,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::Mutex;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::sync::Arc;
 
 /// What bits to set in version for versionbits blocks
@@ -21,10 +24,17 @@ pub const VERSIONBITS_NUM_BITS: u32 = 29;
 /// inherited between epochs. All blocks of a epoch share the same state.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ThresholdState {
+    /// First state that each softfork starts.
+    /// The 0 epoch is by definition in this state for each deployment.
     Defined,
+    /// For epochs past the `start` epoch.
     Started,
+    /// For one epoch after the first epoch period with STARTED epochs of
+    /// which at least `threshold` has the associated bit set in `version`.
     LockedIn,
+    /// For all epochs after the LOCKED_IN epoch.
     Active,
+    /// For one epoch period past the `timeout_epoch`, if LOCKED_IN was not reached.
     Failed,
 }
 
@@ -32,25 +42,51 @@ pub enum ThresholdState {
 /// process. Only tests that specifically test the behaviour during activation cannot use this.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ActiveMode {
+    /// Indicating that the deployment is normal active.
     Normal,
+    /// Indicating that the deployment is always active.
+    /// This is useful for testing, as it means tests don't need to deal with the activation
     Always,
+    /// Indicating that the deployment is never active.
+    /// This is useful for testing.
     Never,
 }
 
-// Soft fork deployment
+/// Soft fork deployment
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum DeploymentPos {
+    /// Dummy
     Testdummy,
+    /// light client protocol
     LightClient,
 }
 
-/// VersionBitsIndexer
-pub trait VersionBitsIndexer {
-    fn get_block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32>;
-    fn get_epoch_ext(&self, index: &Byte32) -> Option<EpochExt>;
-    fn get_block_header(&self, block_hash: &Byte32) -> Option<HeaderView>;
-    fn get_cellbase(&self, block_hash: &Byte32) -> Option<TransactionView>;
-    fn get_ancestor_epoch(&self, index: &Byte32, period: EpochNumber) -> Option<EpochExt>;
+/// VersionbitsIndexer
+pub trait VersionbitsIndexer {
+    /// Gets epoch index by block hash
+    fn block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32>;
+    /// Gets epoch ext by index
+    fn epoch_ext(&self, index: &Byte32) -> Option<EpochExt>;
+    /// Gets block header by block hash
+    fn block_header(&self, block_hash: &Byte32) -> Option<HeaderView>;
+    /// Gets cellbase by block hash
+    fn cellbase(&self, block_hash: &Byte32) -> Option<TransactionView>;
+    /// Gets ancestor of specified epoch.
+    fn ancestor_epoch(&self, index: &Byte32, target: EpochNumber) -> Option<EpochExt> {
+        let mut epoch_ext = self.epoch_ext(index)?;
+
+        if epoch_ext.number() < target {
+            return None;
+        }
+        while epoch_ext.number() > target {
+            let last_block_header_in_previous_epoch =
+                self.block_header(&epoch_ext.last_block_hash_in_previous_epoch())?;
+            let previous_epoch_index =
+                self.block_epoch_index(&last_block_header_in_previous_epoch.hash())?;
+            epoch_ext = self.epoch_ext(&previous_epoch_index)?;
+        }
+        Some(epoch_ext)
+    }
 }
 
 ///Struct for each individual consensus rule change using soft fork.
@@ -70,42 +106,57 @@ type Cache = Mutex<HashMap<Byte32, ThresholdState>>;
 /// RFC0000 allows multiple soft forks to be deployed in parallel. We cache
 /// per-epoch state for every one of them. */
 #[derive(Clone, Debug, Default)]
-pub struct VersionBitsCache {
+pub struct VersionbitsCache {
     caches: Arc<HashMap<DeploymentPos, Cache>>,
 }
 
-impl VersionBitsCache {
+impl VersionbitsCache {
+    /// Construct new VersionbitsCache instance from deployments
     pub fn new<'a>(deployments: impl Iterator<Item = &'a DeploymentPos>) -> Self {
         let caches: HashMap<_, _> = deployments
             .map(|pos| (*pos, Mutex::new(HashMap::new())))
             .collect();
-        VersionBitsCache {
+        VersionbitsCache {
             caches: Arc::new(caches),
         }
     }
 
-    pub fn cache(&self, pos: &DeploymentPos) -> &Cache {
-        &self.caches[pos]
+    /// Returns a reference to the cache corresponding to the deployment.
+    pub fn cache(&self, pos: &DeploymentPos) -> Option<&Cache> {
+        self.caches.get(pos)
     }
 }
 
-/// implements RFC0000 threshold logic, and caches results.
-pub struct VersionBits<'a> {
+/// Struct Implements versionbits threshold logic, and caches results.
+pub struct Versionbits<'a> {
     id: DeploymentPos,
     consensus: &'a Consensus,
 }
 
-pub trait VersionBitsConditionChecker {
+/// Trait that implements versionbits threshold logic, and caches results.
+pub trait VersionbitsConditionChecker {
+    /// Specifies the first epoch in which the bit gains meaning.
     fn start(&self) -> EpochNumber;
+    /// Specifies an epoch at which the miner signaling ends.
+    /// Once this epoch has been reached,
+    /// if the softfork has not yet locked_in (excluding this epoch block's bit state),
+    /// the deployment is considered failed on all descendants of the block.
     fn timeout(&self) -> EpochNumber;
+    /// Active mode for testing.
     fn active_mode(&self) -> ActiveMode;
     // fn condition(&self, header: &HeaderView) -> bool;
-    fn condition<I: VersionBitsIndexer>(&self, header: &HeaderView, indexer: &I) -> bool;
+    /// Determines whether bit in the `version` field of the block is to be used to signal
+    fn condition<I: VersionbitsIndexer>(&self, header: &HeaderView, indexer: &I) -> bool;
+    /// Specifies the epoch at which the softfork is allowed to become active.
     fn min_activation_epoch(&self) -> EpochNumber;
+    /// The period for signal statistics are counted
     fn period(&self) -> EpochNumber;
+    /// Specifies the minimum ratio of block per epoch,
+    /// which indicate the locked_in of the softfork during the epoch.
     fn threshold(&self) -> Ratio;
-
-    fn get_state<I: VersionBitsIndexer>(
+    /// Returns the state for a header. Applies any state transition if conditions are present.
+    /// Caches state from first block of period.
+    fn get_state<I: VersionbitsIndexer>(
         &self,
         header: &HeaderView,
         cache: &Cache,
@@ -125,36 +176,33 @@ pub trait VersionBitsConditionChecker {
             return Some(ThresholdState::Failed);
         }
 
-        let start_index = indexer.get_block_epoch_index(&header.hash())?;
+        let start_index = indexer.block_epoch_index(&header.hash())?;
         let epoch_number = header.epoch().number();
         let target = epoch_number.saturating_sub((epoch_number + 1) % period);
 
-        let mut epoch_ext = indexer.get_ancestor_epoch(&start_index, target)?;
-        let mut epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
+        let mut epoch_ext = indexer.ancestor_epoch(&start_index, target)?;
         let mut g_cache = cache.lock();
         let mut to_compute = Vec::new();
-        while g_cache.get(&epoch_index).is_none() {
-            if epoch_ext.is_genesis() {
-                // The genesis is by definition defined.
-                g_cache.insert(epoch_index.clone(), ThresholdState::Defined);
-                break;
+        let mut state = loop {
+            let epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
+            match g_cache.entry(epoch_index.clone()) {
+                hash_map::Entry::Occupied(entry) => {
+                    break *entry.get();
+                }
+                hash_map::Entry::Vacant(entry) => {
+                    // The genesis is by definition defined.
+                    if epoch_ext.is_genesis() || epoch_ext.number() < start {
+                        entry.insert(ThresholdState::Defined);
+                        break ThresholdState::Defined;
+                    }
+                    let next_epoch_ext = indexer
+                        .ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))?;
+                    to_compute.push(epoch_ext);
+                    epoch_ext = next_epoch_ext;
+                }
             }
-            if epoch_ext.number() < start {
-                // The genesis is by definition defined.
-                g_cache.insert(epoch_index.clone(), ThresholdState::Defined);
-                break;
-            }
-            to_compute.push(epoch_ext.clone());
+        };
 
-            let next_epoch_ext = indexer
-                .get_ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))?;
-            epoch_ext = next_epoch_ext;
-            epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
-        }
-
-        let mut state = *g_cache
-            .get(&epoch_index)
-            .expect("cache[epoch_index] is known");
         while let Some(epoch_ext) = to_compute.pop() {
             let mut next_state = state;
 
@@ -171,7 +219,7 @@ pub trait VersionBitsConditionChecker {
                     let mut count = 0;
                     let mut total = 0;
                     let mut header =
-                        indexer.get_block_header(&epoch_ext.last_block_hash_in_previous_epoch())?;
+                        indexer.block_header(&epoch_ext.last_block_hash_in_previous_epoch())?;
 
                     let mut current_epoch_ext = epoch_ext.clone();
                     for _ in 0..period {
@@ -181,14 +229,13 @@ pub trait VersionBitsConditionChecker {
                             if self.condition(&header, indexer) {
                                 count += 1;
                             }
-                            header = indexer.get_block_header(&header.parent_hash())?;
+                            header = indexer.block_header(&header.parent_hash())?;
                         }
-                        let last_block_header_in_previous_epoch = indexer.get_block_header(
-                            &current_epoch_ext.last_block_hash_in_previous_epoch(),
-                        )?;
+                        let last_block_header_in_previous_epoch = indexer
+                            .block_header(&current_epoch_ext.last_block_hash_in_previous_epoch())?;
                         let previous_epoch_index = indexer
-                            .get_block_epoch_index(&last_block_header_in_previous_epoch.hash())?;
-                        current_epoch_ext = indexer.get_epoch_ext(&previous_epoch_index)?;
+                            .block_epoch_index(&last_block_header_in_previous_epoch.hash())?;
+                        current_epoch_ext = indexer.epoch_ext(&previous_epoch_index)?;
                     }
 
                     let threshold_number = threshold_number(total, self.threshold())?;
@@ -215,21 +262,23 @@ pub trait VersionBitsConditionChecker {
     }
 }
 
-impl<'a> VersionBits<'a> {
+impl<'a> Versionbits<'a> {
+    /// construct new Versionbits wrapper
     pub fn new(id: DeploymentPos, consensus: &'a Consensus) -> Self {
-        VersionBits { id, consensus }
+        Versionbits { id, consensus }
     }
 
     fn deployment(&self) -> &Deployment {
         &self.consensus.deployments[&self.id]
     }
 
+    /// return bit mask corresponding deployment
     pub fn mask(&self) -> u32 {
         1u32 << self.deployment().bit as u32
     }
 }
 
-impl<'a> VersionBitsConditionChecker for VersionBits<'a> {
+impl<'a> VersionbitsConditionChecker for Versionbits<'a> {
     fn start(&self) -> EpochNumber {
         self.deployment().start
     }
@@ -242,13 +291,13 @@ impl<'a> VersionBitsConditionChecker for VersionBits<'a> {
         self.deployment().period
     }
 
-    fn condition<I: VersionBitsIndexer>(&self, header: &HeaderView, indexer: &I) -> bool {
-        if let Some(cellbase) = indexer.get_cellbase(&header.hash()) {
+    fn condition<I: VersionbitsIndexer>(&self, header: &HeaderView, indexer: &I) -> bool {
+        if let Some(cellbase) = indexer.cellbase(&header.hash()) {
             if let Some(witness) = cellbase.witnesses().get(0) {
-                if let Some(reader) = CellbaseWitnessReader::from_slice(&witness.raw_data()).ok() {
+                if let Ok(reader) = CellbaseWitnessReader::from_slice(&witness.raw_data()) {
                     let message = reader.message().to_entity();
                     if message.len() >= 4 {
-                        if let Ok(raw) = message.as_slice()[..4].try_into() {
+                        if let Ok(raw) = message.raw_data()[..4].try_into() {
                             let version = u32::from_le_bytes(raw);
                             return ((version & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS)
                                 && (version & self.mask()) != 0;

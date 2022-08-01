@@ -101,8 +101,6 @@ pub struct HardForkSwitch {
     rfc_0032: EpochNumber,
     rfc_0036: EpochNumber,
     rfc_0038: EpochNumber,
-    // TODO(light-client) update the description
-    rfc_tmp1: EpochNumber,
 }
 
 /// Builder for [`HardForkSwitch`].
@@ -149,8 +147,6 @@ pub struct HardForkSwitchBuilder {
     ///
     /// Ref: CKB RFC 0038
     pub rfc_0038: Option<EpochNumber>,
-    /// TODO(light-client) update the description and the rfc link
-    pub rfc_tmp1: Option<EpochNumber>,
 }
 
 impl HardForkSwitch {
@@ -169,7 +165,6 @@ impl HardForkSwitch {
             .rfc_0032(self.rfc_0032())
             .rfc_0036(self.rfc_0036())
             .rfc_0038(self.rfc_0038())
-            .rfc_tmp1(self.rfc_tmp1())
     }
 
     /// Creates a new mirana instance.
@@ -183,7 +178,6 @@ impl HardForkSwitch {
             .rfc_0032(0)
             .rfc_0036(0)
             .rfc_0038(0)
-            .disable_rfc_tmp1()
             .build()
             .unwrap()
     }
@@ -250,13 +244,6 @@ define_methods!(
     disable_rfc_0038,
     "RFC PR 0038"
 );
-define_methods!(
-    rfc_tmp1,
-    mmr_activated_epoch,
-    is_mmr_activated,
-    disable_rfc_tmp1,
-    "RFC TMP1"
-);
 
 impl HardForkSwitchBuilder {
     /// Build a new [`HardForkSwitch`].
@@ -280,7 +267,6 @@ impl HardForkSwitchBuilder {
         let rfc_0032 = try_find!(rfc_0032);
         let rfc_0036 = try_find!(rfc_0036);
         let rfc_0038 = try_find!(rfc_0038);
-        let rfc_tmp1 = try_find!(rfc_tmp1);
 
         Ok(HardForkSwitch {
             rfc_0028,
@@ -290,7 +276,6 @@ impl HardForkSwitchBuilder {
             rfc_0032,
             rfc_0036,
             rfc_0038,
-            rfc_tmp1,
         })
     }
 }

@@ -1,5 +1,6 @@
 use crate::cache::StoreCache;
 use crate::store::ChainStore;
+use ckb_chain_spec::versionbits::VersionbitsIndexer;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
     DBVector, RocksDBTransaction, RocksDBTransactionSnapshot,
@@ -17,9 +18,9 @@ use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus},
-        BlockExt, BlockView, EpochExt, HeaderView,
+        BlockExt, BlockView, EpochExt, HeaderView, TransactionView,
     },
-    packed::{self, OutPoint},
+    packed::{self, Byte32, OutPoint},
     prelude::*,
 };
 use std::sync::Arc;
@@ -50,6 +51,24 @@ impl<'a> ChainStore<'a> for StoreTransaction {
         self.inner
             .iter(col, mode)
             .expect("db operation should be ok")
+    }
+}
+
+impl VersionbitsIndexer for StoreTransaction {
+    fn block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32> {
+        ChainStore::get_block_epoch_index(self, block_hash)
+    }
+
+    fn epoch_ext(&self, index: &Byte32) -> Option<EpochExt> {
+        ChainStore::get_epoch_ext(self, index)
+    }
+
+    fn block_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+        ChainStore::get_block_header(self, block_hash)
+    }
+
+    fn cellbase(&self, block_hash: &Byte32) -> Option<TransactionView> {
+        ChainStore::get_cellbase(self, block_hash)
     }
 }
 
