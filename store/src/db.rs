@@ -5,7 +5,7 @@ use crate::transaction::StoreTransaction;
 use crate::write_batch::StoreWriteBatch;
 use crate::StoreSnapshot;
 use ckb_app_config::StoreConfig;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::{consensus::Consensus, versionbits::VersionbitsIndexer};
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
     DBPinnableSlice, RocksDB,
@@ -14,7 +14,10 @@ use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_types::{
-    core::BlockExt, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR,
+    core::{BlockExt, EpochExt, HeaderView, TransactionView},
+    packed,
+    prelude::*,
+    utilities::merkle_mountain_range::ChainRootMMR,
 };
 use std::sync::Arc;
 
@@ -45,6 +48,24 @@ impl<'a> ChainStore<'a> for ChainDB {
 
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
         self.db.iter(col, mode).expect("db operation should be ok")
+    }
+}
+
+impl VersionbitsIndexer for ChainDB {
+    fn block_epoch_index(&self, block_hash: &packed::Byte32) -> Option<packed::Byte32> {
+        ChainStore::get_block_epoch_index(self, block_hash)
+    }
+
+    fn epoch_ext(&self, index: &packed::Byte32) -> Option<EpochExt> {
+        ChainStore::get_epoch_ext(self, index)
+    }
+
+    fn block_header(&self, block_hash: &packed::Byte32) -> Option<HeaderView> {
+        ChainStore::get_block_header(self, block_hash)
+    }
+
+    fn cellbase(&self, block_hash: &packed::Byte32) -> Option<TransactionView> {
+        ChainStore::get_cellbase(self, block_hash)
     }
 }
 

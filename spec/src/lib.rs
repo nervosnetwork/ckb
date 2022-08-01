@@ -522,7 +522,20 @@ impl ChainSpec {
                 deployments.insert(DeploymentPos::LightClient, light_client);
                 Some(deployments)
             }
-            _ => None,
+            _ => {
+                let mut deployments = HashMap::new();
+                let light_client = Deployment {
+                    bit: 1,
+                    start: 0,
+                    timeout: 0,
+                    min_activation_epoch: 0,
+                    period: 10,
+                    active_mode: ActiveMode::Always,
+                    threshold: TESTNET_ACTIVATION_THRESHOLD,
+                };
+                deployments.insert(DeploymentPos::LightClient, light_client);
+                Some(deployments)
+            }
         }
     }
 

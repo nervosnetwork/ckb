@@ -1,10 +1,14 @@
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use ckb_async_runtime::Handle;
-use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
+use ckb_chain_spec::{
+    consensus::{Consensus, ConsensusProvider},
+    versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
+};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::error_target;
+use ckb_merkle_mountain_range::MMRStore;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
@@ -14,8 +18,9 @@ use ckb_types::{
         cell::{HeaderChecker, ResolvedTransaction},
         BlockReward, BlockView, Capacity, Cycle, EpochExt, HeaderView, TransactionView,
     },
-    packed::{Byte32, CellOutput, Script},
+    packed::{Byte32, CellOutput, HeaderDigest, Script},
     prelude::*,
+    utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::cache::{
     TxVerificationCache, {CacheEntry, Completed},
@@ -37,7 +42,7 @@ pub struct VerifyContext<'a, CS> {
     pub(crate) consensus: &'a Consensus,
 }
 
-impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
+impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> VerifyContext<'a, CS> {
     /// Create new VerifyContext from `Store` and `Consensus`
     pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
         VerifyContext { store, consensus }
@@ -48,6 +53,13 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
         parent: &HeaderView,
     ) -> Result<(Script, BlockReward), DaoError> {
         RewardCalculator::new(self.consensus, self.store).block_reward_to_finalize(parent)
+    }
+
+    fn versionbits_active(&self, pos: DeploymentPos, header: &HeaderView) -> bool {
+        self.consensus
+            .versionbits_state(pos, header, self.store)
+            .map(|state| state == ThresholdState::Active)
+            .unwrap_or(false)
     }
 }
 
@@ -124,7 +136,7 @@ pub struct TwoPhaseCommitVerifier<'a, CS> {
     block: &'a BlockView,
 }
 
-impl<'a, CS: ChainStore<'a>> TwoPhaseCommitVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> TwoPhaseCommitVerifier<'a, CS> {
     pub fn new(context: &'a VerifyContext<'a, CS>, block: &'a BlockView) -> Self {
         TwoPhaseCommitVerifier { context, block }
     }
@@ -206,7 +218,7 @@ pub struct RewardVerifier<'a, 'b, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
 
-impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
+impl<'a, 'b, CS: ChainStore<'a> + VersionbitsIndexer> RewardVerifier<'a, 'b, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         resolved: &'a [ResolvedTransaction],
@@ -268,7 +280,7 @@ struct DaoHeaderVerifier<'a, 'b, 'c, CS> {
     header: &'c HeaderView,
 }
 
-impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
+impl<'a, 'b, 'c, CS: ChainStore<'a> + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         resolved: &'a [ResolvedTransaction],
@@ -309,30 +321,32 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
 struct BlockTxsVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
     header: HeaderView,
-    resolved: &'a [ResolvedTransaction],
+    handle: &'a Handle,
+    txs_verify_cache: &'a Arc<RwLock<TxVerificationCache>>,
 }
 
-impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> BlockTxsVerifier<'a, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         header: HeaderView,
-        resolved: &'a [ResolvedTransaction],
+        handle: &'a Handle,
+        txs_verify_cache: &'a Arc<RwLock<TxVerificationCache>>,
     ) -> Self {
         BlockTxsVerifier {
             context,
             header,
-            resolved,
+            handle,
+            txs_verify_cache,
         }
     }
 
     fn fetched_cache<K: IntoIterator<Item = Byte32> + Send + 'static>(
         &self,
-        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         keys: K,
-        handle: &Handle,
     ) -> HashMap<Byte32, CacheEntry> {
         let (sender, receiver) = oneshot::channel();
-        handle.spawn(async move {
+        let txs_verify_cache = Arc::clone(self.txs_verify_cache);
+        self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
             let ret = keys
                 .into_iter()
@@ -343,35 +357,42 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                 error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
             };
         });
-        handle
+        self.handle
             .block_on(receiver)
             .expect("fetched cache no exception")
     }
 
+    fn update_cache(&self, ret: Vec<(Byte32, Completed)>) {
+        let txs_verify_cache = Arc::clone(self.txs_verify_cache);
+        self.handle.spawn(async move {
+            let mut guard = txs_verify_cache.write().await;
+            for (k, v) in ret {
+                guard.put(k, CacheEntry::Completed(v));
+            }
+        });
+    }
+
     pub fn verify(
         &self,
-        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-        handle: &Handle,
+        resolved: &'a [ResolvedTransaction],
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
         // We should skip updating tx_verify_cache about the cellbase tx,
         // putting it in cache that will never be used until lru cache expires.
-        let fetched_cache = if self.resolved.len() > 1 {
-            let keys: Vec<Byte32> = self
-                .resolved
+        let fetched_cache = if resolved.len() > 1 {
+            let keys: Vec<Byte32> = resolved
                 .iter()
                 .skip(1)
                 .map(|rtx| rtx.transaction.hash())
                 .collect();
 
-            self.fetched_cache(Arc::clone(&txs_verify_cache), keys, handle)
+            self.fetched_cache(keys)
         } else {
             HashMap::new()
         };
 
         // make verifiers orthogonal
-        let ret = self
-            .resolved
+        let ret = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
@@ -445,12 +466,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .cloned()
             .collect();
         if !ret.is_empty() {
-            handle.spawn(async move {
-                let mut guard = txs_verify_cache.write().await;
-                for (k, v) in ret {
-                    guard.put(k, CacheEntry::Completed(v));
-                }
-            });
+            self.update_cache(ret);
         }
 
         if sum > self.context.consensus.max_block_cycles() {
@@ -497,6 +513,86 @@ impl<'a> EpochVerifier<'a> {
     }
 }
 
+/// BlockExtensionVerifier.
+///
+/// Check block extension.
+#[derive(Clone)]
+pub struct BlockExtensionVerifier<'a, 'b, CS, MS: MMRStore<HeaderDigest>> {
+    context: &'a VerifyContext<'a, CS>,
+    chain_root_mmr: &'a ChainRootMMR<MS>,
+    parent: &'b HeaderView,
+}
+
+impl<'a, 'b, CS: ChainStore<'a> + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
+    BlockExtensionVerifier<'a, 'b, CS, MS>
+{
+    pub fn new(
+        context: &'a VerifyContext<'a, CS>,
+        chain_root_mmr: &'a ChainRootMMR<MS>,
+        parent: &'b HeaderView,
+    ) -> Self {
+        BlockExtensionVerifier {
+            context,
+            chain_root_mmr,
+            parent,
+        }
+    }
+
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
+        let extra_fields_count = block.data().count_extra_fields();
+
+        let mmr_active = self
+            .context
+            .versionbits_active(DeploymentPos::LightClient, self.parent);
+
+        match extra_fields_count {
+            0 => {
+                if mmr_active {
+                    return Err(BlockErrorKind::NoBlockExtension.into());
+                }
+            }
+            1 => {
+                let extension = if let Some(data) = block.extension() {
+                    data
+                } else {
+                    return Err(BlockErrorKind::UnknownFields.into());
+                };
+                if extension.is_empty() {
+                    return Err(BlockErrorKind::EmptyBlockExtension.into());
+                }
+                if extension.len() > 96 {
+                    return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
+                }
+                if mmr_active {
+                    if extension.len() < 32 {
+                        return Err(BlockErrorKind::InvalidBlockExtension.into());
+                    }
+
+                    let chain_root = self
+                        .chain_root_mmr
+                        .get_root()
+                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                    let actual_root_hash = chain_root.calc_mmr_hash();
+                    let expected_root_hash =
+                        Byte32::new_unchecked(extension.raw_data().slice(..32));
+                    if actual_root_hash != expected_root_hash {
+                        return Err(BlockErrorKind::InvalidChainRoot.into());
+                    }
+                }
+            }
+            _ => {
+                return Err(BlockErrorKind::UnknownFields.into());
+            }
+        }
+
+        let actual_extra_hash = block.calc_extra_hash().extra_hash();
+        if actual_extra_hash != block.extra_hash() {
+            return Err(BlockErrorKind::InvalidExtraHash.into());
+        }
+        Ok(())
+    }
+}
+
 /// Context-dependent verification checks for block
 ///
 /// Contains:
@@ -506,14 +602,32 @@ impl<'a> EpochVerifier<'a> {
 /// - [`DaoHeaderVerifier`](./struct.DaoHeaderVerifier.html)
 /// - [`RewardVerifier`](./struct.RewardVerifier.html)
 /// - [`BlockTxsVerifier`](./struct.BlockTxsVerifier.html)
-pub struct ContextualBlockVerifier<'a, CS> {
+pub struct ContextualBlockVerifier<'a, CS, MS: MMRStore<HeaderDigest>> {
     context: &'a VerifyContext<'a, CS>,
+    switch: Switch,
+    handle: &'a Handle,
+    txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+    chain_root_mmr: &'a ChainRootMMR<MS>,
 }
 
-impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a> + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
+    ContextualBlockVerifier<'a, CS, MS>
+{
     /// Create new ContextualBlockVerifier
-    pub fn new(context: &'a VerifyContext<'a, CS>) -> Self {
-        ContextualBlockVerifier { context }
+    pub fn new(
+        context: &'a VerifyContext<'a, CS>,
+        handle: &'a Handle,
+        switch: Switch,
+        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+        chain_root_mmr: &'a ChainRootMMR<MS>,
+    ) -> Self {
+        ContextualBlockVerifier {
+            context,
+            handle,
+            switch,
+            txs_verify_cache,
+            chain_root_mmr,
+        }
     }
 
     /// Perform context-dependent verification checks for block
@@ -521,9 +635,6 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
-        handle: &Handle,
-        switch: Switch,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let header = block.header();
@@ -547,32 +658,31 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
                 .epoch()
         };
 
-        if !switch.disable_epoch() {
+        if !self.switch.disable_epoch() {
             EpochVerifier::new(&epoch_ext, block).verify()?;
         }
 
-        if !switch.disable_uncles() {
+        if !self.switch.disable_uncles() {
             let uncle_verifier_context = UncleVerifierContext::new(self.context, &epoch_ext);
             UnclesVerifier::new(uncle_verifier_context, block).verify()?;
         }
 
-        if !switch.disable_two_phase_commit() {
+        if !self.switch.disable_two_phase_commit() {
             TwoPhaseCommitVerifier::new(self.context, block).verify()?;
         }
 
-        if !switch.disable_daoheader() {
+        if !self.switch.disable_daoheader() {
             DaoHeaderVerifier::new(self.context, resolved, &parent, &block.header()).verify()?;
         }
 
-        if !switch.disable_reward() {
+        if !self.switch.disable_reward() {
             RewardVerifier::new(self.context, resolved, &parent).verify()?;
         }
 
-        let ret = BlockTxsVerifier::new(self.context, header, resolved).verify(
-            txs_verify_cache,
-            handle,
-            switch.disable_script(),
-        )?;
+        BlockExtensionVerifier::new(self.context, self.chain_root_mmr, &parent).verify(block)?;
+
+        let ret = BlockTxsVerifier::new(self.context, header, self.handle, &self.txs_verify_cache)
+            .verify(resolved, self.switch.disable_script())?;
         Ok(ret)
     }
 }

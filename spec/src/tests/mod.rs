@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::{build_genesis_epoch_ext, ChainSpec, Params};
 
 mod consensus;
+mod versionbits;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SystemCell {

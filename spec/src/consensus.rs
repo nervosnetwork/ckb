@@ -6,8 +6,8 @@
 use crate::{
     calculate_block_reward,
     versionbits::{
-        self, Deployment, DeploymentPos, VersionBits, VersionBitsCache,
-        VersionBitsConditionChecker, VersionBitsIndexer,
+        self, Deployment, DeploymentPos, ThresholdState, Versionbits, VersionbitsCache,
+        VersionbitsConditionChecker, VersionbitsIndexer,
     },
     OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
     OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
@@ -92,7 +92,7 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
-pub(crate) const MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
+// pub(crate) const MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
 pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 
 /// The struct represent CKB two-step-transaction-confirmation params
@@ -284,7 +284,7 @@ impl ConsensusBuilder {
                 permanent_difficulty_in_dummy: false,
                 hardfork_switch: HardForkSwitch::new_mirana(),
                 deployments: HashMap::new(),
-                versionbits_caches: VersionBitsCache::default(),
+                versionbits_caches: VersionbitsCache::default(),
             },
         }
     }
@@ -475,7 +475,7 @@ impl ConsensusBuilder {
 
     /// Sets a soft fork deployments for the new Consensus.
     pub fn softfork_deployments(mut self, deployments: HashMap<DeploymentPos, Deployment>) -> Self {
-        self.inner.versionbits_caches = VersionBitsCache::new(deployments.keys());
+        self.inner.versionbits_caches = VersionbitsCache::new(deployments.keys());
         self.inner.deployments = deployments;
         self
     }
@@ -558,7 +558,7 @@ pub struct Consensus {
     /// Soft fork deployments
     pub deployments: HashMap<DeploymentPos, Deployment>,
     /// Soft fork state cache
-    pub versionbits_caches: VersionBitsCache,
+    pub versionbits_caches: VersionbitsCache,
 }
 
 // genesis difficulty should not be zero
@@ -955,15 +955,16 @@ impl Consensus {
         &self.hardfork_switch
     }
 
-    pub fn compute_versionbits<I: VersionBitsIndexer>(
+    /// Returns what version a new block should use.
+    pub fn compute_versionbits<I: VersionbitsIndexer>(
         &self,
         parent: &HeaderView,
         indexer: &I,
     ) -> Option<Version> {
         let mut version = versionbits::VERSIONBITS_TOP_BITS;
         for pos in self.deployments.keys() {
-            let versionbits = VersionBits::new(*pos, self);
-            let cache = self.versionbits_caches.cache(pos);
+            let versionbits = Versionbits::new(*pos, self);
+            let cache = self.versionbits_caches.cache(pos)?;
             let state = versionbits.get_state(parent, cache, indexer)?;
             if state == versionbits::ThresholdState::LockedIn
                 || state == versionbits::ThresholdState::Started
@@ -972,6 +973,18 @@ impl Consensus {
             }
         }
         Some(version)
+    }
+
+    /// Returns specified softfork deployment state
+    pub fn versionbits_state<I: VersionbitsIndexer>(
+        &self,
+        pos: DeploymentPos,
+        parent: &HeaderView,
+        indexer: &I,
+    ) -> Option<ThresholdState> {
+        let cache = self.versionbits_caches.cache(&pos)?;
+        let versionbits = Versionbits::new(pos, self);
+        versionbits.get_state(parent, cache, indexer)
     }
 
     /// If the CKB block chain specification is for an public chain.

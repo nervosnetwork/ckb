@@ -3,7 +3,7 @@
 use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::{
     consensus::{Consensus, ConsensusProvider},
-    versionbits::VersionBitsIndexer,
+    versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
 };
 use ckb_db::{
     iter::{DBIter, IteratorMode},
@@ -19,7 +19,7 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
-        BlockNumber, EpochExt, EpochNumber, HeaderView, TransactionView, Version,
+        BlockNumber, EpochExt, HeaderView, TransactionView, Version,
     },
     packed::{Byte32, HeaderDigest, OutPoint},
     U256,
@@ -161,8 +161,17 @@ impl Snapshot {
         &self.total_difficulty
     }
 
+    /// Returns what version a new block should use.
     pub fn compute_versionbits(&self, parent: &HeaderView) -> Option<Version> {
         self.consensus.compute_versionbits(parent, self)
+    }
+
+    /// Returns specified softfork active or not
+    pub fn versionbits_active(&self, pos: DeploymentPos) -> bool {
+        self.consensus
+            .versionbits_state(pos, &self.tip_header, self)
+            .map(|state| state == ThresholdState::Active)
+            .unwrap_or(false)
     }
 }
 
@@ -194,41 +203,21 @@ impl<'a> ChainStore<'a> for Snapshot {
     }
 }
 
-impl VersionBitsIndexer for Snapshot {
-    fn get_block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32> {
+impl VersionbitsIndexer for Snapshot {
+    fn block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32> {
         ChainStore::get_block_epoch_index(self, block_hash)
     }
 
-    fn get_epoch_ext(&self, index: &Byte32) -> Option<EpochExt> {
+    fn epoch_ext(&self, index: &Byte32) -> Option<EpochExt> {
         ChainStore::get_epoch_ext(self, index)
     }
 
-    fn get_block_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+    fn block_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
         ChainStore::get_block_header(self, block_hash)
     }
 
-    fn get_cellbase(&self, block_hash: &Byte32) -> Option<TransactionView> {
+    fn cellbase(&self, block_hash: &Byte32) -> Option<TransactionView> {
         ChainStore::get_cellbase(self, block_hash)
-    }
-
-    fn get_ancestor_epoch(&self, index: &Byte32, target: EpochNumber) -> Option<EpochExt> {
-        let mut epoch_ext = ChainStore::get_epoch_ext(self, &index)?;
-
-        if epoch_ext.number() < target {
-            return None;
-        }
-
-        while epoch_ext.number() > target {
-            let last_block_header_in_previous_epoch =
-                ChainStore::get_block_header(self, &epoch_ext.last_block_hash_in_previous_epoch())?;
-            let previous_epoch_index = ChainStore::get_block_epoch_index(
-                self,
-                &last_block_header_in_previous_epoch.hash(),
-            )?;
-            epoch_ext = ChainStore::get_epoch_ext(self, &previous_epoch_index)?;
-        }
-
-        Some(epoch_ext)
     }
 }
 
