@@ -16,4 +16,4 @@ ckb-notify = { path = "../notify", version = "= 0.105.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.105.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.105.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.105.0-pre" }
-golomb-coded-set = { git = "https://github.com/TheWaWaR/golomb-coded-set"}
+golomb-coded-set = "0.2.0"
