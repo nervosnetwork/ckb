@@ -3,9 +3,10 @@ use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{core::HeaderView, prelude::*};
+use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
 use std::thread;
 
-const THREAD_NAME: &str = "ckb-block-filter-thread";
+const THREAD_NAME: &str = "BlockFilter";
 
 /// A block filter creation service
 pub struct BlockFilter {
@@ -140,9 +141,6 @@ impl BlockFilter {
     }
 }
 
-fn build_gcs_filter(out: &mut dyn std::io::Write) -> golomb_coded_set::GCSFilterWriter {
-    // use same value as bip158
-    let p = 19;
-    let m = 1.497_137 * f64::from(2u32.pow(p));
-    golomb_coded_set::GCSFilterWriter::new(out, 0, 0, m as u64, p as u8)
+fn build_gcs_filter(out: &mut dyn std::io::Write) -> GCSFilterWriter<SipHasher24Builder> {
+    GCSFilterWriter::new(out, SipHasher24Builder::new(0, 0), M, P)
 }
