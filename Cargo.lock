@@ -848,11 +848,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-merkle-mountain-range"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "530710c310c455ced794feaa13f284c4c5d40ae5d82875392a83da7c5f84a8db"
+checksum = "bd027ff961bcf4b4c567333316906fbffdd4c2b8ac5ee664c412a21e6cd37666"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
 ]
 
 [[package]]

@@ -450,21 +450,6 @@ impl BlockAssembler {
             config.message.as_bytes().pack()
         };
 
-        // let message = if config.use_binary_version_as_message_prefix {
-        //     if config.message.is_empty() {
-        //         config.binary_version.as_bytes().pack()
-        //     } else {
-        //         [
-        //             config.binary_version.as_bytes(),
-        //             b" ",
-        //             config.message.as_bytes(),
-        //         ]
-        //         .concat()
-        //         .pack()
-        //     }
-        // } else {
-        //     config.message.as_bytes().pack()
-        // };
         CellbaseWitness::new_builder()
             .lock(cellbase_lock)
             .message(message)

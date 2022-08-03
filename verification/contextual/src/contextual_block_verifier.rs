@@ -517,7 +517,7 @@ impl<'a> EpochVerifier<'a> {
 ///
 /// Check block extension.
 #[derive(Clone)]
-pub struct BlockExtensionVerifier<'a, 'b, CS, MS: MMRStore<HeaderDigest>> {
+pub struct BlockExtensionVerifier<'a, 'b, CS, MS> {
     context: &'a VerifyContext<'a, CS>,
     chain_root_mmr: &'a ChainRootMMR<MS>,
     parent: &'b HeaderView,
@@ -602,7 +602,7 @@ impl<'a, 'b, CS: ChainStore<'a> + VersionbitsIndexer, MS: MMRStore<HeaderDigest>
 /// - [`DaoHeaderVerifier`](./struct.DaoHeaderVerifier.html)
 /// - [`RewardVerifier`](./struct.RewardVerifier.html)
 /// - [`BlockTxsVerifier`](./struct.BlockTxsVerifier.html)
-pub struct ContextualBlockVerifier<'a, CS, MS: MMRStore<HeaderDigest>> {
+pub struct ContextualBlockVerifier<'a, CS, MS> {
     context: &'a VerifyContext<'a, CS>,
     switch: Switch,
     handle: &'a Handle,
