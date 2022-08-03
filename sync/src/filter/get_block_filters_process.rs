@@ -7,7 +7,7 @@ use ckb_types::core::BlockNumber;
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
-const BATCH_SIZE: BlockNumber = 100;
+const BATCH_SIZE: BlockNumber = 1000;
 
 pub struct GetBlockFiltersProcess<'a> {
     message: packed::GetBlockFiltersReader<'a>,
