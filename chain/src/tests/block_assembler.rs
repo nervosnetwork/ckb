@@ -173,7 +173,7 @@ fn test_block_template_message() {
         .unwrap()
         .unwrap();
 
-    let _cellbase_witness = CellbaseWitness::from_slice(
+    let cellbase_witness = CellbaseWitness::from_slice(
         block_template
             .cellbase
             .data
@@ -183,8 +183,15 @@ fn test_block_template_message() {
             .as_bytes(),
     )
     .expect("should be valid CellbaseWitness slice");
-
-    // assert_eq!("TEST".as_bytes(), cellbase_witness.message().raw_data());
+    let snapshot = shared.snapshot();
+    let version = snapshot
+        .compute_versionbits(snapshot.tip_header())
+        .unwrap()
+        .to_le_bytes();
+    assert_eq!(
+        [version.as_slice(), b" ", "TEST".as_bytes()].concat(),
+        cellbase_witness.message().raw_data()
+    );
 }
 
 #[test]
