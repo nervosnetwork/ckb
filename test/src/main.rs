@@ -525,7 +525,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckCellDeps),
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
-        Box::new(CheckBlockExtension),
         Box::new(CheckVmVersion),
         Box::new(CheckVmBExtension),
     ];

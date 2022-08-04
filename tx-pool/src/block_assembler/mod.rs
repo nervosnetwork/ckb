@@ -144,7 +144,6 @@ impl BlockAssembler {
         let current_template = &current.template;
         let uncles = &current_template.uncles;
 
-        let extension = Self::build_extension(&current.snapshot)?;
         let (proposals, txs, txs_size, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -157,7 +156,7 @@ impl BlockAssembler {
                 current_template.cellbase.data(),
                 uncles,
                 proposals.iter(),
-                extension.clone(),
+                current_template.extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes
@@ -190,9 +189,6 @@ impl BlockAssembler {
                 current.template.current_time,
             ))
             .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
 
         current.template = builder.build();
         current.size.txs = txs_size;
@@ -438,21 +434,22 @@ impl BlockAssembler {
             .build();
         let tip = snapshot.tip_header();
 
-        let message = if let Some(version) = snapshot.compute_versionbits(tip) {
-            [
-                version.to_le_bytes().as_slice(),
-                b" ",
-                config.message.as_bytes(),
-            ]
-            .concat()
-            .pack()
-        } else {
-            config.message.as_bytes().pack()
-        };
+        let mut message = vec![];
+        if let Some(version) = snapshot.compute_versionbits(tip) {
+            message.extend_from_slice(&version.to_le_bytes());
+            message.extend_from_slice(b" ");
+        }
+        if config.use_binary_version_as_message_prefix {
+            message.extend_from_slice(config.binary_version.as_bytes());
+        }
+        if !config.message.is_empty() {
+            message.extend_from_slice(b" ");
+            message.extend_from_slice(config.message.as_bytes());
+        }
 
         CellbaseWitness::new_builder()
             .lock(cellbase_lock)
-            .message(message)
+            .message(message.pack())
             .build()
     }
 
@@ -773,6 +770,7 @@ impl BlockTemplateBuilder {
             cycles_limit: template.cycles_limit,
             bytes_limit: template.bytes_limit,
             uncles_count_limit: template.uncles_count_limit,
+            extension: template.extension.clone(),
             // option
             uncles: template.uncles.clone(),
             transactions: template.transactions.clone(),
@@ -781,7 +779,6 @@ impl BlockTemplateBuilder {
             work_id: None,
             dao: Some(template.dao.clone()),
             current_time: None,
-            extension: None,
         }
     }
 
