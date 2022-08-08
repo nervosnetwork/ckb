@@ -50,3 +50,4 @@ faketime = "0.2.0"
 [features]
 with_sentry = [ "ckb-sync/with_sentry", "ckb-network/with_sentry", "ckb-app-config/with_sentry" ]
 portable = ["ckb-db/portable", "ckb-db-migration/portable"]
+march-native = ["ckb-db/march-native", "ckb-db-migration/march-native"]

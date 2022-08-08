@@ -83,7 +83,7 @@ case $GITHUB_WORKFLOW in
     export PKG_CONFIG_ALLOW_CROSS=1
     export CC=gcc
     export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-    cargo build --target=aarch64-unknown-linux-gnu
+    cargo build --target=aarch64-unknown-linux-gnu --features march-native
     ;;
   ci_cargo_deny*)
     echo "ci_security_audit_licenses"

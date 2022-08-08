@@ -30,3 +30,4 @@ faketime = "0.2.0"
 
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable"]
+march-native = ["ckb-db/march-native", "ckb-store/march-native", "ckb-tx-pool/march-native"]
