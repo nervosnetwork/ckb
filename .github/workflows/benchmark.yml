@@ -36,7 +36,7 @@ jobs:
       GITHUB_REPO: ${{ github.repository }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           repository: nervosnetwork/ckb-integration-test
       - name: Get branch name when event is pr review comments

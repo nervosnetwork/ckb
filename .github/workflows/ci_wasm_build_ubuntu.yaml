@@ -37,7 +37,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: prologue
       id: prologue
       uses: ./.github/actions/ci_prologue
@@ -54,7 +54,7 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: ci_wasm_build_ubuntu
       run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
@@ -65,4 +65,3 @@ jobs:
         fi
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
-

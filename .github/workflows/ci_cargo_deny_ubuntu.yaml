@@ -37,7 +37,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: prologue
       id: prologue
       uses: ./.github/actions/ci_prologue
@@ -54,7 +54,7 @@ jobs:
     needs: prologue
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: ci_cargo_deny_ubuntu
       run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
