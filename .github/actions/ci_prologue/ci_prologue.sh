@@ -43,7 +43,7 @@ fun_pasing_message(){
   if [ $? -eq 0 ]; then
     job_run_list=`echo "${MESSAGE}"| grep "ci-runs-only" | awk -F ':' '{print $2}'`
   else
-    job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny ] "
+    job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny,aarch64_build ] "
   fi
   echo "job_run_list is ""$job_run_list"
   #parsing runs os
@@ -98,7 +98,7 @@ if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
   else
     runs_on=" [ ubuntu,macos,windows ] "
     fun_run_os "$runs_on"
-    job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny ] "
+    job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny,aarch64_build ] "
     fun_jobs "$job_run_list"
     if [[ "$GITHUB_REPOSITORY" == "nervosnetwork/ckb" ]];then
       echo "::set-output name=linux_runner_label::self-hosted-ci-ubuntu-20.04"
