@@ -74,7 +74,7 @@ impl<'a> GetBlockProofProcess<'a> {
             }
         };
         let proof = match mmr.gen_proof(positions) {
-            Ok(proof) => proof,
+            Ok(proof) => proof.proof_items().to_owned(),
             Err(err) => {
                 let errmsg = format!("failed to generate a proof since {:?}", err);
                 return StatusCode::InternalError.with_context(errmsg);
