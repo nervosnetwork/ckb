@@ -820,7 +820,7 @@ fn test_chain_sync_timeout() {
             .shared()
             .state()
             .n_sync_started()
-            .fetch_add(1, Ordering::Release);
+            .fetch_add(1, Ordering::AcqRel);
     }
     synchronizer.eviction(&network_context);
     {
@@ -987,7 +987,7 @@ fn test_n_sync_started() {
             .shared()
             .state()
             .n_sync_started()
-            .fetch_add(1, Ordering::Release);
+            .fetch_add(1, Ordering::AcqRel);
     }
     synchronizer.eviction(&network_context);
 

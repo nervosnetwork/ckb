@@ -35,7 +35,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: prologue
       id: prologue
       uses: ./.github/actions/ci_prologue
@@ -52,7 +52,7 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh

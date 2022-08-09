@@ -7,6 +7,7 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 CKB_FEATURES ?= deadlock_detection,with_sentry
+ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
@@ -111,7 +112,7 @@ gen-hashes: ## Generate docs/hashes.toml
 ##@ Building
 .PHONY: check
 check: setup-ckb-test ## Runs all of the compiler's checks.
-	cargo check ${VERBOSE} --all --all-targets --all-features
+	cargo check ${VERBOSE} --all --all-targets --features ${ALL_FEATURES}
 	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 .PHONY: build
@@ -132,7 +133,7 @@ prod: ## Build binary for production release.
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,ckb-db/portable"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
@@ -165,7 +166,7 @@ fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 
 .PHONY: clippy
 clippy: setup-ckb-test ## Run linter to examine Rust source codes.
-	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS} -D missing_docs
+	cargo clippy ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: security-audit

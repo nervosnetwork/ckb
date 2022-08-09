@@ -13,7 +13,7 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, HeadersSyncController, IBDState, PeerFlags, Peers, SyncShared};
+use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
 
@@ -21,7 +21,7 @@ use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
 use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_TIP_AGE,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
@@ -342,40 +342,12 @@ impl Synchronizer {
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let pid = SupportProtocols::Sync.protocol_id();
-        let (is_outbound, is_whitelist, is_2021edition) = nc
+        let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
-            .map(|peer| {
-                (
-                    peer.is_outbound(),
-                    peer.is_whitelist,
-                    peer.protocols.get(&pid).map(|v| v == "2").unwrap_or(false),
-                )
-            })
-            .unwrap_or((false, false, false));
+            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
+            .unwrap_or((false, false));
 
-        let sync_state = self.shared().state();
-        let protect_outbound = is_outbound
-            && sync_state
-                .n_protected_outbound_peers()
-                .load(Ordering::Acquire)
-                < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT;
-
-        if protect_outbound {
-            sync_state
-                .n_protected_outbound_peers()
-                .fetch_add(1, Ordering::Release);
-        }
-
-        self.peers().sync_connected(
-            peer,
-            PeerFlags {
-                is_outbound,
-                is_whitelist,
-                is_protect: protect_outbound,
-                is_2021edition,
-            },
-        );
+        self.peers().sync_connected(peer, is_outbound, is_whitelist);
     }
 
     /// Regularly check and eject some nodes that do not respond in time
@@ -493,23 +465,24 @@ impl Synchronizer {
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if ibd
-                && self
-                    .shared()
-                    .state()
-                    .n_sync_started()
-                    .load(Ordering::Acquire)
-                    != 0
+            if self
+                .shared()
+                .state()
+                .n_sync_started()
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+                    if ibd && x != 0 {
+                        None
+                    } else {
+                        Some(x + 1)
+                    }
+                })
+                .is_err()
             {
                 break;
             }
             {
                 if let Some(mut peer_state) = self.peers().state.get_mut(&peer) {
                     peer_state.start_sync(HeadersSyncController::from_header(&tip));
-                    self.shared()
-                        .state()
-                        .n_sync_started()
-                        .fetch_add(1, Ordering::Release);
                 }
             }
 
@@ -777,31 +750,7 @@ impl CKBProtocolHandler for Synchronizer {
         peer_index: PeerIndex,
     ) {
         let sync_state = self.shared().state();
-        if let Some(peer_state) = sync_state.disconnected(peer_index) {
-            info!("SyncProtocol.disconnected peer={}", peer_index);
-
-            if peer_state.sync_started() {
-                // It shouldn't happen
-                // fetch_sub wraps around on overflow, we still check manually
-                // panic here to prevent some bug be hidden silently.
-                assert_ne!(
-                    sync_state.n_sync_started().fetch_sub(1, Ordering::Release),
-                    0,
-                    "n_sync_started overflow when disconnects"
-                );
-            }
-
-            // Protection node disconnected
-            if peer_state.peer_flags.is_protect {
-                assert_ne!(
-                    sync_state
-                        .n_protected_outbound_peers()
-                        .fetch_sub(1, Ordering::Release),
-                    0,
-                    "n_protected_outbound_peers overflow when disconnects"
-                );
-            }
-        }
+        sync_state.disconnected(peer_index);
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
