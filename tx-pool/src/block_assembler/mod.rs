@@ -10,6 +10,7 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
+use ckb_chain_spec::versionbits::DeploymentPos;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::{
@@ -143,7 +144,6 @@ impl BlockAssembler {
         let current_template = &current.template;
         let uncles = &current_template.uncles;
 
-        let extension = Self::build_extension(&current.snapshot)?;
         let (proposals, txs, txs_size, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -156,7 +156,7 @@ impl BlockAssembler {
                 current_template.cellbase.data(),
                 uncles,
                 proposals.iter(),
-                extension.clone(),
+                current_template.extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes
@@ -189,9 +189,6 @@ impl BlockAssembler {
                 current.template.current_time,
             ))
             .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
 
         current.template = builder.build();
         current.size.txs = txs_size;
@@ -425,31 +422,34 @@ impl BlockAssembler {
         (&current.template).into()
     }
 
-    pub(crate) fn build_cellbase_witness(config: &BlockAssemblerConfig) -> CellbaseWitness {
+    pub(crate) fn build_cellbase_witness(
+        config: &BlockAssemblerConfig,
+        snapshot: &Snapshot,
+    ) -> CellbaseWitness {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
             .code_hash(config.code_hash.pack())
             .hash_type(hash_type.into())
             .build();
-        let message = if config.use_binary_version_as_message_prefix {
-            if config.message.is_empty() {
-                config.binary_version.as_bytes().pack()
-            } else {
-                [
-                    config.binary_version.as_bytes(),
-                    b" ",
-                    config.message.as_bytes(),
-                ]
-                .concat()
-                .pack()
-            }
-        } else {
-            config.message.as_bytes().pack()
-        };
+        let tip = snapshot.tip_header();
+
+        let mut message = vec![];
+        if let Some(version) = snapshot.compute_versionbits(tip) {
+            message.extend_from_slice(&version.to_le_bytes());
+            message.extend_from_slice(b" ");
+        }
+        if config.use_binary_version_as_message_prefix {
+            message.extend_from_slice(config.binary_version.as_bytes());
+        }
+        if !config.message.is_empty() {
+            message.extend_from_slice(b" ");
+            message.extend_from_slice(config.message.as_bytes());
+        }
+
         CellbaseWitness::new_builder()
             .lock(cellbase_lock)
-            .message(message)
+            .message(message.pack())
             .build()
     }
 
@@ -461,9 +461,9 @@ impl BlockAssembler {
         config: &BlockAssemblerConfig,
         snapshot: &Snapshot,
     ) -> Result<TransactionView, AnyError> {
-        let cellbase_witness = Self::build_cellbase_witness(config);
         let tip = snapshot.tip_header();
         let candidate_number = tip.number() + 1;
+        let cellbase_witness = Self::build_cellbase_witness(config, snapshot);
 
         let tx = {
             let (target_lock, block_reward) = block_in_place(|| {
@@ -494,13 +494,14 @@ impl BlockAssembler {
     }
 
     pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {
-        let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
-
-        let candidate_number = tip_header.number() + 1;
-        let mmr_activated_epoch = consensus.hardfork_switch().mmr_activated_epoch();
-        if tip_header.epoch().minimum_epoch_number_after_n_blocks(1) >= mmr_activated_epoch {
-            let mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+        let mmr_activate = snapshot.versionbits_active(DeploymentPos::LightClient);
+        if mmr_activate {
+            // Actually, should use candidate_number here, but +1 - 1 == tip_number,
+            // the intermediate process omitted
+            // let candidate_number = tip_header.number() + 1;
+            // mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+            let mmr_size = leaf_index_to_mmr_size(tip_header.number());
             let mmr = ChainRootMMR::new(mmr_size, snapshot);
             let chain_root = mmr
                 .get_root()
@@ -769,6 +770,7 @@ impl BlockTemplateBuilder {
             cycles_limit: template.cycles_limit,
             bytes_limit: template.bytes_limit,
             uncles_count_limit: template.uncles_count_limit,
+            extension: template.extension.clone(),
             // option
             uncles: template.uncles.clone(),
             transactions: template.transactions.clone(),
@@ -777,7 +779,6 @@ impl BlockTemplateBuilder {
             work_id: None,
             dao: Some(template.dao.clone()),
             current_time: None,
-            extension: None,
         }
     }
 

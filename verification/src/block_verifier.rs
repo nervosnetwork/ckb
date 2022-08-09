@@ -40,7 +40,6 @@ impl<'a> Verifier for BlockVerifier<'a> {
         let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
-        BlockExtensionVerifier::new(self.consensus).verify(target)?;
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
@@ -235,61 +234,6 @@ impl BlockBytesVerifier {
         } else {
             Err(BlockErrorKind::ExceededMaximumBlockBytes.into())
         }
-    }
-}
-
-/// BlockExtensionVerifier.
-///
-/// Check block extension.
-#[derive(Clone)]
-pub struct BlockExtensionVerifier<'a> {
-    consensus: &'a Consensus,
-}
-
-impl<'a> BlockExtensionVerifier<'a> {
-    pub fn new(consensus: &'a Consensus) -> Self {
-        BlockExtensionVerifier { consensus }
-    }
-
-    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
-        let extra_fields_count = block.data().count_extra_fields();
-
-        let mmr_activated_epoch = self.consensus.hardfork_switch().mmr_activated_epoch();
-        let has_chain_root = block.epoch().number() >= mmr_activated_epoch;
-
-        match extra_fields_count {
-            0 => {
-                if has_chain_root {
-                    return Err(BlockErrorKind::NoBlockExtension.into());
-                }
-            }
-            1 => {
-                let extension = if let Some(data) = block.extension() {
-                    data
-                } else {
-                    return Err(BlockErrorKind::UnknownFields.into());
-                };
-                if extension.is_empty() {
-                    return Err(BlockErrorKind::EmptyBlockExtension.into());
-                }
-                if extension.len() > 96 {
-                    return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
-                }
-                if has_chain_root && extension.len() < 32 {
-                    return Err(BlockErrorKind::InvalidBlockExtension.into());
-                }
-            }
-            _ => {
-                return Err(BlockErrorKind::UnknownFields.into());
-            }
-        }
-
-        let actual_extra_hash = block.calc_extra_hash().extra_hash();
-        if actual_extra_hash != block.extra_hash() {
-            return Err(BlockErrorKind::InvalidExtraHash.into());
-        }
-
-        Ok(())
     }
 }
 

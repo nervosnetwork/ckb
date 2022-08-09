@@ -90,7 +90,7 @@ index = 1
 
 # Spec: ckb_staging
 [ckb_staging]
-spec_hash = "0x754a6a35c71e267e638697a7cfabd1338735dac0e164306d562aa813bc19833c"
+spec_hash = "0x1e501d0048dbfee37707432fb5ec4c5e2b0404d887ebc882564c8761ef54e68a"
 genesis = "0xbc081e6b2e31149c1dc39007f161ed0a0b63d5d30b3b771acc6a3b622133fcc0"
 cellbase = "0x7295631c414e50a8d9bb73d9845231ac212d10404045c96de7f149ec874ac6b7"
 
@@ -134,7 +134,7 @@ index = 1
 
 # Spec: ckb_dev
 [ckb_dev]
-spec_hash = "0x9b457fe9ba2600eed42bff4e15cbdde2d9a1175eb49fb46e4d793bb4dc4259f0"
+spec_hash = "0x307bfa518f3dd6ffe6d82317c5ce7eb738db4623402edcc06b5adbee2e3a6b29"
 genesis = "0x823b2ff5785b12da8b1363cac9a5cbe566d8b715a4311441b119c39a0367488c"
 cellbase = "0xa563884b3686078ec7e7677a5f86449b15cf2693f3c1241766c6996f206cc541"
 

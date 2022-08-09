@@ -330,9 +330,9 @@ pub fn find_available_port() -> u16 {
 }
 
 pub fn message_name(data: &Bytes) -> String {
-    if let Ok(message) = SyncMessage::from_slice(data) {
+    if let Ok(message) = SyncMessage::from_compatible_slice(data) {
         message.to_enum().item_name().to_string()
-    } else if let Ok(message) = RelayMessage::from_slice(data) {
+    } else if let Ok(message) = RelayMessage::from_compatible_slice(data) {
         message.to_enum().item_name().to_string()
     } else {
         panic!("unknown message item");
