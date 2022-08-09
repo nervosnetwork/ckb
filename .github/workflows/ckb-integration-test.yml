@@ -18,7 +18,7 @@ jobs:
     # * Target workflow file must locate at `.github/workflows`, so putting a
     # reusable workflow in `.github/actions/` is invalid.
     #
-    # * `actions/checkout@v2` inside reusable workflow check-out the current
+    # * `actions/checkout@v3` inside reusable workflow check-out the current
     # repository but not the reusable workflow belong in.
     if: ${{ github.repository_owner == 'nervosnetwork' }}
     uses: nervosnetwork/ckb-integration-test/.github/workflows/ckb-integration-test.yml@main

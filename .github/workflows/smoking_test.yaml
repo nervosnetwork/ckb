@@ -24,7 +24,7 @@ jobs:
    Start_and_sync:
     runs-on: [self-hosted,Linux]
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download&Unzip v0.35.0
       run: |
         echo "start_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
