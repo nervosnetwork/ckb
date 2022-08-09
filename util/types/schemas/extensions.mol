@@ -296,11 +296,6 @@ struct HeaderWithChainRoot {
 
 vector HeaderWithChainRootVec <HeaderWithChainRoot>;
 
-table BlockProof {
-    mmr_size:               Uint64,
-    items:                  HeaderDigestVec,
-}
-
 table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
@@ -336,7 +331,7 @@ table GetBlockSamples {
 
 table SendBlockSamples {
     root:                       HeaderDigest,
-    proof:                      BlockProof,
+    proof:                      HeaderDigestVec,
     // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
     reorg_last_n_headers:       HeaderWithChainRootVec,
     sampled_headers:            HeaderWithChainRootVec,
@@ -353,9 +348,8 @@ table GetBlockProof {
 table SendBlockProof {
     // The root of `GetBlockProof.tip_hash`
     root:                   HeaderDigest,
-    // The proof of `GetBlockProof.block_hashs`. If `proof.mmr_size` is zero it
-    // means `tip_hash` is not in chain.
-    proof:                  BlockProof,
+    // The proof of `GetBlockProof.block_hashs`. If `proof` is empty it means `tip_hash` is not in chain.
+    proof:                  HeaderDigestVec,
     /// The tip header
     tip_header:             VerifiableHeader,
     // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
