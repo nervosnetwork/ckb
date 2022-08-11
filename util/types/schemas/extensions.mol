@@ -272,6 +272,7 @@ table ClearFilter {
 
 table FilteredBlock {
     header:                 Header,
+    witnesses_root:         Byte32,
     transactions:           TransactionVec,
     proof:                  MerkleProof,
 }
@@ -309,6 +310,8 @@ union LightClientMessage {
     SendBlockSamples,
     GetBlockProof,
     SendBlockProof,
+    GetTransactions,
+    SendTransactions,
 }
 
 table GetLastState {}
@@ -355,6 +358,24 @@ table SendBlockProof {
     // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
     // of tip hash it will not included in headers.
     headers:                HeaderVec,
+}
+
+vector FilteredBlockVec <FilteredBlock>;
+
+table GetTransactions {
+    tx_hashes:        Byte32Vec,
+    tip_hash:         Byte32,
+}
+
+table SendTransactions {
+    // The transactions group by block
+    filtered_blocks:  FilteredBlockVec,
+    // The root of `GetTransactions.tip_hash`
+    root:             HeaderDigest,
+    // The block proof of filtered_blocks.headers
+    block_proof:      HeaderDigestVec,
+    /// The tip header
+    tip_header:       VerifiableHeader,
 }
 
 /* Types for Network/Others */

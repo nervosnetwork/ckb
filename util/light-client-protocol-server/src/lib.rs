@@ -112,6 +112,9 @@ impl LightClientProtocol {
             packed::LightClientMessageUnionReader::GetBlockProof(reader) => {
                 components::GetBlockProofProcess::new(reader, self, peer_index, nc).execute()
             }
+            packed::LightClientMessageUnionReader::GetTransactions(reader) => {
+                components::GetTransactionsProcess::new(reader, self, peer_index, nc).execute()
+            }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
     }
