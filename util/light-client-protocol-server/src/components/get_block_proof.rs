@@ -37,6 +37,7 @@ impl<'a> GetBlockProofProcess<'a> {
             .map(|hash| hash.to_entity())
             .collect();
         let tip_hash = self.message.tip_hash().to_entity();
+        let id = self.message.calc_hash_as_id();
 
         let (tip_header, tip_uncles_hash, tip_extension) =
             if let Some(header) = active_chain.get_block_header(&tip_hash) {
@@ -45,9 +46,10 @@ impl<'a> GetBlockProofProcess<'a> {
                     .expect("checked: tip block should be existed");
                 (header, tip_block.calc_uncles_hash(), tip_block.extension())
             } else {
-                // The tip_hash is not on the chain
+                // The tip_hash is not on the chain.
+                let content = packed::SendBlockProof::new_builder().id(id).build();
                 let message = packed::LightClientMessage::new_builder()
-                    .set(packed::SendBlockProof::default())
+                    .set(content)
                     .build();
                 self.nc.reply(self.peer, &message);
                 return Status::ok();
@@ -86,11 +88,15 @@ impl<'a> GetBlockProofProcess<'a> {
             .uncles_hash(tip_uncles_hash)
             .extension(Pack::pack(&tip_extension))
             .build();
-        let content = packed::SendBlockProof::new_builder()
-            .root(root)
-            .proof(proof.pack())
+        let data = packed::BlockProof::new_builder()
+            .tip_root(root)
             .tip_header(verifiable_tip_header)
+            .proof(proof.pack())
             .headers(block_headers.into_iter().map(|view| view.data()).pack())
+            .build();
+        let content = packed::SendBlockProof::new_builder()
+            .id(id)
+            .data(Some(data).pack())
             .build();
         let message = packed::LightClientMessage::new_builder()
             .set(content)

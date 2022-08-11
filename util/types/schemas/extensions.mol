@@ -339,22 +339,30 @@ table SendBlockSamples {
 }
 
 table GetBlockProof {
-    // The requested block hashes
-    block_hashes:           Byte32Vec,
     // Light Client's local tip hash
     tip_hash:               Byte32,
+    // The requested block hashes
+    block_hashes:           Byte32Vec,
 }
 
-table SendBlockProof {
-    // The root of `GetBlockProof.tip_hash`
-    root:                   HeaderDigest,
-    // The proof of `GetBlockProof.block_hashs`. If `proof` is empty it means `tip_hash` is not in chain.
-    proof:                  HeaderDigestVec,
-    /// The tip header
+table BlockProof {
+    // The chain root of `GetBlockProof.tip_hash`.
+    tip_root:               HeaderDigest,
+    // The header of `GetBlockProof.tip_hash`.
     tip_header:             VerifiableHeader,
-    // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
-    // of tip hash it will not included in headers.
+    // The proof of blocks whose hash in `GetBlockProof.block_hashs`.
+    proof:                  HeaderDigestVec,
+    // The headers of `GetBlockProof.block_hashes` whose hash in `GetBlockProof.block_hashs`.
+    // If a block hash not ancestor of tip hash, then it will not included in headers.
     headers:                HeaderVec,
+}
+option BlockProofOpt (BlockProof);
+
+table SendBlockProof {
+    // The ID which used to find the matched request.
+    id:                     Byte32,
+    // Returns `None` if the `tip_hash` is not in chain.
+    data:                   BlockProofOpt,
 }
 
 /* Types for Network/Others */

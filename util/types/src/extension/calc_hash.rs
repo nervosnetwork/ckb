@@ -330,3 +330,13 @@ impl<'r> packed::HeaderDigestReader<'r> {
     }
 }
 impl_calc_special_hash_for_entity!(HeaderDigest, calc_mmr_hash);
+
+impl<'r> packed::GetBlockProofReader<'r> {
+    /// Calculates the hash for [self.as_slice()] as the ID.
+    ///
+    /// [self.as_slice()]: ../prelude/trait.Reader.html#tymethod.as_slice
+    pub fn calc_hash_as_id(&self) -> packed::Byte32 {
+        self.calc_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(GetBlockProof, calc_hash_as_id);
