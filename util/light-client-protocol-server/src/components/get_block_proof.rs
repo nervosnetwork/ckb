@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR};
@@ -38,6 +40,16 @@ impl<'a> GetBlockProofProcess<'a> {
             .collect();
         let tip_hash = self.message.tip_hash().to_entity();
 
+        let mut uniq = HashSet::new();
+        if !block_hashes
+            .iter()
+            .chain([tip_hash.clone()].iter())
+            .all(|hash| uniq.insert(hash))
+        {
+            return StatusCode::MalformedProtocolMessage
+                .with_context("block_hashes and tip_hash should be uniq");
+        }
+
         let (tip_header, tip_uncles_hash, tip_extension) =
             if let Some(header) = active_chain.get_block_header(&tip_hash) {
                 let tip_block = active_chain
@@ -61,7 +73,6 @@ impl<'a> GetBlockProofProcess<'a> {
 
         let positions: Vec<_> = block_headers
             .iter()
-            .filter(|header| header.number() != tip_header.number())
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
         let mmr_size = leaf_index_to_mmr_size(tip_header.number() - 1);
