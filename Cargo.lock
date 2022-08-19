@@ -795,6 +795,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-shared",
+ "ckb-store",
  "ckb-sync",
  "ckb-types",
 ]
