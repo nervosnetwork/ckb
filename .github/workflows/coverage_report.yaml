@@ -18,8 +18,6 @@ jobs:
         with:
           toolchain: nightly-2022-03-22
           components: llvm-tools-preview
-      - run: rustup component add rustfmt
-      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib
       - name: unit coverage
         run: make cov
       - name: integration cov
