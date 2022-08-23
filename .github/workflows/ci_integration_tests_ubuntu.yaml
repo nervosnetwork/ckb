@@ -56,6 +56,14 @@ jobs:
     timeout-minutes: 140
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.61.0
+        override: true
+    - run: rustup component add rustfmt
+    - run: rustup component add clippy
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
     - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
@@ -78,6 +86,14 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.61.0
+        override: true
+    - run: rustup component add rustfmt
+    - run: rustup component add clippy
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
     - uses: actions/checkout@v3
     - name: make and copy ckb binary and testcases to bats_testbed directory
       run: |
@@ -102,7 +118,6 @@ jobs:
       uses: actions/checkout@v3
       with:
         repository: nervosnetwork/ckb-assets
-        ref: v0.1.0
     - name: init ckb bats testbed
       run: |
         mv cli_bats_env/ckb_mainnet_4000.json /tmp/bats_testbed/ckb_mainnet_4000.json

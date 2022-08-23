@@ -22,7 +22,7 @@ env:
 
 jobs:
    Start_and_sync:
-    runs-on: [self-hosted,Linux]
+    runs-on: self-hosted-smoking-test
     steps:
     - uses: actions/checkout@v3
     - name: Download&Unzip v0.35.0
