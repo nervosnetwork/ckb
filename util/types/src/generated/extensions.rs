@@ -16299,6 +16299,7 @@ impl ::core::fmt::Display for GetBlockSamples {
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
         write!(f, ", {}: {}", "start_hash", self.start_hash())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
+        write!(f, ", {}: {}", "last_n_blocks", self.last_n_blocks())?;
         write!(
             f,
             ", {}: {}",
@@ -16316,17 +16317,18 @@ impl ::core::fmt::Display for GetBlockSamples {
 impl ::core::default::Default for GetBlockSamples {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            132, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 128, 0, 0, 0, 0, 0,
+            144, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 92, 0, 0, 0, 100, 0, 0, 0, 108, 0, 0, 0, 140,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
         ];
         GetBlockSamples::new_unchecked(v.into())
     }
 }
 impl GetBlockSamples {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 6;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16361,17 +16363,23 @@ impl GetBlockSamples {
         let end = molecule::unpack_number(&slice[16..]) as usize;
         Uint64::new_unchecked(self.0.slice(start..end))
     }
-    pub fn difficulty_boundary(&self) -> Uint256 {
+    pub fn last_n_blocks(&self) -> Uint64 {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
         let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn difficulty_boundary(&self) -> Uint256 {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
         Uint256::new_unchecked(self.0.slice(start..end))
     }
     pub fn difficulties(&self) -> Uint256Vec {
         let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let start = molecule::unpack_number(&slice[24..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[24..]) as usize;
+            let end = molecule::unpack_number(&slice[28..]) as usize;
             Uint256Vec::new_unchecked(self.0.slice(start..end))
         } else {
             Uint256Vec::new_unchecked(self.0.slice(start..))
@@ -16407,6 +16415,7 @@ impl molecule::prelude::Entity for GetBlockSamples {
             .last_hash(self.last_hash())
             .start_hash(self.start_hash())
             .start_number(self.start_number())
+            .last_n_blocks(self.last_n_blocks())
             .difficulty_boundary(self.difficulty_boundary())
             .difficulties(self.difficulties())
     }
@@ -16433,6 +16442,7 @@ impl<'r> ::core::fmt::Display for GetBlockSamplesReader<'r> {
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
         write!(f, ", {}: {}", "start_hash", self.start_hash())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
+        write!(f, ", {}: {}", "last_n_blocks", self.last_n_blocks())?;
         write!(
             f,
             ", {}: {}",
@@ -16448,7 +16458,7 @@ impl<'r> ::core::fmt::Display for GetBlockSamplesReader<'r> {
     }
 }
 impl<'r> GetBlockSamplesReader<'r> {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 6;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16483,17 +16493,23 @@ impl<'r> GetBlockSamplesReader<'r> {
         let end = molecule::unpack_number(&slice[16..]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn difficulty_boundary(&self) -> Uint256Reader<'r> {
+    pub fn last_n_blocks(&self) -> Uint64Reader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
         let end = molecule::unpack_number(&slice[20..]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn difficulty_boundary(&self) -> Uint256Reader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let end = molecule::unpack_number(&slice[24..]) as usize;
         Uint256Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn difficulties(&self) -> Uint256VecReader<'r> {
         let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
+        let start = molecule::unpack_number(&slice[24..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[24..]) as usize;
+            let end = molecule::unpack_number(&slice[28..]) as usize;
             Uint256VecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             Uint256VecReader::new_unchecked(&self.as_slice()[start..])
@@ -16552,8 +16568,9 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockSamplesReader<'r> {
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         Uint64Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        Uint256Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
-        Uint256VecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        Uint64Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        Uint256Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
+        Uint256VecReader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
         Ok(())
     }
 }
@@ -16562,11 +16579,12 @@ pub struct GetBlockSamplesBuilder {
     pub(crate) last_hash: Byte32,
     pub(crate) start_hash: Byte32,
     pub(crate) start_number: Uint64,
+    pub(crate) last_n_blocks: Uint64,
     pub(crate) difficulty_boundary: Uint256,
     pub(crate) difficulties: Uint256Vec,
 }
 impl GetBlockSamplesBuilder {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 6;
     pub fn last_hash(mut self, v: Byte32) -> Self {
         self.last_hash = v;
         self
@@ -16577,6 +16595,10 @@ impl GetBlockSamplesBuilder {
     }
     pub fn start_number(mut self, v: Uint64) -> Self {
         self.start_number = v;
+        self
+    }
+    pub fn last_n_blocks(mut self, v: Uint64) -> Self {
+        self.last_n_blocks = v;
         self
     }
     pub fn difficulty_boundary(mut self, v: Uint256) -> Self {
@@ -16596,6 +16618,7 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
             + self.last_hash.as_slice().len()
             + self.start_hash.as_slice().len()
             + self.start_number.as_slice().len()
+            + self.last_n_blocks.as_slice().len()
             + self.difficulty_boundary.as_slice().len()
             + self.difficulties.as_slice().len()
     }
@@ -16609,6 +16632,8 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
         offsets.push(total_size);
         total_size += self.start_number.as_slice().len();
         offsets.push(total_size);
+        total_size += self.last_n_blocks.as_slice().len();
+        offsets.push(total_size);
         total_size += self.difficulty_boundary.as_slice().len();
         offsets.push(total_size);
         total_size += self.difficulties.as_slice().len();
@@ -16619,6 +16644,7 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
         writer.write_all(self.last_hash.as_slice())?;
         writer.write_all(self.start_hash.as_slice())?;
         writer.write_all(self.start_number.as_slice())?;
+        writer.write_all(self.last_n_blocks.as_slice())?;
         writer.write_all(self.difficulty_boundary.as_slice())?;
         writer.write_all(self.difficulties.as_slice())?;
         Ok(())

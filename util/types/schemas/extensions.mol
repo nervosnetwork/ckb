@@ -328,6 +328,9 @@ table GetBlockSamples {
     start_hash:                 Byte32,
     // Last proved tip number
     start_number:               Uint64,
+    // How many continuous blocks before the tip block should be included at
+    // least, if possible?
+    last_n_blocks:              Uint64,
     difficulty_boundary:        Uint256,
     difficulties:               Uint256Vec,
 }
