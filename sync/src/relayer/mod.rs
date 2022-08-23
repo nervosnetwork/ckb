@@ -32,7 +32,6 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
 };
-use ckb_store::ChainStore;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockView},
@@ -299,22 +298,31 @@ impl Relayer {
             }
 
             if let Some(p2p_control) = nc.p2p_control() {
+                let snapshot = self.shared.shared().snapshot();
+                let parent_chain_root = {
+                    let mmr = snapshot.chain_root_mmr(boxed.header().number() - 1);
+                    match mmr.get_root() {
+                        Ok(root) => root,
+                        Err(err) => {
+                            error_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "Generate last state to light client failed: {:?}",
+                                err
+                            );
+                            return;
+                        }
+                    }
+                };
+
                 let tip_header = packed::VerifiableHeader::new_builder()
                     .header(boxed.header().data())
                     .uncles_hash(boxed.calc_uncles_hash())
                     .extension(Pack::pack(&boxed.extension()))
+                    .parent_chain_root(parent_chain_root)
                     .build();
-                let total_difficulty = self
-                    .shared
-                    .shared()
-                    .snapshot()
-                    .get_block_ext(&block_hash)
-                    .map(|block_ext| block_ext.total_difficulty)
-                    .expect("checked: new block should have block ext");
                 let light_client_message = {
                     let content = packed::SendLastState::new_builder()
                         .tip_header(tip_header)
-                        .total_difficulty(total_difficulty.pack())
                         .build();
                     packed::LightClientMessage::new_builder()
                         .set(content)

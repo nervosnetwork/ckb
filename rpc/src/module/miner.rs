@@ -4,7 +4,6 @@ use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, info, warn};
 use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
 use ckb_shared::{shared::Shared, Snapshot};
-use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
@@ -303,21 +302,26 @@ impl MinerRpc for MinerRpcImpl {
                 error!("Broadcast new block failed: {:?}", err);
             }
 
+            let parent_chain_root = {
+                let mmr = snapshot.chain_root_mmr(header.number() - 1);
+                match mmr.get_root() {
+                    Ok(root) => root,
+                    Err(err) => {
+                        error!("Generate last state to light client failed: {:?}", err);
+                        return Ok(header.hash().unpack());
+                    }
+                }
+            };
+
             let tip_header = packed::VerifiableHeader::new_builder()
                 .header(header.data())
                 .uncles_hash(block.calc_uncles_hash())
                 .extension(Pack::pack(&block.extension()))
+                .parent_chain_root(parent_chain_root)
                 .build();
-            let total_difficulty = self
-                .shared
-                .snapshot()
-                .get_block_ext(&header.hash())
-                .map(|block_ext| block_ext.total_difficulty)
-                .expect("checked: new block should have block ext");
             let light_client_message = {
                 let content = packed::SendLastState::new_builder()
                     .tip_header(tip_header)
-                    .total_difficulty(total_difficulty.pack())
                     .build();
                 packed::LightClientMessage::new_builder()
                     .set(content)

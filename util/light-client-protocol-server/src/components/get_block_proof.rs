@@ -29,14 +29,13 @@ impl<'a> GetBlockProofProcess<'a> {
     }
 
     fn reply_only_the_tip_state(&self) -> Status {
-        let (tip_header, root) = match self.protocol.get_tip_state() {
+        let tip_header = match self.protocol.get_verifiable_tip_header() {
             Ok(tip_state) => tip_state,
             Err(errmsg) => {
                 return StatusCode::InternalError.with_context(errmsg);
             }
         };
         let content = packed::SendBlockProof::new_builder()
-            .root(root)
             .tip_header(tip_header)
             .build();
         let message = packed::LightClientMessage::new_builder()
@@ -86,7 +85,7 @@ impl<'a> GetBlockProofProcess<'a> {
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
         let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
-        let root = match mmr.get_root() {
+        let parent_chain_root = match mmr.get_root() {
             Ok(root) => root,
             Err(err) => {
                 let errmsg = format!("failed to generate a root since {:?}", err);
@@ -105,9 +104,9 @@ impl<'a> GetBlockProofProcess<'a> {
             .header(tip_block.data().header())
             .uncles_hash(tip_block.calc_uncles_hash())
             .extension(Pack::pack(&tip_block.extension()))
+            .parent_chain_root(parent_chain_root)
             .build();
         let content = packed::SendBlockProof::new_builder()
-            .root(root)
             .proof(proof.pack())
             .tip_header(verifiable_tip_header)
             .headers(block_headers.into_iter().map(|view| view.data()).pack())

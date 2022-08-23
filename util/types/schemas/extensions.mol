@@ -293,16 +293,10 @@ table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
     extension:              BytesOpt,
+    parent_chain_root:      HeaderDigest,
 }
 
-table VerifiableHeaderWithChainRoot {
-    header:                 Header,
-    uncles_hash:            Byte32,
-    extension:              BytesOpt,
-    chain_root:             HeaderDigest,
-}
-
-vector VerifiableHeaderWithChainRootVec <VerifiableHeaderWithChainRoot>;
+vector VerifiableHeaderVec <VerifiableHeader>;
 
 union LightClientMessage {
     GetLastState,
@@ -322,7 +316,6 @@ table GetLastState {
 
 table SendLastState {
     tip_header:                 VerifiableHeader,
-    total_difficulty:           Uint256,
 }
 
 table GetBlockSamples {
@@ -340,13 +333,12 @@ table GetBlockSamples {
 }
 
 table SendBlockSamples {
-    root:                       HeaderDigest,
     last_header:                VerifiableHeader,
     proof:                      HeaderDigestVec,
     // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
-    reorg_last_n_headers:       VerifiableHeaderWithChainRootVec,
-    sampled_headers:            VerifiableHeaderWithChainRootVec,
-    last_n_headers:             VerifiableHeaderWithChainRootVec,
+    reorg_last_n_headers:       VerifiableHeaderVec,
+    sampled_headers:            VerifiableHeaderVec,
+    last_n_headers:             VerifiableHeaderVec,
 }
 
 table GetBlockProof {
@@ -357,8 +349,6 @@ table GetBlockProof {
 }
 
 table SendBlockProof {
-    // The root of `GetBlockProof.tip_hash`
-    root:                   HeaderDigest,
     // The proof of `GetBlockProof.block_hashs`. If `proof` is empty it means `tip_hash` is not in chain.
     proof:                  HeaderDigestVec,
     /// The tip header
@@ -378,8 +368,6 @@ table GetTransactions {
 table SendTransactions {
     // The transactions group by block
     filtered_blocks:  FilteredBlockVec,
-    // The root of `GetTransactions.tip_hash`
-    root:             HeaderDigest,
     // The block proof of filtered_blocks.headers
     block_proof:      HeaderDigestVec,
     /// The tip header

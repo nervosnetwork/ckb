@@ -115,9 +115,9 @@ impl BlockSampler {
         positions: &mut Vec<u64>,
         last_hash: &packed::Byte32,
         numbers: &[BlockNumber],
-    ) -> Result<Vec<packed::VerifiableHeaderWithChainRoot>, String> {
+    ) -> Result<Vec<packed::VerifiableHeader>, String> {
         let active_chain = self.active_chain();
-        let mut headers_with_chain_root = Vec::new();
+        let mut headers = Vec::new();
 
         for number in numbers {
             // Genesis block doesn't has chain root.
@@ -141,7 +141,7 @@ impl BlockSampler {
                 let uncles_hash = ancestor_block.calc_uncles_hash();
                 let extension = ancestor_block.extension();
 
-                let chain_root = {
+                let parent_chain_root = {
                     let mmr = snapshot.chain_root_mmr(*number - 1);
                     match mmr.get_root() {
                         Ok(root) => root,
@@ -155,21 +155,21 @@ impl BlockSampler {
                     }
                 };
 
-                let header_with_chain_root = packed::VerifiableHeaderWithChainRoot::new_builder()
+                let header = packed::VerifiableHeader::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
                     .extension(Pack::pack(&extension))
-                    .chain_root(chain_root)
+                    .parent_chain_root(parent_chain_root)
                     .build();
 
-                headers_with_chain_root.push(header_with_chain_root);
+                headers.push(header);
             } else {
                 let errmsg = format!("failed to find ancestor header ({})", number);
                 return Err(errmsg);
             }
         }
 
-        Ok(headers_with_chain_root)
+        Ok(headers)
     }
 }
 
@@ -189,14 +189,13 @@ impl<'a> GetBlockSamplesProcess<'a> {
     }
 
     fn reply_only_the_tip_state(&self) -> Status {
-        let (tip_header, root) = match self.protocol.get_tip_state() {
+        let tip_header = match self.protocol.get_verifiable_tip_header() {
             Ok(tip_state) => tip_state,
             Err(errmsg) => {
                 return StatusCode::InternalError.with_context(errmsg);
             }
         };
         let content = packed::SendBlockSamples::new_builder()
-            .root(root)
             .last_header(tip_header)
             .build();
         let message = packed::LightClientMessage::new_builder()
@@ -399,9 +398,9 @@ impl<'a> GetBlockSamplesProcess<'a> {
             )
         };
 
-        let (root, proof) = {
+        let (parent_chain_root, proof) = {
             let mmr = snapshot.chain_root_mmr(last_block_number - 1);
-            let root = match mmr.get_root() {
+            let parent_chain_root = match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {
                     let errmsg = format!("failed to generate a root since {:?}", err);
@@ -415,15 +414,15 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            (root, proof)
+            (parent_chain_root, proof)
         };
         let last_header = packed::VerifiableHeader::new_builder()
             .header(last_block.data().header())
             .uncles_hash(last_block.calc_uncles_hash())
             .extension(Pack::pack(&last_block.extension()))
+            .parent_chain_root(parent_chain_root)
             .build();
         let content = packed::SendBlockSamples::new_builder()
-            .root(root)
             .last_header(last_header)
             .proof(proof.pack())
             .reorg_last_n_headers(reorg_last_n_headers.pack())

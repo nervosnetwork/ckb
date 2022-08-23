@@ -1,5 +1,5 @@
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::{packed, prelude::*, utilities::compact_to_difficulty, U256};
+use ckb_types::{packed, prelude::*};
 
 use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
@@ -36,23 +36,15 @@ impl<'a> GetLastStateProcess<'a> {
             );
         }
 
-        let (tip_header, root) = match self.protocol.get_tip_state() {
+        let tip_header = match self.protocol.get_verifiable_tip_header() {
             Ok(tip_state) => tip_state,
             Err(errmsg) => {
                 return StatusCode::InternalError.with_context(errmsg);
             }
         };
 
-        let total_difficulty = {
-            let parent_total_difficulty: U256 = root.total_difficulty().unpack();
-            let block_compact_target: u32 = tip_header.header().raw().compact_target().unpack();
-            let block_difficulty = compact_to_difficulty(block_compact_target);
-            parent_total_difficulty + block_difficulty
-        };
-
         let content = packed::SendLastState::new_builder()
             .tip_header(tip_header)
-            .total_difficulty(total_difficulty.pack())
             .build();
         let message = packed::LightClientMessage::new_builder()
             .set(content)

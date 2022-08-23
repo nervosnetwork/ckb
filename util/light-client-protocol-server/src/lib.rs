@@ -110,16 +110,14 @@ impl LightClientProtocol {
         }
     }
 
-    pub(crate) fn get_tip_state(
-        &self,
-    ) -> Result<(packed::VerifiableHeader, packed::HeaderDigest), String> {
+    pub(crate) fn get_verifiable_tip_header(&self) -> Result<packed::VerifiableHeader, String> {
         let active_chain = self.shared.active_chain();
 
         let tip_hash = active_chain.tip_hash();
         let tip_block = active_chain
             .get_block(&tip_hash)
             .expect("checked: tip block should be existed");
-        let root = {
+        let parent_chain_root = {
             let snapshot = self.shared.shared().snapshot();
             let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
             match mmr.get_root() {
@@ -135,8 +133,9 @@ impl LightClientProtocol {
             .header(tip_block.header().data())
             .uncles_hash(tip_block.calc_uncles_hash())
             .extension(Pack::pack(&tip_block.extension()))
+            .parent_chain_root(parent_chain_root)
             .build();
 
-        Ok((tip_header, root))
+        Ok(tip_header)
     }
 }
