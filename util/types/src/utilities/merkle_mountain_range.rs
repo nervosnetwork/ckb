@@ -298,6 +298,19 @@ impl From<packed::VerifiableHeader> for VerifiableHeader {
     }
 }
 
+impl packed::VerifiableHeaderWithChainRoot {
+    /// Splits an instance into a `VerifiableHeader` and the `HeaderDigest` for its chain root.
+    pub fn split(raw: Self) -> (VerifiableHeader, packed::HeaderDigest) {
+        let verifiable_header = VerifiableHeader::new(
+            raw.header().into_view(),
+            raw.uncles_hash(),
+            raw.extension().to_opt(),
+        );
+        let chain_root = raw.chain_root();
+        (verifiable_header, chain_root)
+    }
+}
+
 impl VerifiableHeader {
     /// Creates a new verifiable header.
     pub fn new(
@@ -312,31 +325,11 @@ impl VerifiableHeader {
         }
     }
 
-    /// Creates a new verifiable header from a header with chain root.
-    pub fn new_from_header_with_chain_root(
-        header_with_chain_root: packed::HeaderWithChainRoot,
-        mmr_activated_epoch: EpochNumber,
-    ) -> Self {
-        let header = header_with_chain_root.header().into_view();
-        let uncles_hash = header_with_chain_root.uncles_hash();
-        let extension = if header.epoch().number() >= mmr_activated_epoch {
-            let bytes = header_with_chain_root
-                .chain_root()
-                .calc_mmr_hash()
-                .as_bytes()
-                .pack();
-            Some(bytes)
-        } else {
-            None
-        };
-        Self::new(header, uncles_hash, extension)
-    }
-
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(
         &self,
         mmr_activated_epoch: EpochNumber,
-        expected_root_hash_opt: Option<&packed::Byte32>,
+        expected_chain_root_hash_opt: Option<&packed::Byte32>,
     ) -> bool {
         let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root {
@@ -344,10 +337,9 @@ impl VerifiableHeader {
                 .extension()
                 .map(|extension| {
                     let actual_extension_data = extension.raw_data();
-                    actual_extension_data.len() < 32
-                        || expected_root_hash_opt
-                            .map(|hash| actual_extension_data.slice(..32) != hash.as_slice())
-                            .unwrap_or(false)
+                    expected_chain_root_hash_opt
+                        .map(|hash| actual_extension_data.starts_with(hash.as_slice()))
+                        .unwrap_or(false)
                 })
                 .unwrap_or(false);
             if !is_extension_beginning_with_mmr_chain_root {

@@ -289,19 +289,20 @@ table InIBD {
 
 vector HeaderDigestVec <HeaderDigest>;
 
-struct HeaderWithChainRoot {
-    header:                 Header,
-    uncles_hash:            Byte32,
-    chain_root:             HeaderDigest,
-}
-
-vector HeaderWithChainRootVec <HeaderWithChainRoot>;
-
 table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
     extension:              BytesOpt,
 }
+
+table VerifiableHeaderWithChainRoot {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    extension:              BytesOpt,
+    chain_root:             HeaderDigest,
+}
+
+vector VerifiableHeaderWithChainRootVec <VerifiableHeaderWithChainRoot>;
 
 union LightClientMessage {
     GetLastState,
@@ -336,9 +337,9 @@ table SendBlockSamples {
     root:                       HeaderDigest,
     proof:                      HeaderDigestVec,
     // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
-    reorg_last_n_headers:       HeaderWithChainRootVec,
-    sampled_headers:            HeaderWithChainRootVec,
-    last_n_headers:             HeaderWithChainRootVec,
+    reorg_last_n_headers:       VerifiableHeaderWithChainRootVec,
+    sampled_headers:            VerifiableHeaderWithChainRootVec,
+    last_n_headers:             VerifiableHeaderWithChainRootVec,
 }
 
 table GetBlockProof {

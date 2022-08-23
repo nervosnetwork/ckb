@@ -115,7 +115,7 @@ impl BlockSampler {
         positions: &mut Vec<u64>,
         last_hash: &packed::Byte32,
         numbers: &[BlockNumber],
-    ) -> Result<Vec<packed::HeaderWithChainRoot>, String> {
+    ) -> Result<Vec<packed::VerifiableHeaderWithChainRoot>, String> {
         let active_chain = self.active_chain();
         let mut headers_with_chain_root = Vec::new();
 
@@ -128,17 +128,18 @@ impl BlockSampler {
                 let position = leaf_index_to_pos(*number);
                 positions.push(position);
 
-                let uncles_hash = match active_chain.get_block(&ancestor_header.hash()) {
-                    Some(ancestor_block) => ancestor_block.calc_uncles_hash(),
-                    None => {
-                        let errmsg = format!(
-                            "failed to find block for header#{} (hash: {:#x})",
-                            number,
-                            ancestor_header.hash()
-                        );
-                        return Err(errmsg);
-                    }
-                };
+                let ancestor_block =
+                    active_chain
+                        .get_block(&ancestor_header.hash())
+                        .ok_or_else(|| {
+                            format!(
+                                "failed to find block for header#{} (hash: {:#x})",
+                                number,
+                                ancestor_header.hash()
+                            )
+                        })?;
+                let uncles_hash = ancestor_block.calc_uncles_hash();
+                let extension = ancestor_block.extension();
 
                 let chain_root = {
                     let mmr_size = leaf_index_to_mmr_size(*number - 1);
@@ -155,9 +156,10 @@ impl BlockSampler {
                     }
                 };
 
-                let header_with_chain_root = packed::HeaderWithChainRoot::new_builder()
+                let header_with_chain_root = packed::VerifiableHeaderWithChainRoot::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
+                    .extension(Pack::pack(&extension))
                     .chain_root(chain_root)
                     .build();
 
