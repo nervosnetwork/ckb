@@ -1,12 +1,10 @@
 use std::cmp::{max, min, Ordering};
 
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_sync::ActiveChain;
-use ckb_types::{
-    core::BlockNumber, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR, U256,
-};
+use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
 
 use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
@@ -144,8 +142,7 @@ impl BlockSampler {
                 let extension = ancestor_block.extension();
 
                 let chain_root = {
-                    let mmr_size = leaf_index_to_mmr_size(*number - 1);
-                    let mmr = ChainRootMMR::new(mmr_size, snapshot);
+                    let mmr = snapshot.chain_root_mmr(*number - 1);
                     match mmr.get_root() {
                         Ok(root) => root,
                         Err(err) => {
@@ -403,8 +400,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
         };
 
         let (root, proof) = {
-            let mmr_size = leaf_index_to_mmr_size(last_block_number - 1);
-            let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
+            let mmr = snapshot.chain_root_mmr(last_block_number - 1);
             let root = match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {

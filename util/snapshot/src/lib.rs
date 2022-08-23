@@ -11,7 +11,9 @@ use ckb_db::{
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
-use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
+use ckb_merkle_mountain_range::{
+    leaf_index_to_mmr_size, Error as MMRError, MMRStore, Result as MMRResult,
+};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::HeaderProvider;
@@ -22,6 +24,7 @@ use ckb_types::{
         BlockNumber, EpochExt, HeaderView, TransactionView, Version,
     },
     packed::{Byte32, HeaderDigest, OutPoint},
+    utilities::merkle_mountain_range::ChainRootMMR,
     U256,
 };
 use std::hash::{Hash, Hasher};
@@ -172,6 +175,12 @@ impl Snapshot {
             .versionbits_state(pos, &self.tip_header, self)
             .map(|state| state == ThresholdState::Active)
             .unwrap_or(false)
+    }
+
+    /// Returns the chain root MMR for a provided block.
+    pub fn chain_root_mmr(&self, block_number: BlockNumber) -> ChainRootMMR<&Self> {
+        let mmr_size = leaf_index_to_mmr_size(block_number);
+        ChainRootMMR::new(mmr_size, self)
     }
 }
 

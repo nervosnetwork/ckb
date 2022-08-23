@@ -1341,7 +1341,6 @@ dependencies = [
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
- "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-reward-calculator",
  "ckb-snapshot",

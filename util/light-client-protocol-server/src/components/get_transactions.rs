@@ -1,13 +1,9 @@
 use std::collections::HashMap;
 
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
-use ckb_types::{
-    packed,
-    prelude::*,
-    utilities::{merkle_mountain_range::ChainRootMMR, CBMT},
-};
+use ckb_types::{packed, prelude::*, utilities::CBMT};
 
 use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
@@ -92,8 +88,7 @@ impl<'a> GetTransactionsProcess<'a> {
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
 
-        let mmr_size = leaf_index_to_mmr_size(tip_block.number() - 1);
-        let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
+        let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
         let root = match mmr.get_root() {
             Ok(root) => root,
             Err(err) => {

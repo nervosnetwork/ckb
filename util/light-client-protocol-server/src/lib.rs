@@ -5,10 +5,9 @@
 use std::sync::Arc;
 
 use ckb_logger::{debug, error, info, trace, warn};
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_sync::SyncShared;
-use ckb_types::{packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR};
+use ckb_types::{packed, prelude::*};
 
 mod components;
 mod constant;
@@ -122,8 +121,7 @@ impl LightClientProtocol {
             .expect("checked: tip block should be existed");
         let root = {
             let snapshot = self.shared.shared().snapshot();
-            let mmr_size = leaf_index_to_mmr_size(tip_block.number() - 1);
-            let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
+            let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
             match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {
