@@ -29,12 +29,12 @@ quick-test: ## Run all tests, excluding some tests can be time-consuming to exec
 
 .PHONY: cov-install-tools
 cov-install-tools:
-	rustup component add llvm-tools-preview --toolchain nightly
-	grcov --version || cargo +nightly install grcov
+	rustup component add llvm-tools-preview --toolchain nightly-2022-03-22
+	grcov --version || cargo +nightly-2022-03-22 install grcov
 
 .PHONY: cov-collect-data
 cov-collect-data:
-	RUSTUP_TOOLCHAIN=nightly \
+	RUSTUP_TOOLCHAIN=nightly-2022-03-22 \
 	grcov "${COV_PROFRAW_DIR}" --binary-path "${CARGO_TARGET_DIR}/debug/" \
 		-s . -t lcov --branch --ignore-not-existing --ignore "/*" \
 		--ignore "*/tests/*" \
