@@ -8,7 +8,7 @@ use ckb_types::{
     core::BlockNumber, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR, U256,
 };
 
-use crate::{constant::LAST_N_BLOCKS, prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetBlockSamplesProcess<'a> {
     message: packed::GetBlockSamplesReader<'a>,
@@ -191,6 +191,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
         let active_chain = self.protocol.shared.active_chain();
         let snapshot = self.protocol.shared.shared().snapshot();
 
+        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
         let last_block_hash = self.message.last_hash().to_entity();
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
@@ -224,7 +225,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
             // Genesis block doesn't has chain root.
             let min_block_number = max(
                 1,
-                start_block_number - min(start_block_number, LAST_N_BLOCKS),
+                start_block_number - min(start_block_number, last_n_blocks),
             );
             (min_block_number..start_block_number).collect()
         };
@@ -274,7 +275,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
         }
 
         let (sampled_numbers, last_n_numbers) =
-            if last_block_number - start_block_number <= LAST_N_BLOCKS {
+            if last_block_number - start_block_number <= last_n_blocks {
                 // There is not enough blocks, so we take all of them; so there is no sampled blocks.
                 let sampled_numbers = Vec::new();
                 let last_n_numbers = (start_block_number..last_block_number)
@@ -297,9 +298,9 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     return StatusCode::InvaildDifficultyBoundary.with_context(errmsg);
                 };
 
-                if last_block_number - difficulty_boundary_block_number < LAST_N_BLOCKS {
+                if last_block_number - difficulty_boundary_block_number < last_n_blocks {
                     // There is not enough blocks after the difficulty boundary, so we take more.
-                    difficulty_boundary_block_number = last_block_number - LAST_N_BLOCKS;
+                    difficulty_boundary_block_number = last_block_number - last_n_blocks;
                 }
 
                 if let Some(total_difficulty) =
