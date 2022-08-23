@@ -52,6 +52,12 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.61.0
+        override: true
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
     - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then

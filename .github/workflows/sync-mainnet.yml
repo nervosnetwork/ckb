@@ -23,6 +23,16 @@ jobs:
       - uses: actions/checkout@v3
         with:
           repository: nervosnetwork/ckb-integration-test
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.61.0
+          override: true
+      - run: rustup component add rustfmt
+      - run: sudo apt update && sudo apt -y install ansible
+      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib
+      - run: wget https://releases.hashicorp.com/terraform/1.1.2/terraform_1.1.2_linux_amd64.zip && unzip terraform_1.1.2_linux_amd64.zip && sudo cp terraform /usr/bin/
+      - run: sudo apt-get install -y wget ca-certificates && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - && sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" >> /etc/apt/sources.list.d/pgdg.list' && sudo apt-get update && sudo apt-get install -y postgresql postgresql-contrib
       - name: Get Current Date
         id: date
         run: |

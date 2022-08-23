@@ -17,9 +17,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly-2022-03-22
-      - name: overwrite toolchain
-        # It's easier to clean than `rustup override`
-        run: echo nightly-2022-03-22 > rust-toolchain
+          components: llvm-tools-preview
       - name: unit coverage
         run: make cov
       - name: integration cov
