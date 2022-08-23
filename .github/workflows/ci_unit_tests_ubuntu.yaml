@@ -56,7 +56,6 @@ jobs:
       with:
         profile: minimal
         toolchain: 1.61.0
-        override: true
     - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
     - uses: actions/checkout@v3
     - run: |

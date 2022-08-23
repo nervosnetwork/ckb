@@ -35,16 +35,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
-    - uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: 1.61.0
-        override: true
-    - run: rustup component add rustfmt
     - uses: actions/checkout@v3
-    - run: cargo fmt --all -- --check
-    - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y
     - name: prologue
       id: prologue
       uses: ./.github/actions/ci_prologue
@@ -61,7 +52,15 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.61.0
+    - run: rustup component add rustfmt
     - uses: actions/checkout@v3
+    - run: cargo fmt --all -- --check
+    - run: rustup component add clippy
+    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
