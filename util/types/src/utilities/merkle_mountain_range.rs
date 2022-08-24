@@ -347,3 +347,64 @@ impl VerifiableHeader {
         parent_total_difficulty + block_difficulty
     }
 }
+
+/// A builder which builds the content of a message that used for proving.
+pub trait ProverMessageBuilder: Builder
+where
+    Self::Entity: Into<packed::LightClientMessageUnion>,
+{
+    /// The type of the proved items.
+    type Items;
+    /// Set the verifiable header which includes the chain root.
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self;
+    /// Set the proof for all items which require verifying.
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self;
+    /// Set the proved items.
+    fn set_items(self, items: Self::Items) -> Self;
+}
+
+impl ProverMessageBuilder for packed::SendBlockSamplesBuilder {
+    type Items = (
+        packed::VerifiableHeaderVec,
+        packed::VerifiableHeaderVec,
+        packed::VerifiableHeaderVec,
+    );
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        let (reorg_last_n_headers, sampled_headers, last_n_headers) = items;
+        self.reorg_last_n_headers(reorg_last_n_headers)
+            .sampled_headers(sampled_headers)
+            .last_n_headers(last_n_headers)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendBlockProofBuilder {
+    type Items = packed::HeaderVec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        self.headers(items)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendTransactionsBuilder {
+    type Items = packed::FilteredBlockVec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        self.filtered_blocks(items)
+    }
+}

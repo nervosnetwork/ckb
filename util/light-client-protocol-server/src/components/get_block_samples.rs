@@ -6,7 +6,7 @@ use ckb_shared::Snapshot;
 use ckb_sync::ActiveChain;
 use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
 
-use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetBlockSamplesProcess<'a> {
     message: packed::GetBlockSamplesReader<'a>,
@@ -188,29 +188,21 @@ impl<'a> GetBlockSamplesProcess<'a> {
         }
     }
 
-    fn reply_only_the_tip_state(&self) -> Status {
-        let tip_header = match self.protocol.get_verifiable_tip_header() {
-            Ok(tip_state) => tip_state,
-            Err(errmsg) => {
-                return StatusCode::InternalError.with_context(errmsg);
-            }
-        };
-        let content = packed::SendBlockSamples::new_builder()
-            .last_header(tip_header)
-            .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
-        self.nc.reply(self.peer, &message);
-        Status::ok()
-    }
-
     pub(crate) fn execute(self) -> Status {
         let active_chain = self.protocol.shared.active_chain();
+
+        let last_block_hash = self.message.last_hash().to_entity();
+        let last_block = if let Some(block) = active_chain.get_block(&last_block_hash) {
+            block
+        } else {
+            return self
+                .protocol
+                .reply_tip_state::<packed::SendBlockSamples>(self.peer, self.nc);
+        };
+
         let snapshot = self.protocol.shared.shared().snapshot();
 
         let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
-        let last_block_hash = self.message.last_hash().to_entity();
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
         let mut difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
@@ -221,13 +213,6 @@ impl<'a> GetBlockSamplesProcess<'a> {
             .map(|d| Unpack::<U256>::unpack(&d))
             .collect::<Vec<_>>();
 
-        let last_block = if let Some(block) = active_chain.get_block(&last_block_hash) {
-            block
-        } else {
-            // The `difficulties` may not matched when last_block_hash not in active chain,
-            // synchronize the last state to the light-client side.
-            return self.reply_only_the_tip_state();
-        };
         let last_block_number = last_block.number();
 
         let reorg_last_n_numbers = if start_block_number == 0
@@ -398,41 +383,18 @@ impl<'a> GetBlockSamplesProcess<'a> {
             )
         };
 
-        let (parent_chain_root, proof) = {
-            let mmr = snapshot.chain_root_mmr(last_block_number - 1);
-            let parent_chain_root = match mmr.get_root() {
-                Ok(root) => root,
-                Err(err) => {
-                    let errmsg = format!("failed to generate a root since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            let proof = match mmr.gen_proof(positions) {
-                Ok(proof) => proof.proof_items().to_owned(),
-                Err(err) => {
-                    let errmsg = format!("failed to generate a proof since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            (parent_chain_root, proof)
-        };
-        let last_header = packed::VerifiableHeader::new_builder()
-            .header(last_block.data().header())
-            .uncles_hash(last_block.calc_uncles_hash())
-            .extension(Pack::pack(&last_block.extension()))
-            .parent_chain_root(parent_chain_root)
-            .build();
-        let content = packed::SendBlockSamples::new_builder()
-            .last_header(last_header)
-            .proof(proof.pack())
-            .reorg_last_n_headers(reorg_last_n_headers.pack())
-            .sampled_headers(sampled_headers.pack())
-            .last_n_headers(last_n_headers.pack())
-            .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
+        let proved_items = (
+            reorg_last_n_headers.pack(),
+            sampled_headers.pack(),
+            last_n_headers.pack(),
+        );
 
-        self.nc.reply(self.peer, &message)
+        self.protocol.reply_proof::<packed::SendBlockSamples>(
+            self.peer,
+            self.nc,
+            &last_block,
+            positions,
+            proved_items,
+        )
     }
 }

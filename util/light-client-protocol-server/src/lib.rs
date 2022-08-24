@@ -7,7 +7,9 @@ use std::sync::Arc;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_sync::SyncShared;
-use ckb_types::{packed, prelude::*};
+use ckb_types::{core, packed, prelude::*};
+
+use crate::prelude::*;
 
 mod components;
 mod constant;
@@ -137,5 +139,75 @@ impl LightClientProtocol {
             .build();
 
         Ok(tip_header)
+    }
+
+    pub(crate) fn reply_tip_state<T>(&self, peer: PeerIndex, nc: &dyn CKBProtocolContext) -> Status
+    where
+        T: Entity,
+        <T as Entity>::Builder: ProverMessageBuilder,
+        <<T as Entity>::Builder as Builder>::Entity: Into<packed::LightClientMessageUnion>,
+    {
+        let tip_header = match self.get_verifiable_tip_header() {
+            Ok(tip_state) => tip_state,
+            Err(errmsg) => {
+                return StatusCode::InternalError.with_context(errmsg);
+            }
+        };
+        let content = T::new_builder().set_last_header(tip_header).build();
+        let message = packed::LightClientMessage::new_builder()
+            .set(content)
+            .build();
+        nc.reply(peer, &message);
+        Status::ok()
+    }
+
+    pub(crate) fn reply_proof<T>(
+        &self,
+        peer: PeerIndex,
+        nc: &dyn CKBProtocolContext,
+        last_block: &core::BlockView,
+        items_positions: Vec<u64>,
+        items: <<T as Entity>::Builder as ProverMessageBuilder>::Items,
+    ) -> Status
+    where
+        T: Entity,
+        <T as Entity>::Builder: ProverMessageBuilder,
+        <<T as Entity>::Builder as Builder>::Entity: Into<packed::LightClientMessageUnion>,
+    {
+        let (parent_chain_root, proof) = {
+            let snapshot = self.shared.shared().snapshot();
+            let mmr = snapshot.chain_root_mmr(last_block.number() - 1);
+            let parent_chain_root = match mmr.get_root() {
+                Ok(root) => root,
+                Err(err) => {
+                    let errmsg = format!("failed to generate a root since {:?}", err);
+                    return StatusCode::InternalError.with_context(errmsg);
+                }
+            };
+            let proof = match mmr.gen_proof(items_positions) {
+                Ok(proof) => proof.proof_items().to_owned(),
+                Err(err) => {
+                    let errmsg = format!("failed to generate a proof since {:?}", err);
+                    return StatusCode::InternalError.with_context(errmsg);
+                }
+            };
+            (parent_chain_root, proof)
+        };
+        let verifiable_last_header = packed::VerifiableHeader::new_builder()
+            .header(last_block.data().header())
+            .uncles_hash(last_block.calc_uncles_hash())
+            .extension(Pack::pack(&last_block.extension()))
+            .parent_chain_root(parent_chain_root)
+            .build();
+        let content = T::new_builder()
+            .set_last_header(verifiable_last_header)
+            .set_proof(proof.pack())
+            .set_items(items)
+            .build();
+        let message = packed::LightClientMessage::new_builder()
+            .set(content)
+            .build();
+        nc.reply(peer, &message);
+        Status::ok()
     }
 }

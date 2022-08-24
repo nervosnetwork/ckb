@@ -298,6 +298,8 @@ table VerifiableHeader {
 
 vector VerifiableHeaderVec <VerifiableHeader>;
 
+vector FilteredBlockVec <FilteredBlock>;
+
 union LightClientMessage {
     GetLastState,
     SendLastState,
@@ -315,12 +317,15 @@ table GetLastState {
 }
 
 table SendLastState {
-    tip_header:                 VerifiableHeader,
+    // The verifiable header for the tip block in the server.
+    last_header:                VerifiableHeader,
 }
 
 table GetBlockSamples {
-    // SendLastState.tip_header.hash
+    // The last block hash known by the client.
+    // It could be different with the tip hash in the server.
     last_hash:                  Byte32,
+
     // Last proved tip hash
     start_hash:                 Byte32,
     // Last proved tip number
@@ -333,8 +338,14 @@ table GetBlockSamples {
 }
 
 table SendBlockSamples {
+    // If the block whose hash is sent from the client is on the chain, then
+    // returns its verifiable header; otherwise, returns the verifiable
+    // header for the tip block in the server.
     last_header:                VerifiableHeader,
+    // The MMR proof for the chain root whose hash is in the last header.
+    // Be empty if the block hash sent from the client isn't on the chain.
     proof:                      HeaderDigestVec,
+
     // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
     reorg_last_n_headers:       VerifiableHeaderVec,
     sampled_headers:            VerifiableHeaderVec,
@@ -342,36 +353,39 @@ table SendBlockSamples {
 }
 
 table GetBlockProof {
+    // Refer to `GetBlockSamples.last_hash`.
+    last_hash:                  Byte32,
+
     // The requested block hashes
     block_hashes:           Byte32Vec,
-    // Light Client's local tip hash
-    tip_hash:               Byte32,
 }
 
 table SendBlockProof {
-    // The proof of `GetBlockProof.block_hashs`. If `proof` is empty it means `tip_hash` is not in chain.
-    proof:                  HeaderDigestVec,
-    /// The tip header
-    tip_header:             VerifiableHeader,
+    // Refer to `SendBlockSamples.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendBlockSamples.proof`.
+    proof:                      HeaderDigestVec,
+
     // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
     // of tip hash it will not included in headers.
     headers:                HeaderVec,
 }
 
-vector FilteredBlockVec <FilteredBlock>;
-
 table GetTransactions {
+    // Refer to `GetBlockSamples.last_hash`.
+    last_hash:                  Byte32,
+
     tx_hashes:        Byte32Vec,
-    tip_hash:         Byte32,
 }
 
 table SendTransactions {
+    // Refer to `SendBlockSamples.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendBlockSamples.proof`.
+    proof:                      HeaderDigestVec,
+
     // The transactions group by block
     filtered_blocks:  FilteredBlockVec,
-    // The block proof of filtered_blocks.headers
-    block_proof:      HeaderDigestVec,
-    /// The tip header
-    tip_header:       VerifiableHeader,
 }
 
 /* Types for Network/Others */

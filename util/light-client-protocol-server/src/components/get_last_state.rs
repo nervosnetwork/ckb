@@ -44,7 +44,7 @@ impl<'a> GetLastStateProcess<'a> {
         };
 
         let content = packed::SendLastState::new_builder()
-            .tip_header(tip_header)
+            .last_header(tip_header)
             .build();
         let message = packed::LightClientMessage::new_builder()
             .set(content)

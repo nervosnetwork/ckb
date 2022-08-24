@@ -5,7 +5,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*, utilities::CBMT};
 
-use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{LightClientProtocol, Status, StatusCode};
 
 const MAX_TRANSACTIONS_SIZE: usize = 1000;
 
@@ -31,38 +31,23 @@ impl<'a> GetTransactionsProcess<'a> {
         }
     }
 
-    fn reply_only_the_tip_state(&self) -> Status {
-        let tip_header = match self.protocol.get_verifiable_tip_header() {
-            Ok(tip_state) => tip_state,
-            Err(errmsg) => {
-                return StatusCode::InternalError.with_context(errmsg);
-            }
-        };
-        let content = packed::SendTransactions::new_builder()
-            .tip_header(tip_header)
-            .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
-        self.nc.reply(self.peer, &message);
-        Status::ok()
-    }
-
     pub(crate) fn execute(self) -> Status {
         if self.message.tx_hashes().len() > MAX_TRANSACTIONS_SIZE {
             return StatusCode::MalformedProtocolMessage.with_context("Too many transactions");
         }
 
         let active_chain = self.protocol.shared.active_chain();
-        let snapshot = self.protocol.shared.shared().snapshot();
 
-        let tip_hash = self.message.tip_hash().to_entity();
-
-        let tip_block = if let Some(block) = active_chain.get_block(&tip_hash) {
+        let last_hash = self.message.last_hash().to_entity();
+        let last_block = if let Some(block) = active_chain.get_block(&last_hash) {
             block
         } else {
-            return self.reply_only_the_tip_state();
+            return self
+                .protocol
+                .reply_tip_state::<packed::SendTransactions>(self.peer, self.nc);
         };
+
+        let snapshot = self.protocol.shared.shared().snapshot();
 
         let mut txs_in_blocks = HashMap::new();
 
@@ -82,32 +67,10 @@ impl<'a> GetTransactionsProcess<'a> {
                     .get_block_header(hash)
                     .map(|header| header.number())
             })
-            .filter(|number| tip_block.number() != *number)
-            .filter_map(|number| active_chain.get_ancestor(&tip_hash, number))
+            .filter(|number| last_block.number() != *number)
+            .filter_map(|number| active_chain.get_ancestor(&last_hash, number))
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
-
-        let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
-        let parent_chain_root = match mmr.get_root() {
-            Ok(root) => root,
-            Err(err) => {
-                let errmsg = format!("failed to generate a root since {:?}", err);
-                return StatusCode::InternalError.with_context(errmsg);
-            }
-        };
-        let block_proof = match mmr.gen_proof(positions) {
-            Ok(proof) => proof.proof_items().to_owned(),
-            Err(err) => {
-                let errmsg = format!("failed to generate a proof since {:?}", err);
-                return StatusCode::InternalError.with_context(errmsg);
-            }
-        };
-        let verifiable_tip_header = packed::VerifiableHeader::new_builder()
-            .header(tip_block.data().header())
-            .uncles_hash(tip_block.calc_uncles_hash())
-            .extension(Pack::pack(&tip_block.extension()))
-            .parent_chain_root(parent_chain_root)
-            .build();
 
         let filtered_blocks: Vec<_> = txs_in_blocks
             .into_iter()
@@ -143,20 +106,16 @@ impl<'a> GetTransactionsProcess<'a> {
             })
             .collect();
 
-        let content = packed::SendTransactions::new_builder()
-            .block_proof(block_proof.pack())
-            .tip_header(verifiable_tip_header)
-            .filtered_blocks(
-                packed::FilteredBlockVec::new_builder()
-                    .set(filtered_blocks)
-                    .build(),
-            )
+        let proved_items = packed::FilteredBlockVec::new_builder()
+            .set(filtered_blocks)
             .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
-        self.nc.reply(self.peer, &message);
 
-        Status::ok()
+        self.protocol.reply_proof::<packed::SendTransactions>(
+            self.peer,
+            self.nc,
+            &last_block,
+            positions,
+            proved_items,
+        )
     }
 }

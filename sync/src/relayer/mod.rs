@@ -322,7 +322,7 @@ impl Relayer {
                     .build();
                 let light_client_message = {
                     let content = packed::SendLastState::new_builder()
-                        .tip_header(tip_header)
+                        .last_header(tip_header)
                         .build();
                     packed::LightClientMessage::new_builder()
                         .set(content)
