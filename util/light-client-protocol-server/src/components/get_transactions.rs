@@ -9,7 +9,7 @@ use ckb_types::{
     utilities::{merkle_mountain_range::ChainRootMMR, CBMT},
 };
 
-use crate::{prelude::LightClientProtocolReply, LightClientProtocol, Status, StatusCode};
+use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
 
 const MAX_TRANSACTIONS_SIZE: usize = 1000;
 
@@ -35,6 +35,24 @@ impl<'a> GetTransactionsProcess<'a> {
         }
     }
 
+    fn reply_only_the_tip_state(&self) -> Status {
+        let (tip_header, root) = match self.protocol.get_tip_state() {
+            Ok(tip_state) => tip_state,
+            Err(errmsg) => {
+                return StatusCode::InternalError.with_context(errmsg);
+            }
+        };
+        let content = packed::SendTransactions::new_builder()
+            .root(root)
+            .tip_header(tip_header)
+            .build();
+        let message = packed::LightClientMessage::new_builder()
+            .set(content)
+            .build();
+        self.nc.reply(self.peer, &message);
+        Status::ok()
+    }
+
     pub(crate) fn execute(self) -> Status {
         if self.message.tx_hashes().len() > MAX_TRANSACTIONS_SIZE {
             return StatusCode::MalformedProtocolMessage.with_context("Too many transactions");
@@ -45,20 +63,11 @@ impl<'a> GetTransactionsProcess<'a> {
 
         let tip_hash = self.message.tip_hash().to_entity();
 
-        let (tip_header, tip_uncles_hash, tip_extension) =
-            if let Some(header) = active_chain.get_block_header(&tip_hash) {
-                let tip_block = active_chain
-                    .get_block(&tip_hash)
-                    .expect("checked: tip block should be existed");
-                (header, tip_block.calc_uncles_hash(), tip_block.extension())
-            } else {
-                // The tip_hash is not on the chain
-                let message = packed::LightClientMessage::new_builder()
-                    .set(packed::SendTransactions::default())
-                    .build();
-                self.nc.reply(self.peer, &message);
-                return Status::ok();
-            };
+        let tip_block = if let Some(block) = active_chain.get_block(&tip_hash) {
+            block
+        } else {
+            return self.reply_only_the_tip_state();
+        };
 
         let mut txs_in_blocks = HashMap::new();
 
@@ -78,12 +87,12 @@ impl<'a> GetTransactionsProcess<'a> {
                     .get_block_header(hash)
                     .map(|header| header.number())
             })
-            .filter(|number| tip_header.number() != *number)
+            .filter(|number| tip_block.number() != *number)
             .filter_map(|number| active_chain.get_ancestor(&tip_hash, number))
             .map(|header| leaf_index_to_pos(header.number()))
             .collect();
 
-        let mmr_size = leaf_index_to_mmr_size(tip_header.number() - 1);
+        let mmr_size = leaf_index_to_mmr_size(tip_block.number() - 1);
         let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
         let root = match mmr.get_root() {
             Ok(root) => root,
@@ -100,9 +109,9 @@ impl<'a> GetTransactionsProcess<'a> {
             }
         };
         let verifiable_tip_header = packed::VerifiableHeader::new_builder()
-            .header(tip_header.data())
-            .uncles_hash(tip_uncles_hash)
-            .extension(Pack::pack(&tip_extension))
+            .header(tip_block.data().header())
+            .uncles_hash(tip_block.calc_uncles_hash())
+            .extension(Pack::pack(&tip_block.extension()))
             .build();
 
         let filtered_blocks: Vec<_> = txs_in_blocks

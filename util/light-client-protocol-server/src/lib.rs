@@ -5,16 +5,16 @@
 use std::sync::Arc;
 
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_sync::SyncShared;
-use ckb_types::{packed, prelude::*};
+use ckb_types::{packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR};
 
 mod components;
 mod constant;
 mod prelude;
 mod status;
 
-use prelude::LightClientProtocolReply;
 pub use status::{Status, StatusCode};
 
 /// Light client protocol handler.
@@ -111,31 +111,34 @@ impl LightClientProtocol {
         }
     }
 
-    pub(crate) fn send_last_state(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Status {
+    pub(crate) fn get_tip_state(
+        &self,
+    ) -> Result<(packed::VerifiableHeader, packed::HeaderDigest), String> {
         let active_chain = self.shared.active_chain();
 
         let tip_hash = active_chain.tip_hash();
         let tip_block = active_chain
             .get_block(&tip_hash)
             .expect("checked: tip block should be existed");
+        let root = {
+            let snapshot = self.shared.shared().snapshot();
+            let mmr_size = leaf_index_to_mmr_size(tip_block.number() - 1);
+            let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
+            match mmr.get_root() {
+                Ok(root) => root,
+                Err(err) => {
+                    let errmsg = format!("failed to generate a root since {:?}", err);
+                    return Err(errmsg);
+                }
+            }
+        };
+
         let tip_header = packed::VerifiableHeader::new_builder()
             .header(tip_block.header().data())
             .uncles_hash(tip_block.calc_uncles_hash())
             .extension(Pack::pack(&tip_block.extension()))
             .build();
-        let total_difficulty = active_chain
-            .get_block_ext(&tip_hash)
-            .map(|block_ext| block_ext.total_difficulty)
-            .expect("checked: tip block should have block ext");
 
-        let content = packed::SendLastState::new_builder()
-            .tip_header(tip_header)
-            .total_difficulty(total_difficulty.pack())
-            .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
-
-        nc.reply(peer, &message)
+        Ok((tip_header, root))
     }
 }

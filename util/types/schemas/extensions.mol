@@ -341,6 +341,7 @@ table GetBlockSamples {
 
 table SendBlockSamples {
     root:                       HeaderDigest,
+    last_header:                VerifiableHeader,
     proof:                      HeaderDigestVec,
     // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
     reorg_last_n_headers:       VerifiableHeaderWithChainRootVec,

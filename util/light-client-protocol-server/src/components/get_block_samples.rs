@@ -191,6 +191,24 @@ impl<'a> GetBlockSamplesProcess<'a> {
         }
     }
 
+    fn reply_only_the_tip_state(&self) -> Status {
+        let (tip_header, root) = match self.protocol.get_tip_state() {
+            Ok(tip_state) => tip_state,
+            Err(errmsg) => {
+                return StatusCode::InternalError.with_context(errmsg);
+            }
+        };
+        let content = packed::SendBlockSamples::new_builder()
+            .root(root)
+            .last_header(tip_header)
+            .build();
+        let message = packed::LightClientMessage::new_builder()
+            .set(content)
+            .build();
+        self.nc.reply(self.peer, &message);
+        Status::ok()
+    }
+
     pub(crate) fn execute(self) -> Status {
         let active_chain = self.protocol.shared.active_chain();
         let snapshot = self.protocol.shared.shared().snapshot();
@@ -207,16 +225,14 @@ impl<'a> GetBlockSamplesProcess<'a> {
             .map(|d| Unpack::<U256>::unpack(&d))
             .collect::<Vec<_>>();
 
-        let last_block_header =
-            if let Some(block_header) = active_chain.get_block_header(&last_block_hash) {
-                block_header
-            } else {
-                // The `difficulties` may not matched when last_block_hash not in active chain
-                // let light-client side send GetBlockSamples message again.
-                self.protocol.send_last_state(self.nc, self.peer);
-                return Status::ok();
-            };
-        let last_block_number = last_block_header.number();
+        let last_block = if let Some(block) = active_chain.get_block(&last_block_hash) {
+            block
+        } else {
+            // The `difficulties` may not matched when last_block_hash not in active chain,
+            // synchronize the last state to the light-client side.
+            return self.reply_only_the_tip_state();
+        };
+        let last_block_number = last_block.number();
 
         let reorg_last_n_numbers = if start_block_number == 0
             || active_chain
@@ -405,8 +421,14 @@ impl<'a> GetBlockSamplesProcess<'a> {
             };
             (root, proof)
         };
+        let last_header = packed::VerifiableHeader::new_builder()
+            .header(last_block.data().header())
+            .uncles_hash(last_block.calc_uncles_hash())
+            .extension(Pack::pack(&last_block.extension()))
+            .build();
         let content = packed::SendBlockSamples::new_builder()
             .root(root)
+            .last_header(last_header)
             .proof(proof.pack())
             .reorg_last_n_headers(reorg_last_n_headers.pack())
             .sampled_headers(sampled_headers.pack())
