@@ -94,14 +94,6 @@ impl LightClientProtocol {
         peer_index: PeerIndex,
         message: packed::LightClientMessageUnionReader<'_>,
     ) -> Status {
-        if !matches!(
-            message,
-            packed::LightClientMessageUnionReader::GetLastState(_)
-        ) && !self.peer_is_lightclient(nc, peer_index)
-        {
-            return StatusCode::UnexpectedProtocolMessage.into();
-        }
-
         match message {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
                 components::GetLastStateProcess::new(reader, self, peer_index, nc).execute()
@@ -117,12 +109,6 @@ impl LightClientProtocol {
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
-    }
-
-    fn peer_is_lightclient(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) -> bool {
-        nc.get_peer(peer)
-            .map(|peer| peer.is_lightclient)
-            .unwrap_or(false)
     }
 
     pub(crate) fn send_last_state(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) -> Status {

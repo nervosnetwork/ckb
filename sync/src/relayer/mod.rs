@@ -324,7 +324,7 @@ impl Relayer {
                     .connected_peers()
                     .into_iter()
                     .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
-                    .filter(|(_id, peer)| peer.is_lightclient)
+                    .filter(|(_id, peer)| peer.if_lightclient_subscribed)
                     .map(|(id, _)| id)
                     .collect();
                 if let Err(err) = p2p_control.filter_broadcast(

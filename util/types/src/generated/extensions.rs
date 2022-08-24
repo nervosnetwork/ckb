@@ -15583,7 +15583,7 @@ impl ::core::fmt::Display for LightClientMessage {
 }
 impl ::core::default::Default for LightClientMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![0, 0, 0, 0, 4, 0, 0, 0];
+        let v: Vec<u8> = vec![0, 0, 0, 0, 9, 0, 0, 0, 8, 0, 0, 0, 0];
         LightClientMessage::new_unchecked(v.into())
     }
 }
@@ -16057,21 +16057,22 @@ impl ::core::fmt::Debug for GetLastState {
 impl ::core::fmt::Display for GetLastState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "subscribe", self.subscribe())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
-            write!(f, ".. ({} fields)", extra_count)?;
+            write!(f, ", .. ({} fields)", extra_count)?;
         }
         write!(f, " }}")
     }
 }
 impl ::core::default::Default for GetLastState {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
+        let v: Vec<u8> = vec![9, 0, 0, 0, 8, 0, 0, 0, 0];
         GetLastState::new_unchecked(v.into())
     }
 }
 impl GetLastState {
-    pub const FIELD_COUNT: usize = 0;
+    pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16087,6 +16088,16 @@ impl GetLastState {
     }
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn subscribe(&self) -> Bool {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[8..]) as usize;
+            Bool::new_unchecked(self.0.slice(start..end))
+        } else {
+            Bool::new_unchecked(self.0.slice(start..))
+        }
     }
     pub fn as_reader<'r>(&'r self) -> GetLastStateReader<'r> {
         GetLastStateReader::new_unchecked(self.as_slice())
@@ -16114,7 +16125,7 @@ impl molecule::prelude::Entity for GetLastState {
         ::core::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
+        Self::new_builder().subscribe(self.subscribe())
     }
 }
 #[derive(Clone, Copy)]
@@ -16136,15 +16147,16 @@ impl<'r> ::core::fmt::Debug for GetLastStateReader<'r> {
 impl<'r> ::core::fmt::Display for GetLastStateReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "subscribe", self.subscribe())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
-            write!(f, ".. ({} fields)", extra_count)?;
+            write!(f, ", .. ({} fields)", extra_count)?;
         }
         write!(f, " }}")
     }
 }
 impl<'r> GetLastStateReader<'r> {
-    pub const FIELD_COUNT: usize = 0;
+    pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -16160,6 +16172,16 @@ impl<'r> GetLastStateReader<'r> {
     }
     pub fn has_extra_fields(&self) -> bool {
         Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn subscribe(&self) -> BoolReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[8..]) as usize;
+            BoolReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            BoolReader::new_unchecked(&self.as_slice()[start..])
+        }
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for GetLastStateReader<'r> {
@@ -16184,27 +16206,64 @@ impl<'r> molecule::prelude::Reader<'r> for GetLastStateReader<'r> {
         if slice_len != total_size {
             return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
         }
-        if slice_len > molecule::NUMBER_SIZE && !compatible {
-            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, !0);
+        if slice_len == molecule::NUMBER_SIZE && Self::FIELD_COUNT == 0 {
+            return Ok(());
         }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        BoolReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Ok(())
     }
 }
 #[derive(Debug, Default)]
-pub struct GetLastStateBuilder {}
+pub struct GetLastStateBuilder {
+    pub(crate) subscribe: Bool,
+}
 impl GetLastStateBuilder {
-    pub const FIELD_COUNT: usize = 0;
+    pub const FIELD_COUNT: usize = 1;
+    pub fn subscribe(mut self, v: Bool) -> Self {
+        self.subscribe = v;
+        self
+    }
 }
 impl molecule::prelude::Builder for GetLastStateBuilder {
     type Entity = GetLastState;
     const NAME: &'static str = "GetLastStateBuilder";
     fn expected_length(&self) -> usize {
-        molecule::NUMBER_SIZE
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1) + self.subscribe.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
-        writer.write_all(&molecule::pack_number(
-            molecule::NUMBER_SIZE as molecule::Number,
-        ))?;
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.subscribe.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.subscribe.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {

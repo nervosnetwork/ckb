@@ -1,10 +1,10 @@
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::packed;
+use ckb_types::{packed, prelude::*};
 
 use crate::{LightClientProtocol, Status};
 
 pub(crate) struct GetLastStateProcess<'a> {
-    _message: packed::GetLastStateReader<'a>,
+    message: packed::GetLastStateReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -12,13 +12,13 @@ pub(crate) struct GetLastStateProcess<'a> {
 
 impl<'a> GetLastStateProcess<'a> {
     pub(crate) fn new(
-        _message: packed::GetLastStateReader<'a>,
+        message: packed::GetLastStateReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         Self {
-            _message,
+            message,
             protocol,
             peer,
             nc,
@@ -26,12 +26,15 @@ impl<'a> GetLastStateProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        self.nc.with_peer_mut(
-            self.peer,
-            Box::new(|peer| {
-                peer.is_lightclient = true;
-            }),
-        );
+        let subscribe: bool = self.message.subscribe().unpack();
+        if subscribe {
+            self.nc.with_peer_mut(
+                self.peer,
+                Box::new(|peer| {
+                    peer.if_lightclient_subscribed = true;
+                }),
+            );
+        }
 
         self.protocol.send_last_state(self.nc, self.peer)
     }

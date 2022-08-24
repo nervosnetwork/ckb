@@ -315,7 +315,10 @@ union LightClientMessage {
     SendTransactions,
 }
 
-table GetLastState {}
+table GetLastState {
+    // Whether the server is requested to push the state automatically.
+    subscribe:                  Bool,
+}
 
 table SendLastState {
     tip_header:                 VerifiableHeader,

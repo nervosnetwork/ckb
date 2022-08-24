@@ -327,7 +327,7 @@ impl MinerRpc for MinerRpcImpl {
                 .network_controller
                 .connected_peers()
                 .into_iter()
-                .filter(|(_id, peer)| peer.is_lightclient)
+                .filter(|(_id, peer)| peer.if_lightclient_subscribed)
                 .map(|(id, _)| id)
                 .collect();
             if let Err(err) = self.network_controller.p2p_control().filter_broadcast(
