@@ -35,7 +35,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       windows_runner_label: ${{ steps.prologue.outputs.windows_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: prologue
       id: prologue
       uses: ./.github/actions/ci_prologue
@@ -52,7 +52,7 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: install required tools
       if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
       run: |

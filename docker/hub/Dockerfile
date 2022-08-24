@@ -19,7 +19,7 @@ COPY --from=ckb-docker-builder \
      /usr/lib/x86_64-linux-gnu/libssl.so.* \
      /usr/lib/x86_64-linux-gnu/libcrypto.so.* \
      /usr/lib/x86_64-linux-gnu/
-COPY --from=ckb-docker-builder /ckb/target/release/ckb /ckb/docker/docker-entrypoint.sh /bin/
+COPY --from=ckb-docker-builder /ckb/target/prod/ckb /ckb/docker/docker-entrypoint.sh /bin/
 RUN chown -R ckb:ckb /var/lib/ckb \
  && chmod 755 /var/lib/ckb
 

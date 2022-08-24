@@ -23,7 +23,5 @@ ckb-freezer = { path = "../../freezer", version = "= 0.105.0-pre" }
 ckb-merkle-mountain-range = "0.5.0"
 
 [features]
-portable = [
-    "ckb-db/portable",
-    "ckb-store/portable",
-]
+portable = ["ckb-db/portable", "ckb-store/portable"]
+march-native = ["ckb-db/march-native", "ckb-store/march-native"]

@@ -7,6 +7,7 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
 CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
 CKB_FEATURES ?= deadlock_detection,with_sentry
+ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
@@ -28,12 +29,12 @@ quick-test: ## Run all tests, excluding some tests can be time-consuming to exec
 
 .PHONY: cov-install-tools
 cov-install-tools:
-	rustup component add llvm-tools-preview --toolchain nightly
-	grcov --version || cargo +nightly install grcov
+	rustup component add llvm-tools-preview --toolchain nightly-2022-03-22
+	grcov --version || cargo +nightly-2022-03-22 install grcov
 
 .PHONY: cov-collect-data
 cov-collect-data:
-	RUSTUP_TOOLCHAIN=nightly \
+	RUSTUP_TOOLCHAIN=nightly-2022-03-22 \
 	grcov "${COV_PROFRAW_DIR}" --binary-path "${CARGO_TARGET_DIR}/debug/" \
 		-s . -t lcov --branch --ignore-not-existing --ignore "/*" \
 		--ignore "*/tests/*" \
@@ -74,7 +75,7 @@ integration: submodule-init setup-ckb-test ## Run integration tests in "test" di
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
-integration-release: submodule-init setup-ckb-test prod
+integration-release: submodule-init setup-ckb-test build
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
@@ -111,7 +112,7 @@ gen-hashes: ## Generate docs/hashes.toml
 ##@ Building
 .PHONY: check
 check: setup-ckb-test ## Runs all of the compiler's checks.
-	cargo check ${VERBOSE} --all --all-targets --all-features
+	cargo check ${VERBOSE} --all --all-targets --features ${ALL_FEATURES}
 	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 .PHONY: build
@@ -132,7 +133,7 @@ prod: ## Build binary for production release.
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,ckb-db/portable"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
@@ -165,7 +166,7 @@ fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 
 .PHONY: clippy
 clippy: setup-ckb-test ## Run linter to examine Rust source codes.
-	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS} -D missing_docs
+	cargo clippy ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: security-audit
