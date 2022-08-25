@@ -340,54 +340,29 @@ impl<'a> GetLastStateProofProcess<'a> {
                 (sampled_numbers, last_n_numbers)
             };
 
-        let (positions, reorg_last_n_headers, sampled_headers, last_n_headers) = {
+        let block_numbers = reorg_last_n_numbers
+            .into_iter()
+            .chain(sampled_numbers)
+            .chain(last_n_numbers)
+            .collect::<Vec<_>>();
+
+        let (positions, headers) = {
             let mut positions: Vec<u64> = Vec::new();
-            let reorg_last_n_headers = match sampler.complete_headers(
+            let headers = match sampler.complete_headers(
                 &snapshot,
                 &mut positions,
                 &last_block_hash,
-                &reorg_last_n_numbers,
+                &block_numbers,
             ) {
                 Ok(headers) => headers,
                 Err(errmsg) => {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            let sampled_headers = match sampler.complete_headers(
-                &snapshot,
-                &mut positions,
-                &last_block_hash,
-                &sampled_numbers,
-            ) {
-                Ok(headers) => headers,
-                Err(errmsg) => {
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            let last_n_headers = match sampler.complete_headers(
-                &snapshot,
-                &mut positions,
-                &last_block_hash,
-                &last_n_numbers,
-            ) {
-                Ok(headers) => headers,
-                Err(errmsg) => {
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            (
-                positions,
-                reorg_last_n_headers,
-                sampled_headers,
-                last_n_headers,
-            )
+            (positions, headers)
         };
 
-        let proved_items = (
-            reorg_last_n_headers.pack(),
-            sampled_headers.pack(),
-            last_n_headers.pack(),
-        );
+        let proved_items = headers.pack();
 
         self.protocol.reply_proof::<packed::SendLastStateProof>(
             self.peer,

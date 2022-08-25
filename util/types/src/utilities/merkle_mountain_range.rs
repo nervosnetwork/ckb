@@ -364,11 +364,7 @@ where
 }
 
 impl ProverMessageBuilder for packed::SendLastStateProofBuilder {
-    type Items = (
-        packed::VerifiableHeaderVec,
-        packed::VerifiableHeaderVec,
-        packed::VerifiableHeaderVec,
-    );
+    type Items = packed::VerifiableHeaderVec;
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)
     }
@@ -376,10 +372,7 @@ impl ProverMessageBuilder for packed::SendLastStateProofBuilder {
         self.proof(proof)
     }
     fn set_items(self, items: Self::Items) -> Self {
-        let (reorg_last_n_headers, sampled_headers, last_n_headers) = items;
-        self.reorg_last_n_headers(reorg_last_n_headers)
-            .sampled_headers(sampled_headers)
-            .last_n_headers(last_n_headers)
+        self.headers(items)
     }
 }
 

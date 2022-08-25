@@ -355,10 +355,8 @@ table SendLastStateProof {
     // Be empty if the block hash sent from the client isn't on the chain.
     proof:                      HeaderDigestVec,
 
-    // The headers before `GetLastStateProof.start_number` (inclusive) for client side to detect the fork number
-    reorg_last_n_headers:       VerifiableHeaderVec,
-    sampled_headers:            VerifiableHeaderVec,
-    last_n_headers:             VerifiableHeaderVec,
+    // Verifiable headers for all sampled blocks.
+    headers:                    VerifiableHeaderVec,
 }
 
 table GetBlocksProof {

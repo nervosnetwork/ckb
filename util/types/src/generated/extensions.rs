@@ -16985,14 +16985,7 @@ impl ::core::fmt::Display for SendLastStateProof {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
-        write!(
-            f,
-            ", {}: {}",
-            "reorg_last_n_headers",
-            self.reorg_last_n_headers()
-        )?;
-        write!(f, ", {}: {}", "sampled_headers", self.sampled_headers())?;
-        write!(f, ", {}: {}", "last_n_headers", self.last_n_headers())?;
+        write!(f, ", {}: {}", "headers", self.headers())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -17003,8 +16996,8 @@ impl ::core::fmt::Display for SendLastStateProof {
 impl ::core::default::Default for SendLastStateProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            164, 1, 0, 0, 24, 0, 0, 0, 148, 1, 0, 0, 152, 1, 0, 0, 156, 1, 0, 0, 160, 1, 0, 0, 124,
-            1, 0, 0, 20, 0, 0, 0, 228, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            148, 1, 0, 0, 16, 0, 0, 0, 140, 1, 0, 0, 144, 1, 0, 0, 124, 1, 0, 0, 20, 0, 0, 0, 228,
+            0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -17016,14 +17009,14 @@ impl ::core::default::Default for SendLastStateProof {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0,
+            0, 0,
         ];
         SendLastStateProof::new_unchecked(v.into())
     }
 }
 impl SendLastStateProof {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17052,23 +17045,11 @@ impl SendLastStateProof {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         HeaderDigestVec::new_unchecked(self.0.slice(start..end))
     }
-    pub fn reorg_last_n_headers(&self) -> VerifiableHeaderVec {
+    pub fn headers(&self) -> VerifiableHeaderVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        VerifiableHeaderVec::new_unchecked(self.0.slice(start..end))
-    }
-    pub fn sampled_headers(&self) -> VerifiableHeaderVec {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
-        let end = molecule::unpack_number(&slice[20..]) as usize;
-        VerifiableHeaderVec::new_unchecked(self.0.slice(start..end))
-    }
-    pub fn last_n_headers(&self) -> VerifiableHeaderVec {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[24..]) as usize;
+            let end = molecule::unpack_number(&slice[16..]) as usize;
             VerifiableHeaderVec::new_unchecked(self.0.slice(start..end))
         } else {
             VerifiableHeaderVec::new_unchecked(self.0.slice(start..))
@@ -17103,9 +17084,7 @@ impl molecule::prelude::Entity for SendLastStateProof {
         Self::new_builder()
             .last_header(self.last_header())
             .proof(self.proof())
-            .reorg_last_n_headers(self.reorg_last_n_headers())
-            .sampled_headers(self.sampled_headers())
-            .last_n_headers(self.last_n_headers())
+            .headers(self.headers())
     }
 }
 #[derive(Clone, Copy)]
@@ -17129,14 +17108,7 @@ impl<'r> ::core::fmt::Display for SendLastStateProofReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
-        write!(
-            f,
-            ", {}: {}",
-            "reorg_last_n_headers",
-            self.reorg_last_n_headers()
-        )?;
-        write!(f, ", {}: {}", "sampled_headers", self.sampled_headers())?;
-        write!(f, ", {}: {}", "last_n_headers", self.last_n_headers())?;
+        write!(f, ", {}: {}", "headers", self.headers())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -17145,7 +17117,7 @@ impl<'r> ::core::fmt::Display for SendLastStateProofReader<'r> {
     }
 }
 impl<'r> SendLastStateProofReader<'r> {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17174,23 +17146,11 @@ impl<'r> SendLastStateProofReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         HeaderDigestVecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn reorg_last_n_headers(&self) -> VerifiableHeaderVecReader<'r> {
+    pub fn headers(&self) -> VerifiableHeaderVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
-        let end = molecule::unpack_number(&slice[16..]) as usize;
-        VerifiableHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn sampled_headers(&self) -> VerifiableHeaderVecReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[16..]) as usize;
-        let end = molecule::unpack_number(&slice[20..]) as usize;
-        VerifiableHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn last_n_headers(&self) -> VerifiableHeaderVecReader<'r> {
-        let slice = self.as_slice();
-        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[24..]) as usize;
+            let end = molecule::unpack_number(&slice[16..]) as usize;
             VerifiableHeaderVecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             VerifiableHeaderVecReader::new_unchecked(&self.as_slice()[start..])
@@ -17249,8 +17209,6 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateProofReader<'r> {
         VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         HeaderDigestVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         VerifiableHeaderVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        VerifiableHeaderVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
-        VerifiableHeaderVecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         Ok(())
     }
 }
@@ -17258,12 +17216,10 @@ impl<'r> molecule::prelude::Reader<'r> for SendLastStateProofReader<'r> {
 pub struct SendLastStateProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
-    pub(crate) reorg_last_n_headers: VerifiableHeaderVec,
-    pub(crate) sampled_headers: VerifiableHeaderVec,
-    pub(crate) last_n_headers: VerifiableHeaderVec,
+    pub(crate) headers: VerifiableHeaderVec,
 }
 impl SendLastStateProofBuilder {
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 3;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
         self
@@ -17272,16 +17228,8 @@ impl SendLastStateProofBuilder {
         self.proof = v;
         self
     }
-    pub fn reorg_last_n_headers(mut self, v: VerifiableHeaderVec) -> Self {
-        self.reorg_last_n_headers = v;
-        self
-    }
-    pub fn sampled_headers(mut self, v: VerifiableHeaderVec) -> Self {
-        self.sampled_headers = v;
-        self
-    }
-    pub fn last_n_headers(mut self, v: VerifiableHeaderVec) -> Self {
-        self.last_n_headers = v;
+    pub fn headers(mut self, v: VerifiableHeaderVec) -> Self {
+        self.headers = v;
         self
     }
 }
@@ -17292,9 +17240,7 @@ impl molecule::prelude::Builder for SendLastStateProofBuilder {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_header.as_slice().len()
             + self.proof.as_slice().len()
-            + self.reorg_last_n_headers.as_slice().len()
-            + self.sampled_headers.as_slice().len()
-            + self.last_n_headers.as_slice().len()
+            + self.headers.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -17304,20 +17250,14 @@ impl molecule::prelude::Builder for SendLastStateProofBuilder {
         offsets.push(total_size);
         total_size += self.proof.as_slice().len();
         offsets.push(total_size);
-        total_size += self.reorg_last_n_headers.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.sampled_headers.as_slice().len();
-        offsets.push(total_size);
-        total_size += self.last_n_headers.as_slice().len();
+        total_size += self.headers.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
         }
         writer.write_all(self.last_header.as_slice())?;
         writer.write_all(self.proof.as_slice())?;
-        writer.write_all(self.reorg_last_n_headers.as_slice())?;
-        writer.write_all(self.sampled_headers.as_slice())?;
-        writer.write_all(self.last_n_headers.as_slice())?;
+        writer.write_all(self.headers.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
