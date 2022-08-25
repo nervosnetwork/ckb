@@ -301,14 +301,19 @@ vector VerifiableHeaderVec <VerifiableHeader>;
 vector FilteredBlockVec <FilteredBlock>;
 
 union LightClientMessage {
+    // A client asks the server for the last state of the chain.
     GetLastState,
     SendLastState,
-    GetBlockSamples,
-    SendBlockSamples,
-    GetBlockProof,
-    SendBlockProof,
-    GetTransactions,
-    SendTransactions,
+    // A client asks the server for the proof of the last state which the
+    // client known.
+    GetLastStateProof,
+    SendLastStateProof,
+    // A client asks the server for the proof of some blocks.
+    GetBlocksProof,
+    SendBlocksProof,
+    // A client asks the server for the proof of some transactions.
+    GetTransactionsProof,
+    SendTransactionsProof,
 }
 
 table GetLastState {
@@ -321,23 +326,27 @@ table SendLastState {
     last_header:                VerifiableHeader,
 }
 
-table GetBlockSamples {
+table GetLastStateProof {
     // The last block hash known by the client.
     // It could be different with the tip hash in the server.
     last_hash:                  Byte32,
 
-    // Last proved tip hash
+    // The hash of the last proved block.
     start_hash:                 Byte32,
-    // Last proved tip number
+    // The block number of the last proved block.
     start_number:               Uint64,
+
     // How many continuous blocks before the tip block should be included at
     // least, if possible?
     last_n_blocks:              Uint64,
+    // All blocks, whose total difficulty is not less than this difficulty
+    // boundary, should be included in the proof.
     difficulty_boundary:        Uint256,
+    // The sampled difficulties.
     difficulties:               Uint256Vec,
 }
 
-table SendBlockSamples {
+table SendLastStateProof {
     // If the block whose hash is sent from the client is on the chain, then
     // returns its verifiable header; otherwise, returns the verifiable
     // header for the tip block in the server.
@@ -346,46 +355,47 @@ table SendBlockSamples {
     // Be empty if the block hash sent from the client isn't on the chain.
     proof:                      HeaderDigestVec,
 
-    // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
+    // The headers before `GetLastStateProof.start_number` (inclusive) for client side to detect the fork number
     reorg_last_n_headers:       VerifiableHeaderVec,
     sampled_headers:            VerifiableHeaderVec,
     last_n_headers:             VerifiableHeaderVec,
 }
 
-table GetBlockProof {
-    // Refer to `GetBlockSamples.last_hash`.
+table GetBlocksProof {
+    // Refer to `GetLastStateProof.last_hash`.
     last_hash:                  Byte32,
 
-    // The requested block hashes
-    block_hashes:           Byte32Vec,
+    // Block hashes for the blocks which require verifying.
+    block_hashes:               Byte32Vec,
 }
 
-table SendBlockProof {
-    // Refer to `SendBlockSamples.last_header`.
+table SendBlocksProof {
+    // Refer to `SendLastStateProof.last_header`.
     last_header:                VerifiableHeader,
-    // Refer to `SendBlockSamples.proof`.
+    // Refer to `SendLastStateProof.proof`.
     proof:                      HeaderDigestVec,
 
-    // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
-    // of tip hash it will not included in headers.
-    headers:                HeaderVec,
+    // Block headers for the blocks which require verifying.
+    headers:                    HeaderVec,
 }
 
-table GetTransactions {
-    // Refer to `GetBlockSamples.last_hash`.
+table GetTransactionsProof {
+    // Refer to `GetLastStateProof.last_hash`.
     last_hash:                  Byte32,
 
-    tx_hashes:        Byte32Vec,
+    // Transaction hashes for the transactions which require verifying.
+    tx_hashes:                  Byte32Vec,
 }
 
-table SendTransactions {
-    // Refer to `SendBlockSamples.last_header`.
+table SendTransactionsProof {
+    // Refer to `SendLastStateProof.last_header`.
     last_header:                VerifiableHeader,
-    // Refer to `SendBlockSamples.proof`.
+    // Refer to `SendLastStateProof.proof`.
     proof:                      HeaderDigestVec,
 
-    // The transactions group by block
-    filtered_blocks:  FilteredBlockVec,
+    // A collection of filtered blocks, which include all requested
+    // transactions, and be verified in the proof.
+    filtered_blocks:            FilteredBlockVec,
 }
 
 /* Types for Network/Others */

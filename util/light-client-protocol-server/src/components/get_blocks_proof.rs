@@ -6,16 +6,16 @@ use ckb_types::{packed, prelude::*};
 
 use crate::{LightClientProtocol, Status, StatusCode};
 
-pub(crate) struct GetBlockProofProcess<'a> {
-    message: packed::GetBlockProofReader<'a>,
+pub(crate) struct GetBlocksProofProcess<'a> {
+    message: packed::GetBlocksProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
 }
 
-impl<'a> GetBlockProofProcess<'a> {
+impl<'a> GetBlocksProofProcess<'a> {
     pub(crate) fn new(
-        message: packed::GetBlockProofReader<'a>,
+        message: packed::GetBlocksProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -37,7 +37,7 @@ impl<'a> GetBlockProofProcess<'a> {
         } else {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendBlockProof>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendBlocksProof>(self.peer, self.nc);
         };
 
         let block_hashes: Vec<_> = self
@@ -71,7 +71,7 @@ impl<'a> GetBlockProofProcess<'a> {
 
         let proved_items = block_headers.into_iter().map(|view| view.data()).pack();
 
-        self.protocol.reply_proof::<packed::SendBlockProof>(
+        self.protocol.reply_proof::<packed::SendBlocksProof>(
             self.peer,
             self.nc,
             &last_block,

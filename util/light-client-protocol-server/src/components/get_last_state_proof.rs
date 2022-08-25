@@ -8,8 +8,8 @@ use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
 
 use crate::{LightClientProtocol, Status, StatusCode};
 
-pub(crate) struct GetBlockSamplesProcess<'a> {
-    message: packed::GetBlockSamplesReader<'a>,
+pub(crate) struct GetLastStateProofProcess<'a> {
+    message: packed::GetLastStateProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -173,9 +173,9 @@ impl BlockSampler {
     }
 }
 
-impl<'a> GetBlockSamplesProcess<'a> {
+impl<'a> GetLastStateProofProcess<'a> {
     pub(crate) fn new(
-        message: packed::GetBlockSamplesReader<'a>,
+        message: packed::GetLastStateProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -197,7 +197,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
         } else {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendBlockSamples>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc);
         };
 
         let snapshot = self.protocol.shared.shared().snapshot();
@@ -389,7 +389,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
             last_n_headers.pack(),
         );
 
-        self.protocol.reply_proof::<packed::SendBlockSamples>(
+        self.protocol.reply_proof::<packed::SendLastStateProof>(
             self.peer,
             self.nc,
             &last_block,

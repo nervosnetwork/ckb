@@ -15631,12 +15631,12 @@ impl LightClientMessage {
         match self.item_id() {
             0 => GetLastState::new_unchecked(inner).into(),
             1 => SendLastState::new_unchecked(inner).into(),
-            2 => GetBlockSamples::new_unchecked(inner).into(),
-            3 => SendBlockSamples::new_unchecked(inner).into(),
-            4 => GetBlockProof::new_unchecked(inner).into(),
-            5 => SendBlockProof::new_unchecked(inner).into(),
-            6 => GetTransactions::new_unchecked(inner).into(),
-            7 => SendTransactions::new_unchecked(inner).into(),
+            2 => GetLastStateProof::new_unchecked(inner).into(),
+            3 => SendLastStateProof::new_unchecked(inner).into(),
+            4 => GetBlocksProof::new_unchecked(inner).into(),
+            5 => SendBlocksProof::new_unchecked(inner).into(),
+            6 => GetTransactionsProof::new_unchecked(inner).into(),
+            7 => SendTransactionsProof::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -15702,12 +15702,12 @@ impl<'r> LightClientMessageReader<'r> {
         match self.item_id() {
             0 => GetLastStateReader::new_unchecked(inner).into(),
             1 => SendLastStateReader::new_unchecked(inner).into(),
-            2 => GetBlockSamplesReader::new_unchecked(inner).into(),
-            3 => SendBlockSamplesReader::new_unchecked(inner).into(),
-            4 => GetBlockProofReader::new_unchecked(inner).into(),
-            5 => SendBlockProofReader::new_unchecked(inner).into(),
-            6 => GetTransactionsReader::new_unchecked(inner).into(),
-            7 => SendTransactionsReader::new_unchecked(inner).into(),
+            2 => GetLastStateProofReader::new_unchecked(inner).into(),
+            3 => SendLastStateProofReader::new_unchecked(inner).into(),
+            4 => GetBlocksProofReader::new_unchecked(inner).into(),
+            5 => SendBlocksProofReader::new_unchecked(inner).into(),
+            6 => GetTransactionsProofReader::new_unchecked(inner).into(),
+            7 => SendTransactionsProofReader::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -15735,12 +15735,12 @@ impl<'r> molecule::prelude::Reader<'r> for LightClientMessageReader<'r> {
         match item_id {
             0 => GetLastStateReader::verify(inner_slice, compatible),
             1 => SendLastStateReader::verify(inner_slice, compatible),
-            2 => GetBlockSamplesReader::verify(inner_slice, compatible),
-            3 => SendBlockSamplesReader::verify(inner_slice, compatible),
-            4 => GetBlockProofReader::verify(inner_slice, compatible),
-            5 => SendBlockProofReader::verify(inner_slice, compatible),
-            6 => GetTransactionsReader::verify(inner_slice, compatible),
-            7 => SendTransactionsReader::verify(inner_slice, compatible),
+            2 => GetLastStateProofReader::verify(inner_slice, compatible),
+            3 => SendLastStateProofReader::verify(inner_slice, compatible),
+            4 => GetBlocksProofReader::verify(inner_slice, compatible),
+            5 => SendBlocksProofReader::verify(inner_slice, compatible),
+            6 => GetTransactionsProofReader::verify(inner_slice, compatible),
+            7 => SendTransactionsProofReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEMS_COUNT, item_id),
         }?;
         Ok(())
@@ -15779,23 +15779,23 @@ impl molecule::prelude::Builder for LightClientMessageBuilder {
 pub enum LightClientMessageUnion {
     GetLastState(GetLastState),
     SendLastState(SendLastState),
-    GetBlockSamples(GetBlockSamples),
-    SendBlockSamples(SendBlockSamples),
-    GetBlockProof(GetBlockProof),
-    SendBlockProof(SendBlockProof),
-    GetTransactions(GetTransactions),
-    SendTransactions(SendTransactions),
+    GetLastStateProof(GetLastStateProof),
+    SendLastStateProof(SendLastStateProof),
+    GetBlocksProof(GetBlocksProof),
+    SendBlocksProof(SendBlocksProof),
+    GetTransactionsProof(GetTransactionsProof),
+    SendTransactionsProof(SendTransactionsProof),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum LightClientMessageUnionReader<'r> {
     GetLastState(GetLastStateReader<'r>),
     SendLastState(SendLastStateReader<'r>),
-    GetBlockSamples(GetBlockSamplesReader<'r>),
-    SendBlockSamples(SendBlockSamplesReader<'r>),
-    GetBlockProof(GetBlockProofReader<'r>),
-    SendBlockProof(SendBlockProofReader<'r>),
-    GetTransactions(GetTransactionsReader<'r>),
-    SendTransactions(SendTransactionsReader<'r>),
+    GetLastStateProof(GetLastStateProofReader<'r>),
+    SendLastStateProof(SendLastStateProofReader<'r>),
+    GetBlocksProof(GetBlocksProofReader<'r>),
+    SendBlocksProof(SendBlocksProofReader<'r>),
+    GetTransactionsProof(GetTransactionsProofReader<'r>),
+    SendTransactionsProof(SendTransactionsProofReader<'r>),
 }
 impl ::core::default::Default for LightClientMessageUnion {
     fn default() -> Self {
@@ -15811,23 +15811,35 @@ impl ::core::fmt::Display for LightClientMessageUnion {
             LightClientMessageUnion::SendLastState(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, SendLastState::NAME, item)
             }
-            LightClientMessageUnion::GetBlockSamples(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetBlockSamples::NAME, item)
+            LightClientMessageUnion::GetLastStateProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, GetLastStateProof::NAME, item)
             }
-            LightClientMessageUnion::SendBlockSamples(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendBlockSamples::NAME, item)
+            LightClientMessageUnion::SendLastStateProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendLastStateProof::NAME, item)
             }
-            LightClientMessageUnion::GetBlockProof(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetBlockProof::NAME, item)
+            LightClientMessageUnion::GetBlocksProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, GetBlocksProof::NAME, item)
             }
-            LightClientMessageUnion::SendBlockProof(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendBlockProof::NAME, item)
+            LightClientMessageUnion::SendBlocksProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendBlocksProof::NAME, item)
             }
-            LightClientMessageUnion::GetTransactions(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetTransactions::NAME, item)
+            LightClientMessageUnion::GetTransactionsProof(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    GetTransactionsProof::NAME,
+                    item
+                )
             }
-            LightClientMessageUnion::SendTransactions(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendTransactions::NAME, item)
+            LightClientMessageUnion::SendTransactionsProof(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    SendTransactionsProof::NAME,
+                    item
+                )
             }
         }
     }
@@ -15841,23 +15853,35 @@ impl<'r> ::core::fmt::Display for LightClientMessageUnionReader<'r> {
             LightClientMessageUnionReader::SendLastState(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, SendLastState::NAME, item)
             }
-            LightClientMessageUnionReader::GetBlockSamples(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetBlockSamples::NAME, item)
+            LightClientMessageUnionReader::GetLastStateProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, GetLastStateProof::NAME, item)
             }
-            LightClientMessageUnionReader::SendBlockSamples(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendBlockSamples::NAME, item)
+            LightClientMessageUnionReader::SendLastStateProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendLastStateProof::NAME, item)
             }
-            LightClientMessageUnionReader::GetBlockProof(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetBlockProof::NAME, item)
+            LightClientMessageUnionReader::GetBlocksProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, GetBlocksProof::NAME, item)
             }
-            LightClientMessageUnionReader::SendBlockProof(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendBlockProof::NAME, item)
+            LightClientMessageUnionReader::SendBlocksProof(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, SendBlocksProof::NAME, item)
             }
-            LightClientMessageUnionReader::GetTransactions(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetTransactions::NAME, item)
+            LightClientMessageUnionReader::GetTransactionsProof(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    GetTransactionsProof::NAME,
+                    item
+                )
             }
-            LightClientMessageUnionReader::SendTransactions(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, SendTransactions::NAME, item)
+            LightClientMessageUnionReader::SendTransactionsProof(ref item) => {
+                write!(
+                    f,
+                    "{}::{}({})",
+                    Self::NAME,
+                    SendTransactionsProof::NAME,
+                    item
+                )
             }
         }
     }
@@ -15867,12 +15891,12 @@ impl LightClientMessageUnion {
         match self {
             LightClientMessageUnion::GetLastState(ref item) => write!(f, "{}", item),
             LightClientMessageUnion::SendLastState(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::GetBlockSamples(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::SendBlockSamples(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::GetBlockProof(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::SendBlockProof(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::GetTransactions(ref item) => write!(f, "{}", item),
-            LightClientMessageUnion::SendTransactions(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::GetLastStateProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::SendLastStateProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::GetBlocksProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::SendBlocksProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::GetTransactionsProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnion::SendTransactionsProof(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -15881,12 +15905,12 @@ impl<'r> LightClientMessageUnionReader<'r> {
         match self {
             LightClientMessageUnionReader::GetLastState(ref item) => write!(f, "{}", item),
             LightClientMessageUnionReader::SendLastState(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::GetBlockSamples(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::SendBlockSamples(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::GetBlockProof(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::SendBlockProof(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::GetTransactions(ref item) => write!(f, "{}", item),
-            LightClientMessageUnionReader::SendTransactions(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::GetLastStateProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::SendLastStateProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::GetBlocksProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::SendBlocksProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::GetTransactionsProof(ref item) => write!(f, "{}", item),
+            LightClientMessageUnionReader::SendTransactionsProof(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -15900,34 +15924,34 @@ impl ::core::convert::From<SendLastState> for LightClientMessageUnion {
         LightClientMessageUnion::SendLastState(item)
     }
 }
-impl ::core::convert::From<GetBlockSamples> for LightClientMessageUnion {
-    fn from(item: GetBlockSamples) -> Self {
-        LightClientMessageUnion::GetBlockSamples(item)
+impl ::core::convert::From<GetLastStateProof> for LightClientMessageUnion {
+    fn from(item: GetLastStateProof) -> Self {
+        LightClientMessageUnion::GetLastStateProof(item)
     }
 }
-impl ::core::convert::From<SendBlockSamples> for LightClientMessageUnion {
-    fn from(item: SendBlockSamples) -> Self {
-        LightClientMessageUnion::SendBlockSamples(item)
+impl ::core::convert::From<SendLastStateProof> for LightClientMessageUnion {
+    fn from(item: SendLastStateProof) -> Self {
+        LightClientMessageUnion::SendLastStateProof(item)
     }
 }
-impl ::core::convert::From<GetBlockProof> for LightClientMessageUnion {
-    fn from(item: GetBlockProof) -> Self {
-        LightClientMessageUnion::GetBlockProof(item)
+impl ::core::convert::From<GetBlocksProof> for LightClientMessageUnion {
+    fn from(item: GetBlocksProof) -> Self {
+        LightClientMessageUnion::GetBlocksProof(item)
     }
 }
-impl ::core::convert::From<SendBlockProof> for LightClientMessageUnion {
-    fn from(item: SendBlockProof) -> Self {
-        LightClientMessageUnion::SendBlockProof(item)
+impl ::core::convert::From<SendBlocksProof> for LightClientMessageUnion {
+    fn from(item: SendBlocksProof) -> Self {
+        LightClientMessageUnion::SendBlocksProof(item)
     }
 }
-impl ::core::convert::From<GetTransactions> for LightClientMessageUnion {
-    fn from(item: GetTransactions) -> Self {
-        LightClientMessageUnion::GetTransactions(item)
+impl ::core::convert::From<GetTransactionsProof> for LightClientMessageUnion {
+    fn from(item: GetTransactionsProof) -> Self {
+        LightClientMessageUnion::GetTransactionsProof(item)
     }
 }
-impl ::core::convert::From<SendTransactions> for LightClientMessageUnion {
-    fn from(item: SendTransactions) -> Self {
-        LightClientMessageUnion::SendTransactions(item)
+impl ::core::convert::From<SendTransactionsProof> for LightClientMessageUnion {
+    fn from(item: SendTransactionsProof) -> Self {
+        LightClientMessageUnion::SendTransactionsProof(item)
     }
 }
 impl<'r> ::core::convert::From<GetLastStateReader<'r>> for LightClientMessageUnionReader<'r> {
@@ -15940,34 +15964,38 @@ impl<'r> ::core::convert::From<SendLastStateReader<'r>> for LightClientMessageUn
         LightClientMessageUnionReader::SendLastState(item)
     }
 }
-impl<'r> ::core::convert::From<GetBlockSamplesReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: GetBlockSamplesReader<'r>) -> Self {
-        LightClientMessageUnionReader::GetBlockSamples(item)
+impl<'r> ::core::convert::From<GetLastStateProofReader<'r>> for LightClientMessageUnionReader<'r> {
+    fn from(item: GetLastStateProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::GetLastStateProof(item)
     }
 }
-impl<'r> ::core::convert::From<SendBlockSamplesReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: SendBlockSamplesReader<'r>) -> Self {
-        LightClientMessageUnionReader::SendBlockSamples(item)
+impl<'r> ::core::convert::From<SendLastStateProofReader<'r>> for LightClientMessageUnionReader<'r> {
+    fn from(item: SendLastStateProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::SendLastStateProof(item)
     }
 }
-impl<'r> ::core::convert::From<GetBlockProofReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: GetBlockProofReader<'r>) -> Self {
-        LightClientMessageUnionReader::GetBlockProof(item)
+impl<'r> ::core::convert::From<GetBlocksProofReader<'r>> for LightClientMessageUnionReader<'r> {
+    fn from(item: GetBlocksProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::GetBlocksProof(item)
     }
 }
-impl<'r> ::core::convert::From<SendBlockProofReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: SendBlockProofReader<'r>) -> Self {
-        LightClientMessageUnionReader::SendBlockProof(item)
+impl<'r> ::core::convert::From<SendBlocksProofReader<'r>> for LightClientMessageUnionReader<'r> {
+    fn from(item: SendBlocksProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::SendBlocksProof(item)
     }
 }
-impl<'r> ::core::convert::From<GetTransactionsReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: GetTransactionsReader<'r>) -> Self {
-        LightClientMessageUnionReader::GetTransactions(item)
+impl<'r> ::core::convert::From<GetTransactionsProofReader<'r>>
+    for LightClientMessageUnionReader<'r>
+{
+    fn from(item: GetTransactionsProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::GetTransactionsProof(item)
     }
 }
-impl<'r> ::core::convert::From<SendTransactionsReader<'r>> for LightClientMessageUnionReader<'r> {
-    fn from(item: SendTransactionsReader<'r>) -> Self {
-        LightClientMessageUnionReader::SendTransactions(item)
+impl<'r> ::core::convert::From<SendTransactionsProofReader<'r>>
+    for LightClientMessageUnionReader<'r>
+{
+    fn from(item: SendTransactionsProofReader<'r>) -> Self {
+        LightClientMessageUnionReader::SendTransactionsProof(item)
     }
 }
 impl LightClientMessageUnion {
@@ -15976,60 +16004,60 @@ impl LightClientMessageUnion {
         match self {
             LightClientMessageUnion::GetLastState(item) => item.as_bytes(),
             LightClientMessageUnion::SendLastState(item) => item.as_bytes(),
-            LightClientMessageUnion::GetBlockSamples(item) => item.as_bytes(),
-            LightClientMessageUnion::SendBlockSamples(item) => item.as_bytes(),
-            LightClientMessageUnion::GetBlockProof(item) => item.as_bytes(),
-            LightClientMessageUnion::SendBlockProof(item) => item.as_bytes(),
-            LightClientMessageUnion::GetTransactions(item) => item.as_bytes(),
-            LightClientMessageUnion::SendTransactions(item) => item.as_bytes(),
+            LightClientMessageUnion::GetLastStateProof(item) => item.as_bytes(),
+            LightClientMessageUnion::SendLastStateProof(item) => item.as_bytes(),
+            LightClientMessageUnion::GetBlocksProof(item) => item.as_bytes(),
+            LightClientMessageUnion::SendBlocksProof(item) => item.as_bytes(),
+            LightClientMessageUnion::GetTransactionsProof(item) => item.as_bytes(),
+            LightClientMessageUnion::SendTransactionsProof(item) => item.as_bytes(),
         }
     }
     pub fn as_slice(&self) -> &[u8] {
         match self {
             LightClientMessageUnion::GetLastState(item) => item.as_slice(),
             LightClientMessageUnion::SendLastState(item) => item.as_slice(),
-            LightClientMessageUnion::GetBlockSamples(item) => item.as_slice(),
-            LightClientMessageUnion::SendBlockSamples(item) => item.as_slice(),
-            LightClientMessageUnion::GetBlockProof(item) => item.as_slice(),
-            LightClientMessageUnion::SendBlockProof(item) => item.as_slice(),
-            LightClientMessageUnion::GetTransactions(item) => item.as_slice(),
-            LightClientMessageUnion::SendTransactions(item) => item.as_slice(),
+            LightClientMessageUnion::GetLastStateProof(item) => item.as_slice(),
+            LightClientMessageUnion::SendLastStateProof(item) => item.as_slice(),
+            LightClientMessageUnion::GetBlocksProof(item) => item.as_slice(),
+            LightClientMessageUnion::SendBlocksProof(item) => item.as_slice(),
+            LightClientMessageUnion::GetTransactionsProof(item) => item.as_slice(),
+            LightClientMessageUnion::SendTransactionsProof(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             LightClientMessageUnion::GetLastState(_) => 0,
             LightClientMessageUnion::SendLastState(_) => 1,
-            LightClientMessageUnion::GetBlockSamples(_) => 2,
-            LightClientMessageUnion::SendBlockSamples(_) => 3,
-            LightClientMessageUnion::GetBlockProof(_) => 4,
-            LightClientMessageUnion::SendBlockProof(_) => 5,
-            LightClientMessageUnion::GetTransactions(_) => 6,
-            LightClientMessageUnion::SendTransactions(_) => 7,
+            LightClientMessageUnion::GetLastStateProof(_) => 2,
+            LightClientMessageUnion::SendLastStateProof(_) => 3,
+            LightClientMessageUnion::GetBlocksProof(_) => 4,
+            LightClientMessageUnion::SendBlocksProof(_) => 5,
+            LightClientMessageUnion::GetTransactionsProof(_) => 6,
+            LightClientMessageUnion::SendTransactionsProof(_) => 7,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
             LightClientMessageUnion::GetLastState(_) => "GetLastState",
             LightClientMessageUnion::SendLastState(_) => "SendLastState",
-            LightClientMessageUnion::GetBlockSamples(_) => "GetBlockSamples",
-            LightClientMessageUnion::SendBlockSamples(_) => "SendBlockSamples",
-            LightClientMessageUnion::GetBlockProof(_) => "GetBlockProof",
-            LightClientMessageUnion::SendBlockProof(_) => "SendBlockProof",
-            LightClientMessageUnion::GetTransactions(_) => "GetTransactions",
-            LightClientMessageUnion::SendTransactions(_) => "SendTransactions",
+            LightClientMessageUnion::GetLastStateProof(_) => "GetLastStateProof",
+            LightClientMessageUnion::SendLastStateProof(_) => "SendLastStateProof",
+            LightClientMessageUnion::GetBlocksProof(_) => "GetBlocksProof",
+            LightClientMessageUnion::SendBlocksProof(_) => "SendBlocksProof",
+            LightClientMessageUnion::GetTransactionsProof(_) => "GetTransactionsProof",
+            LightClientMessageUnion::SendTransactionsProof(_) => "SendTransactionsProof",
         }
     }
     pub fn as_reader<'r>(&'r self) -> LightClientMessageUnionReader<'r> {
         match self {
             LightClientMessageUnion::GetLastState(item) => item.as_reader().into(),
             LightClientMessageUnion::SendLastState(item) => item.as_reader().into(),
-            LightClientMessageUnion::GetBlockSamples(item) => item.as_reader().into(),
-            LightClientMessageUnion::SendBlockSamples(item) => item.as_reader().into(),
-            LightClientMessageUnion::GetBlockProof(item) => item.as_reader().into(),
-            LightClientMessageUnion::SendBlockProof(item) => item.as_reader().into(),
-            LightClientMessageUnion::GetTransactions(item) => item.as_reader().into(),
-            LightClientMessageUnion::SendTransactions(item) => item.as_reader().into(),
+            LightClientMessageUnion::GetLastStateProof(item) => item.as_reader().into(),
+            LightClientMessageUnion::SendLastStateProof(item) => item.as_reader().into(),
+            LightClientMessageUnion::GetBlocksProof(item) => item.as_reader().into(),
+            LightClientMessageUnion::SendBlocksProof(item) => item.as_reader().into(),
+            LightClientMessageUnion::GetTransactionsProof(item) => item.as_reader().into(),
+            LightClientMessageUnion::SendTransactionsProof(item) => item.as_reader().into(),
         }
     }
 }
@@ -16039,36 +16067,36 @@ impl<'r> LightClientMessageUnionReader<'r> {
         match self {
             LightClientMessageUnionReader::GetLastState(item) => item.as_slice(),
             LightClientMessageUnionReader::SendLastState(item) => item.as_slice(),
-            LightClientMessageUnionReader::GetBlockSamples(item) => item.as_slice(),
-            LightClientMessageUnionReader::SendBlockSamples(item) => item.as_slice(),
-            LightClientMessageUnionReader::GetBlockProof(item) => item.as_slice(),
-            LightClientMessageUnionReader::SendBlockProof(item) => item.as_slice(),
-            LightClientMessageUnionReader::GetTransactions(item) => item.as_slice(),
-            LightClientMessageUnionReader::SendTransactions(item) => item.as_slice(),
+            LightClientMessageUnionReader::GetLastStateProof(item) => item.as_slice(),
+            LightClientMessageUnionReader::SendLastStateProof(item) => item.as_slice(),
+            LightClientMessageUnionReader::GetBlocksProof(item) => item.as_slice(),
+            LightClientMessageUnionReader::SendBlocksProof(item) => item.as_slice(),
+            LightClientMessageUnionReader::GetTransactionsProof(item) => item.as_slice(),
+            LightClientMessageUnionReader::SendTransactionsProof(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             LightClientMessageUnionReader::GetLastState(_) => 0,
             LightClientMessageUnionReader::SendLastState(_) => 1,
-            LightClientMessageUnionReader::GetBlockSamples(_) => 2,
-            LightClientMessageUnionReader::SendBlockSamples(_) => 3,
-            LightClientMessageUnionReader::GetBlockProof(_) => 4,
-            LightClientMessageUnionReader::SendBlockProof(_) => 5,
-            LightClientMessageUnionReader::GetTransactions(_) => 6,
-            LightClientMessageUnionReader::SendTransactions(_) => 7,
+            LightClientMessageUnionReader::GetLastStateProof(_) => 2,
+            LightClientMessageUnionReader::SendLastStateProof(_) => 3,
+            LightClientMessageUnionReader::GetBlocksProof(_) => 4,
+            LightClientMessageUnionReader::SendBlocksProof(_) => 5,
+            LightClientMessageUnionReader::GetTransactionsProof(_) => 6,
+            LightClientMessageUnionReader::SendTransactionsProof(_) => 7,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
             LightClientMessageUnionReader::GetLastState(_) => "GetLastState",
             LightClientMessageUnionReader::SendLastState(_) => "SendLastState",
-            LightClientMessageUnionReader::GetBlockSamples(_) => "GetBlockSamples",
-            LightClientMessageUnionReader::SendBlockSamples(_) => "SendBlockSamples",
-            LightClientMessageUnionReader::GetBlockProof(_) => "GetBlockProof",
-            LightClientMessageUnionReader::SendBlockProof(_) => "SendBlockProof",
-            LightClientMessageUnionReader::GetTransactions(_) => "GetTransactions",
-            LightClientMessageUnionReader::SendTransactions(_) => "SendTransactions",
+            LightClientMessageUnionReader::GetLastStateProof(_) => "GetLastStateProof",
+            LightClientMessageUnionReader::SendLastStateProof(_) => "SendLastStateProof",
+            LightClientMessageUnionReader::GetBlocksProof(_) => "GetBlocksProof",
+            LightClientMessageUnionReader::SendBlocksProof(_) => "SendBlocksProof",
+            LightClientMessageUnionReader::GetTransactionsProof(_) => "GetTransactionsProof",
+            LightClientMessageUnionReader::SendTransactionsProof(_) => "SendTransactionsProof",
         }
     }
 }
@@ -16558,8 +16586,8 @@ impl molecule::prelude::Builder for SendLastStateBuilder {
     }
 }
 #[derive(Clone)]
-pub struct GetBlockSamples(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for GetBlockSamples {
+pub struct GetLastStateProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for GetLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -16568,12 +16596,12 @@ impl ::core::fmt::LowerHex for GetBlockSamples {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for GetBlockSamples {
+impl ::core::fmt::Debug for GetLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for GetBlockSamples {
+impl ::core::fmt::Display for GetLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -16594,7 +16622,7 @@ impl ::core::fmt::Display for GetBlockSamples {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for GetBlockSamples {
+impl ::core::default::Default for GetLastStateProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             144, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 92, 0, 0, 0, 100, 0, 0, 0, 108, 0, 0, 0, 140,
@@ -16604,10 +16632,10 @@ impl ::core::default::Default for GetBlockSamples {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0,
         ];
-        GetBlockSamples::new_unchecked(v.into())
+        GetLastStateProof::new_unchecked(v.into())
     }
 }
-impl GetBlockSamples {
+impl GetLastStateProof {
     pub const FIELD_COUNT: usize = 6;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -16665,15 +16693,15 @@ impl GetBlockSamples {
             Uint256Vec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> GetBlockSamplesReader<'r> {
-        GetBlockSamplesReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> GetLastStateProofReader<'r> {
+        GetLastStateProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for GetBlockSamples {
-    type Builder = GetBlockSamplesBuilder;
-    const NAME: &'static str = "GetBlockSamples";
+impl molecule::prelude::Entity for GetLastStateProof {
+    type Builder = GetLastStateProofBuilder;
+    const NAME: &'static str = "GetLastStateProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        GetBlockSamples(data)
+        GetLastStateProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -16682,10 +16710,10 @@ impl molecule::prelude::Entity for GetBlockSamples {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetBlockSamplesReader::from_slice(slice).map(|reader| reader.to_entity())
+        GetLastStateProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetBlockSamplesReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        GetLastStateProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -16701,8 +16729,8 @@ impl molecule::prelude::Entity for GetBlockSamples {
     }
 }
 #[derive(Clone, Copy)]
-pub struct GetBlockSamplesReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for GetBlockSamplesReader<'r> {
+pub struct GetLastStateProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for GetLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -16711,12 +16739,12 @@ impl<'r> ::core::fmt::LowerHex for GetBlockSamplesReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for GetBlockSamplesReader<'r> {
+impl<'r> ::core::fmt::Debug for GetLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for GetBlockSamplesReader<'r> {
+impl<'r> ::core::fmt::Display for GetLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -16737,7 +16765,7 @@ impl<'r> ::core::fmt::Display for GetBlockSamplesReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> GetBlockSamplesReader<'r> {
+impl<'r> GetLastStateProofReader<'r> {
     pub const FIELD_COUNT: usize = 6;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -16796,14 +16824,14 @@ impl<'r> GetBlockSamplesReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for GetBlockSamplesReader<'r> {
-    type Entity = GetBlockSamples;
-    const NAME: &'static str = "GetBlockSamplesReader";
+impl<'r> molecule::prelude::Reader<'r> for GetLastStateProofReader<'r> {
+    type Entity = GetLastStateProof;
+    const NAME: &'static str = "GetLastStateProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        GetBlockSamplesReader(slice)
+        GetLastStateProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -16855,7 +16883,7 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockSamplesReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct GetBlockSamplesBuilder {
+pub struct GetLastStateProofBuilder {
     pub(crate) last_hash: Byte32,
     pub(crate) start_hash: Byte32,
     pub(crate) start_number: Uint64,
@@ -16863,7 +16891,7 @@ pub struct GetBlockSamplesBuilder {
     pub(crate) difficulty_boundary: Uint256,
     pub(crate) difficulties: Uint256Vec,
 }
-impl GetBlockSamplesBuilder {
+impl GetLastStateProofBuilder {
     pub const FIELD_COUNT: usize = 6;
     pub fn last_hash(mut self, v: Byte32) -> Self {
         self.last_hash = v;
@@ -16890,9 +16918,9 @@ impl GetBlockSamplesBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for GetBlockSamplesBuilder {
-    type Entity = GetBlockSamples;
-    const NAME: &'static str = "GetBlockSamplesBuilder";
+impl molecule::prelude::Builder for GetLastStateProofBuilder {
+    type Entity = GetLastStateProof;
+    const NAME: &'static str = "GetLastStateProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_hash.as_slice().len()
@@ -16933,12 +16961,12 @@ impl molecule::prelude::Builder for GetBlockSamplesBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        GetBlockSamples::new_unchecked(inner.into())
+        GetLastStateProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct SendBlockSamples(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for SendBlockSamples {
+pub struct SendLastStateProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for SendLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -16947,12 +16975,12 @@ impl ::core::fmt::LowerHex for SendBlockSamples {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for SendBlockSamples {
+impl ::core::fmt::Debug for SendLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for SendBlockSamples {
+impl ::core::fmt::Display for SendLastStateProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -16972,7 +17000,7 @@ impl ::core::fmt::Display for SendBlockSamples {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for SendBlockSamples {
+impl ::core::default::Default for SendLastStateProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             164, 1, 0, 0, 24, 0, 0, 0, 148, 1, 0, 0, 152, 1, 0, 0, 156, 1, 0, 0, 160, 1, 0, 0, 124,
@@ -16991,10 +17019,10 @@ impl ::core::default::Default for SendBlockSamples {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
-        SendBlockSamples::new_unchecked(v.into())
+        SendLastStateProof::new_unchecked(v.into())
     }
 }
-impl SendBlockSamples {
+impl SendLastStateProof {
     pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17046,15 +17074,15 @@ impl SendBlockSamples {
             VerifiableHeaderVec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> SendBlockSamplesReader<'r> {
-        SendBlockSamplesReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> SendLastStateProofReader<'r> {
+        SendLastStateProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for SendBlockSamples {
-    type Builder = SendBlockSamplesBuilder;
-    const NAME: &'static str = "SendBlockSamples";
+impl molecule::prelude::Entity for SendLastStateProof {
+    type Builder = SendLastStateProofBuilder;
+    const NAME: &'static str = "SendLastStateProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        SendBlockSamples(data)
+        SendLastStateProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -17063,10 +17091,10 @@ impl molecule::prelude::Entity for SendBlockSamples {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendBlockSamplesReader::from_slice(slice).map(|reader| reader.to_entity())
+        SendLastStateProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendBlockSamplesReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        SendLastStateProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -17081,8 +17109,8 @@ impl molecule::prelude::Entity for SendBlockSamples {
     }
 }
 #[derive(Clone, Copy)]
-pub struct SendBlockSamplesReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for SendBlockSamplesReader<'r> {
+pub struct SendLastStateProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for SendLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17091,12 +17119,12 @@ impl<'r> ::core::fmt::LowerHex for SendBlockSamplesReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for SendBlockSamplesReader<'r> {
+impl<'r> ::core::fmt::Debug for SendLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for SendBlockSamplesReader<'r> {
+impl<'r> ::core::fmt::Display for SendLastStateProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -17116,7 +17144,7 @@ impl<'r> ::core::fmt::Display for SendBlockSamplesReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> SendBlockSamplesReader<'r> {
+impl<'r> SendLastStateProofReader<'r> {
     pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17169,14 +17197,14 @@ impl<'r> SendBlockSamplesReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for SendBlockSamplesReader<'r> {
-    type Entity = SendBlockSamples;
-    const NAME: &'static str = "SendBlockSamplesReader";
+impl<'r> molecule::prelude::Reader<'r> for SendLastStateProofReader<'r> {
+    type Entity = SendLastStateProof;
+    const NAME: &'static str = "SendLastStateProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        SendBlockSamplesReader(slice)
+        SendLastStateProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -17227,14 +17255,14 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockSamplesReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct SendBlockSamplesBuilder {
+pub struct SendLastStateProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
     pub(crate) reorg_last_n_headers: VerifiableHeaderVec,
     pub(crate) sampled_headers: VerifiableHeaderVec,
     pub(crate) last_n_headers: VerifiableHeaderVec,
 }
-impl SendBlockSamplesBuilder {
+impl SendLastStateProofBuilder {
     pub const FIELD_COUNT: usize = 5;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
@@ -17257,9 +17285,9 @@ impl SendBlockSamplesBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for SendBlockSamplesBuilder {
-    type Entity = SendBlockSamples;
-    const NAME: &'static str = "SendBlockSamplesBuilder";
+impl molecule::prelude::Builder for SendLastStateProofBuilder {
+    type Entity = SendLastStateProof;
+    const NAME: &'static str = "SendLastStateProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_header.as_slice().len()
@@ -17296,12 +17324,12 @@ impl molecule::prelude::Builder for SendBlockSamplesBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        SendBlockSamples::new_unchecked(inner.into())
+        SendLastStateProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct GetBlockProof(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for GetBlockProof {
+pub struct GetBlocksProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for GetBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17310,12 +17338,12 @@ impl ::core::fmt::LowerHex for GetBlockProof {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for GetBlockProof {
+impl ::core::fmt::Debug for GetBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for GetBlockProof {
+impl ::core::fmt::Display for GetBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -17327,16 +17355,16 @@ impl ::core::fmt::Display for GetBlockProof {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for GetBlockProof {
+impl ::core::default::Default for GetBlocksProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
-        GetBlockProof::new_unchecked(v.into())
+        GetBlocksProof::new_unchecked(v.into())
     }
 }
-impl GetBlockProof {
+impl GetBlocksProof {
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17370,15 +17398,15 @@ impl GetBlockProof {
             Byte32Vec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> GetBlockProofReader<'r> {
-        GetBlockProofReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> GetBlocksProofReader<'r> {
+        GetBlocksProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for GetBlockProof {
-    type Builder = GetBlockProofBuilder;
-    const NAME: &'static str = "GetBlockProof";
+impl molecule::prelude::Entity for GetBlocksProof {
+    type Builder = GetBlocksProofBuilder;
+    const NAME: &'static str = "GetBlocksProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        GetBlockProof(data)
+        GetBlocksProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -17387,10 +17415,10 @@ impl molecule::prelude::Entity for GetBlockProof {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetBlockProofReader::from_slice(slice).map(|reader| reader.to_entity())
+        GetBlocksProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetBlockProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        GetBlocksProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -17402,8 +17430,8 @@ impl molecule::prelude::Entity for GetBlockProof {
     }
 }
 #[derive(Clone, Copy)]
-pub struct GetBlockProofReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for GetBlockProofReader<'r> {
+pub struct GetBlocksProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for GetBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17412,12 +17440,12 @@ impl<'r> ::core::fmt::LowerHex for GetBlockProofReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for GetBlockProofReader<'r> {
+impl<'r> ::core::fmt::Debug for GetBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for GetBlockProofReader<'r> {
+impl<'r> ::core::fmt::Display for GetBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -17429,7 +17457,7 @@ impl<'r> ::core::fmt::Display for GetBlockProofReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> GetBlockProofReader<'r> {
+impl<'r> GetBlocksProofReader<'r> {
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17464,14 +17492,14 @@ impl<'r> GetBlockProofReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for GetBlockProofReader<'r> {
-    type Entity = GetBlockProof;
-    const NAME: &'static str = "GetBlockProofReader";
+impl<'r> molecule::prelude::Reader<'r> for GetBlocksProofReader<'r> {
+    type Entity = GetBlocksProof;
+    const NAME: &'static str = "GetBlocksProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        GetBlockProofReader(slice)
+        GetBlocksProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -17519,11 +17547,11 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockProofReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct GetBlockProofBuilder {
+pub struct GetBlocksProofBuilder {
     pub(crate) last_hash: Byte32,
     pub(crate) block_hashes: Byte32Vec,
 }
-impl GetBlockProofBuilder {
+impl GetBlocksProofBuilder {
     pub const FIELD_COUNT: usize = 2;
     pub fn last_hash(mut self, v: Byte32) -> Self {
         self.last_hash = v;
@@ -17534,9 +17562,9 @@ impl GetBlockProofBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for GetBlockProofBuilder {
-    type Entity = GetBlockProof;
-    const NAME: &'static str = "GetBlockProofBuilder";
+impl molecule::prelude::Builder for GetBlocksProofBuilder {
+    type Entity = GetBlocksProof;
+    const NAME: &'static str = "GetBlocksProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_hash.as_slice().len()
@@ -17561,12 +17589,12 @@ impl molecule::prelude::Builder for GetBlockProofBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        GetBlockProof::new_unchecked(inner.into())
+        GetBlocksProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct SendBlockProof(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for SendBlockProof {
+pub struct SendBlocksProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for SendBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17575,12 +17603,12 @@ impl ::core::fmt::LowerHex for SendBlockProof {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for SendBlockProof {
+impl ::core::fmt::Debug for SendBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for SendBlockProof {
+impl ::core::fmt::Display for SendBlocksProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -17593,7 +17621,7 @@ impl ::core::fmt::Display for SendBlockProof {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for SendBlockProof {
+impl ::core::default::Default for SendBlocksProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             148, 1, 0, 0, 16, 0, 0, 0, 140, 1, 0, 0, 144, 1, 0, 0, 124, 1, 0, 0, 20, 0, 0, 0, 228,
@@ -17612,10 +17640,10 @@ impl ::core::default::Default for SendBlockProof {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0,
         ];
-        SendBlockProof::new_unchecked(v.into())
+        SendBlocksProof::new_unchecked(v.into())
     }
 }
-impl SendBlockProof {
+impl SendBlocksProof {
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17655,15 +17683,15 @@ impl SendBlockProof {
             HeaderVec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> SendBlockProofReader<'r> {
-        SendBlockProofReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> SendBlocksProofReader<'r> {
+        SendBlocksProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for SendBlockProof {
-    type Builder = SendBlockProofBuilder;
-    const NAME: &'static str = "SendBlockProof";
+impl molecule::prelude::Entity for SendBlocksProof {
+    type Builder = SendBlocksProofBuilder;
+    const NAME: &'static str = "SendBlocksProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        SendBlockProof(data)
+        SendBlocksProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -17672,10 +17700,10 @@ impl molecule::prelude::Entity for SendBlockProof {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendBlockProofReader::from_slice(slice).map(|reader| reader.to_entity())
+        SendBlocksProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendBlockProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        SendBlocksProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -17688,8 +17716,8 @@ impl molecule::prelude::Entity for SendBlockProof {
     }
 }
 #[derive(Clone, Copy)]
-pub struct SendBlockProofReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for SendBlockProofReader<'r> {
+pub struct SendBlocksProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for SendBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17698,12 +17726,12 @@ impl<'r> ::core::fmt::LowerHex for SendBlockProofReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for SendBlockProofReader<'r> {
+impl<'r> ::core::fmt::Debug for SendBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for SendBlockProofReader<'r> {
+impl<'r> ::core::fmt::Display for SendBlocksProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -17716,7 +17744,7 @@ impl<'r> ::core::fmt::Display for SendBlockProofReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> SendBlockProofReader<'r> {
+impl<'r> SendBlocksProofReader<'r> {
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17757,14 +17785,14 @@ impl<'r> SendBlockProofReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
-    type Entity = SendBlockProof;
-    const NAME: &'static str = "SendBlockProofReader";
+impl<'r> molecule::prelude::Reader<'r> for SendBlocksProofReader<'r> {
+    type Entity = SendBlocksProof;
+    const NAME: &'static str = "SendBlocksProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        SendBlockProofReader(slice)
+        SendBlocksProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -17813,12 +17841,12 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlockProofReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct SendBlockProofBuilder {
+pub struct SendBlocksProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
     pub(crate) headers: HeaderVec,
 }
-impl SendBlockProofBuilder {
+impl SendBlocksProofBuilder {
     pub const FIELD_COUNT: usize = 3;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
@@ -17833,9 +17861,9 @@ impl SendBlockProofBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for SendBlockProofBuilder {
-    type Entity = SendBlockProof;
-    const NAME: &'static str = "SendBlockProofBuilder";
+impl molecule::prelude::Builder for SendBlocksProofBuilder {
+    type Entity = SendBlocksProof;
+    const NAME: &'static str = "SendBlocksProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_header.as_slice().len()
@@ -17864,12 +17892,12 @@ impl molecule::prelude::Builder for SendBlockProofBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        SendBlockProof::new_unchecked(inner.into())
+        SendBlocksProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct GetTransactions(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for GetTransactions {
+pub struct GetTransactionsProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for GetTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17878,12 +17906,12 @@ impl ::core::fmt::LowerHex for GetTransactions {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for GetTransactions {
+impl ::core::fmt::Debug for GetTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for GetTransactions {
+impl ::core::fmt::Display for GetTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -17895,16 +17923,16 @@ impl ::core::fmt::Display for GetTransactions {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for GetTransactions {
+impl ::core::default::Default for GetTransactionsProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
-        GetTransactions::new_unchecked(v.into())
+        GetTransactionsProof::new_unchecked(v.into())
     }
 }
-impl GetTransactions {
+impl GetTransactionsProof {
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -17938,15 +17966,15 @@ impl GetTransactions {
             Byte32Vec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> GetTransactionsReader<'r> {
-        GetTransactionsReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> GetTransactionsProofReader<'r> {
+        GetTransactionsProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for GetTransactions {
-    type Builder = GetTransactionsBuilder;
-    const NAME: &'static str = "GetTransactions";
+impl molecule::prelude::Entity for GetTransactionsProof {
+    type Builder = GetTransactionsProofBuilder;
+    const NAME: &'static str = "GetTransactionsProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        GetTransactions(data)
+        GetTransactionsProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -17955,10 +17983,10 @@ impl molecule::prelude::Entity for GetTransactions {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetTransactionsReader::from_slice(slice).map(|reader| reader.to_entity())
+        GetTransactionsProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        GetTransactionsReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        GetTransactionsProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -17970,8 +17998,8 @@ impl molecule::prelude::Entity for GetTransactions {
     }
 }
 #[derive(Clone, Copy)]
-pub struct GetTransactionsReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for GetTransactionsReader<'r> {
+pub struct GetTransactionsProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for GetTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -17980,12 +18008,12 @@ impl<'r> ::core::fmt::LowerHex for GetTransactionsReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for GetTransactionsReader<'r> {
+impl<'r> ::core::fmt::Debug for GetTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for GetTransactionsReader<'r> {
+impl<'r> ::core::fmt::Display for GetTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_hash", self.last_hash())?;
@@ -17997,7 +18025,7 @@ impl<'r> ::core::fmt::Display for GetTransactionsReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> GetTransactionsReader<'r> {
+impl<'r> GetTransactionsProofReader<'r> {
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -18032,14 +18060,14 @@ impl<'r> GetTransactionsReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for GetTransactionsReader<'r> {
-    type Entity = GetTransactions;
-    const NAME: &'static str = "GetTransactionsReader";
+impl<'r> molecule::prelude::Reader<'r> for GetTransactionsProofReader<'r> {
+    type Entity = GetTransactionsProof;
+    const NAME: &'static str = "GetTransactionsProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        GetTransactionsReader(slice)
+        GetTransactionsProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -18087,11 +18115,11 @@ impl<'r> molecule::prelude::Reader<'r> for GetTransactionsReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct GetTransactionsBuilder {
+pub struct GetTransactionsProofBuilder {
     pub(crate) last_hash: Byte32,
     pub(crate) tx_hashes: Byte32Vec,
 }
-impl GetTransactionsBuilder {
+impl GetTransactionsProofBuilder {
     pub const FIELD_COUNT: usize = 2;
     pub fn last_hash(mut self, v: Byte32) -> Self {
         self.last_hash = v;
@@ -18102,9 +18130,9 @@ impl GetTransactionsBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for GetTransactionsBuilder {
-    type Entity = GetTransactions;
-    const NAME: &'static str = "GetTransactionsBuilder";
+impl molecule::prelude::Builder for GetTransactionsProofBuilder {
+    type Entity = GetTransactionsProof;
+    const NAME: &'static str = "GetTransactionsProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_hash.as_slice().len()
@@ -18129,12 +18157,12 @@ impl molecule::prelude::Builder for GetTransactionsBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        GetTransactions::new_unchecked(inner.into())
+        GetTransactionsProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]
-pub struct SendTransactions(molecule::bytes::Bytes);
-impl ::core::fmt::LowerHex for SendTransactions {
+pub struct SendTransactionsProof(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for SendTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -18143,12 +18171,12 @@ impl ::core::fmt::LowerHex for SendTransactions {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl ::core::fmt::Debug for SendTransactions {
+impl ::core::fmt::Debug for SendTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl ::core::fmt::Display for SendTransactions {
+impl ::core::fmt::Display for SendTransactionsProof {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -18161,7 +18189,7 @@ impl ::core::fmt::Display for SendTransactions {
         write!(f, " }}")
     }
 }
-impl ::core::default::Default for SendTransactions {
+impl ::core::default::Default for SendTransactionsProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             148, 1, 0, 0, 16, 0, 0, 0, 140, 1, 0, 0, 144, 1, 0, 0, 124, 1, 0, 0, 20, 0, 0, 0, 228,
@@ -18180,10 +18208,10 @@ impl ::core::default::Default for SendTransactions {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0,
             0, 0,
         ];
-        SendTransactions::new_unchecked(v.into())
+        SendTransactionsProof::new_unchecked(v.into())
     }
 }
-impl SendTransactions {
+impl SendTransactionsProof {
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -18223,15 +18251,15 @@ impl SendTransactions {
             FilteredBlockVec::new_unchecked(self.0.slice(start..))
         }
     }
-    pub fn as_reader<'r>(&'r self) -> SendTransactionsReader<'r> {
-        SendTransactionsReader::new_unchecked(self.as_slice())
+    pub fn as_reader<'r>(&'r self) -> SendTransactionsProofReader<'r> {
+        SendTransactionsProofReader::new_unchecked(self.as_slice())
     }
 }
-impl molecule::prelude::Entity for SendTransactions {
-    type Builder = SendTransactionsBuilder;
-    const NAME: &'static str = "SendTransactions";
+impl molecule::prelude::Entity for SendTransactionsProof {
+    type Builder = SendTransactionsProofBuilder;
+    const NAME: &'static str = "SendTransactionsProof";
     fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        SendTransactions(data)
+        SendTransactionsProof(data)
     }
     fn as_bytes(&self) -> molecule::bytes::Bytes {
         self.0.clone()
@@ -18240,10 +18268,10 @@ impl molecule::prelude::Entity for SendTransactions {
         &self.0[..]
     }
     fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendTransactionsReader::from_slice(slice).map(|reader| reader.to_entity())
+        SendTransactionsProofReader::from_slice(slice).map(|reader| reader.to_entity())
     }
     fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SendTransactionsReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+        SendTransactionsProofReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
     }
     fn new_builder() -> Self::Builder {
         ::core::default::Default::default()
@@ -18256,8 +18284,8 @@ impl molecule::prelude::Entity for SendTransactions {
     }
 }
 #[derive(Clone, Copy)]
-pub struct SendTransactionsReader<'r>(&'r [u8]);
-impl<'r> ::core::fmt::LowerHex for SendTransactionsReader<'r> {
+pub struct SendTransactionsProofReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for SendTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         use molecule::hex_string;
         if f.alternate() {
@@ -18266,12 +18294,12 @@ impl<'r> ::core::fmt::LowerHex for SendTransactionsReader<'r> {
         write!(f, "{}", hex_string(self.as_slice()))
     }
 }
-impl<'r> ::core::fmt::Debug for SendTransactionsReader<'r> {
+impl<'r> ::core::fmt::Debug for SendTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{}({:#x})", Self::NAME, self)
     }
 }
-impl<'r> ::core::fmt::Display for SendTransactionsReader<'r> {
+impl<'r> ::core::fmt::Display for SendTransactionsProofReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "last_header", self.last_header())?;
@@ -18284,7 +18312,7 @@ impl<'r> ::core::fmt::Display for SendTransactionsReader<'r> {
         write!(f, " }}")
     }
 }
-impl<'r> SendTransactionsReader<'r> {
+impl<'r> SendTransactionsProofReader<'r> {
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -18325,14 +18353,14 @@ impl<'r> SendTransactionsReader<'r> {
         }
     }
 }
-impl<'r> molecule::prelude::Reader<'r> for SendTransactionsReader<'r> {
-    type Entity = SendTransactions;
-    const NAME: &'static str = "SendTransactionsReader";
+impl<'r> molecule::prelude::Reader<'r> for SendTransactionsProofReader<'r> {
+    type Entity = SendTransactionsProof;
+    const NAME: &'static str = "SendTransactionsProofReader";
     fn to_entity(&self) -> Self::Entity {
         Self::Entity::new_unchecked(self.as_slice().to_owned().into())
     }
     fn new_unchecked(slice: &'r [u8]) -> Self {
-        SendTransactionsReader(slice)
+        SendTransactionsProofReader(slice)
     }
     fn as_slice(&self) -> &'r [u8] {
         self.0
@@ -18381,12 +18409,12 @@ impl<'r> molecule::prelude::Reader<'r> for SendTransactionsReader<'r> {
     }
 }
 #[derive(Debug, Default)]
-pub struct SendTransactionsBuilder {
+pub struct SendTransactionsProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
     pub(crate) filtered_blocks: FilteredBlockVec,
 }
-impl SendTransactionsBuilder {
+impl SendTransactionsProofBuilder {
     pub const FIELD_COUNT: usize = 3;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
@@ -18401,9 +18429,9 @@ impl SendTransactionsBuilder {
         self
     }
 }
-impl molecule::prelude::Builder for SendTransactionsBuilder {
-    type Entity = SendTransactions;
-    const NAME: &'static str = "SendTransactionsBuilder";
+impl molecule::prelude::Builder for SendTransactionsProofBuilder {
+    type Entity = SendTransactionsProof;
+    const NAME: &'static str = "SendTransactionsProofBuilder";
     fn expected_length(&self) -> usize {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.last_header.as_slice().len()
@@ -18432,7 +18460,7 @@ impl molecule::prelude::Builder for SendTransactionsBuilder {
         let mut inner = Vec::with_capacity(self.expected_length());
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
-        SendTransactions::new_unchecked(inner.into())
+        SendTransactionsProof::new_unchecked(inner.into())
     }
 }
 #[derive(Clone)]

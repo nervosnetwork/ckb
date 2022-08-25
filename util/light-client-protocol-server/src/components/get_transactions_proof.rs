@@ -9,16 +9,16 @@ use crate::{LightClientProtocol, Status, StatusCode};
 
 const MAX_TRANSACTIONS_SIZE: usize = 1000;
 
-pub(crate) struct GetTransactionsProcess<'a> {
-    message: packed::GetTransactionsReader<'a>,
+pub(crate) struct GetTransactionsProofProcess<'a> {
+    message: packed::GetTransactionsProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
 }
 
-impl<'a> GetTransactionsProcess<'a> {
+impl<'a> GetTransactionsProofProcess<'a> {
     pub(crate) fn new(
-        message: packed::GetTransactionsReader<'a>,
+        message: packed::GetTransactionsProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -44,7 +44,7 @@ impl<'a> GetTransactionsProcess<'a> {
         } else {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendTransactions>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendTransactionsProof>(self.peer, self.nc);
         };
 
         let snapshot = self.protocol.shared.shared().snapshot();
@@ -110,7 +110,7 @@ impl<'a> GetTransactionsProcess<'a> {
             .set(filtered_blocks)
             .build();
 
-        self.protocol.reply_proof::<packed::SendTransactions>(
+        self.protocol.reply_proof::<packed::SendTransactionsProof>(
             self.peer,
             self.nc,
             &last_block,

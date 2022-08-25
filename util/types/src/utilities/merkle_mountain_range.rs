@@ -363,7 +363,7 @@ where
     fn set_items(self, items: Self::Items) -> Self;
 }
 
-impl ProverMessageBuilder for packed::SendBlockSamplesBuilder {
+impl ProverMessageBuilder for packed::SendLastStateProofBuilder {
     type Items = (
         packed::VerifiableHeaderVec,
         packed::VerifiableHeaderVec,
@@ -383,7 +383,7 @@ impl ProverMessageBuilder for packed::SendBlockSamplesBuilder {
     }
 }
 
-impl ProverMessageBuilder for packed::SendBlockProofBuilder {
+impl ProverMessageBuilder for packed::SendBlocksProofBuilder {
     type Items = packed::HeaderVec;
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)
@@ -396,7 +396,7 @@ impl ProverMessageBuilder for packed::SendBlockProofBuilder {
     }
 }
 
-impl ProverMessageBuilder for packed::SendTransactionsBuilder {
+impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     type Items = packed::FilteredBlockVec;
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)

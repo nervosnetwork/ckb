@@ -1,9 +1,9 @@
-mod get_block_proof;
-mod get_block_samples;
+mod get_blocks_proof;
 mod get_last_state;
-mod get_transactions;
+mod get_last_state_proof;
+mod get_transactions_proof;
 
-pub(crate) use get_block_proof::GetBlockProofProcess;
-pub(crate) use get_block_samples::GetBlockSamplesProcess;
+pub(crate) use get_blocks_proof::GetBlocksProofProcess;
 pub(crate) use get_last_state::GetLastStateProcess;
-pub(crate) use get_transactions::GetTransactionsProcess;
+pub(crate) use get_last_state_proof::GetLastStateProofProcess;
+pub(crate) use get_transactions_proof::GetTransactionsProofProcess;

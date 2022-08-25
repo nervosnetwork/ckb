@@ -99,14 +99,14 @@ impl LightClientProtocol {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
                 components::GetLastStateProcess::new(reader, self, peer_index, nc).execute()
             }
-            packed::LightClientMessageUnionReader::GetBlockSamples(reader) => {
-                components::GetBlockSamplesProcess::new(reader, self, peer_index, nc).execute()
+            packed::LightClientMessageUnionReader::GetLastStateProof(reader) => {
+                components::GetLastStateProofProcess::new(reader, self, peer_index, nc).execute()
             }
-            packed::LightClientMessageUnionReader::GetBlockProof(reader) => {
-                components::GetBlockProofProcess::new(reader, self, peer_index, nc).execute()
+            packed::LightClientMessageUnionReader::GetBlocksProof(reader) => {
+                components::GetBlocksProofProcess::new(reader, self, peer_index, nc).execute()
             }
-            packed::LightClientMessageUnionReader::GetTransactions(reader) => {
-                components::GetTransactionsProcess::new(reader, self, peer_index, nc).execute()
+            packed::LightClientMessageUnionReader::GetTransactionsProof(reader) => {
+                components::GetTransactionsProofProcess::new(reader, self, peer_index, nc).execute()
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
