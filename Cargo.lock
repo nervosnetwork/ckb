@@ -921,7 +921,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snap",
- "socket2 0.4.4",
+ "socket2 0.4.6",
  "tempfile",
  "tentacle",
  "tokio",
@@ -2374,7 +2374,7 @@ dependencies = [
  "httpdate",
  "itoa 1.0.1",
  "pin-project-lite",
- "socket2 0.4.4",
+ "socket2 0.4.6",
  "tokio",
  "tower-service",
  "tracing",
@@ -4100,9 +4100,9 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.4.4"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
+checksum = "10c98bba371b9b22a71a9414e420f92ddeb2369239af08200816169d5e2dd7aa"
 dependencies = [
  "libc",
  "winapi 0.3.9",
@@ -4181,7 +4181,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "rand 0.8.5",
- "socket2 0.4.4",
+ "socket2 0.4.6",
  "tentacle-multiaddr",
  "tentacle-secio",
  "thiserror",
@@ -4391,7 +4391,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.4.4",
+ "socket2 0.4.6",
  "tokio-macros",
  "winapi 0.3.9",
 ]
