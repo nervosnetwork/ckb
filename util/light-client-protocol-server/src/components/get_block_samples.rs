@@ -50,7 +50,7 @@ impl BlockSampler {
         } else {
             return None;
         }
-        if let Some(end_total_difficulty) = self.get_block_total_difficulty(end_block_number) {
+        if let Some(end_total_difficulty) = self.get_block_total_difficulty(end_block_number - 1) {
             if end_total_difficulty <= *min_total_difficulty {
                 return None;
             }
@@ -58,12 +58,12 @@ impl BlockSampler {
             return None;
         }
         let mut block_less_than_min = start_block_number;
-        let mut block_greater_than_min = end_block_number;
-        let mut next_number = (block_less_than_min + block_greater_than_min) / 2;
+        let mut block_greater_than_min = end_block_number - 1;
         loop {
             if block_greater_than_min == block_less_than_min + 1 {
                 return Some(block_greater_than_min);
             }
+            let next_number = (block_less_than_min + block_greater_than_min) / 2;
             if let Some(total_difficulty) = self.get_block_total_difficulty(next_number) {
                 match total_difficulty.cmp(min_total_difficulty) {
                     Ordering::Equal => {
@@ -76,7 +76,6 @@ impl BlockSampler {
                         block_greater_than_min = next_number;
                     }
                 }
-                next_number = (block_less_than_min + block_greater_than_min) / 2;
             } else {
                 return None;
             }
@@ -85,7 +84,7 @@ impl BlockSampler {
 
     fn get_block_numbers_via_difficulties(
         &self,
-        start_block_number: BlockNumber,
+        mut start_block_number: BlockNumber,
         end_block_number: BlockNumber,
         difficulties: &[U256],
     ) -> Result<Vec<BlockNumber>, String> {
@@ -96,6 +95,7 @@ impl BlockSampler {
                 end_block_number,
                 difficulty,
             ) {
+                start_block_number = num;
                 numbers.push(num);
             } else {
                 let errmsg = format!(
