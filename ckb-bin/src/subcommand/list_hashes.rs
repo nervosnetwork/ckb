@@ -1,7 +1,7 @@
 use ckb_app_config::{cli, CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
 use ckb_resource::{Resource, AVAILABLE_SPECS};
-use ckb_types::{packed::CellOutput, prelude::*, H256};
+use ckb_types::{output_format::OutputFormat, packed::CellOutput, prelude::*, H256};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -139,11 +139,25 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
 
     println!();
     let length = specs.len();
+    let mut output_format: OutputFormat = OutputFormat::Toml;
+    if matches.is_present(cli::ARG_FORMAT) {
+        if let Some(format) = matches.value_of(cli::ARG_FORMAT) {
+            match format.to_lowercase().as_str() {
+                "json" => output_format = OutputFormat::Json,
+                "toml" => output_format = OutputFormat::Toml,
+                _ => output_format = OutputFormat::Toml,
+            }
+        }
+    }
+
     for (index, (name, spec_hashes)) in specs.into_iter().enumerate() {
         println!("# Spec: {}", name);
         let mut map = BTreeMap::default();
         map.insert(name, spec_hashes);
-        print!("{}", toml::to_string(&map).unwrap());
+        match output_format {
+            OutputFormat::Json => print!("{}", serde_json::to_string_pretty(&map).unwrap()),
+            OutputFormat::Toml | _ => print!("{}", toml::to_string(&map).unwrap()),
+        }
         if index + 1 < length {
             println!("\n");
         }

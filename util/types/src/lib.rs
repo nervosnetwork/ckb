@@ -9,6 +9,8 @@ pub use ckb_fixed_hash::{h160, h256, H160, H256};
 pub use molecule::{self, error};
 pub use numext_fixed_uint::{u256, U128, U256};
 
+pub mod output_format;
+
 mod generated;
 
 pub use generated::packed;

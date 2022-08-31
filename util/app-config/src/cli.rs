@@ -355,6 +355,13 @@ fn list_hashes<'help>() -> Command<'help> {
                 "Lists hashes of the bundled chain specs instead of the current effective one.",
             ),
         )
+        .arg(
+            Arg::new(ARG_FORMAT)
+                .short('f')
+                .long(ARG_FORMAT)
+                .takes_value(true)
+                .help(" [json|toml] Set the format of the printed hashes. Default in TOML."),
+        )
 }
 
 fn init<'help>() -> Command<'help> {

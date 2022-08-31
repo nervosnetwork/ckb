@@ -483,6 +483,7 @@ dependencies = [
  "rayon",
  "sentry",
  "serde",
+ "serde_json",
  "serde_plain",
  "tempfile",
  "toml",
