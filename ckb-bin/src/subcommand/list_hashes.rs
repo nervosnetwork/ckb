@@ -113,12 +113,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
 pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCode> {
     let mut specs = Vec::new();
 
-    let mut output_format = "toml";
-    if matches.is_present(cli::ARG_FORMAT) {
-        if let Some(format) = matches.value_of(cli::ARG_FORMAT) {
-            output_format = format
-        }
-    }
+    let output_format = matches.value_of(cli::ARG_FORMAT).unwrap_or_else(|| "toml");
 
     if matches.is_present(cli::ARG_BUNDLED) {
         if output_format == "toml" {
@@ -151,6 +146,10 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
 
     let length = specs.len();
 
+    // In bundled mode jsons must be trunked in an array, push these brackets manually.
+    if matches.is_present(cli::ARG_BUNDLED) {
+        print!("[")
+    }
     for (index, (name, spec_hashes)) in specs.into_iter().enumerate() {
         if output_format == "toml" {
             println!("# Spec: {}", name);
@@ -158,12 +157,24 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
         let mut map = BTreeMap::default();
         map.insert(name, spec_hashes);
         match output_format {
-            "json" => print!("{}", serde_json::to_string_pretty(&map).unwrap()),
-            "toml" | _ => print!("{}", toml::to_string(&map).unwrap()),
+            "json" => {
+                print!("{}", serde_json::to_string_pretty(&map).unwrap());
+                if index + 1 < length {
+                    print!(",");
+                }
+            }
+            "toml" | _ => {
+                print!("{}", toml::to_string(&map).unwrap());
+
+                if index + 1 < length {
+                    println!("\n")
+                }
+            }
         }
-        if index + 1 < length {
-            println!("\n");
-        }
+    }
+    // In bundled mode jsons must be trunked in an array, push these brackets manually.
+    if matches.is_present(cli::ARG_BUNDLED) {
+        print!("]")
     }
 
     Ok(())
