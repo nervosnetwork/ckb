@@ -113,7 +113,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
 pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCode> {
     let mut specs = Vec::new();
 
-    let output_format = matches.value_of(cli::ARG_FORMAT).unwrap_or_else(|| "toml");
+    let output_format = matches.value_of(cli::ARG_FORMAT).unwrap_or("toml");
 
     if matches.is_present(cli::ARG_BUNDLED) {
         if output_format == "toml" {
@@ -163,7 +163,7 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
                     print!(",");
                 }
             }
-            "toml" | _ => {
+            _ => {
                 print!("{}", toml::to_string(&map).unwrap());
 
                 if index + 1 < length {
