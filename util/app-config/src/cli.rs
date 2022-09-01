@@ -359,8 +359,9 @@ fn list_hashes<'help>() -> Command<'help> {
             Arg::new(ARG_FORMAT)
                 .short('f')
                 .long(ARG_FORMAT)
-                .takes_value(true)
-                .help(" [json|toml] Set the format of the printed hashes. Default in TOML."),
+                .possible_values(&["json", "toml"])
+                .default_value("toml")
+                .help("Set the format of the printed hashes."),
         )
 }
 
