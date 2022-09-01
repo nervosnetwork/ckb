@@ -147,7 +147,7 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
     let length = specs.len();
 
     // In bundled mode jsons must be trunked in an array, push these brackets manually.
-    if matches.is_present(cli::ARG_BUNDLED) {
+    if matches.is_present(cli::ARG_BUNDLED) && output_format == "json" {
         print!("[")
     }
     for (index, (name, spec_hashes)) in specs.into_iter().enumerate() {
@@ -173,7 +173,7 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
         }
     }
     // In bundled mode jsons must be trunked in an array, push these brackets manually.
-    if matches.is_present(cli::ARG_BUNDLED) {
+    if matches.is_present(cli::ARG_BUNDLED) && output_format == "json" {
         print!("]")
     }
 
