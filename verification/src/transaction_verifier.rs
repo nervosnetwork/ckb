@@ -326,7 +326,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> ScriptVerifier<'a, DL> {
     /// Perform verification resume from snapshot
     pub fn resume_from_state(
         &self,
-        state: TransactionState<'a>,
+        state: TransactionState,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
         let ret = self.inner.resume_from_state(state, limit_cycles)?;

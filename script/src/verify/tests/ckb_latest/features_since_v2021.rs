@@ -501,7 +501,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
 
     verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: VecDeque<_> = verifier.groups_with_type().collect();
-        let mut tmp: Option<ResumableMachine<'_>> = None;
+        let mut tmp: Option<ResumableMachine> = None;
         let mut limit = step_cycles;
 
         loop {
@@ -597,7 +597,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: Vec<_> = verifier.groups_with_type().collect();
-        let mut tmp: Option<ResumableMachine<'_>> = None;
+        let mut tmp: Option<ResumableMachine> = None;
         let mut limit = step_cycles;
 
         loop {
@@ -682,7 +682,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_state: Option<TransactionState<'_>> = None;
+        let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
             init_state = Some(state);
@@ -737,7 +737,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut init_snap: Option<TransactionSnapshot> = None;
-        let mut init_state: Option<TransactionState<'_>> = None;
+        let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
             init_snap = Some(state.try_into().unwrap());

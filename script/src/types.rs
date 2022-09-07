@@ -94,17 +94,17 @@ impl ScriptVersion {
 }
 
 #[cfg(has_asm)]
-pub(crate) type Machine<'a> = AsmMachine<'a>;
+pub(crate) type Machine = AsmMachine;
 #[cfg(not(has_asm))]
-pub(crate) type Machine<'a> = TraceMachine<'a, CoreMachine>;
+pub(crate) type Machine = TraceMachine<CoreMachine>;
 
-pub struct ResumableMachine<'a> {
-    machine: Machine<'a>,
+pub struct ResumableMachine {
+    machine: Machine,
     pub(crate) program_bytes_cycles: Option<Cycle>,
 }
 
-impl<'a> ResumableMachine<'a> {
-    pub(crate) fn new(machine: Machine<'a>, program_bytes_cycles: Option<Cycle>) -> Self {
+impl ResumableMachine {
+    pub(crate) fn new(machine: Machine, program_bytes_cycles: Option<Cycle>) -> Self {
         ResumableMachine {
             machine,
             program_bytes_cycles,
@@ -137,12 +137,12 @@ impl<'a> ResumableMachine<'a> {
 }
 
 #[cfg(has_asm)]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine<'_>, cycles: Cycle) {
+pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
     vm.set_max_cycles(cycles)
 }
 
 #[cfg(not(has_asm))]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine<'_>, cycles: Cycle) {
+pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
     vm.machine.inner_mut().set_max_cycles(cycles)
 }
 
@@ -223,18 +223,18 @@ pub struct TransactionSnapshot {
 
 /// Struct specifies which script has verified so far.
 /// State lifetime bound with vm machine.
-pub struct TransactionState<'a> {
+pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
     /// vm state
-    pub vm: Option<ResumableMachine<'a>>,
+    pub vm: Option<ResumableMachine>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
 }
 
-impl TransactionState<'_> {
+impl TransactionState {
     /// Return next limit cycles according to max_cycles and step_cycles
     pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
         let remain = max_cycles - self.current_cycles;
@@ -262,10 +262,10 @@ impl TransactionSnapshot {
     }
 }
 
-impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
+impl TryFrom<TransactionState> for TransactionSnapshot {
     type Error = Error;
 
-    fn try_from(state: TransactionState<'_>) -> Result<Self, Self::Error> {
+    fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
             vm,
@@ -305,11 +305,11 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
 /// Enum represent resumable verify result
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum VerifyResult<'a> {
+pub enum VerifyResult {
     /// Completed total cycles
     Completed(Cycle),
     /// Suspended state
-    Suspended(TransactionState<'a>),
+    Suspended(TransactionState),
 }
 
 impl std::fmt::Debug for TransactionSnapshot {
@@ -322,7 +322,7 @@ impl std::fmt::Debug for TransactionSnapshot {
     }
 }
 
-impl std::fmt::Debug for TransactionState<'_> {
+impl std::fmt::Debug for TransactionState {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("TransactionState")
             .field("current", &self.current)

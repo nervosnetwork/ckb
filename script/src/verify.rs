@@ -46,13 +46,13 @@ use std::collections::{BTreeMap, HashMap};
 #[cfg(test)]
 mod tests;
 
-pub enum ChunkState<'a> {
-    Suspended(Option<ResumableMachine<'a>>),
+pub enum ChunkState {
+    Suspended(Option<ResumableMachine>),
     Completed(Cycle),
 }
 
-impl<'a> ChunkState<'a> {
-    pub fn suspended(machine: ResumableMachine<'a>) -> Self {
+impl ChunkState {
+    pub fn suspended(machine: ResumableMachine) -> Self {
         ChunkState::Suspended(Some(machine))
     }
 
@@ -446,11 +446,11 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
     fn build_state(
         &self,
-        vm: Option<ResumableMachine<'a>>,
+        vm: Option<ResumableMachine>,
         current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
-    ) -> TransactionState<'a> {
+    ) -> TransactionState {
         TransactionState {
             current,
             vm,
@@ -597,9 +597,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_state(
         &'a self,
-        state: TransactionState<'a>,
+        state: TransactionState,
         limit_cycles: Cycle,
-    ) -> Result<VerifyResult<'a>, Error> {
+    ) -> Result<VerifyResult, Error> {
         let TransactionState {
             current,
             vm,
@@ -818,7 +818,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         group: &'a ScriptGroup,
         max_cycles: Cycle,
         snap: &Option<(Snapshot, Cycle)>,
-    ) -> Result<ChunkState<'a>, ScriptError> {
+    ) -> Result<ChunkState, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
@@ -861,9 +861,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         script_version: ScriptVersion,
         script_group: &'a ScriptGroup,
-    ) -> Vec<Box<(dyn Syscalls<CoreMachine> + 'a)>> {
+    ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let current_script_hash = script_group.script.calc_script_hash();
-        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine> + 'a)>> = vec![
+        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine>)>> = vec![
             Box::new(self.build_load_script_hash(current_script_hash.clone())),
             Box::new(self.build_load_tx()),
             Box::new(
@@ -901,7 +901,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         &'a self,
         script_group: &'a ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<Machine<'a>, ScriptError> {
+    ) -> Result<Machine, ScriptError> {
         let script_version = self.select_version(&script_group.script)?;
         let core_machine = script_version.init_core_machine(max_cycles);
         let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
@@ -949,7 +949,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         script_group: &'a ScriptGroup,
         max_cycles: Cycle,
         snap: &Option<(Snapshot, Cycle)>,
-    ) -> Result<ChunkState<'a>, ScriptError> {
+    ) -> Result<ChunkState, ScriptError> {
         let mut machine = self.build_machine(script_group, max_cycles)?;
 
         let map_vm_internal_error = |error: VMInternalError| match error {
