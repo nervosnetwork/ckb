@@ -1,6 +1,6 @@
 [package]
 name = "ckb-benches"
-version = "0.104.1"
+version = "0.104.1-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -13,26 +13,26 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dev-dependencies]
 criterion = "0.3"
-ckb-chain = { path = "../chain", version = "= 0.104.1" }
-ckb-types = { path = "../util/types", version = "= 0.104.1" }
-ckb-shared = { path = "../shared", version = "= 0.104.1" }
-ckb-store = { path = "../store", version = "= 0.104.1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.104.1" }
+ckb-chain = { path = "../chain", version = "= 0.104.1-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.104.1-rc1" }
+ckb-shared = { path = "../shared", version = "= 0.104.1-rc1" }
+ckb-store = { path = "../store", version = "= 0.104.1-rc1" }
+ckb-chain-spec = { path = "../spec", version = "= 0.104.1-rc1" }
 rand = "0.7"
-ckb-hash = {path = "../util/hash", version = "= 0.104.1"}
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.104.1" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.104.1" }
-ckb-dao = { path = "../util/dao", version = "= 0.104.1" }
+ckb-hash = {path = "../util/hash", version = "= 0.104.1-rc1"}
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.104.1-rc1" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.104.1-rc1" }
+ckb-dao = { path = "../util/dao", version = "= 0.104.1-rc1" }
 ckb-system-scripts = { version = "= 0.5.4" }
 lazy_static = "1.3.0"
-ckb-crypto = { path = "../util/crypto", version = "= 0.104.1" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.104.1" }
-ckb-verification = { path = "../verification", version = "= 0.104.1" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.104.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.104.1" }
-ckb-resource = { path = "../resource", version = "= 0.104.1" }
-ckb-network = { path = "../network", version = "= 0.104.1" }
-ckb-launcher = { path = "../util/launcher", version = "= 0.104.1" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.104.1-rc1" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.104.1-rc1" }
+ckb-verification = { path = "../verification", version = "= 0.104.1-rc1" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.104.1-rc1" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.104.1-rc1" }
+ckb-resource = { path = "../resource", version = "= 0.104.1-rc1" }
+ckb-network = { path = "../network", version = "= 0.104.1-rc1" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.104.1-rc1" }
 tempfile = "3.0"
 
 [[bench]]

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-stop-handler"
-version = "0.104.1"
+version = "0.104.1-rc1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -10,6 +10,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 parking_lot = "0.12"
-ckb-logger = { path = "../logger", version = "= 0.104.1" }
+ckb-logger = { path = "../logger", version = "= 0.104.1-rc1" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
-ckb-channel = { path = "../channel", version = "= 0.104.1" }
+ckb-channel = { path = "../channel", version = "= 0.104.1-rc1" }

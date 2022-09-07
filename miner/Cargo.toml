@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.104.1"
+version = "0.104.1-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,23 +9,23 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.104.1" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.104.1" }
-ckb-types = { path = "../util/types", version = "= 0.104.1" }
-ckb-channel = { path = "../util/channel", version = "= 0.104.1" }
-ckb-hash = { path = "../util/hash", version = "= 0.104.1" }
-ckb-pow = { path = "../pow", version = "= 0.104.1" }
+ckb-logger = { path = "../util/logger", version = "= 0.104.1-rc1" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.104.1-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.104.1-rc1" }
+ckb-channel = { path = "../util/channel", version = "= 0.104.1-rc1" }
+ckb-hash = { path = "../util/hash", version = "= 0.104.1-rc1" }
+ckb-pow = { path = "../pow", version = "= 0.104.1-rc1" }
 rand = "0.7"
 rand_distr = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.104.1" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.104.1-rc1" }
 hyper = { version = "0.14", features = ["client", "http2", "http1", "server"]  }
 hyper-tls = "0.5"
 futures = "0.3"
 lru = "0.7.1"
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.104.1" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.104.1" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.104.1-rc1" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.104.1-rc1" }
 indicatif = "0.16"
 console = ">=0.9.1, <1.0.0"
 eaglesong = "0.1"
