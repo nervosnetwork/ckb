@@ -280,9 +280,12 @@ jobs:
       matrix:
         include:
           - REL_PKG: x86_64-unknown-linux-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-linux-gnu-portable.tar.gz
           - REL_PKG: aarch64-unknown-linux-gnu.tar.gz
           - REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-centos-gnu-portable.tar.gz
           - REL_PKG: x86_64-apple-darwin.zip
+          - REL_PKG: x86_64-apple-darwin-portable.zip
           - REL_PKG: x86_64-pc-windows-msvc.zip
     needs:
       - create-release
