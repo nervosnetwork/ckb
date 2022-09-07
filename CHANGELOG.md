@@ -1,3 +1,9 @@
+# [v0.104.1](https://github.com/nervosnetwork/ckb/compare/v0.104.0...v0.104.1) (2022-09-07)
+
+### Bug Fixes
+
+* #3516: Fix atomic fetch update ordering (@driftluo)
+
 # [v0.104.0](https://github.com/nervosnetwork/ckb/compare/v0.103.0...v0.104.0) (2022-07-19)
 
 ### Features
