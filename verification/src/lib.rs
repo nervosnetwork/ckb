@@ -21,7 +21,7 @@ pub use crate::error::{
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
-    ContextualTransactionVerifier, ContextualWithoutScriptTransactionVerifier,
+    CapacityVerifier, ContextualTransactionVerifier, ContextualWithoutScriptTransactionVerifier,
     NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
     TimeRelativeTransactionVerifier, TransactionVerifier,
 };
