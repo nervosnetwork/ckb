@@ -15,4 +15,4 @@ ckb-shared = { path = "../../shared", version = "= 0.105.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
 ckb-types = { path = "../types", version = "= 0.105.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
-ckb-merkle-mountain-range = "0.5.0"
+ckb-merkle-mountain-range = "0.5.1"
