@@ -1,8 +1,9 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
-    HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, Timestamp,
-    TransactionProof, TransactionWithStatus, Uint32,
+    HeaderView, MerkleProof as JsonMerkleProof, OutPoint, PackedTransactionWithStatus,
+    ResponseFormat, Timestamp, TransactionProof, TransactionWithStatus, Uint32,
+    VariantTransactionWithStatus,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -454,8 +455,8 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release.
-    /// It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+    /// when verbosity=0, it's response value is as same as verbosity=2, but it
+    /// return a 0x-prefixed hex encoded molecule packed::TransactionView on `transaction` field
     ///
     /// When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
     ///
@@ -532,12 +533,30 @@ pub trait ChainRpc {
     ///   }
     /// }
     /// ```
+    ///
+    ///
+    /// The response looks like below when `verbosity` is 0.
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "transaction": "0x.....",
+    ///     "tx_status": {
+    ///       "block_hash": null,
+    ///       "status": "pending",
+    ///       "reason": null
+    ///     }
+    ///   }
+    /// }
+    /// ```
     #[rpc(name = "get_transaction")]
     fn get_transaction(
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatus>>;
+    ) -> Result<Option<VariantTransactionWithStatus>>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
     /// `block_number`.
@@ -1349,27 +1368,27 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatus>> {
+    ) -> Result<Option<VariantTransactionWithStatus>> {
         let tx_hash = tx_hash.pack();
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
 
         if verbosity == 0 {
-            // legacy mode
-            //  When verbosity is 0 (deprecated): this is reserved for compatibility,
-            //  and will be removed in the following release.
-            //  It return null as the RPC response when the status is rejected or unknown,
-            //  mimicking the original behaviors.
+            // when verbosity=0, it's response value is as same as verbosity=2, but it
+            // return a 0x-prefixed hex encoded molecule packed::TransactionView on `transaction` field
             self.get_transaction_verbosity0(tx_hash)
+                .map(|v| v.map(VariantTransactionWithStatus::PackedTransactionWithStatus))
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
             self.get_transaction_verbosity1(tx_hash)
+                .map(|v| v.map(VariantTransactionWithStatus::TransactionWithStatus))
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
             self.get_transaction_verbosity2(tx_hash)
+                .map(|v| v.map(VariantTransactionWithStatus::TransactionWithStatus))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -1670,30 +1689,10 @@ impl ChainRpcImpl {
     fn get_transaction_verbosity0(
         &self,
         tx_hash: packed::Byte32,
-    ) -> Result<Option<TransactionWithStatus>> {
-        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
-            return Ok(Some(TransactionWithStatus::with_committed(
-                Some(tx),
-                block_hash.unpack(),
-            )));
-        }
-
-        let tx_pool = self.shared.tx_pool_controller();
-        let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(tx_hash);
-        if let Err(e) = fetch_tx_for_rpc {
-            error!("send fetch_tx_for_rpc request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-
-        let ret = fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
-            if proposed {
-                TransactionWithStatus::with_proposed(Some(tx))
-            } else {
-                TransactionWithStatus::with_pending(Some(tx))
-            }
-        });
-
-        Ok(ret)
+    ) -> Result<Option<PackedTransactionWithStatus>> {
+        // convert ckb_jsonrpc_types::TransactionWithView to hex encoded molecule packed::TransactionView with 0x prefix
+        self.get_transaction_verbosity2(tx_hash)
+            .map(|ov| ov.map(|v| PackedTransactionWithStatus::from(v)))
     }
 
     fn get_transaction_verbosity1(
