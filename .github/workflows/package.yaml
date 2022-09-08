@@ -40,6 +40,13 @@ jobs:
   package-for-linux:
     name: package-for-linux
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-unknown-linux-gnu.tar.gz"
+            build_target: "prod"
+          - rel_pkg: "x86_64-unknown-linux-gnu-portable.tar.gz"
+            build_target: "prod_portable"
     steps:
     - uses: actions/checkout@v3
     - name: Set Env
@@ -54,13 +61,12 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 $BUILDER_IMAGE make prod
+        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu -e OPENSSL_INCLUDE_DIR=/usr/include $BUILDER_IMAGE make ${{ matrix.build_target }}
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
-        devtools/ci/qput-7z "releases/ckb_${GIT_TAG_NAME}_x86_64-unknown-linux-gnu"
     - name: upload-zip-file
       uses: actions/upload-artifact@v2
       with:
@@ -73,7 +79,7 @@ jobs:
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.61.0
-      REL_PKG: x86_64-unknown-linux-gnu.tar.gz
+      REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-linux-aarch64:
     name: package-for-linux-aarch64
@@ -112,7 +118,6 @@ jobs:
         devtools/ci/package.sh target/aarch64-unknown-linux-gnu/release/ckb
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
         mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
-        devtools/ci/qput-7z "releases/ckb_${GIT_TAG_NAME}_aarch64-unknown-linux-gnu"
     - name: upload-zip-file
       uses: actions/upload-artifact@v2
       with:
@@ -129,6 +134,13 @@ jobs:
   package-for-centos:
     name: package-for-centos
     runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-unknown-centos-gnu.tar.gz"
+            build_target: "prod"
+          - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
+            build_target: "prod_portable"
     steps:
     - uses: actions/checkout@v3
     - name: Set Env
@@ -141,7 +153,7 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make prod
+        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
@@ -159,11 +171,18 @@ jobs:
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.61.0
-      REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+      REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-mac:
     name: package-for-mac
     runs-on: macos-11
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-apple-darwin.zip"
+            build_target: "prod"
+          - rel_pkg: "x86_64-apple-darwin-portable.zip"
+            build_target: "prod_portable"
     steps:
     - uses: actions/checkout@v3
     - name: Set Env
@@ -176,7 +195,7 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include prod
+        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include ${{ matrix.build_target }}
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
@@ -193,7 +212,7 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      REL_PKG: x86_64-apple-darwin.zip
+      REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-windows:
     name: package-for-windows
@@ -261,9 +280,12 @@ jobs:
       matrix:
         include:
           - REL_PKG: x86_64-unknown-linux-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-linux-gnu-portable.tar.gz
           - REL_PKG: aarch64-unknown-linux-gnu.tar.gz
           - REL_PKG: x86_64-unknown-centos-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-centos-gnu-portable.tar.gz
           - REL_PKG: x86_64-apple-darwin.zip
+          - REL_PKG: x86_64-apple-darwin-portable.zip
           - REL_PKG: x86_64-pc-windows-msvc.zip
     needs:
       - create-release
