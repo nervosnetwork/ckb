@@ -95,7 +95,9 @@ impl BlockSampler {
                 end_block_number,
                 difficulty,
             ) {
-                start_block_number = num;
+                if num > start_block_number {
+                    start_block_number = num - 1;
+                }
                 numbers.push(num);
             } else {
                 let errmsg = format!(
