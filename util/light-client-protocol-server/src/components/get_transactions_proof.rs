@@ -5,9 +5,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*, utilities::CBMT};
 
-use crate::{LightClientProtocol, Status, StatusCode};
-
-const MAX_TRANSACTIONS_SIZE: usize = 1000;
+use crate::{constant, LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetTransactionsProofProcess<'a> {
     message: packed::GetTransactionsProofReader<'a>,
@@ -32,7 +30,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        if self.message.tx_hashes().len() > MAX_TRANSACTIONS_SIZE {
+        if self.message.tx_hashes().len() > constant::GET_TRANSACTIONS_PROOF_LIMIT {
             return StatusCode::MalformedProtocolMessage.with_context("Too many transactions");
         }
 

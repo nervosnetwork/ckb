@@ -6,7 +6,7 @@ use ckb_shared::Snapshot;
 use ckb_sync::ActiveChain;
 use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
 
-use crate::{LightClientProtocol, Status, StatusCode};
+use crate::{constant, LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetLastStateProofProcess<'a> {
     message: packed::GetLastStateProofReader<'a>,
@@ -189,6 +189,14 @@ impl<'a> GetLastStateProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
+
+        if self.message.difficulties().len() + (last_n_blocks as usize) * 2
+            > constant::GET_LAST_STATE_PROOF_LIMIT
+        {
+            return StatusCode::MalformedProtocolMessage.with_context("too many samples");
+        }
+
         let active_chain = self.protocol.shared.active_chain();
 
         let last_block_hash = self.message.last_hash().to_entity();
@@ -202,7 +210,6 @@ impl<'a> GetLastStateProofProcess<'a> {
 
         let snapshot = self.protocol.shared.shared().snapshot();
 
-        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
         let mut difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();

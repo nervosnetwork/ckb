@@ -4,7 +4,7 @@ use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
 
-use crate::{LightClientProtocol, Status, StatusCode};
+use crate::{constant, LightClientProtocol, Status, StatusCode};
 
 pub(crate) struct GetBlocksProofProcess<'a> {
     message: packed::GetBlocksProofReader<'a>,
@@ -29,6 +29,10 @@ impl<'a> GetBlocksProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        if self.message.block_hashes().len() > constant::GET_BLOCKS_PROOF_LIMIT {
+            return StatusCode::MalformedProtocolMessage.with_context("too many blocks");
+        }
+
         let active_chain = self.protocol.shared.active_chain();
 
         let last_hash = self.message.last_hash().to_entity();
