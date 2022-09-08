@@ -4,7 +4,7 @@ use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_jsonrpc_types::Status;
+use ckb_jsonrpc_types::{Status, VariantTransactionWithStatus};
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_types::{
@@ -54,7 +54,11 @@ impl Spec for SendLargeCyclesTxInBlock {
         let result = wait_until(60, || {
             let ret = node0
                 .rpc_client()
-                .get_transaction_with_verbosity(tx.hash(), 1);
+                .get_transaction_with_verbosity(tx.hash(), 1)
+                .map(|v| match v {
+                    VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                    _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=1"),
+                });
             ret.is_some() && matches!(ret.unwrap().tx_status.status, Status::Pending)
         });
         assert!(result, "large cycles tx rejected by node0");

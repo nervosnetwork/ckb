@@ -1,5 +1,5 @@
 use crate::{Node, Spec};
-use ckb_jsonrpc_types::Status;
+use ckb_jsonrpc_types::{Status, VariantTransactionWithStatus};
 use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
@@ -54,7 +54,11 @@ impl Spec for DifferentTxsWithSameInput {
         // verbosity = 1
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(tx1.hash(), 1);
+            .get_transaction_with_verbosity(tx1.hash(), 1)
+            .map(|v| match v {
+                VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=1"),
+            });
         assert!(ret.is_some(), "tx1 should be committed");
         let ret1 = ret.unwrap();
         assert!(ret1.transaction.is_none());
@@ -62,7 +66,11 @@ impl Spec for DifferentTxsWithSameInput {
 
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(tx2.hash(), 1);
+            .get_transaction_with_verbosity(tx2.hash(), 1)
+            .map(|v| match v {
+                VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=1"),
+            });
         assert!(ret.is_some(), "reject should be recorded");
         let ret2 = ret.unwrap();
         assert!(ret2.transaction.is_none());
@@ -71,7 +79,11 @@ impl Spec for DifferentTxsWithSameInput {
         // verbosity = 2
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(tx1.hash(), 2);
+            .get_transaction_with_verbosity(tx1.hash(), 2)
+            .map(|v| match v {
+                VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=2"),
+            });
         assert!(ret.is_some(), "tx1 should be committed");
         let ret1 = ret.unwrap();
         assert!(ret1.transaction.is_some());
@@ -79,7 +91,11 @@ impl Spec for DifferentTxsWithSameInput {
 
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(tx2.hash(), 2);
+            .get_transaction_with_verbosity(tx2.hash(), 2)
+            .map(|v| match v {
+                VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=2"),
+            });
         assert!(ret.is_some(), "reject should be recorded");
         let ret2 = ret.unwrap();
         assert!(ret2.transaction.is_none());

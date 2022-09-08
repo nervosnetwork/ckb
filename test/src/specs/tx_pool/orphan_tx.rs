@@ -1,7 +1,7 @@
 use crate::util::transaction::relay_tx;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
-use ckb_jsonrpc_types::Status;
+use ckb_jsonrpc_types::{Status, VariantTransactionWithStatus};
 use ckb_network::SupportProtocols;
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
@@ -92,7 +92,11 @@ impl Spec for OrphanTxRejected {
 
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(child_hash, 2);
+            .get_transaction_with_verbosity(child_hash, 2)
+            .map(|v| match v {
+                VariantTransactionWithStatus::TransactionWithStatus(ts) => ts,
+                _ => panic!("expect ckb_jsonrpc_types::TransactionWithStatus when verbosity=2"),
+            });
         assert!(ret.is_some(), "reject should be recorded");
         let ret2 = ret.unwrap();
         assert!(ret2.transaction.is_none());
