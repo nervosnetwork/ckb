@@ -26,8 +26,9 @@ pub use self::block_template::{
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
     DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof, MinerReward, OutPoint,
-    ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
-    TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
+    PackedTransactionWithStatus, ProposalWindow, Script, ScriptHashType, Status, Transaction,
+    TransactionProof, TransactionView, TransactionWithStatus, TxStatus, UncleBlock, UncleBlockView,
+    VariantTransactionWithStatus,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
@@ -71,13 +72,13 @@ pub enum ResponseFormat<V, P> {
 }
 
 impl<V, P> Serialize for ResponseFormat<V, P>
-where
-    V: Serialize,
-    P: ckb_types::prelude::Entity,
+    where
+        V: Serialize,
+        P: ckb_types::prelude::Entity,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
+        where
+            S: serde::Serializer,
     {
         match self {
             ResponseFormat::Json(view) => view.serialize(serializer),

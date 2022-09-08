@@ -514,6 +514,47 @@ impl From<Transaction> for packed::Transaction {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VariantTransactionWithStatus {
+    PackedTransactionWithStatus(PackedTransactionWithStatus),
+    TransactionWithStatus(TransactionWithStatus),
+}
+
+/// The JSON view of a transaction as well as its status.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct PackedTransactionWithStatus {
+    /// The hex encoded `packed::TransactionView` with 0x prefix
+    pub transaction: Option<String>,
+    /// The Transaction status.
+    pub tx_status: TxStatus,
+}
+
+impl From<TransactionWithStatus> for PackedTransactionWithStatus {
+    fn from(ts: TransactionWithStatus) -> Self {
+        let hex_tx_view = ts.transaction.map(|ts| {
+            let tx = packed::Transaction::from(ts.inner);
+            let tv = packed::TransactionView::new_builder()
+                .hash(tx.calc_tx_hash())
+                .witness_hash(tx.calc_witness_hash())
+                .data(tx)
+                .build();
+            let slice = tv.as_slice();
+            let mut dst = vec![0u8; slice.len() * 2 + 2];
+            dst[0] = b'0';
+            dst[1] = b'x';
+            faster_hex::hex_encode(slice, &mut dst[2..])
+                .map(|_| unsafe { String::from_utf8_unchecked(dst[2..].to_owned()) })
+                .expect("hex_string")
+        });
+
+        PackedTransactionWithStatus {
+            transaction: hex_tx_view,
+            tx_status: ts.tx_status,
+        }
+    }
+}
+
 /// The JSON view of a transaction as well as its status.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionWithStatus {
