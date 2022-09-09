@@ -307,21 +307,25 @@ impl<'a> GetBlockSamplesProcess<'a> {
                     difficulty_boundary_block_number = last_block_number - last_n_blocks;
                 }
 
-                if let Some(total_difficulty) =
-                    sampler.get_block_total_difficulty(difficulty_boundary_block_number)
-                {
-                    difficulty_boundary = total_difficulty;
-                    difficulties = difficulties
-                        .into_iter()
-                        .take_while(|d| *d < difficulty_boundary)
-                        .collect();
+                if difficulty_boundary_block_number > 0 {
+                    if let Some(total_difficulty) =
+                        sampler.get_block_total_difficulty(difficulty_boundary_block_number - 1)
+                    {
+                        difficulty_boundary = total_difficulty;
+                        difficulties = difficulties
+                            .into_iter()
+                            .take_while(|d| *d <= difficulty_boundary)
+                            .collect();
+                    } else {
+                        let errmsg = format!(
+                            "the total difficulty for block#{} is not found",
+                            difficulty_boundary_block_number
+                        );
+                        return StatusCode::InternalError.with_context(errmsg);
+                    };
                 } else {
-                    let errmsg = format!(
-                        "the total difficulty for block#{} is not found",
-                        difficulty_boundary_block_number
-                    );
-                    return StatusCode::InternalError.with_context(errmsg);
-                };
+                    difficulties.clear();
+                }
                 let sampled_numbers = match sampler.get_block_numbers_via_difficulties(
                     start_block_number,
                     difficulty_boundary_block_number,
