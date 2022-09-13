@@ -60,13 +60,17 @@ impl PeerStore {
 
     /// Add discovered peer address
     /// this method will assume peer and addr is untrust since we have not connected to it.
-    pub fn add_addr(&mut self, addr: Multiaddr) -> Result<()> {
+    pub fn add_addr(&mut self, addr: Multiaddr, flags: u64) -> Result<()> {
         if self.ban_list.is_addr_banned(&addr) {
             return Ok(());
         }
         self.check_purge()?;
         let score = self.score_config.default_score;
-        self.addr_manager.add(AddrInfo::new(addr, 0, score));
+        self.addr_manager.add({
+            let mut info = AddrInfo::new(addr, 0, score);
+            info.flags(flags);
+            info
+        });
         Ok(())
     }
 
@@ -78,6 +82,12 @@ impl PeerStore {
         let score = self.score_config.default_score;
         self.addr_manager
             .add(AddrInfo::new(addr, faketime::unix_time_as_millis(), score));
+    }
+
+    pub fn change_flags(&mut self, addr: Multiaddr, flags: u64) {
+        if let Some(addr_info) = self.addr_manager.get_mut(&addr) {
+            addr_info.flags(flags)
+        }
     }
 
     /// Get address manager
@@ -122,7 +132,11 @@ impl PeerStore {
     }
 
     /// Get peers for outbound connection, this method randomly return recently connected peer addrs
-    pub fn fetch_addrs_to_attempt(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_attempt(
+        &mut self,
+        count: usize,
+        target_fliter: impl Fn(u64) -> bool,
+    ) -> Vec<AddrInfo> {
         // Get info:
         // 1. Not already connected
         // 2. Connected within 3 days
@@ -139,6 +153,7 @@ impl PeerStore {
                     && peer_addr.connected(|t| {
                         t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL)
                     })
+                    && target_fliter(peer_addr.flags)
             })
     }
 
@@ -164,7 +179,11 @@ impl PeerStore {
     }
 
     /// Return valid addrs that success connected, used for discovery.
-    pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_random_addrs(
+        &mut self,
+        count: usize,
+        target_fliter: impl Fn(u64) -> bool,
+    ) -> Vec<AddrInfo> {
         // Get info:
         // 1. Already connected or Connected within 7 days
 
@@ -174,10 +193,11 @@ impl PeerStore {
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
-                extract_peer_id(&peer_addr.addr)
-                    .map(|peer_id| peers.contains_key(&peer_id))
-                    .unwrap_or_default()
-                    || peer_addr.connected(|t| t > addr_expired_ms)
+                target_fliter(peer_addr.flags)
+                    && (extract_peer_id(&peer_addr.addr)
+                        .map(|peer_id| peers.contains_key(&peer_id))
+                        .unwrap_or_default()
+                        || peer_addr.connected(|t| t > addr_expired_ms))
             })
     }
 

@@ -46,6 +46,13 @@ pub struct AddrInfo {
     pub attempts_count: u32,
     /// Random id
     pub random_id_pos: usize,
+    /// Flags
+    #[serde(default = "default_flags")]
+    pub flags: u64,
+}
+
+fn default_flags() -> u64 {
+    0x1
 }
 
 impl AddrInfo {
@@ -58,6 +65,7 @@ impl AddrInfo {
             last_tried_at_ms: 0,
             attempts_count: 0,
             random_id_pos: 0,
+            flags: 0,
         }
     }
 
@@ -101,6 +109,11 @@ impl AddrInfo {
         self.last_connected_at_ms = connected_at_ms;
         // reset attempts
         self.attempts_count = 0;
+    }
+
+    /// Change address flags
+    pub fn flags(&mut self, flags: u64) {
+        self.flags = flags;
     }
 }
 

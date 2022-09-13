@@ -7,7 +7,7 @@ pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
 }
 
 pub(crate) fn decode(data: &Bytes) -> Option<DiscoveryMessage> {
-    DiscoveryMessage::decode(data)
+    DiscoveryMessage::decode_v2(data)
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -92,7 +92,7 @@ impl DiscoveryMessage {
             .as_bytes()
     }
 
-    pub fn decode(data: &[u8]) -> Option<Self> {
+    pub fn decode_v2(data: &[u8]) -> Option<Self> {
         let reader = packed::DiscoveryMessageReader::from_compatible_slice(data).ok()?;
         match reader.payload().to_enum() {
             packed::DiscoveryPayloadUnionReader::GetNodes(reader) => {

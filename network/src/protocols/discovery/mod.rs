@@ -336,7 +336,7 @@ impl AddressManager for DiscoveryAddressManager {
         for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
             trace!("Add discovered address:{:?}", addr);
             self.network_state.with_peer_store_mut(|peer_store| {
-                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                if let Err(err) = peer_store.add_addr(addr.clone(), 0x1) {
                     debug!(
                         "Failed to add discoved address to peer_store {:?} {:?}",
                         err, addr
@@ -359,7 +359,7 @@ impl AddressManager for DiscoveryAddressManager {
     fn get_random(&mut self, n: usize) -> Vec<Multiaddr> {
         let fetch_random_addrs = self
             .network_state
-            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n));
+            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n, |_| true));
         let addrs = fetch_random_addrs
             .into_iter()
             .filter_map(|paddr| {

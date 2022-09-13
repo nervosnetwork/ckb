@@ -9,7 +9,7 @@ use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
-    identify::{IdentifyCallback, IdentifyProtocol},
+    identify::{Flags, IdentifyCallback, IdentifyProtocol},
     ping::PingHandler,
     support_protocols::SupportProtocols,
 };
@@ -86,6 +86,7 @@ pub struct NetworkState {
     /// Node supported protocols
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
+    pub(crate) target_flags_filter: Box<dyn Fn(Flags) -> bool + Send + Sync + 'static>,
 }
 
 impl NetworkState {
@@ -136,7 +137,20 @@ impl NetworkState {
             local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
+            target_flags_filter: Box::new(|t| {
+                let default_target = Flags::SYNC | Flags::DISCOVERY | Flags::RELAY;
+                t.contains(default_target)
+                    || (t.contains(Flags::COMPATIBILITY) && !t.support_light_client())
+            }),
         })
+    }
+
+    pub fn connect_target_flags<T>(mut self, filter: T) -> Self
+    where
+        T: Fn(Flags) -> bool + Send + Sync + 'static,
+    {
+        self.target_flags_filter = Box::new(filter);
+        self
     }
 
     pub(crate) fn report_session(
@@ -1037,12 +1051,18 @@ impl<T: ExitHandler> NetworkService<T> {
             self.network_state.dial_identify(&p2p_control, addr);
         }
 
+        let target = &self.network_state.target_flags_filter;
+        let filter = |flags: u64| -> bool {
+            let out = unsafe { Flags::from_bits_unchecked(flags) };
+            target(out)
+        };
+
         // get bootnodes
         // try get addrs from peer_store, if peer_store have no enough addrs then use bootnodes
         let bootnodes = self.network_state.with_peer_store_mut(|peer_store| {
             let count = max((config.max_outbound_peers >> 1) as usize, 1);
             let mut addrs: Vec<_> = peer_store
-                .fetch_addrs_to_attempt(count)
+                .fetch_addrs_to_attempt(count, filter)
                 .into_iter()
                 .map(|paddr| paddr.addr)
                 .collect();

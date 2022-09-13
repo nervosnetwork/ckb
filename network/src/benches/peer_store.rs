@@ -27,7 +27,7 @@ fn bench(c: &mut Criterion) {
                 |addrs| {
                     let mut peer_store = PeerStore::default();
                     for addr in addrs {
-                        peer_store.add_addr(addr).unwrap();
+                        peer_store.add_addr(addr, 0x1).unwrap();
                     }
                 },
                 BatchSize::PerIteration,
@@ -54,12 +54,12 @@ fn bench(c: &mut Criterion) {
                             .collect::<Vec<_>>();
                         let mut peer_store = PeerStore::default();
                         for addr in addrs {
-                            peer_store.add_addr(addr).unwrap();
+                            peer_store.add_addr(addr, 0x1).unwrap();
                         }
                         peer_store
                     },
                     |mut peer_store| {
-                        peer_store.fetch_random_addrs(*i);
+                        peer_store.fetch_random_addrs(*i, |_| true);
                     },
                     BatchSize::PerIteration,
                 )
