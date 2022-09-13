@@ -15,63 +15,50 @@ pub(crate) struct GetLastStateProofProcess<'a> {
     nc: &'a dyn CKBProtocolContext,
 }
 
-pub(crate) struct BlockSampler {
-    active_chain: ActiveChain,
-}
-
-impl BlockSampler {
-    fn new(active_chain: ActiveChain) -> Self {
-        Self { active_chain }
-    }
-
-    fn active_chain(&self) -> &ActiveChain {
-        &self.active_chain
-    }
-
-    fn get_block_total_difficulty(&self, number: BlockNumber) -> Option<U256> {
-        self.active_chain()
-            .get_block_hash(number)
-            .and_then(|block_hash| self.active_chain().get_block_ext(&block_hash))
-            .map(|block_ext| block_ext.total_difficulty)
-    }
+pub(crate) trait FindBlocksViaDifficulties {
+    fn get_block_total_difficulty(&self, number: BlockNumber) -> Option<U256>;
 
     fn get_first_block_total_difficulty_is_not_less_than(
         &self,
         start_block_number: BlockNumber,
         end_block_number: BlockNumber,
         min_total_difficulty: &U256,
-    ) -> Option<BlockNumber> {
+    ) -> Option<(BlockNumber, U256)> {
         if let Some(start_total_difficulty) = self.get_block_total_difficulty(start_block_number) {
             if start_total_difficulty >= *min_total_difficulty {
-                return Some(start_block_number);
+                return Some((start_block_number, start_total_difficulty));
             }
         } else {
             return None;
         }
-        if let Some(end_total_difficulty) = self.get_block_total_difficulty(end_block_number - 1) {
-            if end_total_difficulty <= *min_total_difficulty {
+        let mut end_total_difficulty = if let Some(end_total_difficulty) =
+            self.get_block_total_difficulty(end_block_number - 1)
+        {
+            if end_total_difficulty < *min_total_difficulty {
                 return None;
             }
+            end_total_difficulty
         } else {
             return None;
-        }
+        };
         let mut block_less_than_min = start_block_number;
         let mut block_greater_than_min = end_block_number - 1;
         loop {
             if block_greater_than_min == block_less_than_min + 1 {
-                return Some(block_greater_than_min);
+                return Some((block_greater_than_min, end_total_difficulty));
             }
             let next_number = (block_less_than_min + block_greater_than_min) / 2;
             if let Some(total_difficulty) = self.get_block_total_difficulty(next_number) {
                 match total_difficulty.cmp(min_total_difficulty) {
                     Ordering::Equal => {
-                        return Some(next_number);
+                        return Some((next_number, total_difficulty));
                     }
                     Ordering::Less => {
                         block_less_than_min = next_number;
                     }
                     Ordering::Greater => {
                         block_greater_than_min = next_number;
+                        end_total_difficulty = total_difficulty;
                     }
                 }
             } else {
@@ -87,8 +74,12 @@ impl BlockSampler {
         difficulties: &[U256],
     ) -> Result<Vec<BlockNumber>, String> {
         let mut numbers = Vec::new();
+        let mut current_difficulty = U256::zero();
         for difficulty in difficulties {
-            if let Some(num) = self.get_first_block_total_difficulty_is_not_less_than(
+            if current_difficulty >= *difficulty {
+                continue;
+            }
+            if let Some((num, diff)) = self.get_first_block_total_difficulty_is_not_less_than(
                 start_block_number,
                 end_block_number,
                 difficulty,
@@ -97,16 +88,39 @@ impl BlockSampler {
                     start_block_number = num - 1;
                 }
                 numbers.push(num);
+                current_difficulty = diff;
             } else {
                 let errmsg = format!(
-                    "the difficulty ({:#x}) is not in the block range [{}, {}]",
+                    "the difficulty ({:#x}) is not in the block range [{}, {})",
                     difficulty, start_block_number, end_block_number,
                 );
                 return Err(errmsg);
             }
         }
-        numbers.dedup();
         Ok(numbers)
+    }
+}
+
+pub(crate) struct BlockSampler {
+    active_chain: ActiveChain,
+}
+
+impl FindBlocksViaDifficulties for BlockSampler {
+    fn get_block_total_difficulty(&self, number: BlockNumber) -> Option<U256> {
+        self.active_chain()
+            .get_block_hash(number)
+            .and_then(|block_hash| self.active_chain().get_block_ext(&block_hash))
+            .map(|block_ext| block_ext.total_difficulty)
+    }
+}
+
+impl BlockSampler {
+    fn new(active_chain: ActiveChain) -> Self {
+        Self { active_chain }
+    }
+
+    fn active_chain(&self) -> &ActiveChain {
+        &self.active_chain
     }
 
     fn complete_headers(
@@ -212,7 +226,7 @@ impl<'a> GetLastStateProofProcess<'a> {
 
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
-        let mut difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
+        let difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
         let mut difficulties = self
             .message
             .difficulties()
@@ -291,13 +305,13 @@ impl<'a> GetLastStateProofProcess<'a> {
                     .collect::<Vec<_>>();
                 (sampled_numbers, last_n_numbers)
             } else {
-                let mut difficulty_boundary_block_number = if let Some(block_number) = sampler
+                let mut difficulty_boundary_block_number = if let Some((num, _)) = sampler
                     .get_first_block_total_difficulty_is_not_less_than(
                         start_block_number,
                         last_block_number,
                         &difficulty_boundary,
                     ) {
-                    block_number
+                    num
                 } else {
                     let errmsg = format!(
                         "the difficulty boundary ({:#x}) is not in the block range [{}, {})",
@@ -311,14 +325,17 @@ impl<'a> GetLastStateProofProcess<'a> {
                     difficulty_boundary_block_number = last_block_number - last_n_blocks;
                 }
 
+                let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
                 if difficulty_boundary_block_number > 0 {
                     if let Some(total_difficulty) =
                         sampler.get_block_total_difficulty(difficulty_boundary_block_number - 1)
                     {
-                        difficulty_boundary = total_difficulty;
                         difficulties = difficulties
                             .into_iter()
-                            .take_while(|d| *d <= difficulty_boundary)
+                            .take_while(|d| *d <= total_difficulty)
                             .collect();
                     } else {
                         let errmsg = format!(
@@ -327,24 +344,19 @@ impl<'a> GetLastStateProofProcess<'a> {
                         );
                         return StatusCode::InternalError.with_context(errmsg);
                     };
-                } else {
-                    difficulties.clear();
-                }
-                let sampled_numbers = match sampler.get_block_numbers_via_difficulties(
-                    start_block_number,
-                    difficulty_boundary_block_number,
-                    &difficulties,
-                ) {
-                    Ok(numbers) => numbers,
-                    Err(errmsg) => {
-                        return StatusCode::InternalError.with_context(errmsg);
+                    match sampler.get_block_numbers_via_difficulties(
+                        start_block_number,
+                        difficulty_boundary_block_number,
+                        &difficulties,
+                    ) {
+                        Ok(sampled_numbers) => (sampled_numbers, last_n_numbers),
+                        Err(errmsg) => {
+                            return StatusCode::InternalError.with_context(errmsg);
+                        }
                     }
-                };
-                let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
-                    .into_iter()
-                    .collect::<Vec<_>>();
-
-                (sampled_numbers, last_n_numbers)
+                } else {
+                    (Vec::new(), last_n_numbers)
+                }
             };
 
         let block_numbers = reorg_last_n_numbers
