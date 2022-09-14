@@ -4,7 +4,7 @@ use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_error::Error;
 use ckb_snapshot::Snapshot;
-use ckb_store::ChainStore;
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, HeaderProvider};
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
@@ -120,10 +120,10 @@ impl ChunkProcess {
         }
     }
 
-    fn loop_resume<'a, DL: CellDataProvider + HeaderProvider>(
+    fn loop_resume<DL: CellDataProvider + HeaderProvider + Clone + 'static>(
         &mut self,
-        rtx: &'a ResolvedTransaction,
-        data_loader: &'a DL,
+        rtx: &ResolvedTransaction,
+        data_loader: DL,
         mut init_snap: Option<Arc<TransactionSnapshot>>,
         max_cycles: Cycle,
     ) -> Result<State, Reject> {
@@ -229,10 +229,11 @@ impl ChunkProcess {
         if let Some(ref cached) = cached {
             match cached {
                 CacheEntry::Completed(completed) => {
+                    let data_loader = snapshot.as_data_loader();
                     let ret = TimeRelativeTransactionVerifier::new(
                         &rtx,
                         &consensus,
-                        snapshot.as_ref(),
+                        data_loader,
                         &tx_env,
                     )
                     .verify()
@@ -258,12 +259,13 @@ impl ChunkProcess {
             }
         }
 
-        let cloned_snapshot = Arc::clone(&snapshot);
-        let data_loader = cloned_snapshot.as_data_provider();
+        // let cloned_snapshot = Arc::clone(&snapshot);
+        // let data_loader = cloned_snapshot.as_data_provider();
+        let data_loader = snapshot.as_data_loader();
         let ret = ContextualWithoutScriptTransactionVerifier::new(
             &rtx,
             &consensus,
-            &data_loader,
+            data_loader.clone(),
             &tx_env,
         )
         .verify()
@@ -276,7 +278,7 @@ impl ChunkProcess {
             consensus.max_block_cycles()
         };
 
-        let ret = self.loop_resume(&rtx, &data_loader, init_snap, max_cycles);
+        let ret = self.loop_resume(&rtx, data_loader.clone(), init_snap, max_cycles);
         let state = try_or_return_with_snapshot!(ret, snapshot);
 
         let completed: Completed = match state {
@@ -331,8 +333,8 @@ impl ChunkProcess {
     }
 }
 
-fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider>(
-    verifier: &ScriptVerifier<'_, DL>,
+fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider + Clone + 'static>(
+    verifier: &ScriptVerifier<DL>,
     max_cycles: Cycle,
     current: usize,
 ) -> Error {

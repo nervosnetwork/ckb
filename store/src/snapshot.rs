@@ -15,18 +15,16 @@ pub struct StoreSnapshot {
     pub(crate) cache: Arc<StoreCache>,
 }
 
-impl<'a> ChainStore<'a> for StoreSnapshot {
-    type Vector = DBPinnableSlice<'a>;
-
-    fn cache(&'a self) -> Option<&'a StoreCache> {
+impl ChainStore for StoreSnapshot {
+    fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
 
-    fn freezer(&'a self) -> Option<&'a Freezer> {
+    fn freezer(&self) -> Option<&Freezer> {
         self.freezer.as_ref()
     }
 
-    fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
         self.inner
             .get_pinned(col, key)
             .expect("db operation should be ok")

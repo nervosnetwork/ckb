@@ -18,7 +18,7 @@ use ckb_jsonrpc_types::{
 use ckb_logger::{debug, error, trace};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
 use ckb_types::{
     core::{
         cell::{OverlayCellChecker, TransactionsChecker},
@@ -79,8 +79,9 @@ impl BlockAssembler {
     pub fn new(config: BlockAssemblerConfig, snapshot: Arc<Snapshot>) -> Self {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
+        let data_loader = snapshot.as_data_loader();
         let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
+            .next_epoch_ext(tip_header, &data_loader)
             .expect("tip header's epoch should be stored")
             .epoch();
         let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch);
@@ -202,8 +203,9 @@ impl BlockAssembler {
     pub(crate) async fn update_blank(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
+        let data_loader = snapshot.as_data_loader();
         let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
+            .next_epoch_ext(tip_header, &data_loader)
             .expect("tip header's epoch should be stored")
             .epoch();
         let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch);
@@ -555,7 +557,7 @@ impl BlockAssembler {
         });
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
+        let dao = DaoCalculator::new(consensus, &snapshot.borrow_as_data_loader())
             .dao_field_with_current_epoch(&rtxs, tip_header, current_epoch)?;
 
         Ok(dao)

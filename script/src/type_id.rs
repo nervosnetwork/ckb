@@ -4,6 +4,7 @@ use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
     prelude::*,
 };
+use std::rc::Rc;
 
 // NOTE: we give this special TYPE_ID script a large cycle on purpose. This way
 // we can ensure that the special built-in TYPE_ID script here only exists for
@@ -20,7 +21,7 @@ pub const ERROR_TOO_MANY_CELLS: i8 = -2;
 pub const ERROR_INVALID_INPUT_HASH: i8 = -3;
 
 pub struct TypeIdSystemScript<'a> {
-    pub rtx: &'a ResolvedTransaction,
+    pub rtx: Rc<ResolvedTransaction>,
     pub script_group: &'a ScriptGroup,
     pub max_cycles: Cycle,
 }

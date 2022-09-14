@@ -48,7 +48,7 @@ impl Drop for FreezerClose {
 /// TODO(doc): @quake
 #[derive(Clone)]
 pub struct Shared {
-    pub(crate) store: ChainDB,
+    pub(crate) store: Arc<ChainDB>,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
     pub(crate) txs_verify_cache: Arc<TokioRwLock<TxVerificationCache>>,
@@ -72,7 +72,7 @@ impl Shared {
         ibd_finished: Arc<AtomicBool>,
     ) -> Shared {
         Shared {
-            store,
+            store: Arc::new(store),
             tx_pool_controller,
             notify_controller,
             txs_verify_cache,
@@ -324,6 +324,11 @@ impl Shared {
         &self.consensus
     }
 
+    /// Makes a clone of the `Arc<Consensus>`
+    pub fn cloned_consensus(&self) -> Arc<Consensus> {
+        Arc::clone(&self.consensus)
+    }
+
     /// Return async runtime handle
     pub fn async_handle(&self) -> &Handle {
         &self.async_handle
@@ -337,6 +342,11 @@ impl Shared {
     /// TODO(doc): @quake
     pub fn store(&self) -> &ChainDB {
         &self.store
+    }
+
+    /// Return arc cloned store
+    pub fn cloned_store(&self) -> Arc<ChainDB> {
+        Arc::clone(&self.store)
     }
 
     /// Return whether chain is in initial block download

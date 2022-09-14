@@ -88,8 +88,8 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     (chain_controller, shared)
 }
 
-fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
-    VerifyContext::new(shared.store(), shared.consensus())
+fn dummy_context(shared: &Shared) -> VerifyContext<ChainDB> {
+    VerifyContext::new(shared.cloned_store(), shared.cloned_consensus())
 }
 
 fn create_cellbase(number: BlockNumber) -> TransactionView {

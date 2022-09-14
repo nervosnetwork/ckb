@@ -4,7 +4,7 @@ use ckb_jsonrpc_types::{
     Capacity, DaoWithdrawingCalculationKind, DryRunResult, OutPoint, Transaction,
 };
 use ckb_shared::{shared::Shared, Snapshot};
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
 use ckb_types::{
     core::{
         self,
@@ -185,7 +185,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let out_point: packed::OutPoint = out_point.into();
-        let data_loader = snapshot.as_data_provider();
+        let data_loader = snapshot.borrow_as_data_loader();
         let calculator = DaoCalculator::new(consensus, &data_loader);
         match kind {
             DaoWithdrawingCalculationKind::WithdrawingHeaderHash(withdrawing_header_hash) => {
@@ -279,14 +279,13 @@ impl<'a> DryRunner<'a> {
     }
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
-        let snapshot: &Snapshot = &self.shared.snapshot();
+        let snapshot = self.shared.snapshot();
+        let data_loader = snapshot.as_data_loader();
         let consensus = snapshot.consensus();
         match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
-                    .verify(max_cycles)
-                {
+                match ScriptVerifier::new(&resolved, data_loader).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: cycles.into(),
                     }),

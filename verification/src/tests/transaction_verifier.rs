@@ -384,9 +384,9 @@ pub fn test_duplicate_header_deps() {
     );
 }
 
-fn verify_since<'a>(
-    rtx: &'a ResolvedTransaction,
-    median_time_context: &'a MockMedianTime,
+fn verify_since(
+    rtx: &ResolvedTransaction,
+    median_time_context: MockMedianTime,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
 ) -> Result<(), Error> {
@@ -473,7 +473,7 @@ fn test_invalid_since_verify() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context, 5, 1).unwrap_err(),
         TransactionError::InvalidSince { index: 0 },
     );
 }
@@ -488,7 +488,7 @@ fn test_valid_zero_length_since() {
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 5, 1).is_ok(),);
+    assert!(verify_since(&rtx, median_time_context, 5, 1).is_ok(),);
 }
 
 #[test]
@@ -515,7 +515,8 @@ fn test_fraction_epoch_since_verify() {
             .build();
         TxVerifyEnv::new_commit(&header)
     };
-    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
+    let result =
+        SinceVerifier::new(&rtx, &consensus, median_time_context.clone(), &tx_env).verify();
     assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
 
     let tx_env = {
@@ -527,7 +528,7 @@ fn test_fraction_epoch_since_verify() {
             .build();
         TxVerifyEnv::new_commit(&header)
     };
-    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
+    let result = SinceVerifier::new(&rtx, &consensus, median_time_context, &tx_env).verify();
     assert!(result.is_ok());
 }
 
@@ -560,13 +561,14 @@ fn test_fraction_epoch_since_verify_v2021() {
             .hardfork_switch(hardfork_switch)
             .build();
 
-        let result = SinceVerifier::new(&rtx1, &consensus, &median_time_context, &tx_env).verify();
+        let result =
+            SinceVerifier::new(&rtx1, &consensus, median_time_context.clone(), &tx_env).verify();
         assert_error_eq!(
             result.unwrap_err(),
             TransactionError::InvalidSince { index: 0 }
         );
 
-        let result = SinceVerifier::new(&rtx2, &consensus, &median_time_context, &tx_env).verify();
+        let result = SinceVerifier::new(&rtx2, &consensus, median_time_context, &tx_env).verify();
         assert!(result.is_ok(), "result = {:?}", result);
     }
 }
@@ -582,11 +584,11 @@ pub fn test_absolute_block_number_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context.clone(), 5, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 10 height
-    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
+    assert!(verify_since(&rtx, median_time_context, 10, 1).is_ok());
 }
 
 #[test]
@@ -600,11 +602,11 @@ pub fn test_absolute_epoch_number_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context.clone(), 5, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 10 epoch
-    assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
+    assert!(verify_since(&rtx, median_time_context, 100, 10).is_ok());
 }
 
 #[test]
@@ -618,7 +620,7 @@ pub fn test_relative_timestamp_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
 
@@ -630,7 +632,7 @@ pub fn test_relative_timestamp_lock() {
         &tx,
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
-    assert!(verify_since(&rtx, &median_time_context, 4, 1).is_ok());
+    assert!(verify_since(&rtx, median_time_context, 4, 1).is_ok());
 }
 
 #[test]
@@ -644,11 +646,11 @@ pub fn test_relative_epoch() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context.clone(), 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
+    assert!(verify_since(&rtx, median_time_context, 4, 2).is_ok());
 }
 
 #[test]
@@ -673,7 +675,7 @@ pub fn test_since_both() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(&rtx, median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 1024 seconds and 10 blocks
@@ -686,7 +688,7 @@ pub fn test_since_both() {
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
+    assert!(verify_since(&rtx, median_time_context, 10, 1).is_ok());
 }
 
 #[test]
@@ -706,7 +708,7 @@ fn test_since_overflow() {
         );
 
         assert_error_eq!(
-            verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+            verify_since(&rtx, median_time_context, 5, 1).unwrap_err(),
             TransactionError::Immature { index: 0 },
         );
     }
@@ -723,7 +725,7 @@ fn test_since_overflow() {
         );
 
         assert_error_eq!(
-            verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+            verify_since(&rtx, median_time_context, 5, 1).unwrap_err(),
             TransactionError::InvalidSince { index: 0 },
         );
     }

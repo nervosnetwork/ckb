@@ -4,19 +4,20 @@ use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
+use std::rc::Rc;
 
-pub struct Debugger<'a> {
+pub struct Debugger {
     hash: Byte32,
-    printer: &'a dyn Fn(&Byte32, &str),
+    printer: Rc<dyn Fn(&Byte32, &str)>,
 }
 
-impl<'a> Debugger<'a> {
-    pub fn new(hash: Byte32, printer: &'a dyn Fn(&Byte32, &str)) -> Debugger<'a> {
+impl Debugger {
+    pub fn new(hash: Byte32, printer: Rc<dyn Fn(&Byte32, &str)>) -> Debugger {
         Debugger { hash, printer }
     }
 }
 
-impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
+impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

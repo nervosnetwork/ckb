@@ -424,7 +424,7 @@ impl TxPool {
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.snapshot();
+        let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
         self.check_rtx_from_pending_and_proposed(&rtx)?;
@@ -447,7 +447,7 @@ impl TxPool {
         size: usize,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.snapshot();
+        let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
         self.check_rtx_from_proposed(&rtx)?;

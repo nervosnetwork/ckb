@@ -2,7 +2,7 @@ use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
-    DBVector, RocksDBTransaction, RocksDBTransactionSnapshot,
+    DBPinnableSlice, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
@@ -30,19 +30,19 @@ pub struct StoreTransaction {
     pub(crate) cache: Arc<StoreCache>,
 }
 
-impl<'a> ChainStore<'a> for StoreTransaction {
-    type Vector = DBVector;
-
-    fn cache(&'a self) -> Option<&'a StoreCache> {
+impl ChainStore for StoreTransaction {
+    fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
 
-    fn freezer(&'a self) -> Option<&'a Freezer> {
+    fn freezer(&self) -> Option<&Freezer> {
         self.freezer.as_ref()
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
-        self.inner.get(col, key).expect("db operation should be ok")
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+        self.inner
+            .get_pinned(col, key)
+            .expect("db operation should be ok")
     }
 
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
@@ -85,19 +85,19 @@ pub struct StoreTransactionSnapshot<'a> {
     pub(crate) cache: Arc<StoreCache>,
 }
 
-impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
-    type Vector = DBVector;
-
-    fn cache(&'a self) -> Option<&'a StoreCache> {
+impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
+    fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
 
-    fn freezer(&'a self) -> Option<&'a Freezer> {
+    fn freezer(&self) -> Option<&Freezer> {
         self.freezer.as_ref()
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
-        self.inner.get(col, key).expect("db operation should be ok")
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+        self.inner
+            .get_pinned(col, key)
+            .expect("db operation should be ok")
     }
 
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {

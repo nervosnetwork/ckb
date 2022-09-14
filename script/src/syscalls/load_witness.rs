@@ -5,30 +5,37 @@ use crate::{
         SUCCESS,
     },
 };
+use ckb_types::core::cell::ResolvedTransaction;
 use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::rc::Rc;
 
 #[derive(Debug)]
-pub struct LoadWitness<'a> {
-    witnesses: BytesVec,
-    group_inputs: &'a [usize],
-    group_outputs: &'a [usize],
+pub struct LoadWitness {
+    rtx: Rc<ResolvedTransaction>,
+    group_inputs: Rc<Vec<usize>>,
+    group_outputs: Rc<Vec<usize>>,
 }
 
-impl<'a> LoadWitness<'a> {
+impl LoadWitness {
     pub fn new(
-        witnesses: BytesVec,
-        group_inputs: &'a [usize],
-        group_outputs: &'a [usize],
-    ) -> LoadWitness<'a> {
+        rtx: Rc<ResolvedTransaction>,
+        group_inputs: Rc<Vec<usize>>,
+        group_outputs: Rc<Vec<usize>>,
+    ) -> LoadWitness {
         LoadWitness {
-            witnesses,
+            rtx,
             group_inputs,
             group_outputs,
         }
+    }
+
+    #[inline]
+    fn witnesses(&self) -> BytesVec {
+        self.rtx.transaction.witnesses()
     }
 
     fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
@@ -36,19 +43,19 @@ impl<'a> LoadWitness<'a> {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
-                .and_then(|actual_index| self.witnesses.get(*actual_index)),
+                .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
-                .and_then(|actual_index| self.witnesses.get(*actual_index)),
-            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
-            Source::Transaction(SourceEntry::Output) => self.witnesses.get(index),
+                .and_then(|actual_index| self.witnesses().get(*actual_index)),
+            Source::Transaction(SourceEntry::Input) => self.witnesses().get(index),
+            Source::Transaction(SourceEntry::Output) => self.witnesses().get(index),
             _ => None,
         }
     }
 }
 
-impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
+impl<Mac: SupportMachine> Syscalls<Mac> for LoadWitness {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

@@ -5,6 +5,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::LinkedHashMap;
+use std::sync::Arc;
 
 /// There's a consensus rule to verify that the block timestamp must be larger than
 /// the median timestamp of the previous 37 blocks.
@@ -12,8 +13,9 @@ use ckb_util::LinkedHashMap;
 /// `MockMedianTime` is a mock for the median time in testing.
 /// And the number of previous blocks for calculating median timestamp is set as 11.
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct MockMedianTime {
-    headers: LinkedHashMap<Byte32, HeaderView>,
+    headers: Arc<LinkedHashMap<Byte32, HeaderView>>,
 }
 
 #[doc(hidden)]
@@ -37,17 +39,19 @@ impl MockMedianTime {
     #[doc(hidden)]
     pub fn new(timestamps: Vec<u64>) -> Self {
         Self {
-            headers: timestamps
-                .iter()
-                .enumerate()
-                .map(|(idx, timestamp)| {
-                    let header = HeaderBuilder::default()
-                        .timestamp(timestamp.pack())
-                        .number((idx as u64).pack())
-                        .build();
-                    (header.hash(), header)
-                })
-                .collect(),
+            headers: Arc::new(
+                timestamps
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, timestamp)| {
+                        let header = HeaderBuilder::default()
+                            .timestamp(timestamp.pack())
+                            .number((idx as u64).pack())
+                            .build();
+                        (header.hash(), header)
+                    })
+                    .collect(),
+            ),
         }
     }
 

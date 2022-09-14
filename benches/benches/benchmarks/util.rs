@@ -177,7 +177,7 @@ pub fn gen_always_success_block(
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&p_block.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&p_block.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -387,7 +387,7 @@ pub fn gen_secp_block(
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&p_block.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&p_block.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -498,7 +498,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let data_loader = snapshot.as_data_provider();
+    let data_loader = snapshot.borrow_as_data_loader();
     let calculator = DaoCalculator::new(snapshot.consensus(), &data_loader);
     calculator
         .dao_field(&rtxs, parent)
@@ -511,7 +511,7 @@ pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity
     let target_number = shared.consensus().finalize_target(number).unwrap();
     let target_hash = snapshot.get_block_hash(target_number).unwrap();
     let target = snapshot.get_block_header(&target_hash).unwrap();
-    let data_loader = snapshot.as_data_provider();
+    let data_loader = snapshot.borrow_as_data_loader();
     let calculator = DaoCalculator::new(shared.consensus(), &data_loader);
     calculator
         .primary_block_reward(&target)

@@ -356,7 +356,7 @@ impl ChainService {
     }
 
     fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let db_txn = self.shared.store().begin_transaction();
+        let db_txn = Arc::new(self.shared.store().begin_transaction());
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
 
@@ -395,7 +395,7 @@ impl ChainService {
         let next_block_epoch = self
             .shared
             .consensus()
-            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .next_epoch_ext(&parent_header, &txn_snapshot.borrow_as_data_loader())
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();
@@ -441,7 +441,7 @@ impl ChainService {
 
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
+            self.reconcile_main_chain(Arc::clone(&db_txn), &mut fork, switch)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -699,21 +699,21 @@ impl ChainService {
     // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
-        txn: &StoreTransaction,
+        txn: Arc<StoreTransaction>,
         fork: &mut ForkChanges,
         switch: Switch,
     ) -> Result<(), Error> {
         let txs_verify_cache = self.shared.txs_verify_cache();
-        let consensus = self.shared.consensus();
+        let consensus = self.shared.cloned_consensus();
         let async_handle = self.shared.tx_pool_controller().handle();
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
             txn.attach_block(b)?;
-            attach_block_cell(txn, b)?;
+            attach_block_cell(&txn, b)?;
         }
 
-        let verify_context = VerifyContext::new(txn, consensus);
+        let verify_context = VerifyContext::new(Arc::clone(&txn), consensus);
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -723,7 +723,8 @@ impl ChainService {
         {
             if !switch.disable_all() {
                 if found_error.is_none() {
-                    let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
+                    let contextual_block_verifier =
+                        ContextualBlockVerifier::new(verify_context.clone());
                     let mut seen_inputs = HashSet::new();
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
@@ -735,7 +736,7 @@ impl ChainService {
 
                     let transactions = b.transactions();
                     let resolved = {
-                        let cell_provider = OverlayCellProvider::new(&block_cp, txn);
+                        let cell_provider = OverlayCellProvider::new(&block_cp, txn.as_ref());
                         transactions
                             .iter()
                             .cloned()
@@ -763,7 +764,7 @@ impl ChainService {
                                     let txs_fees =
                                         cache_entries.iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
-                                    attach_block_cell(txn, b)?;
+                                    attach_block_cell(&txn, b)?;
                                     let mut mut_ext = ext.clone();
                                     mut_ext.verified = Some(true);
                                     mut_ext.txs_fees = txs_fees;
@@ -823,7 +824,7 @@ impl ChainService {
                 }
             } else {
                 txn.attach_block(b)?;
-                attach_block_cell(txn, b)?;
+                attach_block_cell(&txn, b)?;
                 let mut mut_ext = ext.clone();
                 mut_ext.verified = Some(true);
                 txn.insert_block_ext(&b.header().hash(), &mut_ext)?;

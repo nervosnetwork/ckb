@@ -52,7 +52,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
     let parent_number = parent.header().number();
     let epoch = snapshot
         .consensus()
-        .next_epoch_ext(&parent.header(), &snapshot.as_data_provider())
+        .next_epoch_ext(&parent.header(), &snapshot.borrow_as_data_loader())
         .unwrap()
         .epoch();
     let cellbase = inherit_cellbase(&snapshot, parent_number);
@@ -64,7 +64,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
             snapshot.as_ref(),
         )
         .unwrap();
-        let data_loader = snapshot.as_data_provider();
+        let data_loader = snapshot.borrow_as_data_loader();
         DaoCalculator::new(shared.consensus(), &data_loader)
             .dao_field(&[resolved_cellbase], &parent.header())
             .unwrap()

@@ -35,7 +35,7 @@ pub struct RewardCalculator<'a, CS> {
     store: &'a CS,
 }
 
-impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
+impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
     /// Creates a new `RewardCalculator`.
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         RewardCalculator { consensus, store }
@@ -254,7 +254,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     }
 
     fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), DaoError> {
-        let data_loader = self.store.as_data_provider();
+        let data_loader = self.store.borrow_as_data_loader();
         let calculator = DaoCalculator::new(self.consensus, &data_loader);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;

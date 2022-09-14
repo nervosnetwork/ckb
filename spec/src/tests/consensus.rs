@@ -1,10 +1,10 @@
 use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochExt, HeaderBuilder, HeaderView,
-        TransactionBuilder,
+        capacity_bytes, BlockBuilder, BlockExt, BlockNumber, Capacity, EpochExt, HeaderBuilder,
+        HeaderView, TransactionBuilder,
     },
-    packed::Bytes,
+    packed::{Byte32, Bytes},
     prelude::*,
     utilities::DIFF_TWO,
 };
@@ -58,6 +58,19 @@ fn test_halving_epoch_reward() {
         fn get_epoch_ext(&self, _block_header: &HeaderView) -> Option<EpochExt> {
             Some(self.0.clone())
         }
+
+        fn get_block_hash(&self, _number: BlockNumber) -> Option<Byte32> {
+            None
+        }
+
+        fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
+            None
+        }
+
+        fn get_block_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+            None
+        }
+
         fn get_block_epoch(&self, block_header: &HeaderView) -> Option<BlockEpoch> {
             let block_epoch =
                 if block_header.number() == self.0.start_number() + self.0.length() - 1 {

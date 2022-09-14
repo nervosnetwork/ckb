@@ -3,7 +3,10 @@ use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB};
+use ckb_store::{
+    data_loader_wrapper::{AsDataLoader, DataLoaderWrapper},
+    ChainDB,
+};
 use ckb_test_chain_utils::{
     ckb_testnet_consensus, secp256k1_blake160_sighash_cell, secp256k1_data_cell,
     type_lock_script_code_hash,
@@ -21,6 +24,7 @@ use ckb_types::{
     H256,
 };
 use faster_hex::hex_encode;
+use std::sync::Arc;
 use std::{convert::TryInto as _, fs::File, path::Path};
 use tempfile::TempDir;
 
@@ -115,7 +119,7 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
     // So, put `ChainDB` (`RocksDB`) before `TempDir`.
     //
     // Ref: https://doc.rust-lang.org/reference/destructors.html
-    store: ChainDB,
+    store: Arc<ChainDB>,
     _tmp_dir: TempDir,
 }
 
@@ -123,7 +127,7 @@ impl TransactionScriptsVerifierWithEnv {
     pub(crate) fn new() -> Self {
         let tmp_dir = TempDir::new().unwrap();
         let db = RocksDB::open_in(&tmp_dir, COLUMNS);
-        let store = ChainDB::new(db, Default::default());
+        let store = Arc::new(ChainDB::new(db, Default::default()));
         Self {
             store,
             _tmp_dir: tmp_dir,
@@ -204,10 +208,10 @@ impl TransactionScriptsVerifierWithEnv {
         mut verify_func: F,
     ) -> R
     where
-        F: FnMut(TransactionScriptsVerifier<'_, DataLoaderWrapper<'_, ChainDB>>) -> R,
+        F: FnMut(TransactionScriptsVerifier<DataLoaderWrapper<ChainDB>>) -> R,
     {
-        let data_loader = DataLoaderWrapper::new(&self.store);
-        let verifier = TransactionScriptsVerifier::new(rtx, &data_loader);
+        let data_loader = self.store.as_data_loader();
+        let verifier = TransactionScriptsVerifier::new(rtx, data_loader);
         verify_func(verifier)
     }
 }
