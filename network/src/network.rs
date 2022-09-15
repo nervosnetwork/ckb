@@ -147,7 +147,7 @@ impl NetworkState {
     }
 
     /// which peer flag should to connect,
-    /// default with `Flags::SYNC | Flags::DISCOVERY | Flags::RELAY` or `Flags::COMPATIBILITY && not support client`
+    /// default with `Flags::SYNC | Flags::DISCOVERY | Flags::RELAY` or `Flags::COMPATIBILITY`
     pub fn target_flags_filter<T>(mut self, filter: T) -> Self
     where
         T: Fn(Flags) -> bool + Send + Sync + 'static,

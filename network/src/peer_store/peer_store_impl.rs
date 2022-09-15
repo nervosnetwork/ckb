@@ -84,6 +84,7 @@ impl PeerStore {
             .add(AddrInfo::new(addr, faketime::unix_time_as_millis(), score));
     }
 
+    /// Change peer's Flags
     pub fn change_flags(&mut self, addr: Multiaddr, flags: u64) {
         if let Some(addr_info) = self.addr_manager.get_mut(&addr) {
             addr_info.flags(flags)

@@ -28,8 +28,6 @@ option PortOpt (Uint16);
 union DiscoveryPayload {
     GetNodes,
     Nodes,
-    GetNodes2,
-    Nodes2,
 }
 
 table DiscoveryMessage {

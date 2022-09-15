@@ -2052,7 +2052,7 @@ impl ::core::default::Default for DiscoveryPayload {
     }
 }
 impl DiscoveryPayload {
-    pub const ITEMS_COUNT: usize = 4;
+    pub const ITEMS_COUNT: usize = 2;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -2061,8 +2061,6 @@ impl DiscoveryPayload {
         match self.item_id() {
             0 => GetNodes::new_unchecked(inner).into(),
             1 => Nodes::new_unchecked(inner).into(),
-            2 => GetNodes2::new_unchecked(inner).into(),
-            3 => Nodes2::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -2119,7 +2117,7 @@ impl<'r> ::core::fmt::Display for DiscoveryPayloadReader<'r> {
     }
 }
 impl<'r> DiscoveryPayloadReader<'r> {
-    pub const ITEMS_COUNT: usize = 4;
+    pub const ITEMS_COUNT: usize = 2;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -2128,8 +2126,6 @@ impl<'r> DiscoveryPayloadReader<'r> {
         match self.item_id() {
             0 => GetNodesReader::new_unchecked(inner).into(),
             1 => NodesReader::new_unchecked(inner).into(),
-            2 => GetNodes2Reader::new_unchecked(inner).into(),
-            3 => Nodes2Reader::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -2157,8 +2153,6 @@ impl<'r> molecule::prelude::Reader<'r> for DiscoveryPayloadReader<'r> {
         match item_id {
             0 => GetNodesReader::verify(inner_slice, compatible),
             1 => NodesReader::verify(inner_slice, compatible),
-            2 => GetNodes2Reader::verify(inner_slice, compatible),
-            3 => Nodes2Reader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEMS_COUNT, item_id),
         }?;
         Ok(())
@@ -2167,7 +2161,7 @@ impl<'r> molecule::prelude::Reader<'r> for DiscoveryPayloadReader<'r> {
 #[derive(Debug, Default)]
 pub struct DiscoveryPayloadBuilder(pub(crate) DiscoveryPayloadUnion);
 impl DiscoveryPayloadBuilder {
-    pub const ITEMS_COUNT: usize = 4;
+    pub const ITEMS_COUNT: usize = 2;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::core::convert::Into<DiscoveryPayloadUnion>,
@@ -2197,15 +2191,11 @@ impl molecule::prelude::Builder for DiscoveryPayloadBuilder {
 pub enum DiscoveryPayloadUnion {
     GetNodes(GetNodes),
     Nodes(Nodes),
-    GetNodes2(GetNodes2),
-    Nodes2(Nodes2),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum DiscoveryPayloadUnionReader<'r> {
     GetNodes(GetNodesReader<'r>),
     Nodes(NodesReader<'r>),
-    GetNodes2(GetNodes2Reader<'r>),
-    Nodes2(Nodes2Reader<'r>),
 }
 impl ::core::default::Default for DiscoveryPayloadUnion {
     fn default() -> Self {
@@ -2221,12 +2211,6 @@ impl ::core::fmt::Display for DiscoveryPayloadUnion {
             DiscoveryPayloadUnion::Nodes(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, Nodes::NAME, item)
             }
-            DiscoveryPayloadUnion::GetNodes2(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetNodes2::NAME, item)
-            }
-            DiscoveryPayloadUnion::Nodes2(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, Nodes2::NAME, item)
-            }
         }
     }
 }
@@ -2239,12 +2223,6 @@ impl<'r> ::core::fmt::Display for DiscoveryPayloadUnionReader<'r> {
             DiscoveryPayloadUnionReader::Nodes(ref item) => {
                 write!(f, "{}::{}({})", Self::NAME, Nodes::NAME, item)
             }
-            DiscoveryPayloadUnionReader::GetNodes2(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, GetNodes2::NAME, item)
-            }
-            DiscoveryPayloadUnionReader::Nodes2(ref item) => {
-                write!(f, "{}::{}({})", Self::NAME, Nodes2::NAME, item)
-            }
         }
     }
 }
@@ -2253,8 +2231,6 @@ impl DiscoveryPayloadUnion {
         match self {
             DiscoveryPayloadUnion::GetNodes(ref item) => write!(f, "{}", item),
             DiscoveryPayloadUnion::Nodes(ref item) => write!(f, "{}", item),
-            DiscoveryPayloadUnion::GetNodes2(ref item) => write!(f, "{}", item),
-            DiscoveryPayloadUnion::Nodes2(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -2263,8 +2239,6 @@ impl<'r> DiscoveryPayloadUnionReader<'r> {
         match self {
             DiscoveryPayloadUnionReader::GetNodes(ref item) => write!(f, "{}", item),
             DiscoveryPayloadUnionReader::Nodes(ref item) => write!(f, "{}", item),
-            DiscoveryPayloadUnionReader::GetNodes2(ref item) => write!(f, "{}", item),
-            DiscoveryPayloadUnionReader::Nodes2(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -2278,16 +2252,6 @@ impl ::core::convert::From<Nodes> for DiscoveryPayloadUnion {
         DiscoveryPayloadUnion::Nodes(item)
     }
 }
-impl ::core::convert::From<GetNodes2> for DiscoveryPayloadUnion {
-    fn from(item: GetNodes2) -> Self {
-        DiscoveryPayloadUnion::GetNodes2(item)
-    }
-}
-impl ::core::convert::From<Nodes2> for DiscoveryPayloadUnion {
-    fn from(item: Nodes2) -> Self {
-        DiscoveryPayloadUnion::Nodes2(item)
-    }
-}
 impl<'r> ::core::convert::From<GetNodesReader<'r>> for DiscoveryPayloadUnionReader<'r> {
     fn from(item: GetNodesReader<'r>) -> Self {
         DiscoveryPayloadUnionReader::GetNodes(item)
@@ -2298,56 +2262,36 @@ impl<'r> ::core::convert::From<NodesReader<'r>> for DiscoveryPayloadUnionReader<
         DiscoveryPayloadUnionReader::Nodes(item)
     }
 }
-impl<'r> ::core::convert::From<GetNodes2Reader<'r>> for DiscoveryPayloadUnionReader<'r> {
-    fn from(item: GetNodes2Reader<'r>) -> Self {
-        DiscoveryPayloadUnionReader::GetNodes2(item)
-    }
-}
-impl<'r> ::core::convert::From<Nodes2Reader<'r>> for DiscoveryPayloadUnionReader<'r> {
-    fn from(item: Nodes2Reader<'r>) -> Self {
-        DiscoveryPayloadUnionReader::Nodes2(item)
-    }
-}
 impl DiscoveryPayloadUnion {
     pub const NAME: &'static str = "DiscoveryPayloadUnion";
     pub fn as_bytes(&self) -> molecule::bytes::Bytes {
         match self {
             DiscoveryPayloadUnion::GetNodes(item) => item.as_bytes(),
             DiscoveryPayloadUnion::Nodes(item) => item.as_bytes(),
-            DiscoveryPayloadUnion::GetNodes2(item) => item.as_bytes(),
-            DiscoveryPayloadUnion::Nodes2(item) => item.as_bytes(),
         }
     }
     pub fn as_slice(&self) -> &[u8] {
         match self {
             DiscoveryPayloadUnion::GetNodes(item) => item.as_slice(),
             DiscoveryPayloadUnion::Nodes(item) => item.as_slice(),
-            DiscoveryPayloadUnion::GetNodes2(item) => item.as_slice(),
-            DiscoveryPayloadUnion::Nodes2(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             DiscoveryPayloadUnion::GetNodes(_) => 0,
             DiscoveryPayloadUnion::Nodes(_) => 1,
-            DiscoveryPayloadUnion::GetNodes2(_) => 2,
-            DiscoveryPayloadUnion::Nodes2(_) => 3,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
             DiscoveryPayloadUnion::GetNodes(_) => "GetNodes",
             DiscoveryPayloadUnion::Nodes(_) => "Nodes",
-            DiscoveryPayloadUnion::GetNodes2(_) => "GetNodes2",
-            DiscoveryPayloadUnion::Nodes2(_) => "Nodes2",
         }
     }
     pub fn as_reader<'r>(&'r self) -> DiscoveryPayloadUnionReader<'r> {
         match self {
             DiscoveryPayloadUnion::GetNodes(item) => item.as_reader().into(),
             DiscoveryPayloadUnion::Nodes(item) => item.as_reader().into(),
-            DiscoveryPayloadUnion::GetNodes2(item) => item.as_reader().into(),
-            DiscoveryPayloadUnion::Nodes2(item) => item.as_reader().into(),
         }
     }
 }
@@ -2357,24 +2301,18 @@ impl<'r> DiscoveryPayloadUnionReader<'r> {
         match self {
             DiscoveryPayloadUnionReader::GetNodes(item) => item.as_slice(),
             DiscoveryPayloadUnionReader::Nodes(item) => item.as_slice(),
-            DiscoveryPayloadUnionReader::GetNodes2(item) => item.as_slice(),
-            DiscoveryPayloadUnionReader::Nodes2(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             DiscoveryPayloadUnionReader::GetNodes(_) => 0,
             DiscoveryPayloadUnionReader::Nodes(_) => 1,
-            DiscoveryPayloadUnionReader::GetNodes2(_) => 2,
-            DiscoveryPayloadUnionReader::Nodes2(_) => 3,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
             DiscoveryPayloadUnionReader::GetNodes(_) => "GetNodes",
             DiscoveryPayloadUnionReader::Nodes(_) => "Nodes",
-            DiscoveryPayloadUnionReader::GetNodes2(_) => "GetNodes2",
-            DiscoveryPayloadUnionReader::Nodes2(_) => "Nodes2",
         }
     }
 }

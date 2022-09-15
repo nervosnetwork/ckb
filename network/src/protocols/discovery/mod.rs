@@ -80,10 +80,8 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
         self.addr_mgr
             .register(session.id, context.proto_id, version);
 
-        self.sessions.insert(
-            session.id,
-            SessionState::new(context, &self.addr_mgr, version == "2.1").await,
-        );
+        self.sessions
+            .insert(session.id, SessionState::new(context, &self.addr_mgr).await);
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
@@ -97,17 +95,11 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
         let session = context.session;
         trace!("[received message]: length={}", data.len());
 
-        let new_version = self
-            .sessions
-            .get(&session.id)
-            .map(|state| state.v21)
-            .unwrap_or_default();
-
         let mgr = &mut self.addr_mgr;
         let mut check =
             |behavior: Misbehavior| -> bool { mgr.misbehave(session, &behavior).is_disconnect() };
 
-        match decode(&data, new_version) {
+        match decode(&data) {
             Some(item) => {
                 match item {
                     DiscoveryMessage::GetNodes {
@@ -169,7 +161,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                                 items,
                             };
 
-                            let msg = encode(DiscoveryMessage::Nodes(nodes), new_version);
+                            let msg = encode(DiscoveryMessage::Nodes(nodes));
                             if context.send_message(msg).await.is_err() {
                                 debug!("{:?} send discovery msg Nodes fail", session.id)
                             }

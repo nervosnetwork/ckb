@@ -34,14 +34,12 @@ pub struct SessionState {
     pub(crate) announce_multiaddrs: Vec<(Multiaddr, Flags)>,
     pub(crate) received_get_nodes: bool,
     pub(crate) received_nodes: bool,
-    pub(crate) v21: bool,
 }
 
 impl SessionState {
     pub(crate) async fn new<M: AddressManager + Send>(
         context: ProtocolContextMutRef<'_>,
         addr_manager: &M,
-        v21: bool,
     ) -> SessionState {
         let mut addr_known = AddrKnown::default();
         let remote_addr = if context.session.ty.is_outbound() {
@@ -59,18 +57,15 @@ impl SessionState {
                 })
                 .next();
 
-            let msg = encode(
-                DiscoveryMessage::GetNodes {
-                    #[cfg(target_os = "linux")]
-                    version: REUSE_PORT_VERSION,
-                    #[cfg(not(target_os = "linux"))]
-                    version: FIRST_VERSION,
-                    count: MAX_ADDR_TO_SEND as u32,
-                    listen_port: port,
-                    required_flags: addr_manager.required_flags(),
-                },
-                v21,
-            );
+            let msg = encode(DiscoveryMessage::GetNodes {
+                #[cfg(target_os = "linux")]
+                version: REUSE_PORT_VERSION,
+                #[cfg(not(target_os = "linux"))]
+                version: FIRST_VERSION,
+                count: MAX_ADDR_TO_SEND as u32,
+                listen_port: port,
+                required_flags: addr_manager.required_flags(),
+            });
 
             if context.send_message(msg).await.is_err() {
                 debug!("{:?} send discovery msg GetNode fail", context.session.id)
@@ -90,7 +85,6 @@ impl SessionState {
             announce_multiaddrs: Vec::new(),
             received_get_nodes: false,
             received_nodes: false,
-            v21,
         }
     }
 
@@ -121,13 +115,10 @@ impl SessionState {
                     flags: addr.1,
                 })
                 .collect::<Vec<_>>();
-            let msg = encode(
-                DiscoveryMessage::Nodes(Nodes {
-                    announce: true,
-                    items,
-                }),
-                self.v21,
-            );
+            let msg = encode(DiscoveryMessage::Nodes(Nodes {
+                announce: true,
+                items,
+            }));
             if cx.send_message_to(id, cx.proto_id, msg).await.is_err() {
                 debug!("{:?} send discovery msg Nodes fail", id)
             }

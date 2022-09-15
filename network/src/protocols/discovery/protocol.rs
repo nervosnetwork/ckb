@@ -4,16 +4,12 @@ use ckb_types::{packed, prelude::*};
 
 use crate::Flags;
 
-pub(crate) fn encode(data: DiscoveryMessage, new: bool) -> Bytes {
-    data.encode(new)
+pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
+    data.encode()
 }
 
-pub(crate) fn decode(data: &Bytes, new: bool) -> Option<DiscoveryMessage> {
-    if new {
-        DiscoveryMessage::decode_v21(data)
-    } else {
-        DiscoveryMessage::decode_v2(data)
-    }
+pub(crate) fn decode(data: &Bytes) -> Option<DiscoveryMessage> {
+    DiscoveryMessage::decode(data)
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -28,7 +24,7 @@ pub enum DiscoveryMessage {
 }
 
 impl DiscoveryMessage {
-    pub fn encode(self, new: bool) -> Bytes {
+    pub fn encode(self) -> Bytes {
         let payload = match self {
             DiscoveryMessage::GetNodes {
                 version,
@@ -54,16 +50,11 @@ impl DiscoveryMessage {
                     .version(version)
                     .required_flags(required_flags)
                     .build();
-                if new {
-                    packed::DiscoveryPayload::new_builder()
-                        .set(get_node)
-                        .build()
-                } else {
-                    let get_node = packed::GetNodes::new_unchecked(get_node.as_bytes());
-                    packed::DiscoveryPayload::new_builder()
-                        .set(get_node)
-                        .build()
-                }
+
+                let get_node = packed::GetNodes::new_unchecked(get_node.as_bytes());
+                packed::DiscoveryPayload::new_builder()
+                    .set(get_node)
+                    .build()
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {
                 let bool_ = if announce { 1u8 } else { 0 };
@@ -92,12 +83,8 @@ impl DiscoveryMessage {
                     .items(items)
                     .build();
 
-                if new {
-                    packed::DiscoveryPayload::new_builder().set(nodes).build()
-                } else {
-                    let nodes = packed::Nodes::new_unchecked(nodes.as_bytes());
-                    packed::DiscoveryPayload::new_builder().set(nodes).build()
-                }
+                let nodes = packed::Nodes::new_unchecked(nodes.as_bytes());
+                packed::DiscoveryPayload::new_builder().set(nodes).build()
             }
         };
 
@@ -107,7 +94,7 @@ impl DiscoveryMessage {
             .as_bytes()
     }
 
-    pub fn decode_v2(data: &[u8]) -> Option<Self> {
+    pub fn decode(data: &[u8]) -> Option<Self> {
         let reader = packed::DiscoveryMessageReader::from_compatible_slice(data).ok()?;
         match reader.payload().to_enum() {
             packed::DiscoveryPayloadUnionReader::GetNodes(reader) => {
@@ -126,11 +113,20 @@ impl DiscoveryMessage {
                     b.copy_from_slice(port_reader.raw_data());
                     u16::from_le_bytes(b)
                 });
+
+                let required_flags = if reader.has_extra_fields() {
+                    let get_nodes2 =
+                        packed::GetNodes2::from_compatible_slice(reader.as_slice()).ok()?;
+                    let reader = get_nodes2.as_reader();
+                    unsafe { Flags::from_bits_unchecked(reader.required_flags().unpack()) }
+                } else {
+                    Flags::COMPATIBILITY
+                };
                 Some(DiscoveryMessage::GetNodes {
                     version,
                     count,
                     listen_port,
-                    required_flags: Flags::COMPATIBILITY,
+                    required_flags,
                 })
             }
             packed::DiscoveryPayloadUnionReader::Nodes(reader) => {
@@ -146,67 +142,18 @@ impl DiscoveryMessage {
                         addresses
                             .push(Multiaddr::try_from(address_reader.raw_data().to_vec()).ok()?)
                     }
-                    items.push(Node {
-                        addresses,
-                        flags: Flags::COMPATIBILITY,
-                    })
-                }
-                Some(DiscoveryMessage::Nodes(Nodes { announce, items }))
-            }
-            // this version doesn't accept other item
-            _ => None,
-        }
-    }
-
-    pub fn decode_v21(data: &[u8]) -> Option<Self> {
-        let reader = packed::DiscoveryMessageReader::from_compatible_slice(data).ok()?;
-        match reader.payload().to_enum() {
-            packed::DiscoveryPayloadUnionReader::GetNodes2(reader) => {
-                let version = {
-                    let mut b = [0u8; 4];
-                    b.copy_from_slice(reader.version().raw_data());
-                    u32::from_le_bytes(b)
-                };
-                let count = {
-                    let mut b = [0u8; 4];
-                    b.copy_from_slice(reader.count().raw_data());
-                    u32::from_le_bytes(b)
-                };
-                let listen_port = reader.listen_port().to_opt().map(|port_reader| {
-                    let mut b = [0u8; 2];
-                    b.copy_from_slice(port_reader.raw_data());
-                    u16::from_le_bytes(b)
-                });
-
-                let required_flags =
-                    unsafe { Flags::from_bits_unchecked(reader.required_flags().unpack()) };
-                Some(DiscoveryMessage::GetNodes {
-                    version,
-                    count,
-                    listen_port,
-                    required_flags,
-                })
-            }
-            packed::DiscoveryPayloadUnionReader::Nodes2(reader) => {
-                let announce = match reader.announce().as_slice()[0] {
-                    0 => false,
-                    1 => true,
-                    _ => return None,
-                };
-                let mut items = Vec::with_capacity(reader.items().len());
-                for node_reader in reader.items().iter() {
-                    let mut addresses = Vec::with_capacity(node_reader.addresses().len());
-                    for address_reader in node_reader.addresses().iter() {
-                        addresses
-                            .push(Multiaddr::try_from(address_reader.raw_data().to_vec()).ok()?)
-                    }
-                    let flags = unsafe { Flags::from_bits_unchecked(node_reader.flags().unpack()) };
+                    let flags = if node_reader.has_extra_fields() {
+                        let node2 =
+                            packed::Node2::from_compatible_slice(node_reader.as_slice()).ok()?;
+                        let reader = node2.as_reader();
+                        unsafe { Flags::from_bits_unchecked(reader.flags().unpack()) }
+                    } else {
+                        Flags::COMPATIBILITY
+                    };
                     items.push(Node { addresses, flags })
                 }
                 Some(DiscoveryMessage::Nodes(Nodes { announce, items }))
             }
-            // this version doesn't accept other item
-            _ => None,
         }
     }
 }

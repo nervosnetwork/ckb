@@ -107,7 +107,7 @@ impl DnsSeedingService {
         debug!("DNS seeding got {} address", addrs.len());
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                let _ = peer_store.add_addr(addr);
+                let _ = peer_store.add_addr(addr, 0x0);
             }
         });
         Ok(())

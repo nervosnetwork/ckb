@@ -591,24 +591,19 @@ impl Identify {
 }
 
 bitflags::bitflags! {
+    /// Node Function Identification
     pub struct Flags: u64 {
         /// Compatibility reserved
         const COMPATIBILITY = 0b1;
         /// Discovery protocol, which can provide peers data service
         const DISCOVERY = 0b10;
-        /// Sync protocol, can provide Block and Header download service
+        /// Sync protocol can provide Block and Header download service
         const SYNC = 0b100;
         /// Relay protocol, which can provide CompactBlock and Transaction broadcast/forwarding services
         const RELAY = 0b1000;
-        /// Light client protocol, which can provide Block / Transaction data and existence proof services
+        /// Light client protocol, which can provide Block / Transaction data and existence-proof services
         const LIGHT_CLIENT = 0b10000;
-        /// Client side block filter protocol, can provide BlockFilter download service
+        /// Client-side block filter protocol can provide BlockFilter download service
         const BLOCK_FILTER = 0b100000;
-    }
-}
-
-impl Flags {
-    pub fn support_light_client(&self) -> bool {
-        self.contains(Flags::LIGHT_CLIENT) || self.contains(Flags::BLOCK_FILTER)
     }
 }

@@ -19,13 +19,13 @@ fn test_codec() {
         required_flags: Flags::COMPATIBILITY,
     };
 
-    let b1 = encode(msg1.clone(), true);
+    let b1 = encode(msg1.clone());
 
-    let decode1 = decode(&b1, true).unwrap();
+    let decode1 = decode(&b1).unwrap();
     assert_eq!(decode1, msg1);
 
-    let b2 = encode(msg2.clone(), true);
+    let b2 = encode(msg2.clone());
 
-    let decode2 = decode(&b2, true).unwrap();
+    let decode2 = decode(&b2).unwrap();
     assert_eq!(decode2, msg2);
 }
