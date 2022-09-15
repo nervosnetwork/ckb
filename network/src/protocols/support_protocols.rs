@@ -97,7 +97,7 @@ impl SupportProtocols {
         // Here you have to make sure that the list of supported versions is sorted from smallest to largest
         match self {
             SupportProtocols::Ping => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Discovery => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::Discovery => vec![LASTEST_VERSION.to_owned(), "2.1".to_owned()],
             SupportProtocols::Identify => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::Feeler => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::DisconnectMessage => {

@@ -4,7 +4,7 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -243,8 +243,11 @@ fn setup() -> RpcTestSuite {
             Arc::clone(&network_state),
             Vec::new(),
             Vec::new(),
-            shared.consensus().identify_name(),
-            "0.1.0".to_string(),
+            (
+                shared.consensus().identify_name(),
+                "0.1.0".to_string(),
+                Flags::COMPATIBILITY,
+            ),
             DefaultExitHandler::default(),
         )
         .start(shared.async_handle())

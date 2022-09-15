@@ -8,6 +8,8 @@ use p2p::{
     SessionId,
 };
 
+use crate::Flags;
+
 use super::{
     addr::AddrKnown,
     protocol::{encode, DiscoveryMessage, Node, Nodes},
@@ -29,15 +31,17 @@ pub struct SessionState {
     // FIXME: Remote listen address, resolved by id protocol
     pub(crate) remote_addr: RemoteAddress,
     last_announce: Option<Instant>,
-    pub(crate) announce_multiaddrs: Vec<Multiaddr>,
+    pub(crate) announce_multiaddrs: Vec<(Multiaddr, Flags)>,
     pub(crate) received_get_nodes: bool,
     pub(crate) received_nodes: bool,
+    pub(crate) v21: bool,
 }
 
 impl SessionState {
     pub(crate) async fn new<M: AddressManager + Send>(
         context: ProtocolContextMutRef<'_>,
         addr_manager: &M,
+        v21: bool,
     ) -> SessionState {
         let mut addr_known = AddrKnown::default();
         let remote_addr = if context.session.ty.is_outbound() {
@@ -55,14 +59,18 @@ impl SessionState {
                 })
                 .next();
 
-            let msg = encode(DiscoveryMessage::GetNodes {
-                #[cfg(target_os = "linux")]
-                version: REUSE_PORT_VERSION,
-                #[cfg(not(target_os = "linux"))]
-                version: FIRST_VERSION,
-                count: MAX_ADDR_TO_SEND as u32,
-                listen_port: port,
-            });
+            let msg = encode(
+                DiscoveryMessage::GetNodes {
+                    #[cfg(target_os = "linux")]
+                    version: REUSE_PORT_VERSION,
+                    #[cfg(not(target_os = "linux"))]
+                    version: FIRST_VERSION,
+                    count: MAX_ADDR_TO_SEND as u32,
+                    listen_port: port,
+                    required_flags: addr_manager.required_flags(),
+                },
+                v21,
+            );
 
             if context.send_message(msg).await.is_err() {
                 debug!("{:?} send discovery msg GetNode fail", context.session.id)
@@ -82,6 +90,7 @@ impl SessionState {
             announce_multiaddrs: Vec::new(),
             received_get_nodes: false,
             received_nodes: false,
+            v21,
         }
     }
 
@@ -108,13 +117,17 @@ impl SessionState {
                 .announce_multiaddrs
                 .drain(..)
                 .map(|addr| Node {
-                    addresses: vec![addr],
+                    addresses: vec![addr.0],
+                    flags: addr.1,
                 })
                 .collect::<Vec<_>>();
-            let msg = encode(DiscoveryMessage::Nodes(Nodes {
-                announce: true,
-                items,
-            }));
+            let msg = encode(
+                DiscoveryMessage::Nodes(Nodes {
+                    announce: true,
+                    items,
+                }),
+                self.v21,
+            );
             if cx.send_message_to(id, cx.proto_id, msg).await.is_err() {
                 debug!("{:?} send discovery msg Nodes fail", id)
             }

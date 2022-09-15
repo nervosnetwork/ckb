@@ -87,6 +87,7 @@ pub struct NetworkState {
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
     pub(crate) target_flags_filter: Box<dyn Fn(Flags) -> bool + Send + Sync + 'static>,
+    pub(crate) required_flags: Flags,
 }
 
 impl NetworkState {
@@ -139,17 +140,26 @@ impl NetworkState {
             protocols: RwLock::new(Vec::new()),
             target_flags_filter: Box::new(|t| {
                 let default_target = Flags::SYNC | Flags::DISCOVERY | Flags::RELAY;
-                t.contains(default_target)
-                    || (t.contains(Flags::COMPATIBILITY) && !t.support_light_client())
+                t.contains(default_target) || t.contains(Flags::COMPATIBILITY)
             }),
+            required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
         })
     }
 
-    pub fn connect_target_flags<T>(mut self, filter: T) -> Self
+    /// which peer flag should to connect,
+    /// default with `Flags::SYNC | Flags::DISCOVERY | Flags::RELAY` or `Flags::COMPATIBILITY && not support client`
+    pub fn target_flags_filter<T>(mut self, filter: T) -> Self
     where
         T: Fn(Flags) -> bool + Send + Sync + 'static,
     {
         self.target_flags_filter = Box::new(filter);
+        self
+    }
+
+    /// use to discovery get nodes message to announce what kind of node information need from the other peer
+    /// default with `Flags::SYNC | Flags::DISCOVERY | Flags::RELAY`
+    pub fn required_flags(mut self, flags: Flags) -> Self {
+        self.required_flags = flags;
         self
     }
 
@@ -785,8 +795,8 @@ impl<T: ExitHandler> NetworkService<T> {
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
         required_protocol_ids: Vec<ProtocolId>,
-        name: String,
-        version: String,
+        // name, version, flags
+        identify_announce: (String, String, Flags),
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
@@ -811,8 +821,12 @@ impl<T: ExitHandler> NetworkService<T> {
         // == Build special protocols
 
         // Identify is a core protocol, user cannot disable it via config
-        let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
+        let identify_callback = IdentifyCallback::new(
+            Arc::clone(&network_state),
+            identify_announce.0,
+            identify_announce.1.clone(),
+            identify_announce.2,
+        );
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
             ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
         });
@@ -1035,7 +1049,7 @@ impl<T: ExitHandler> NetworkService<T> {
             network_state,
             ping_controller,
             bg_services,
-            version,
+            version: identify_announce.1,
         }
     }
 

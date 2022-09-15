@@ -6,7 +6,7 @@ use crate::{
         ban_list::CLEAR_INTERVAL_COUNTER, types::multiaddr_to_ip_network, PeerStore, Status,
         ADDR_COUNT_LIMIT, ADDR_TRY_TIMEOUT_MS,
     },
-    Behaviour, PeerId, SessionType,
+    Behaviour, Flags, PeerId, SessionType,
 };
 use std::collections::HashSet;
 
@@ -272,6 +272,89 @@ fn test_fetch_random_addrs() {
     assert_eq!(peer_store.fetch_random_addrs(3, |_| true).len(), 3);
     peer_store.remove_disconnected_peer(&addr3);
     assert_eq!(peer_store.fetch_random_addrs(3, |_| true).len(), 2);
+}
+
+#[test]
+fn test_random_fetch_with_filter() {
+    let mut peer_store: PeerStore = Default::default();
+    assert!(peer_store.fetch_random_addrs(1, |_| true).is_empty());
+    let addr1: Multiaddr = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
+        .parse()
+        .unwrap();
+    let addr2: Multiaddr = format!("/ip4/225.0.0.2/tcp/42/p2p/{}", PeerId::random().to_base58())
+        .parse()
+        .unwrap();
+    let addr3: Multiaddr = format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
+        .parse()
+        .unwrap();
+
+    peer_store
+        .add_addr(addr1.clone(), Flags::COMPATIBILITY.bits())
+        .unwrap();
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr1)
+        .unwrap()
+        .last_connected_at_ms = faketime::unix_time_as_millis();
+    assert_eq!(peer_store.addr_manager().count(), 1);
+    assert_eq!(peer_store.fetch_random_addrs(1, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
+                .contains(Flags::SYNC))
+            .len(),
+        0
+    );
+
+    peer_store
+        .add_addr(addr2.clone(), (Flags::COMPATIBILITY | Flags::SYNC).bits())
+        .unwrap();
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr2)
+        .unwrap()
+        .last_connected_at_ms = faketime::unix_time_as_millis();
+    assert_eq!(
+        peer_store
+            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
+                .contains(Flags::SYNC))
+            .len(),
+        1
+    );
+
+    peer_store
+        .add_addr(addr3.clone(), (Flags::RELAY | Flags::SYNC).bits())
+        .unwrap();
+    peer_store
+        .mut_addr_manager()
+        .get_mut(&addr3)
+        .unwrap()
+        .last_connected_at_ms = faketime::unix_time_as_millis();
+    assert_eq!(
+        peer_store
+            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
+                .contains(Flags::SYNC))
+            .len(),
+        2
+    );
+
+    assert_eq!(
+        peer_store
+            .fetch_random_addrs(4, |t| unsafe { Flags::from_bits_unchecked(t) }
+                .contains(Flags::SYNC | Flags::COMPATIBILITY))
+            .len(),
+        1
+    );
+
+    assert_eq!(
+        peer_store
+            .fetch_random_addrs(4, |t| {
+                let raw = unsafe { Flags::from_bits_unchecked(t) };
+                raw.contains(Flags::SYNC) || raw.contains(Flags::COMPATIBILITY)
+            })
+            .len(),
+        3
+    );
 }
 
 #[test]

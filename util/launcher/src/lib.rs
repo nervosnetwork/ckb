@@ -20,7 +20,7 @@ use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_network::{
-    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, NetworkController,
+    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, Flags, NetworkController,
     NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
@@ -329,8 +329,11 @@ impl Launcher {
             Arc::clone(&network_state),
             protocols,
             required_protocol_ids,
-            shared.consensus().identify_name(),
-            self.version.to_string(),
+            (
+                shared.consensus().identify_name(),
+                self.version.to_string(),
+                Flags::all(),
+            ),
             exit_handler.clone(),
         )
         .start(shared.async_handle())

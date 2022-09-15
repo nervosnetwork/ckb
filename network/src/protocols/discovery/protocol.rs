@@ -2,12 +2,18 @@ use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
 use ckb_types::{packed, prelude::*};
 
-pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
-    data.encode()
+use crate::Flags;
+
+pub(crate) fn encode(data: DiscoveryMessage, new: bool) -> Bytes {
+    data.encode(new)
 }
 
-pub(crate) fn decode(data: &Bytes) -> Option<DiscoveryMessage> {
-    DiscoveryMessage::decode_v2(data)
+pub(crate) fn decode(data: &Bytes, new: bool) -> Option<DiscoveryMessage> {
+    if new {
+        DiscoveryMessage::decode_v21(data)
+    } else {
+        DiscoveryMessage::decode_v2(data)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -16,32 +22,22 @@ pub enum DiscoveryMessage {
         version: u32,
         count: u32,
         listen_port: Option<u16>,
+        required_flags: Flags,
     },
     Nodes(Nodes),
 }
 
 impl DiscoveryMessage {
-    pub fn encode(self) -> Bytes {
+    pub fn encode(self, new: bool) -> Bytes {
         let payload = match self {
             DiscoveryMessage::GetNodes {
                 version,
                 count,
                 listen_port,
+                required_flags,
             } => {
-                let version_le = version.to_le_bytes();
-                let count_le = count.to_le_bytes();
-                let version = packed::Uint32::new_builder()
-                    .nth0(version_le[0].into())
-                    .nth1(version_le[1].into())
-                    .nth2(version_le[2].into())
-                    .nth3(version_le[3].into())
-                    .build();
-                let count = packed::Uint32::new_builder()
-                    .nth0(count_le[0].into())
-                    .nth1(count_le[1].into())
-                    .nth2(count_le[2].into())
-                    .nth3(count_le[3].into())
-                    .build();
+                let version = version.pack();
+                let count = count.pack();
                 let listen_port = packed::PortOpt::new_builder()
                     .set(listen_port.map(|port| {
                         let port_le = port.to_le_bytes();
@@ -51,14 +47,23 @@ impl DiscoveryMessage {
                             .build()
                     }))
                     .build();
-                let get_node = packed::GetNodes::new_builder()
+                let required_flags = required_flags.bits().pack();
+                let get_node = packed::GetNodes2::new_builder()
                     .listen_port(listen_port)
                     .count(count)
                     .version(version)
+                    .required_flags(required_flags)
                     .build();
-                packed::DiscoveryPayload::new_builder()
-                    .set(get_node)
-                    .build()
+                if new {
+                    packed::DiscoveryPayload::new_builder()
+                        .set(get_node)
+                        .build()
+                } else {
+                    let get_node = packed::GetNodes::new_unchecked(get_node.as_bytes());
+                    packed::DiscoveryPayload::new_builder()
+                        .set(get_node)
+                        .build()
+                }
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {
                 let bool_ = if announce { 1u8 } else { 0 };
@@ -74,15 +79,25 @@ impl DiscoveryMessage {
                         )
                     }
                     let bytes_vec = packed::BytesVec::new_builder().set(vec_addrs).build();
-                    let node = packed::Node::new_builder().addresses(bytes_vec).build();
+                    let flags = item.flags.bits().pack();
+                    let node = packed::Node2::new_builder()
+                        .addresses(bytes_vec)
+                        .flags(flags)
+                        .build();
                     item_vec.push(node)
                 }
-                let items = packed::NodeVec::new_builder().set(item_vec).build();
-                let nodes = packed::Nodes::new_builder()
+                let items = packed::Node2Vec::new_builder().set(item_vec).build();
+                let nodes = packed::Nodes2::new_builder()
                     .announce(announce)
                     .items(items)
                     .build();
-                packed::DiscoveryPayload::new_builder().set(nodes).build()
+
+                if new {
+                    packed::DiscoveryPayload::new_builder().set(nodes).build()
+                } else {
+                    let nodes = packed::Nodes::new_unchecked(nodes.as_bytes());
+                    packed::DiscoveryPayload::new_builder().set(nodes).build()
+                }
             }
         };
 
@@ -115,6 +130,7 @@ impl DiscoveryMessage {
                     version,
                     count,
                     listen_port,
+                    required_flags: Flags::COMPATIBILITY,
                 })
             }
             packed::DiscoveryPayloadUnionReader::Nodes(reader) => {
@@ -130,10 +146,67 @@ impl DiscoveryMessage {
                         addresses
                             .push(Multiaddr::try_from(address_reader.raw_data().to_vec()).ok()?)
                     }
-                    items.push(Node { addresses })
+                    items.push(Node {
+                        addresses,
+                        flags: Flags::COMPATIBILITY,
+                    })
                 }
                 Some(DiscoveryMessage::Nodes(Nodes { announce, items }))
             }
+            // this version doesn't accept other item
+            _ => None,
+        }
+    }
+
+    pub fn decode_v21(data: &[u8]) -> Option<Self> {
+        let reader = packed::DiscoveryMessageReader::from_compatible_slice(data).ok()?;
+        match reader.payload().to_enum() {
+            packed::DiscoveryPayloadUnionReader::GetNodes2(reader) => {
+                let version = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.version().raw_data());
+                    u32::from_le_bytes(b)
+                };
+                let count = {
+                    let mut b = [0u8; 4];
+                    b.copy_from_slice(reader.count().raw_data());
+                    u32::from_le_bytes(b)
+                };
+                let listen_port = reader.listen_port().to_opt().map(|port_reader| {
+                    let mut b = [0u8; 2];
+                    b.copy_from_slice(port_reader.raw_data());
+                    u16::from_le_bytes(b)
+                });
+
+                let required_flags =
+                    unsafe { Flags::from_bits_unchecked(reader.required_flags().unpack()) };
+                Some(DiscoveryMessage::GetNodes {
+                    version,
+                    count,
+                    listen_port,
+                    required_flags,
+                })
+            }
+            packed::DiscoveryPayloadUnionReader::Nodes2(reader) => {
+                let announce = match reader.announce().as_slice()[0] {
+                    0 => false,
+                    1 => true,
+                    _ => return None,
+                };
+                let mut items = Vec::with_capacity(reader.items().len());
+                for node_reader in reader.items().iter() {
+                    let mut addresses = Vec::with_capacity(node_reader.addresses().len());
+                    for address_reader in node_reader.addresses().iter() {
+                        addresses
+                            .push(Multiaddr::try_from(address_reader.raw_data().to_vec()).ok()?)
+                    }
+                    let flags = unsafe { Flags::from_bits_unchecked(node_reader.flags().unpack()) };
+                    items.push(Node { addresses, flags })
+                }
+                Some(DiscoveryMessage::Nodes(Nodes { announce, items }))
+            }
+            // this version doesn't accept other item
+            _ => None,
         }
     }
 }
@@ -147,6 +220,7 @@ pub struct Nodes {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Node {
     pub(crate) addresses: Vec<Multiaddr>,
+    pub(crate) flags: Flags,
 }
 
 impl std::fmt::Display for DiscoveryMessage {

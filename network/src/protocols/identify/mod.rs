@@ -342,9 +342,8 @@ impl IdentifyCallback {
         network_state: Arc<NetworkState>,
         name: String,
         client_version: String,
+        flags: Flags,
     ) -> IdentifyCallback {
-        let flags = Flags::COMPATIBILITY | Flags::DISCOVERY | Flags::RELAY | Flags::SYNC;
-
         IdentifyCallback {
             network_state,
             identify: Identify::new(name, flags, client_version),
