@@ -1,17 +1,15 @@
 use std::cmp::{max, min, Ordering};
 
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_sync::ActiveChain;
-use ckb_types::{
-    core::BlockNumber, packed, prelude::*, utilities::merkle_mountain_range::ChainRootMMR, U256,
-};
+use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
 
-use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{constant, LightClientProtocol, Status, StatusCode};
 
-pub(crate) struct GetBlockSamplesProcess<'a> {
-    message: packed::GetBlockSamplesReader<'a>,
+pub(crate) struct GetLastStateProofProcess<'a> {
+    message: packed::GetLastStateProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
     nc: &'a dyn CKBProtocolContext,
@@ -117,9 +115,9 @@ impl BlockSampler {
         positions: &mut Vec<u64>,
         last_hash: &packed::Byte32,
         numbers: &[BlockNumber],
-    ) -> Result<Vec<packed::VerifiableHeaderWithChainRoot>, String> {
+    ) -> Result<Vec<packed::VerifiableHeader>, String> {
         let active_chain = self.active_chain();
-        let mut headers_with_chain_root = Vec::new();
+        let mut headers = Vec::new();
 
         for number in numbers {
             // Genesis block doesn't has chain root.
@@ -143,9 +141,8 @@ impl BlockSampler {
                 let uncles_hash = ancestor_block.calc_uncles_hash();
                 let extension = ancestor_block.extension();
 
-                let chain_root = {
-                    let mmr_size = leaf_index_to_mmr_size(*number - 1);
-                    let mmr = ChainRootMMR::new(mmr_size, snapshot);
+                let parent_chain_root = {
+                    let mmr = snapshot.chain_root_mmr(*number - 1);
                     match mmr.get_root() {
                         Ok(root) => root,
                         Err(err) => {
@@ -158,27 +155,27 @@ impl BlockSampler {
                     }
                 };
 
-                let header_with_chain_root = packed::VerifiableHeaderWithChainRoot::new_builder()
+                let header = packed::VerifiableHeader::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
                     .extension(Pack::pack(&extension))
-                    .chain_root(chain_root)
+                    .parent_chain_root(parent_chain_root)
                     .build();
 
-                headers_with_chain_root.push(header_with_chain_root);
+                headers.push(header);
             } else {
                 let errmsg = format!("failed to find ancestor header ({})", number);
                 return Err(errmsg);
             }
         }
 
-        Ok(headers_with_chain_root)
+        Ok(headers)
     }
 }
 
-impl<'a> GetBlockSamplesProcess<'a> {
+impl<'a> GetLastStateProofProcess<'a> {
     pub(crate) fn new(
-        message: packed::GetBlockSamplesReader<'a>,
+        message: packed::GetLastStateProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
         nc: &'a dyn CKBProtocolContext,
@@ -192,11 +189,27 @@ impl<'a> GetBlockSamplesProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
+
+        if self.message.difficulties().len() + (last_n_blocks as usize) * 2
+            > constant::GET_LAST_STATE_PROOF_LIMIT
+        {
+            return StatusCode::MalformedProtocolMessage.with_context("too many samples");
+        }
+
         let active_chain = self.protocol.shared.active_chain();
+
+        let last_block_hash = self.message.last_hash().to_entity();
+        let last_block = if let Some(block) = active_chain.get_block(&last_block_hash) {
+            block
+        } else {
+            return self
+                .protocol
+                .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc);
+        };
+
         let snapshot = self.protocol.shared.shared().snapshot();
 
-        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
-        let last_block_hash = self.message.last_hash().to_entity();
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
         let mut difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
@@ -207,16 +220,7 @@ impl<'a> GetBlockSamplesProcess<'a> {
             .map(|d| Unpack::<U256>::unpack(&d))
             .collect::<Vec<_>>();
 
-        let last_block_header =
-            if let Some(block_header) = active_chain.get_block_header(&last_block_hash) {
-                block_header
-            } else {
-                // The `difficulties` may not matched when last_block_hash not in active chain
-                // let light-client side send GetBlockSamples message again.
-                self.protocol.send_last_state(self.nc, self.peer);
-                return Status::ok();
-            };
-        let last_block_number = last_block_header.number();
+        let last_block_number = last_block.number();
 
         let reorg_last_n_numbers = if start_block_number == 0
             || active_chain
@@ -343,79 +347,36 @@ impl<'a> GetBlockSamplesProcess<'a> {
                 (sampled_numbers, last_n_numbers)
             };
 
-        let (positions, reorg_last_n_headers, sampled_headers, last_n_headers) = {
+        let block_numbers = reorg_last_n_numbers
+            .into_iter()
+            .chain(sampled_numbers)
+            .chain(last_n_numbers)
+            .collect::<Vec<_>>();
+
+        let (positions, headers) = {
             let mut positions: Vec<u64> = Vec::new();
-            let reorg_last_n_headers = match sampler.complete_headers(
+            let headers = match sampler.complete_headers(
                 &snapshot,
                 &mut positions,
                 &last_block_hash,
-                &reorg_last_n_numbers,
+                &block_numbers,
             ) {
                 Ok(headers) => headers,
                 Err(errmsg) => {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            let sampled_headers = match sampler.complete_headers(
-                &snapshot,
-                &mut positions,
-                &last_block_hash,
-                &sampled_numbers,
-            ) {
-                Ok(headers) => headers,
-                Err(errmsg) => {
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            let last_n_headers = match sampler.complete_headers(
-                &snapshot,
-                &mut positions,
-                &last_block_hash,
-                &last_n_numbers,
-            ) {
-                Ok(headers) => headers,
-                Err(errmsg) => {
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            (
-                positions,
-                reorg_last_n_headers,
-                sampled_headers,
-                last_n_headers,
-            )
+            (positions, headers)
         };
 
-        let (root, proof) = {
-            let mmr_size = leaf_index_to_mmr_size(last_block_number - 1);
-            let mmr = ChainRootMMR::new(mmr_size, &**snapshot);
-            let root = match mmr.get_root() {
-                Ok(root) => root,
-                Err(err) => {
-                    let errmsg = format!("failed to generate a root since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            let proof = match mmr.gen_proof(positions) {
-                Ok(proof) => proof.proof_items().to_owned(),
-                Err(err) => {
-                    let errmsg = format!("failed to generate a proof since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
-                }
-            };
-            (root, proof)
-        };
-        let content = packed::SendBlockSamples::new_builder()
-            .root(root)
-            .proof(proof.pack())
-            .reorg_last_n_headers(reorg_last_n_headers.pack())
-            .sampled_headers(sampled_headers.pack())
-            .last_n_headers(last_n_headers.pack())
-            .build();
-        let message = packed::LightClientMessage::new_builder()
-            .set(content)
-            .build();
+        let proved_items = headers.pack();
 
-        self.nc.reply(self.peer, &message)
+        self.protocol.reply_proof::<packed::SendLastStateProof>(
+            self.peer,
+            self.nc,
+            &last_block,
+            positions,
+            proved_items,
+        )
     }
 }

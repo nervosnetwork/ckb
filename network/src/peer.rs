@@ -36,8 +36,8 @@ pub struct Peer {
     pub protocols: HashMap<ProtocolId, ProtocolVersion>,
     /// Whether a whitelist
     pub is_whitelist: bool,
-    /// Remote peer is light client
-    pub is_lightclient: bool,
+    /// Whether the remote peer is a light client, and it subscribes the chain state.
+    pub if_lightclient_subscribed: bool,
 }
 
 impl Peer {
@@ -60,7 +60,7 @@ impl Peer {
             session_type,
             protocols: HashMap::with_capacity_and_hasher(1, Default::default()),
             is_whitelist,
-            is_lightclient: false,
+            if_lightclient_subscribed: false,
         }
     }
 

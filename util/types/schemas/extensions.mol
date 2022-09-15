@@ -293,93 +293,107 @@ table VerifiableHeader {
     header:                 Header,
     uncles_hash:            Byte32,
     extension:              BytesOpt,
+    parent_chain_root:      HeaderDigest,
 }
 
-table VerifiableHeaderWithChainRoot {
-    header:                 Header,
-    uncles_hash:            Byte32,
-    extension:              BytesOpt,
-    chain_root:             HeaderDigest,
-}
-
-vector VerifiableHeaderWithChainRootVec <VerifiableHeaderWithChainRoot>;
-
-union LightClientMessage {
-    GetLastState,
-    SendLastState,
-    GetBlockSamples,
-    SendBlockSamples,
-    GetBlockProof,
-    SendBlockProof,
-    GetTransactions,
-    SendTransactions,
-}
-
-table GetLastState {}
-
-table SendLastState {
-    tip_header:                 VerifiableHeader,
-    total_difficulty:           Uint256,
-}
-
-table GetBlockSamples {
-    // SendLastState.tip_header.hash
-    last_hash:                  Byte32,
-    // Last proved tip hash
-    start_hash:                 Byte32,
-    // Last proved tip number
-    start_number:               Uint64,
-    // How many continuous blocks before the tip block should be included at
-    // least, if possible?
-    last_n_blocks:              Uint64,
-    difficulty_boundary:        Uint256,
-    difficulties:               Uint256Vec,
-}
-
-table SendBlockSamples {
-    root:                       HeaderDigest,
-    proof:                      HeaderDigestVec,
-    // The headers before `GetBlockSamples.start_number` (inclusive) for client side to detect the fork number
-    reorg_last_n_headers:       VerifiableHeaderWithChainRootVec,
-    sampled_headers:            VerifiableHeaderWithChainRootVec,
-    last_n_headers:             VerifiableHeaderWithChainRootVec,
-}
-
-table GetBlockProof {
-    // The requested block hashes
-    block_hashes:           Byte32Vec,
-    // Light Client's local tip hash
-    tip_hash:               Byte32,
-}
-
-table SendBlockProof {
-    // The root of `GetBlockProof.tip_hash`
-    root:                   HeaderDigest,
-    // The proof of `GetBlockProof.block_hashs`. If `proof` is empty it means `tip_hash` is not in chain.
-    proof:                  HeaderDigestVec,
-    /// The tip header
-    tip_header:             VerifiableHeader,
-    // The headers of `GetBlockProof.block_hashes`. If a block hash not ancestor
-    // of tip hash it will not included in headers.
-    headers:                HeaderVec,
-}
+vector VerifiableHeaderVec <VerifiableHeader>;
 
 vector FilteredBlockVec <FilteredBlock>;
 
-table GetTransactions {
-    tx_hashes:        Byte32Vec,
-    tip_hash:         Byte32,
+union LightClientMessage {
+    // A client asks the server for the last state of the chain.
+    GetLastState,
+    SendLastState,
+    // A client asks the server for the proof of the last state which the
+    // client known.
+    GetLastStateProof,
+    SendLastStateProof,
+    // A client asks the server for the proof of some blocks.
+    GetBlocksProof,
+    SendBlocksProof,
+    // A client asks the server for the proof of some transactions.
+    GetTransactionsProof,
+    SendTransactionsProof,
 }
 
-table SendTransactions {
-    // The transactions group by block
-    filtered_blocks:  FilteredBlockVec,
-    // The root of `GetTransactions.tip_hash`
-    root:             HeaderDigest,
-    // The block proof of filtered_blocks.headers
-    block_proof:      HeaderDigestVec,
-    /// The tip header
-    tip_header:       VerifiableHeader,
+table GetLastState {
+    // Whether the server is requested to push the state automatically.
+    subscribe:                  Bool,
+}
+
+table SendLastState {
+    // The verifiable header for the tip block in the server.
+    last_header:                VerifiableHeader,
+}
+
+table GetLastStateProof {
+    // The last block hash known by the client.
+    // It could be different with the tip hash in the server.
+    last_hash:                  Byte32,
+
+    // The hash of the last proved block.
+    start_hash:                 Byte32,
+    // The block number of the last proved block.
+    start_number:               Uint64,
+
+    // How many continuous blocks before the tip block should be included at
+    // least, if possible?
+    last_n_blocks:              Uint64,
+    // All blocks, whose total difficulty is not less than this difficulty
+    // boundary, should be included in the proof.
+    difficulty_boundary:        Uint256,
+    // The sampled difficulties.
+    difficulties:               Uint256Vec,
+}
+
+table SendLastStateProof {
+    // If the block whose hash is sent from the client is on the chain, then
+    // returns its verifiable header; otherwise, returns the verifiable
+    // header for the tip block in the server.
+    last_header:                VerifiableHeader,
+    // The MMR proof for the chain root whose hash is in the last header.
+    // Be empty if the block hash sent from the client isn't on the chain.
+    proof:                      HeaderDigestVec,
+
+    // Verifiable headers for all sampled blocks.
+    headers:                    VerifiableHeaderVec,
+}
+
+table GetBlocksProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Block hashes for the blocks which require verifying.
+    block_hashes:               Byte32Vec,
+}
+
+table SendBlocksProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // Block headers for the blocks which require verifying.
+    headers:                    HeaderVec,
+}
+
+table GetTransactionsProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Transaction hashes for the transactions which require verifying.
+    tx_hashes:                  Byte32Vec,
+}
+
+table SendTransactionsProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // A collection of filtered blocks, which include all requested
+    // transactions, and be verified in the proof.
+    filtered_blocks:            FilteredBlockVec,
 }
 
 /* Types for Network/Others */

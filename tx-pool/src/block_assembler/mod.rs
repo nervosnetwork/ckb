@@ -17,7 +17,6 @@ use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 use ckb_logger::{debug, error, trace};
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -32,7 +31,6 @@ use ckb_types::{
         Transaction,
     },
     prelude::*,
-    utilities::merkle_mountain_range::ChainRootMMR,
 };
 use faketime::unix_time_as_millis;
 use hyper::{client::HttpConnector, Body, Client, Method, Request};
@@ -497,13 +495,8 @@ impl BlockAssembler {
         let tip_header = snapshot.tip_header();
         let mmr_activate = snapshot.versionbits_active(DeploymentPos::LightClient);
         if mmr_activate {
-            // Actually, should use candidate_number here, but +1 - 1 == tip_number,
-            // the intermediate process omitted
-            // let candidate_number = tip_header.number() + 1;
-            // mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
-            let mmr_size = leaf_index_to_mmr_size(tip_header.number());
-            let mmr = ChainRootMMR::new(mmr_size, snapshot);
-            let chain_root = mmr
+            let chain_root = snapshot
+                .chain_root_mmr(tip_header.number())
                 .get_root()
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
             let bytes = chain_root.calc_mmr_hash().as_bytes().pack();

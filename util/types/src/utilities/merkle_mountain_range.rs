@@ -109,6 +109,7 @@ pub struct VerifiableHeader {
     header: HeaderView,
     uncles_hash: packed::Byte32,
     extension: Option<packed::Bytes>,
+    parent_chain_root: packed::HeaderDigest,
 }
 
 impl core::BlockView {
@@ -266,48 +267,14 @@ impl Merge for MergeHeaderDigest {
     }
 }
 
-impl PartialEq for VerifiableHeader {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.header == other.header
-            && self.uncles_hash == other.uncles_hash
-            && self.extension.is_none() == other.extension.is_none()
-            && (self.extension.is_none()
-                || self
-                    .extension
-                    .as_ref()
-                    .expect("checked: is not none")
-                    .as_slice()
-                    == other
-                        .extension
-                        .as_ref()
-                        .expect("checked: is not none")
-                        .as_slice())
-    }
-}
-
-impl Eq for VerifiableHeader {}
-
 impl From<packed::VerifiableHeader> for VerifiableHeader {
     fn from(raw: packed::VerifiableHeader) -> Self {
         Self::new(
             raw.header().into_view(),
             raw.uncles_hash(),
             raw.extension().to_opt(),
+            raw.parent_chain_root(),
         )
-    }
-}
-
-impl packed::VerifiableHeaderWithChainRoot {
-    /// Splits an instance into a `VerifiableHeader` and the `HeaderDigest` for its chain root.
-    pub fn split(raw: Self) -> (VerifiableHeader, packed::HeaderDigest) {
-        let verifiable_header = VerifiableHeader::new(
-            raw.header().into_view(),
-            raw.uncles_hash(),
-            raw.extension().to_opt(),
-        );
-        let chain_root = raw.chain_root();
-        (verifiable_header, chain_root)
     }
 }
 
@@ -317,32 +284,29 @@ impl VerifiableHeader {
         header: HeaderView,
         uncles_hash: packed::Byte32,
         extension: Option<packed::Bytes>,
+        parent_chain_root: packed::HeaderDigest,
     ) -> Self {
         Self {
             header,
             uncles_hash,
             extension,
+            parent_chain_root,
         }
     }
 
     /// Checks if the current verifiable header is valid.
-    pub fn is_valid(
-        &self,
-        mmr_activated_epoch: EpochNumber,
-        expected_chain_root_hash_opt: Option<&packed::Byte32>,
-    ) -> bool {
+    pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
         let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root {
-            let is_extension_beginning_with_mmr_chain_root = self
+            let is_extension_beginning_with_chain_root_hash = self
                 .extension()
                 .map(|extension| {
                     let actual_extension_data = extension.raw_data();
-                    expected_chain_root_hash_opt
-                        .map(|hash| actual_extension_data.starts_with(hash.as_slice()))
-                        .unwrap_or(false)
+                    let parent_chain_root_hash = self.parent_chain_root().calc_mmr_hash();
+                    actual_extension_data.starts_with(parent_chain_root_hash.as_slice())
                 })
                 .unwrap_or(false);
-            if !is_extension_beginning_with_mmr_chain_root {
+            if !is_extension_beginning_with_chain_root_hash {
                 return false;
             }
         }
@@ -369,5 +333,71 @@ impl VerifiableHeader {
     /// Returns the extension.
     pub fn extension(&self) -> Option<packed::Bytes> {
         self.extension.clone()
+    }
+
+    /// Returns the chain root for its parent block.
+    pub fn parent_chain_root(&self) -> packed::HeaderDigest {
+        self.parent_chain_root.clone()
+    }
+
+    /// Returns the total difficulty.
+    pub fn total_difficulty(&self) -> U256 {
+        let parent_total_difficulty: U256 = self.parent_chain_root.total_difficulty().unpack();
+        let block_difficulty = compact_to_difficulty(self.header.compact_target());
+        parent_total_difficulty + block_difficulty
+    }
+}
+
+/// A builder which builds the content of a message that used for proving.
+pub trait ProverMessageBuilder: Builder
+where
+    Self::Entity: Into<packed::LightClientMessageUnion>,
+{
+    /// The type of the proved items.
+    type Items;
+    /// Set the verifiable header which includes the chain root.
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self;
+    /// Set the proof for all items which require verifying.
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self;
+    /// Set the proved items.
+    fn set_items(self, items: Self::Items) -> Self;
+}
+
+impl ProverMessageBuilder for packed::SendLastStateProofBuilder {
+    type Items = packed::VerifiableHeaderVec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        self.headers(items)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendBlocksProofBuilder {
+    type Items = packed::HeaderVec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        self.headers(items)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
+    type Items = packed::FilteredBlockVec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_items(self, items: Self::Items) -> Self {
+        self.filtered_blocks(items)
     }
 }
