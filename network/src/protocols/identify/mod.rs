@@ -17,7 +17,7 @@ use p2p::{
 
 mod protocol;
 
-use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols};
+use crate::{peer_store::required_flags_filter, NetworkState, PeerIdentifyInfo, SupportProtocols};
 use ckb_types::{packed, prelude::*};
 
 use protocol::IdentifyMessage;
@@ -367,15 +367,6 @@ impl Callback for IdentifyCallback {
                 peer.protocols.insert(context.proto_id, version.to_owned());
             })
         });
-        if context.session.ty.is_outbound() {
-            // why don't set inbound here?
-            // because inbound address can't feeler during staying connected
-            // and if set it to peer store, it will be broadcast to the entire network,
-            // but this is an unverified address
-            self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_outbound_addr(context.session.address.clone());
-            });
-        }
     }
 
     fn unregister(&self, context: &ProtocolContextMutRef) {
@@ -384,10 +375,18 @@ impl Callback for IdentifyCallback {
             // disconnected after a long connection is maintained for more than seven days,
             // it is possible that the node will be accidentally evicted, so it is necessary
             // to reset the information of the node when disconnected.
-            self.network_state.with_peer_store_mut(|peer_store| {
-                if !peer_store.is_addr_banned(&context.session.address) {
-                    peer_store.add_outbound_addr(context.session.address.clone());
+            let flags = self.network_state.with_peer_registry(|reg| {
+                if let Some(p) = reg.get_peer(context.session.id) {
+                    p.identify_info
+                        .as_ref()
+                        .map(|i| i.flags)
+                        .unwrap_or(Flags::COMPATIBILITY)
+                } else {
+                    Flags::COMPATIBILITY
                 }
+            });
+            self.network_state.with_peer_store_mut(|peer_store| {
+                peer_store.add_outbound_addr(context.session.address.clone(), flags);
             });
         }
     }
@@ -424,12 +423,18 @@ impl Callback for IdentifyCallback {
                 };
 
                 registry_client_version(client_version);
-                // set peer flags
-                self.network_state.with_peer_store_mut(|peer| {
-                    peer.change_flags(context.session.address.clone(), flags.bits())
-                });
+
+                let required_flags = self.network_state.required_flags;
 
                 if context.session.ty.is_outbound() {
+                    // why don't set inbound here?
+                    // because inbound address can't feeler during staying connected
+                    // and if set it to peer store, it will be broadcast to the entire network,
+                    // but this is an unverified address
+                    self.network_state.with_peer_store_mut(|peer_store| {
+                        peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                    });
+
                     if self
                         .network_state
                         .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
@@ -440,7 +445,7 @@ impl Callback for IdentifyCallback {
                                 TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
                             )
                             .await;
-                    } else if (self.network_state.target_flags_filter)(flags) {
+                    } else if required_flags_filter(required_flags, flags) {
                         // The remote end can support all local protocols.
                         let _ = context
                             .open_protocols(
@@ -485,7 +490,7 @@ impl Callback for IdentifyCallback {
         });
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if let Err(err) = peer_store.add_addr(addr.clone(), flags.bits()) {
+                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
                     error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
                 }
             }
@@ -583,10 +588,7 @@ impl Identify {
 
         let raw_client_version = reader.client_version().as_utf8().ok()?.to_owned();
 
-        Some((
-            unsafe { Flags::from_bits_unchecked(flag) },
-            raw_client_version,
-        ))
+        Some((Flags::from_bits_truncate(flag), raw_client_version))
     }
 }
 

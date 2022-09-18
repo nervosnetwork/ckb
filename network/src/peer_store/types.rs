@@ -1,5 +1,8 @@
 //! Type used on peer store
-use crate::peer_store::{Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS};
+use crate::{
+    peer_store::{Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS},
+    Flags,
+};
 use ipnetwork::IpNetwork;
 use p2p::multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
@@ -52,12 +55,12 @@ pub struct AddrInfo {
 }
 
 fn default_flags() -> u64 {
-    0x1
+    Flags::COMPATIBILITY.bits()
 }
 
 impl AddrInfo {
     /// Init
-    pub fn new(addr: Multiaddr, last_connected_at_ms: u64, score: Score) -> Self {
+    pub fn new(addr: Multiaddr, last_connected_at_ms: u64, score: Score, flags: u64) -> Self {
         AddrInfo {
             addr,
             score,
@@ -65,7 +68,7 @@ impl AddrInfo {
             last_tried_at_ms: 0,
             attempts_count: 0,
             random_id_pos: 0,
-            flags: 0,
+            flags,
         }
     }
 
@@ -112,8 +115,8 @@ impl AddrInfo {
     }
 
     /// Change address flags
-    pub fn flags(&mut self, flags: u64) {
-        self.flags = flags;
+    pub fn flags(&mut self, flags: Flags) {
+        self.flags = flags.bits();
     }
 }
 

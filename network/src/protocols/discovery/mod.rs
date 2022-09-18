@@ -342,7 +342,7 @@ impl AddressManager for DiscoveryAddressManager {
         for (addr, flags) in addrs.into_iter().filter(|addr| self.is_valid_addr(&addr.0)) {
             trace!("Add discovered address:{:?}", addr);
             self.network_state.with_peer_store_mut(|peer_store| {
-                if let Err(err) = peer_store.add_addr(addr.clone(), flags.bits()) {
+                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
                     debug!(
                         "Failed to add discoved address to peer_store {:?} {:?}",
                         err, addr
@@ -363,19 +363,16 @@ impl AddressManager for DiscoveryAddressManager {
     }
 
     fn get_random(&mut self, n: usize, flags: Flags) -> Vec<(Multiaddr, Flags)> {
-        let fetch_random_addrs = self.network_state.with_peer_store_mut(|peer_store| {
-            peer_store.fetch_random_addrs(n, |a| {
-                let f = unsafe { Flags::from_bits_unchecked(a) };
-                f.contains(flags)
-            })
-        });
+        let fetch_random_addrs = self
+            .network_state
+            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n, flags));
         let addrs = fetch_random_addrs
             .into_iter()
             .filter_map(|paddr| {
                 if !self.is_valid_addr(&paddr.addr) {
                     return None;
                 }
-                let f = unsafe { Flags::from_bits_unchecked(paddr.flags) };
+                let f = Flags::from_bits_truncate(paddr.flags);
                 Some((paddr.addr, f))
             })
             .collect();

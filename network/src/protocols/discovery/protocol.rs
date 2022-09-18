@@ -118,7 +118,7 @@ impl DiscoveryMessage {
                     let get_nodes2 =
                         packed::GetNodes2::from_compatible_slice(reader.as_slice()).ok()?;
                     let reader = get_nodes2.as_reader();
-                    unsafe { Flags::from_bits_unchecked(reader.required_flags().unpack()) }
+                    Flags::from_bits_truncate(reader.required_flags().unpack())
                 } else {
                     Flags::COMPATIBILITY
                 };
@@ -146,7 +146,7 @@ impl DiscoveryMessage {
                         let node2 =
                             packed::Node2::from_compatible_slice(node_reader.as_slice()).ok()?;
                         let reader = node2.as_reader();
-                        unsafe { Flags::from_bits_unchecked(reader.flags().unpack()) }
+                        Flags::from_bits_truncate(reader.flags().unpack())
                     } else {
                         Flags::COMPATIBILITY
                     };

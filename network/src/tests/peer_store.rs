@@ -14,29 +14,50 @@ use std::collections::HashSet;
 fn test_add_connected_peer() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 0);
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        0
+    );
     peer_store.add_connected_peer(addr.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr, 0x1).unwrap();
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 1);
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        1
+    );
 }
 
 #[test]
 fn test_add_addr() {
     let mut peer_store: PeerStore = Default::default();
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 0);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        0
+    );
     let addr = random_addr();
-    peer_store.add_addr(addr, 0x1).unwrap();
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
     // we have not connected yet, so return 0
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 0);
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 0);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        0
+    );
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        0
+    );
 }
 
 #[test]
 fn test_report() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr_v6();
-    peer_store.add_addr(addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     assert!(peer_store.report(&addr, Behaviour::TestGood).is_ok());
 
     for _ in 0..7 {
@@ -44,7 +65,9 @@ fn test_report() {
     }
 
     assert!(peer_store.report(&addr, Behaviour::TestBad).is_banned());
-    assert!(peer_store.add_addr(addr.clone(), 0x1).is_ok());
+    assert!(peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .is_ok());
     assert!(peer_store.addr_manager().get(&addr).is_none())
 }
 
@@ -109,7 +132,9 @@ fn test_attempt_ban() {
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    peer_store.add_addr(addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     peer_store
         .mut_addr_manager()
         .get_mut(&addr)
@@ -118,9 +143,19 @@ fn test_attempt_ban() {
 
     faketime::write_millis(&faketime_file, 100_000).expect("write millis");
 
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        1
+    );
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 0);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        0
+    );
 }
 
 #[cfg(not(disable_faketime))]
@@ -132,9 +167,13 @@ fn test_fetch_addrs_to_attempt() {
     faketime::write_millis(&faketime_file, 1).expect("write millis");
 
     let mut peer_store: PeerStore = Default::default();
-    assert!(peer_store.fetch_addrs_to_attempt(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .is_empty());
     let addr = random_addr();
-    peer_store.add_addr(addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     peer_store
         .mut_addr_manager()
         .get_mut(&addr)
@@ -142,9 +181,16 @@ fn test_fetch_addrs_to_attempt() {
         .mark_connected(faketime::unix_time_as_millis());
     faketime::write_millis(&faketime_file, 100_000).expect("write millis");
 
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        1
+    );
     peer_store.add_connected_peer(addr, SessionType::Outbound);
-    assert!(peer_store.fetch_addrs_to_attempt(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .is_empty());
 }
 
 #[cfg(not(disable_faketime))]
@@ -157,17 +203,24 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    peer_store.add_outbound_addr(addr);
+    peer_store.add_outbound_addr(addr, Flags::COMPATIBILITY);
 
     faketime::write_millis(&faketime_file, 100_000).expect("write millis");
 
-    assert_eq!(peer_store.fetch_addrs_to_attempt(2, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .len(),
+        1
+    );
     assert!(peer_store.fetch_addrs_to_feeler(2).is_empty());
 
     faketime::write_millis(&faketime_file, 100_000 + ADDR_TRY_TIMEOUT_MS + 1)
         .expect("write millis");
 
-    assert!(peer_store.fetch_addrs_to_attempt(2, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+        .is_empty());
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
 }
 
@@ -181,18 +234,24 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
-    peer_store.add_addr(addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     let now = faketime::unix_time_as_millis();
 
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now);
     }
-    assert!(peer_store.fetch_addrs_to_attempt(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .is_empty());
     // after 60 seconds
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now - 60_001);
     }
-    assert!(peer_store.fetch_addrs_to_attempt(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .is_empty());
     peer_store
         .mut_addr_manager()
         .get_mut(&addr)
@@ -200,11 +259,21 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
         .mark_connected(now);
     faketime::write_millis(&faketime_file, 200_000).expect("write millis");
 
-    assert_eq!(peer_store.fetch_addrs_to_attempt(1, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+            .len(),
+        1
+    );
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now);
     }
-    assert_eq!(peer_store.fetch_addrs_to_attempt(1, |_| true).len(), 1);
+    assert_eq!(
+        peer_store
+            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -214,7 +283,9 @@ fn test_fetch_addrs_to_feeler() {
     let addr = random_addr();
 
     // add an addr
-    peer_store.add_addr(addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
 
     // ignores connected peers' addrs
@@ -234,7 +305,9 @@ fn test_fetch_addrs_to_feeler() {
 #[test]
 fn test_fetch_random_addrs() {
     let mut peer_store: PeerStore = Default::default();
-    assert!(peer_store.fetch_random_addrs(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_random_addrs(1, Flags::COMPATIBILITY)
+        .is_empty());
     let addr1: Multiaddr = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
         .parse()
         .unwrap();
@@ -245,22 +318,37 @@ fn test_fetch_random_addrs() {
         .parse()
         .unwrap();
     // random should not return peer that we have never connected to
-    assert!(peer_store.fetch_random_addrs(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_random_addrs(1, Flags::COMPATIBILITY)
+        .is_empty());
     // can't get peer addr from inbound
     peer_store.add_connected_peer(addr1.clone(), SessionType::Inbound);
-    assert!(peer_store.fetch_random_addrs(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_random_addrs(1, Flags::COMPATIBILITY)
+        .is_empty());
     // get peer addr from outbound
     peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr1, 0x1).unwrap();
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 1);
+    peer_store.add_addr(addr1, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        1
+    );
     // get peer addrs by limit
     peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr2, 0x1).unwrap();
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 2);
-    assert_eq!(peer_store.fetch_random_addrs(1, |_| true).len(), 1);
+    peer_store.add_addr(addr2, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        2
+    );
+    assert_eq!(
+        peer_store.fetch_random_addrs(1, Flags::COMPATIBILITY).len(),
+        1
+    );
 
     // return old peer's addr
-    peer_store.add_addr(addr3.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(addr3.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     peer_store.add_connected_peer(addr3.clone(), SessionType::Outbound);
     // set last_connected_at_ms to an expired timestamp
     // should still return peer's addr
@@ -269,15 +357,23 @@ fn test_fetch_random_addrs() {
         .get_mut(&addr3)
         .unwrap()
         .mark_connected(0);
-    assert_eq!(peer_store.fetch_random_addrs(3, |_| true).len(), 3);
+    assert_eq!(
+        peer_store.fetch_random_addrs(3, Flags::COMPATIBILITY).len(),
+        3
+    );
     peer_store.remove_disconnected_peer(&addr3);
-    assert_eq!(peer_store.fetch_random_addrs(3, |_| true).len(), 2);
+    assert_eq!(
+        peer_store.fetch_random_addrs(3, Flags::COMPATIBILITY).len(),
+        2
+    );
 }
 
 #[test]
 fn test_random_fetch_with_filter() {
     let mut peer_store: PeerStore = Default::default();
-    assert!(peer_store.fetch_random_addrs(1, |_| true).is_empty());
+    assert!(peer_store
+        .fetch_random_addrs(1, Flags::COMPATIBILITY)
+        .is_empty());
     let addr1: Multiaddr = format!("/ip4/225.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
         .parse()
         .unwrap();
@@ -289,7 +385,7 @@ fn test_random_fetch_with_filter() {
         .unwrap();
 
     peer_store
-        .add_addr(addr1.clone(), Flags::COMPATIBILITY.bits())
+        .add_addr(addr1.clone(), Flags::COMPATIBILITY)
         .unwrap();
     peer_store
         .mut_addr_manager()
@@ -297,63 +393,37 @@ fn test_random_fetch_with_filter() {
         .unwrap()
         .last_connected_at_ms = faketime::unix_time_as_millis();
     assert_eq!(peer_store.addr_manager().count(), 1);
-    assert_eq!(peer_store.fetch_random_addrs(1, |_| true).len(), 1);
     assert_eq!(
-        peer_store
-            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
-                .contains(Flags::SYNC))
-            .len(),
-        0
+        peer_store.fetch_random_addrs(1, Flags::COMPATIBILITY).len(),
+        1
     );
+    assert_eq!(peer_store.fetch_random_addrs(2, Flags::SYNC).len(), 0);
 
     peer_store
-        .add_addr(addr2.clone(), (Flags::COMPATIBILITY | Flags::SYNC).bits())
+        .add_addr(addr2.clone(), Flags::COMPATIBILITY | Flags::SYNC)
         .unwrap();
     peer_store
         .mut_addr_manager()
         .get_mut(&addr2)
         .unwrap()
         .last_connected_at_ms = faketime::unix_time_as_millis();
-    assert_eq!(
-        peer_store
-            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
-                .contains(Flags::SYNC))
-            .len(),
-        1
-    );
+    assert_eq!(peer_store.fetch_random_addrs(2, Flags::SYNC).len(), 1);
 
     peer_store
-        .add_addr(addr3.clone(), (Flags::RELAY | Flags::SYNC).bits())
+        .add_addr(addr3.clone(), Flags::RELAY | Flags::SYNC)
         .unwrap();
     peer_store
         .mut_addr_manager()
         .get_mut(&addr3)
         .unwrap()
         .last_connected_at_ms = faketime::unix_time_as_millis();
-    assert_eq!(
-        peer_store
-            .fetch_random_addrs(2, |t| unsafe { Flags::from_bits_unchecked(t) }
-                .contains(Flags::SYNC))
-            .len(),
-        2
-    );
+    assert_eq!(peer_store.fetch_random_addrs(2, Flags::SYNC).len(), 2);
 
     assert_eq!(
         peer_store
-            .fetch_random_addrs(4, |t| unsafe { Flags::from_bits_unchecked(t) }
-                .contains(Flags::SYNC | Flags::COMPATIBILITY))
+            .fetch_random_addrs(4, Flags::SYNC | Flags::COMPATIBILITY)
             .len(),
         1
-    );
-
-    assert_eq!(
-        peer_store
-            .fetch_random_addrs(4, |t| {
-                let raw = unsafe { Flags::from_bits_unchecked(t) };
-                raw.contains(Flags::SYNC) || raw.contains(Flags::COMPATIBILITY)
-            })
-            .len(),
-        3
     );
 }
 
@@ -368,9 +438,12 @@ fn test_get_random_restrict_addrs_from_same_ip() {
         .unwrap();
     peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
     peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr1, 0x1).unwrap();
-    peer_store.add_addr(addr2, 0x1).unwrap();
-    assert_eq!(peer_store.fetch_random_addrs(2, |_| true).len(), 1);
+    peer_store.add_addr(addr1, Flags::COMPATIBILITY).unwrap();
+    peer_store.add_addr(addr2, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        1
+    );
 }
 
 #[test]
@@ -387,7 +460,7 @@ fn test_eviction() {
         )
         .parse()
         .unwrap();
-        peer_store.add_addr(addr, 0x1).unwrap();
+        peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
     }
     let addr: Multiaddr = format!(
         "/ip4/192.163.1.1/tcp/43/p2p/{}",
@@ -395,23 +468,25 @@ fn test_eviction() {
     )
     .parse()
     .unwrap();
-    peer_store.add_addr(addr, 0x1).unwrap();
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
     let addr: Multiaddr = format!(
         "/ip4/255.255.0.1/tcp/43/p2p/{}",
         PeerId::random().to_base58()
     )
     .parse()
     .unwrap();
-    peer_store.add_addr(addr, 0x1).unwrap();
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
     let addr: Multiaddr = random_addr_v6();
-    peer_store.add_addr(addr, 0x1).unwrap();
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
 
     // this peer will be evict from peer store
     let evict_addr: Multiaddr =
         format!("/ip4/225.0.0.2/tcp/42/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-    peer_store.add_addr(evict_addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(evict_addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     // this peer will be evict from peer store
     let evict_addr_2: Multiaddr = format!(
         "/ip4/192.163.1.1/tcp/42/p2p/{}",
@@ -419,7 +494,9 @@ fn test_eviction() {
     )
     .parse()
     .unwrap();
-    peer_store.add_addr(evict_addr_2.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(evict_addr_2.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     // mark two peers as terrible peer
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&evict_addr) {
         paddr.mark_tried(tried_ms);
@@ -438,7 +515,9 @@ fn test_eviction() {
         format!("/ip4/225.0.0.3/tcp/42/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-    peer_store.add_addr(new_peer_addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(new_peer_addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     // check addrs
     // peer store will evict all peers which are invalid
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
@@ -450,12 +529,16 @@ fn test_eviction() {
         format!("/ip4/225.0.0.3/tcp/63/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-    peer_store.add_addr(new_peer_addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(new_peer_addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
     let new_peer_addr: Multiaddr =
         format!("/ip4/225.0.0.3/tcp/59/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-    peer_store.add_addr(new_peer_addr.clone(), 0x1).unwrap();
+    peer_store
+        .add_addr(new_peer_addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
 }

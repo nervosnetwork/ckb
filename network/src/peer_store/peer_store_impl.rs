@@ -9,7 +9,7 @@ use crate::{
         Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
         ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, DIAL_INTERVAL,
     },
-    PeerId, SessionType,
+    Flags, PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
 use rand::prelude::IteratorRandom;
@@ -60,35 +60,29 @@ impl PeerStore {
 
     /// Add discovered peer address
     /// this method will assume peer and addr is untrust since we have not connected to it.
-    pub fn add_addr(&mut self, addr: Multiaddr, flags: u64) -> Result<()> {
+    pub fn add_addr(&mut self, addr: Multiaddr, flags: Flags) -> Result<()> {
         if self.ban_list.is_addr_banned(&addr) {
             return Ok(());
         }
         self.check_purge()?;
         let score = self.score_config.default_score;
-        self.addr_manager.add({
-            let mut info = AddrInfo::new(addr, 0, score);
-            info.flags(flags);
-            info
-        });
+        self.addr_manager
+            .add(AddrInfo::new(addr, 0, score, flags.bits()));
         Ok(())
     }
 
     /// Add outbound peer address
-    pub fn add_outbound_addr(&mut self, addr: Multiaddr) {
+    pub fn add_outbound_addr(&mut self, addr: Multiaddr, flags: Flags) {
         if self.ban_list.is_addr_banned(&addr) {
             return;
         }
         let score = self.score_config.default_score;
-        self.addr_manager
-            .add(AddrInfo::new(addr, faketime::unix_time_as_millis(), score));
-    }
-
-    /// Change peer's Flags
-    pub fn change_flags(&mut self, addr: Multiaddr, flags: u64) {
-        if let Some(addr_info) = self.addr_manager.get_mut(&addr) {
-            addr_info.flags(flags)
-        }
+        self.addr_manager.add(AddrInfo::new(
+            addr,
+            faketime::unix_time_as_millis(),
+            score,
+            flags.bits(),
+        ));
     }
 
     /// Get address manager
@@ -133,11 +127,7 @@ impl PeerStore {
     }
 
     /// Get peers for outbound connection, this method randomly return recently connected peer addrs
-    pub fn fetch_addrs_to_attempt(
-        &mut self,
-        count: usize,
-        target_fliter: impl Fn(u64) -> bool,
-    ) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_attempt(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
         // Get info:
         // 1. Not already connected
         // 2. Connected within 3 days
@@ -154,7 +144,10 @@ impl PeerStore {
                     && peer_addr.connected(|t| {
                         t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL)
                     })
-                    && target_fliter(peer_addr.flags)
+                    && required_flags_filter(
+                        required_flags,
+                        Flags::from_bits_truncate(peer_addr.flags),
+                    )
             })
     }
 
@@ -180,11 +173,7 @@ impl PeerStore {
     }
 
     /// Return valid addrs that success connected, used for discovery.
-    pub fn fetch_random_addrs(
-        &mut self,
-        count: usize,
-        target_fliter: impl Fn(u64) -> bool,
-    ) -> Vec<AddrInfo> {
+    pub fn fetch_random_addrs(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
         // Get info:
         // 1. Already connected or Connected within 7 days
 
@@ -194,7 +183,7 @@ impl PeerStore {
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
-                target_fliter(peer_addr.flags)
+                required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
                     && (extract_peer_id(&peer_addr.addr)
                         .map(|peer_id| peers.contains_key(&peer_id))
                         .unwrap_or_default()
@@ -321,5 +310,13 @@ impl PeerStore {
             }
         }
         Ok(())
+    }
+}
+
+pub(crate) fn required_flags_filter(required: Flags, t: Flags) -> bool {
+    if required == Flags::RELAY | Flags::DISCOVERY | Flags::SYNC {
+        t.contains(required) || t.contains(Flags::COMPATIBILITY)
+    } else {
+        t.contains(required)
     }
 }

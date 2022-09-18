@@ -1,6 +1,5 @@
 use crate::{
     peer_store::{types::AddrInfo, PeerStore},
-    protocols::identify::Flags,
     NetworkState,
 };
 use ckb_logger::trace;
@@ -80,14 +79,10 @@ impl OutboundPeerService {
         }
         self.try_identify_count += 1;
 
-        let target = &self.network_state.target_flags_filter;
-        let filter = |flags: u64| -> bool {
-            let out = unsafe { Flags::from_bits_unchecked(flags) };
-            target(out)
-        };
+        let target = &self.network_state.required_flags;
 
         let f = |peer_store: &mut PeerStore, number: usize, now_ms: u64| -> Vec<AddrInfo> {
-            let paddrs = peer_store.fetch_addrs_to_attempt(number, filter);
+            let paddrs = peer_store.fetch_addrs_to_attempt(number, *target);
             for paddr in paddrs.iter() {
                 // mark addr as tried
                 if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {

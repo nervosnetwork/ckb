@@ -4,7 +4,7 @@ extern crate criterion;
 extern crate ckb_network;
 extern crate ckb_util;
 
-use ckb_network::{multiaddr::Multiaddr, peer_store::PeerStore, PeerId};
+use ckb_network::{multiaddr::Multiaddr, peer_store::PeerStore, Flags, PeerId};
 use criterion::{BatchSize, BenchmarkId, Criterion};
 
 const SIZES: &[usize] = &[10_000, 20_000];
@@ -27,7 +27,7 @@ fn bench(c: &mut Criterion) {
                 |addrs| {
                     let mut peer_store = PeerStore::default();
                     for addr in addrs {
-                        peer_store.add_addr(addr, 0x1).unwrap();
+                        peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
                     }
                 },
                 BatchSize::PerIteration,
@@ -54,12 +54,12 @@ fn bench(c: &mut Criterion) {
                             .collect::<Vec<_>>();
                         let mut peer_store = PeerStore::default();
                         for addr in addrs {
-                            peer_store.add_addr(addr, 0x1).unwrap();
+                            peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
                         }
                         peer_store
                     },
                     |mut peer_store| {
-                        peer_store.fetch_random_addrs(*i, |_| true);
+                        peer_store.fetch_random_addrs(*i, Flags::COMPATIBILITY);
                     },
                     BatchSize::PerIteration,
                 )

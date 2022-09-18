@@ -98,16 +98,12 @@ impl Node {
     }
 }
 
-fn net_service_start<F>(
+fn net_service_start(
     name: String,
     enable_discovery_push: bool,
-    target_flags_filter: F,
     required_flags: Flags,
     self_flags: Flags,
-) -> Node
-where
-    F: Fn(Flags) -> bool + Send + Sync + 'static,
-{
+) -> Node {
     let config = NetworkConfig {
         max_peers: 19,
         max_outbound_peers: 5,
@@ -133,7 +129,6 @@ where
     let network_state = Arc::new(
         NetworkState::from_config(config.clone())
             .expect("Init network state failed")
-            .target_flags_filter(target_flags_filter)
             .required_flags(required_flags),
     );
 
@@ -306,21 +301,18 @@ fn test_identify_behavior() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         false,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/2".to_string(),
         false,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node3 = net_service_start(
         "/test/1".to_string(),
         false,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
@@ -328,11 +320,7 @@ fn test_identify_behavior() {
     let node4 = net_service_start(
         "/test/1".to_string(),
         false,
-        |t| {
-            let target = Flags::SYNC | Flags::RELAY | Flags::DISCOVERY;
-            t.contains(target)
-        },
-        Flags::SYNC | Flags::RELAY | Flags::DISCOVERY,
+        Flags::SYNC | Flags::RELAY | Flags::DISCOVERY | Flags::BLOCK_FILTER,
         Flags::SYNC | Flags::RELAY | Flags::DISCOVERY,
     );
 
@@ -425,14 +413,12 @@ fn test_feeler_behavior() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
@@ -459,30 +445,19 @@ fn test_discovery_behavior() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node3 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
-        Flags::COMPATIBILITY,
-    );
-
-    let node4 = net_service_start(
-        "/test/1".to_string(),
-        true,
-        |_| true,
-        Flags::SYNC,
         Flags::COMPATIBILITY,
     );
 
@@ -539,14 +514,6 @@ fn test_discovery_behavior() {
     wait_connect_state(&node2, 2);
     wait_connect_state(&node3, 2);
 
-    node4.dial(
-        &node2,
-        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-    );
-
-    wait_connect_state(&node4, 1);
-    wait_discovery(&node4, |num| num >= 2);
-
     thread::sleep(Duration::from_secs(10));
 
     let checker = ProtocolTypeCheckerService::new(
@@ -579,14 +546,12 @@ fn test_dial_all() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
@@ -602,14 +567,12 @@ fn test_ban() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
@@ -653,42 +616,36 @@ fn test_bootnode_mode_inbound_eviction() {
     let node1 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node2 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node3 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node4 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node5 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
     let node6 = net_service_start(
         "/test/1".to_string(),
         true,
-        |_| true,
         Flags::COMPATIBILITY,
         Flags::COMPATIBILITY,
     );
