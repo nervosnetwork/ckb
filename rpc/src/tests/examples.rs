@@ -170,7 +170,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         pack.take_relay_tx_receiver(),
     ));
 
-    let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
+    let notify_controller =
+        NotifyService::new(Default::default()).start(shared.async_handle().clone());
     let (alert_notifier, alert_verifier) = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
@@ -245,7 +246,12 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .enable_alert(alert_verifier, alert_notifier, network_controller);
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
+    let rpc_server = RpcServer::new(
+        rpc_config,
+        io_handler,
+        shared.notify_controller(),
+        shared.async_handle().clone().into_inner(),
+    );
     let rpc_uri = format!(
         "http://{}:{}/",
         rpc_server.http_address().ip(),

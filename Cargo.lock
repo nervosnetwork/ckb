@@ -967,6 +967,7 @@ name = "ckb-network-alert"
 version = "0.105.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-crypto",
  "ckb-error",
  "ckb-jsonrpc-types",
@@ -974,10 +975,12 @@ dependencies = [
  "ckb-multisig",
  "ckb-network",
  "ckb-notify",
+ "ckb-stop-handler",
  "ckb-types",
  "ckb-util",
  "faketime",
  "lru",
+ "once_cell",
  "semver",
 ]
 
@@ -986,10 +989,11 @@ name = "ckb-notify"
 version = "0.105.0-pre"
 dependencies = [
  "ckb-app-config",
- "ckb-channel",
+ "ckb-async-runtime",
  "ckb-logger",
  "ckb-stop-handler",
  "ckb-types",
+ "tokio",
 ]
 
 [[package]]
@@ -1133,6 +1137,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

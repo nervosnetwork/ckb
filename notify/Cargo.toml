@@ -12,7 +12,8 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-logger = { path = "../util/logger", version = "= 0.105.0-pre" }
 ckb-app-config  = { path = "../util/app-config", version = "= 0.105.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.105.0-pre" }
-ckb-channel = { path = "../util/channel", version = "= 0.105.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.105.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.105.0-pre" }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]

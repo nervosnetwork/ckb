@@ -326,7 +326,7 @@ impl SharedBuilder {
         let store_config = store_config.unwrap_or_default();
         let consensus = Arc::new(consensus.unwrap_or_default());
 
-        let notify_controller = start_notify_service(notify_config);
+        let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
         let store = build_store(db, store_config, ancient_path).map_err(|e| {
             eprintln!("build_store {}", e);
@@ -405,8 +405,8 @@ impl SharedPackage {
     }
 }
 
-fn start_notify_service(notify_config: NotifyConfig) -> NotifyController {
-    NotifyService::new(notify_config).start(Some("NotifyService"))
+fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
+    NotifyService::new(notify_config).start(handle)
 }
 
 fn build_store(
