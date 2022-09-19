@@ -44,6 +44,7 @@ ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.105
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.105.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.105.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.105.0-pre" }
+ckb-indexer = { path = "../util/indexer", version = "= 0.105.0-pre" }
 tokio = "1"
 
 [dev-dependencies]

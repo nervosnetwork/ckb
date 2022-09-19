@@ -458,6 +458,7 @@ fn collect_rpc_examples() -> io::Result<BTreeSet<RpcTestExample>> {
         if path.extension().unwrap_or_default() == "rs"
             && path.file_stem().unwrap_or_default() != "mod"
             && path.file_stem().unwrap_or_default() != "debug"
+            && path.file_stem().unwrap_or_default() != "indexer"
         {
             collect_rpc_examples_in_file(&mut examples, path)?;
         }

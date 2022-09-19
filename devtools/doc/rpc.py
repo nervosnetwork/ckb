@@ -266,6 +266,8 @@ class RPCVar():
                 self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
                 self.require_children(2)
+            elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
+                self.require_children(1)
             elif self.ty.startswith('../'):
                 if '/struct.' in self.ty:
                     PENDING_TYPES.add(self.ty)
@@ -321,6 +323,8 @@ class RPCVar():
                             '`](')[0][2:]
                         self.ty = '{} `|` [`Serialized{}`](#type-serialized{})'.format(
                             self.children[0].ty, molecule_name, molecule_name.lower())
+                    elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
+                        self.ty = '`Pagination<` {} `>`'.format(self.children[0].ty)
                 else:
                     self.completed_children += 1
 
