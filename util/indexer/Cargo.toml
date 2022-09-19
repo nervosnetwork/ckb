@@ -1,0 +1,31 @@
+[package]
+name = "ckb-indexer"
+version = "0.105.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2021"
+description = "The ckb indexer"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1.0"
+rocksdb = { package = "ckb-rocksdb", version ="=0.18.3", features = ["snappy"], default-features = false }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.105.0-pre" }
+ckb-types = { path = "../types", version = "= 0.105.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.0-pre" }
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.9", features = ["macros", "rt-multi-thread", "time"] }
+ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
+ckb-app-config = { path = "../app-config", version = "= 0.105.0-pre" }
+ckb-notify = { path = "../../notify", version = "= 0.105.0-pre" }
+ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
+ckb-channel = { path = "../channel", version = "= 0.105.0-pre" }
+
+[dev-dependencies]
+tempfile = "3.0"
+rand = "0.6"
