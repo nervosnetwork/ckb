@@ -1,6 +1,4 @@
-use ckb_channel::select;
 use ckb_jsonrpc_types::Topic;
-use ckb_logger::error;
 use ckb_notify::NotifyController;
 use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
@@ -15,7 +13,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     RwLock,
 };
-use std::thread;
 use tokio::runtime::Handle;
 
 const SUBSCRIBER_NAME: &str = "TcpSubscription";

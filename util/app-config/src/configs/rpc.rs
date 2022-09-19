@@ -15,6 +15,7 @@ pub enum Module {
     Alert,
     Subscription,
     Debug,
+    Indexer,
 }
 
 /// RPC config options.
@@ -104,5 +105,10 @@ impl Config {
     /// Checks whether the Debug module is enabled.
     pub fn debug_enable(&self) -> bool {
         self.modules.contains(&Module::Debug)
+    }
+
+    /// Checks whether the Indexer module is enabled.
+    pub fn indexer_enable(&self) -> bool {
+        self.modules.contains(&Module::Indexer)
     }
 }

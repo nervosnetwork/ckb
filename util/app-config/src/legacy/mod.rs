@@ -44,7 +44,7 @@ pub(crate) struct CKBAppConfig {
     db: crate::DBConfig,
 
     #[serde(default)]
-    indexer: Option<serde_json::Value>,
+    _indexer: Option<serde_json::Value>,
 
     network: crate::NetworkConfig,
     rpc: crate::RpcConfig,
@@ -96,7 +96,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             chain,
             block_assembler,
             db,
-            indexer: _,
+            _indexer,
             network,
             rpc,
             tx_pool,
@@ -183,7 +183,6 @@ macro_rules! deprecate {
 impl CKBAppConfig {
     pub(crate) fn deprecated_fields(&self) -> Vec<DeprecatedField> {
         let mut v = Vec::new();
-        deprecate!(self, v, indexer, "0.40.0");
         deprecate!(self, v, store.cellbase_cache_size, "0.100.0");
         deprecate!(self, v, tx_pool.max_verify_cache_size, "0.100.0");
         deprecate!(self, v, tx_pool.max_conflict_cache_size, "0.100.0");

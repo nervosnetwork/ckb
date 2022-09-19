@@ -3,12 +3,13 @@ use crate::error::RPCError;
 use crate::module::SubscriptionSession;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
-    ExperimentRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc,
-    NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
+    MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
-use ckb_app_config::RpcConfig;
+use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
+use ckb_indexer::IndexerService;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
@@ -195,6 +196,25 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
+    /// Mounts methods from module Indexer if it is enabled in the config.
+    pub fn enable_indexer(
+        mut self,
+        shared: Shared,
+        db_config: &DBConfig,
+        indexer_config: &IndexerConfig,
+    ) -> Self {
+        let indexer = IndexerService::new(&db_config, &indexer_config);
+        let indexer_handle = indexer.handle();
+        let rpc_methods = IndexerRpcImpl::new(indexer_handle).to_delegate();
+        if self.config.indexer_enable() {
+            start_indexer(&shared, indexer, indexer_config.index_tx_pool);
+            self.add_methods(rpc_methods);
+        } else {
+            self.update_disabled_methods("Indexer", rpc_methods);
+        }
+        self
+    }
+
     fn update_disabled_methods<I, M>(&mut self, module: &str, rpc_methods: I)
     where
         I: IntoIterator<Item = (String, M)>,
@@ -241,5 +261,20 @@ impl<'a> ServiceBuilder<'a> {
         io_handler.add_sync_method("ping", |_| Ok("pong".into()));
 
         io_handler
+    }
+}
+
+fn start_indexer(shared: &Shared, service: IndexerService, index_tx_pool: bool) {
+    let poll_service = service.clone();
+    shared.async_handle().spawn(async move {
+        poll_service.poll().await;
+    });
+
+    let tx_pool_service = service.clone();
+    let notify_controller = shared.notify_controller().clone();
+    if index_tx_pool {
+        shared.async_handle().spawn(async move {
+            tx_pool_service.index_tx_pool(notify_controller).await;
+        });
     }
 }
