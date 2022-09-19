@@ -43,6 +43,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
+    let _indexer = launcher.start_indexer(&shared);
+
     let (network_controller, rpc_server) = launcher.start_network_and_rpc(
         &shared,
         chain_controller.non_owning_clone(),

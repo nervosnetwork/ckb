@@ -34,6 +34,7 @@ members = [
     "util/hash",
     "util/rational",
     "util/rust-unstable-port",
+    "util/indexer",
     "benches",
     "db-schema",
     "util/spawn",
