@@ -248,8 +248,8 @@ impl Launcher {
         let index_tx_pool = service.clone();
         let notify_controller = shared.notify_controller().clone();
         if self.args.config.indexer.index_tx_pool {
-            self.async_handle.spawn_blocking(move || {
-                index_tx_pool.index_tx_pool(notify_controller);
+            self.async_handle.spawn(async move {
+                index_tx_pool.index_tx_pool(notify_controller).await;
             });
         }
         service.handle()
@@ -372,6 +372,7 @@ impl Launcher {
             self.args.config.rpc.clone(),
             io_handler,
             shared.notify_controller(),
+            self.async_handle.clone().into_inner(),
         );
 
         (network_controller, rpc_server)

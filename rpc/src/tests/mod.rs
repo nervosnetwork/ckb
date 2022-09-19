@@ -296,7 +296,12 @@ fn setup() -> RpcTestSuite {
         .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
+    let rpc_server = RpcServer::new(
+        rpc_config,
+        io_handler,
+        shared.notify_controller(),
+        shared.async_handle().clone().into_inner(),
+    );
     let rpc_uri = format!(
         "http://{}:{}/",
         rpc_server.http_address().ip(),
