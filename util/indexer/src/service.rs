@@ -4,14 +4,12 @@ use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
-use ckb_channel::select;
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
 };
 use ckb_jsonrpc_types::{
-    BlockNumber, Capacity, CellOutput, HeaderView, JsonBytes, LocalNode, OutPoint, Script, Uint32,
-    Uint64,
+    BlockNumber, Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint32, Uint64,
 };
 use ckb_logger::{error, info, trace};
 use ckb_notify::NotifyController;
@@ -20,9 +18,7 @@ use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
-use std::net::ToSocketAddrs;
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
@@ -229,7 +225,7 @@ pub enum Order {
 }
 
 #[derive(Serialize)]
-pub struct Tip {
+pub struct IndexerTip {
     block_hash: H256,
     block_number: BlockNumber,
 }
@@ -307,12 +303,12 @@ pub struct IndexerHandle {
 }
 
 impl IndexerHandle {
-    fn get_indexer_info(&self) -> Result<Option<Tip>, Error> {
+    pub fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         let mut iter = self
             .store
             .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
             .expect("iter Header should be OK");
-        Ok(iter.next().map(|(key, _)| Tip {
+        Ok(iter.next().map(|(key, _)| IndexerTip {
             block_hash: packed::Byte32::from_slice(&key[9..])
                 .expect("stored block key")
                 .unpack(),
@@ -323,7 +319,7 @@ impl IndexerHandle {
         }))
     }
 
-    fn get_cells(
+    pub fn get_cells(
         &self,
         search_key: SearchKey,
         order: Order,
@@ -457,7 +453,7 @@ impl IndexerHandle {
         })
     }
 
-    fn get_transactions(
+    pub fn get_transactions(
         &self,
         search_key: SearchKey,
         order: Order,
@@ -704,7 +700,10 @@ impl IndexerHandle {
         }
     }
 
-    fn get_cells_capacity(&self, search_key: SearchKey) -> Result<Option<CellsCapacity>, Error> {
+    pub fn get_cells_capacity(
+        &self,
+        search_key: SearchKey,
+    ) -> Result<Option<CellsCapacity>, Error> {
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -825,12 +824,6 @@ impl IndexerHandle {
             .into(),
         }))
     }
-
-    // fn get_indexer_info(&self) -> Result<IndexerInfo> {
-    //     Ok(IndexerInfo {
-    //         version: self.version.clone(),
-    //     })
-    // }
 }
 
 const MAX_PREFIX_SEARCH_SIZE: usize = u16::max_value() as usize;
@@ -1103,7 +1096,7 @@ mod tests {
         }
 
         // test get_tip rpc
-        let tip = rpc.get_indexer_info().unwrap().unwrap();
+        let tip = rpc.get_indexer_tip().unwrap().unwrap();
         assert_eq!(Unpack::<H256>::unpack(&pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
