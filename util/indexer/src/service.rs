@@ -75,37 +75,30 @@ impl IndexerService {
         }
     }
 
-    pub fn index_tx_pool(&self, notify_controller: NotifyController) {
-        let new_transaction_receiver =
-            notify_controller.subscribe_new_transaction(SUBSCRIBER_NAME.to_string());
-        let reject_transaction_receiver =
-            notify_controller.subscribe_reject_transaction(SUBSCRIBER_NAME.to_string());
+    pub async fn index_tx_pool(&self, notify_controller: NotifyController) {
+        let mut new_transaction_receiver = notify_controller
+            .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
+            .await;
+        let mut reject_transaction_receiver = notify_controller
+            .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
+            .await;
+
         loop {
-            select! {
-                recv(new_transaction_receiver) -> msg => match msg {
-                    Ok(tx_entry) => {
-                        if let Some(pool) = self.pool.as_ref() {
-                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
-                        }
-                    },
-                    _ => {
-                        error!("new_transaction_receiver closed");
-                        break;
-                    },
-                },
-                recv(reject_transaction_receiver) -> msg => match msg {
-                    Ok((tx_entry, _reject)) => {
-                        if let Some(pool) = self.pool.as_ref() {
-                            pool.write()
-                            .expect("acquire lock")
-                            .transaction_rejected(&tx_entry.transaction);
-                        }
-                    },
-                    _ => {
-                        error!("reject_transaction_receiver closed");
-                        break;
-                    },
+            tokio::select! {
+                Some(tx_entry) = new_transaction_receiver.recv() => {
+                    if let Some(pool) = self.pool.as_ref() {
+                        pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
+                    }
                 }
+                Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
+                    if let Some(pool) = self.pool.as_ref() {
+                        pool.write()
+                        .expect("acquire lock")
+                        .transaction_rejected(&tx_entry.transaction);
+                    }
+                }
+
+                else => break,
             }
         }
     }
@@ -314,7 +307,7 @@ pub struct IndexerHandle {
 }
 
 impl IndexerHandle {
-    fn get_tip(&self) -> Result<Option<Tip>, Error> {
+    fn get_indexer_info(&self) -> Result<Option<Tip>, Error> {
         let mut iter = self
             .store
             .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
@@ -982,10 +975,9 @@ mod tests {
         let store = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
         let indexer = Indexer::new(store.clone(), 10, 100, None);
-        let rpc = IndexerRpcImpl {
+        let rpc = IndexerHandle {
             store,
             pool: Some(pool.clone()),
-            version: "0.2.1".to_owned(),
         };
 
         // setup test data
@@ -1111,7 +1103,7 @@ mod tests {
         }
 
         // test get_tip rpc
-        let tip = rpc.get_tip().unwrap().unwrap();
+        let tip = rpc.get_indexer_info().unwrap().unwrap();
         assert_eq!(Unpack::<H256>::unpack(&pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
@@ -1498,9 +1490,6 @@ mod tests {
             capacity.capacity.value(),
             "last block live cell"
         );
-
-        // test get_indexer_info rpc
-        assert_eq!("0.2.1", rpc.get_indexer_info().unwrap().version);
 
         // test get_cells rpc with tx-pool overlay
         let pool_tx = TransactionBuilder::default()
