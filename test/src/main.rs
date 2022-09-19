@@ -373,6 +373,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(GetBlockFilterCheckPoints),
         Box::new(GetBlockFilterHashes),
         Box::new(GetBlockFilters),
+        Box::new(GetBlockFiltersNotReachBatch),
         Box::new(GetBlocksTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),
