@@ -16,6 +16,7 @@ use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
+use ckb_indexer::{IndexerHandle, IndexerService};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info;
 use ckb_network::{
@@ -235,6 +236,23 @@ impl Launcher {
         let chain_controller = chain_service.start(Some("ChainService"));
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller
+    }
+
+    pub fn start_indexer(&self, shared: &Shared) -> IndexerHandle {
+        let service = IndexerService::new(&self.args.config.db, &self.args.config.indexer);
+        let poll_service = service.clone();
+        self.async_handle.spawn(async move {
+            poll_service.poll().await;
+        });
+
+        let index_tx_pool = service.clone();
+        let notify_controller = shared.notify_controller().clone();
+        if self.args.config.indexer.index_tx_pool {
+            self.async_handle.spawn_blocking(move || {
+                index_tx_pool.index_tx_pool(notify_controller);
+            });
+        }
+        service.handle()
     }
 
     /// Start network service and rpc serve

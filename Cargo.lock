@@ -667,6 +667,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-indexer"
+version = "0.105.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-channel",
+ "ckb-db-schema",
+ "ckb-jsonrpc-types",
+ "ckb-logger",
+ "ckb-notify",
+ "ckb-rocksdb",
+ "ckb-store",
+ "ckb-types",
+ "futures",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "ckb-instrument"
 version = "0.105.0-pre"
 dependencies = [
@@ -707,6 +729,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
+ "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-migration-template",

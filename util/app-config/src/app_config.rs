@@ -88,6 +88,9 @@ pub struct CKBAppConfig {
     /// Notify config options.
     #[serde(default)]
     pub notify: NotifyConfig,
+    /// Indexer config options.
+    #[serde(default)]
+    pub indexer: IndexerConfig,
 }
 
 /// The miner config file for `ckb miner`. Usually it is the `ckb-miner.toml` in the CKB root
@@ -285,6 +288,9 @@ impl CKBAppConfig {
 
         let tx_pool_path = mkdir(self.data_dir.join("tx_pool"))?;
         self.tx_pool.adjust(root_dir, tx_pool_path);
+
+        let indexer_path = mkdir(self.data_dir.join("indexer"))?;
+        self.indexer.adjust(root_dir, indexer_path);
 
         if subcommand_name == cli::CMD_RESET_DATA {
             return Ok(self);

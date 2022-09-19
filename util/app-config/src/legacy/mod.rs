@@ -126,6 +126,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             store: store.into(),
             alert_signature,
             notify,
+            indexer: crate::IndexerConfig::default(),
         }
     }
 }
