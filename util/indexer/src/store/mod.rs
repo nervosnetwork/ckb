@@ -1,19 +1,19 @@
 mod rocksdb;
 mod secondary_db;
 
-pub use self::rocksdb::RocksdbStore;
-pub use self::secondary_db::SecondaryDB;
+pub(crate) use self::rocksdb::RocksdbStore;
+pub(crate) use self::secondary_db::SecondaryDB;
 use crate::error::Error;
 use std::path::Path;
 
-pub type IteratorItem = (Box<[u8]>, Box<[u8]>);
+type IteratorItem = (Box<[u8]>, Box<[u8]>);
 
-pub enum IteratorDirection {
+pub(crate) enum IteratorDirection {
     Forward,
     Reverse,
 }
 
-pub trait Store {
+pub(crate) trait Store {
     type Batch: Batch;
 
     fn new<P>(path: P) -> Self
@@ -33,7 +33,7 @@ pub trait Store {
     fn batch(&self) -> Result<Self::Batch, Error>;
 }
 
-pub trait Batch {
+pub(crate) trait Batch {
     fn put_kv<K: Into<Vec<u8>>, V: Into<Vec<u8>>>(
         &mut self,
         key: K,

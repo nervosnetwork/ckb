@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct RocksdbStore {
+pub(crate) struct RocksdbStore {
     db: Arc<DB>,
 }
 
@@ -57,7 +57,7 @@ impl Store for RocksdbStore {
     }
 }
 
-pub struct RocksdbBatch {
+pub(crate) struct RocksdbBatch {
     db: Arc<DB>,
     wb: WriteBatch,
 }
@@ -88,7 +88,6 @@ impl RocksdbStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile;
 
     #[test]
     fn put_and_get() {

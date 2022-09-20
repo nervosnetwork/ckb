@@ -35,12 +35,12 @@ use std::sync::Arc;
 
 // Notice: rust-rocksdb `OpenRaw` handle 'default' column automatically
 #[derive(Clone)]
-pub struct SecondaryDB {
+pub(crate) struct SecondaryDB {
     inner: Arc<SecondaryRocksDB>,
 }
 
 impl SecondaryDB {
-    /// Open a database with ttl support.
+    /// Open a SecondaryDB
     pub fn open_cf<P, I, N>(path: P, cf_names: I, secondary_path: String) -> Self
     where
         P: AsRef<Path>,
