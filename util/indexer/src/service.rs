@@ -15,6 +15,7 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::{error, info, trace};
 use ckb_notify::NotifyController;
+use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 use tokio::time::sleep;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
@@ -33,11 +35,19 @@ pub struct IndexerService {
     secondary_db: SecondaryDB,
     pool: Option<Arc<RwLock<Pool>>>,
     poll_interval: Duration,
+    stop_handler: StopHandler<()>,
+    stop: watch::Receiver<u8>,
 }
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig) -> Self {
+        let (stop_sender, stop) = watch::channel(WATCH_INIT);
+        let stop_handler = StopHandler::new(
+            SignalSender::Watch(stop_sender),
+            None,
+            "indexer".to_string(),
+        );
         let store = RocksdbStore::new(&config.store);
         let pool = if config.index_tx_pool {
             Some(Arc::new(RwLock::new(Pool::default())))
@@ -65,6 +75,8 @@ impl IndexerService {
             secondary_db,
             pool,
             poll_interval: Duration::from_secs(config.poll_interval),
+            stop_handler,
+            stop,
         }
     }
 
@@ -76,6 +88,7 @@ impl IndexerService {
         IndexerHandle {
             store: self.store.clone(),
             pool: self.pool.clone(),
+            stop_handler: self.stop_handler.clone(),
         }
     }
 
@@ -87,7 +100,7 @@ impl IndexerService {
         let mut reject_transaction_receiver = notify_controller
             .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
             .await;
-
+        let mut stop = self.stop.clone();
         loop {
             tokio::select! {
                 Some(tx_entry) = new_transaction_receiver.recv() => {
@@ -102,7 +115,7 @@ impl IndexerService {
                         .transaction_rejected(&tx_entry.transaction);
                     }
                 }
-
+                _ = stop.changed() => break,
                 else => break,
             }
         }
@@ -176,6 +189,9 @@ impl IndexerService {
                         sleep(self.poll_interval).await;
                     }
                 }
+            }
+            if self.stop.has_changed().unwrap_or(true) {
+                break;
             }
         }
     }
@@ -334,6 +350,13 @@ pub struct Pagination<T> {
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
+    stop_handler: StopHandler<()>,
+}
+
+impl Drop for IndexerHandle {
+    fn drop(&mut self) {
+        self.stop_handler.try_send(());
+    }
 }
 
 impl IndexerHandle {
@@ -1005,9 +1028,11 @@ mod tests {
         let store = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
         let indexer = Indexer::new(store.clone(), 10, 100, None);
+        let stop_handler = StopHandler::new(SignalSender::Dummy, None, "indexer-test".to_string());
         let rpc = IndexerHandle {
             store,
             pool: Some(Arc::clone(&pool)),
+            stop_handler,
         };
 
         // setup test data
