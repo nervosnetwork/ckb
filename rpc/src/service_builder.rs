@@ -203,7 +203,7 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
-        let indexer = IndexerService::new(&db_config, &indexer_config);
+        let indexer = IndexerService::new(db_config, indexer_config);
         let indexer_handle = indexer.handle();
         let rpc_methods = IndexerRpcImpl::new(indexer_handle).to_delegate();
         if self.config.indexer_enable() {
@@ -270,11 +270,10 @@ fn start_indexer(shared: &Shared, service: IndexerService, index_tx_pool: bool) 
         poll_service.poll().await;
     });
 
-    let tx_pool_service = service.clone();
     let notify_controller = shared.notify_controller().clone();
     if index_tx_pool {
         shared.async_handle().spawn(async move {
-            tx_pool_service.index_tx_pool(notify_controller).await;
+            service.index_tx_pool(notify_controller).await;
         });
     }
 }

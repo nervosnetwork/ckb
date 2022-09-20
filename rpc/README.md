@@ -4851,7 +4851,7 @@ This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in 
 
 ### Type `Cell`
 
-Serialize this value into the given Serde serializer. [Read more](#method-serialize)
+Cells Returned by get_cells
 
 
 
@@ -5083,7 +5083,7 @@ The cellbase transaction template of the new block for miners.
 
 ### Type `CellsCapacity`
 
-Serialize this value into the given Serde serializer. [Read more](#method-serialize)
+Cells capacity Returned by get_cells_capacity
 
 
 
@@ -5407,7 +5407,7 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
 ### Type `IndexerTip`
 
-Serialize this value into the given Serde serializer. [Read more](#method-serialize)
+Indexer tip information Returned by get_indexer_tip
 
 
 
@@ -5573,10 +5573,12 @@ Node P2P address and score.
 
 ### Type `Order`
 
-Deserialize this value from the given Serde deserializer. [Read more](#method-deserialize)
+Order Desc | Asc
 
-`Order` is equivalent to `""`.
+`Order` is equivalent to `"desc" | "asc"`.
 
+*   Descending order
+*   Ascending order
 
 
 ### Type `OutPoint`
@@ -5910,7 +5912,7 @@ Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/
 
 ### Type `SearchKey`
 
-Returns the “default value” for a type. [Read more](#method-default)
+SearchKey represent indexer support params
 
 
 
@@ -6144,10 +6146,12 @@ The JSON view of a transaction as well as its status.
 
 ### Type `Tx`
 
-Serialize this value into the given Serde serializer. [Read more](#method-serialize)
+Transaction Returned by get_transactions
 
-`Tx` is equivalent to `""`.
+`Tx` is equivalent to `"ungrouped" | "grouped"`.
 
+*   Tx default form
+*   Txs grouped by the tx hash
 
 
 ### Type `TxPoolEntries`

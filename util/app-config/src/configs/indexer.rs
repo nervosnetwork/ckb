@@ -1,14 +1,24 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Indexer config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexerConfig {
+    /// The index store path, default `data_dir / indexer / store`
+    #[serde(default)]
     pub store: PathBuf,
+    /// The secondary_db path, default `data_dir / indexer / secondary_path`
+    #[serde(default)]
     pub secondary_path: PathBuf,
     /// The poll interval by secs
+    #[serde(default = "default_poll_interval")]
     pub poll_interval: u64,
     /// Whether to index the pending txs in the ckb tx-pool
     pub index_tx_pool: bool,
+}
+
+const fn default_poll_interval() -> u64 {
+    2
 }
 
 impl Default for IndexerConfig {

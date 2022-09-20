@@ -1,3 +1,5 @@
+//！The indexer service.
+
 use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
 use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
@@ -24,6 +26,7 @@ use tokio::time::sleep;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
 
+/// Indexer service
 #[derive(Clone)]
 pub struct IndexerService {
     store: RocksdbStore,
@@ -33,6 +36,7 @@ pub struct IndexerService {
 }
 
 impl IndexerService {
+    /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig) -> Self {
         let store = RocksdbStore::new(&config.store);
         let pool = if config.index_tx_pool {
@@ -64,6 +68,10 @@ impl IndexerService {
         }
     }
 
+    /// Returns a handle to the indexer.
+    ///
+    /// The returned handle can be used to get data from indexer,
+    /// and can be cloned to allow moving the Handle to other threads.
     pub fn handle(&self) -> IndexerHandle {
         IndexerHandle {
             store: self.store.clone(),
@@ -71,6 +79,7 @@ impl IndexerService {
         }
     }
 
+    /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
     pub async fn index_tx_pool(&self, notify_controller: NotifyController) {
         let mut new_transaction_receiver = notify_controller
             .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
@@ -99,6 +108,7 @@ impl IndexerService {
         }
     }
 
+    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub async fn poll(&self) {
         // assume that long fork will not happen >= 100 blocks.
         let keep_num = 100;
@@ -170,16 +180,17 @@ impl IndexerService {
         }
     }
 
-    pub fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
-        let block_hash = self.secondary_db.get_block_hash(block_number.into())?;
+    fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
+        let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
     }
 
-    pub fn get_tip_header(&self) -> Option<core::HeaderView> {
+    fn get_tip_header(&self) -> Option<core::HeaderView> {
         self.secondary_db.get_tip_header()
     }
 }
 
+/// SearchKey represent indexer support params
 #[derive(Deserialize)]
 pub struct SearchKey {
     script: Script,
@@ -201,6 +212,7 @@ impl Default for SearchKey {
     }
 }
 
+/// SearchKeyFilter represent indexer params `filter`
 #[derive(Deserialize, Default)]
 pub struct SearchKeyFilter {
     script: Option<Script>,
@@ -210,26 +222,36 @@ pub struct SearchKeyFilter {
     block_range: Option<[BlockNumber; 2]>,
 }
 
+/// ScriptType `Lock` | `Type`
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptType {
+    /// lock_script
     Lock,
+    /// type_script
     Type,
 }
 
+/// Order Desc | Asc
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Order {
+    /// Descending order
     Desc,
+    /// Ascending order
     Asc,
 }
 
+/// Indexer tip information
+/// Returned by get_indexer_tip
 #[derive(Serialize)]
 pub struct IndexerTip {
     block_hash: H256,
     block_number: BlockNumber,
 }
 
+/// Cells capacity
+/// Returned by get_cells_capacity
 #[derive(Serialize)]
 pub struct CellsCapacity {
     capacity: Capacity,
@@ -237,11 +259,8 @@ pub struct CellsCapacity {
     block_number: BlockNumber,
 }
 
-#[derive(Serialize)]
-pub struct IndexerInfo {
-    version: String,
-}
-
+/// Cells
+/// Returned by get_cells
 #[derive(Serialize)]
 pub struct Cell {
     output: CellOutput,
@@ -251,14 +270,19 @@ pub struct Cell {
     tx_index: Uint32,
 }
 
+/// Transaction
+/// Returned by get_transactions
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum Tx {
+    /// Tx default form
     Ungrouped(TxWithCell),
+    /// Txs grouped by the tx hash
     Grouped(TxWithCells),
 }
 
 impl Tx {
+    /// Return tx hash
     pub fn tx_hash(&self) -> H256 {
         match self {
             Tx::Ungrouped(tx) => tx.tx_hash.clone(),
@@ -267,6 +291,7 @@ impl Tx {
     }
 }
 
+/// Ungrouped Tx inner type
 #[derive(Serialize)]
 pub struct TxWithCell {
     tx_hash: H256,
@@ -276,6 +301,7 @@ pub struct TxWithCell {
     io_type: CellType,
 }
 
+/// Grouped Tx inner type
 #[derive(Serialize)]
 pub struct TxWithCells {
     tx_hash: H256,
@@ -284,25 +310,34 @@ pub struct TxWithCells {
     cells: Vec<(CellType, Uint32)>,
 }
 
+/// Cell type
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum CellType {
+    /// Input
     Input,
+    /// Output
     Output,
 }
 
+/// Pagination wraps objects array and last_cursor to provide paging
 #[derive(Serialize)]
 pub struct Pagination<T> {
     objects: Vec<T>,
     last_cursor: JsonBytes,
 }
 
+/// Handle to the indexer.
+///
+/// The handle is internally reference-counted and can be freely cloned.
+/// A handle can be obtained using the IndexerService::handle method.
 pub struct IndexerHandle {
-    pub store: RocksdbStore,
-    pub pool: Option<Arc<RwLock<Pool>>>,
+    pub(crate) store: RocksdbStore,
+    pub(crate) pool: Option<Arc<RwLock<Pool>>>,
 }
 
 impl IndexerHandle {
+    /// Get indexer current tip
     pub fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         let mut iter = self
             .store
@@ -319,6 +354,7 @@ impl IndexerHandle {
         }))
     }
 
+    /// Get cells by specified params
     pub fn get_cells(
         &self,
         search_key: SearchKey,
@@ -453,6 +489,7 @@ impl IndexerHandle {
         })
     }
 
+    /// Get transaction by specified params
     pub fn get_transactions(
         &self,
         search_key: SearchKey,
@@ -700,6 +737,7 @@ impl IndexerHandle {
         }
     }
 
+    /// Get cells_capacity by specified search_key
     pub fn get_cells_capacity(
         &self,
         search_key: SearchKey,
@@ -955,7 +993,6 @@ mod tests {
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
         H256,
     };
-    use tempfile;
 
     fn new_store(prefix: &str) -> RocksdbStore {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
@@ -970,7 +1007,7 @@ mod tests {
         let indexer = Indexer::new(store.clone(), 10, 100, None);
         let rpc = IndexerHandle {
             store,
-            pool: Some(pool.clone()),
+            pool: Some(Arc::clone(&pool)),
         };
 
         // setup test data
@@ -1472,7 +1509,7 @@ mod tests {
 
         let capacity = rpc
             .get_cells_capacity(SearchKey {
-                script: lock_script2.clone().into(),
+                script: lock_script2.into(),
                 ..Default::default()
             })
             .unwrap()
@@ -1491,7 +1528,7 @@ mod tests {
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
-                    .type_(Some(type_script1.clone()).pack())
+                    .type_(Some(type_script1).pack())
                     .build(),
             )
             .output_data(Default::default())
@@ -1530,7 +1567,7 @@ mod tests {
         // test get_cells_capacity rpc with tx-pool overlay
         let capacity = rpc
             .get_cells_capacity(SearchKey {
-                script: lock_script1.clone().into(),
+                script: lock_script1.into(),
                 ..Default::default()
             })
             .unwrap()

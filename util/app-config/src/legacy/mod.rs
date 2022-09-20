@@ -44,7 +44,7 @@ pub(crate) struct CKBAppConfig {
     db: crate::DBConfig,
 
     #[serde(default)]
-    _indexer: Option<serde_json::Value>,
+    indexer: Option<serde_json::Value>,
 
     network: crate::NetworkConfig,
     rpc: crate::RpcConfig,
@@ -57,6 +57,8 @@ pub(crate) struct CKBAppConfig {
     alert_signature: Option<crate::NetworkAlertConfig>,
     #[serde(default)]
     notify: crate::NotifyConfig,
+    #[serde(default)]
+    indexer_v2: crate::IndexerConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -96,16 +98,18 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             chain,
             block_assembler,
             db,
-            _indexer,
+            indexer,
             network,
             rpc,
             tx_pool,
             store,
             alert_signature,
             notify,
+            indexer_v2,
         } = input;
         #[cfg(not(feature = "with_sentry"))]
         let _ = sentry;
+        let _ = indexer;
         Self {
             bin_name: cli::BIN_NAME.to_owned(),
             root_dir: Default::default(),
@@ -126,7 +130,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             store: store.into(),
             alert_signature,
             notify,
-            indexer: crate::IndexerConfig::default(),
+            indexer: indexer_v2,
         }
     }
 }
