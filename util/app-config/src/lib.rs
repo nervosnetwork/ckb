@@ -97,6 +97,7 @@ impl Setup {
             skip_chain_spec_check: matches.is_present(cli::ARG_SKIP_CHAIN_SPEC_CHECK),
             overwrite_chain_spec: matches.is_present(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
+            indexer: matches.is_present(cli::ARG_INDEXER),
         })
     }
 
