@@ -24,6 +24,8 @@ pub enum SignalSender<T> {
     Tokio(tokio_oneshot::Sender<T>),
     /// A single-producer, multi-consumer channel that only retains the last sent value.
     Watch(tokio_watch::Sender<u8>),
+    /// Do nothing, for tests
+    Dummy,
 }
 
 impl<T: Debug> SignalSender<T> {
@@ -50,6 +52,7 @@ impl<T: Debug> SignalSender<T> {
                     error!("handler signal send error {:?}", e);
                 };
             }
+            SignalSender::Dummy => {}
         }
     }
 }

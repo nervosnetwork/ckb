@@ -75,7 +75,7 @@ pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
-/// Command line argument `--ba-advanced`.
+/// Command line argument `--indexer`.
 pub const ARG_INDEXER: &str = "indexer";
 /// Command line argument `--from`.
 pub const ARG_FROM: &str = "from";

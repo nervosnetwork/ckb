@@ -703,6 +703,7 @@ dependencies = [
  "ckb-logger",
  "ckb-notify",
  "ckb-rocksdb",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "rand 0.8.5",
