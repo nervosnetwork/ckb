@@ -18,7 +18,9 @@ impl Spec for GetBlockFilterCheckPoints {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
         let points_num = 2;
-        node.mine(CHECK_POINT_INTERVAL * points_num + 1);
+        let total = CHECK_POINT_INTERVAL * points_num + 1;
+        node.mine(total);
+        wait_block_filter(&node, total);
 
         let mut net = Net::new(
             self.name(),
@@ -90,6 +92,7 @@ impl Spec for GetBlockFilterHashes {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
         node.mine(2001);
+        wait_block_filter(&node, 2001);
 
         let mut net = Net::new(
             self.name(),
@@ -97,7 +100,7 @@ impl Spec for GetBlockFilterHashes {
             vec![SupportProtocols::Filter],
         );
         net.connect(&node);
-        let start_number: u64 = 42;
+        let start_number: u64 = 2;
         let request = {
             let content = packed::GetBlockFilterHashes::new_builder()
                 .start_number(start_number.pack())
@@ -170,6 +173,7 @@ impl Spec for GetBlockFilters {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = nodes.pop().unwrap();
         node.mine(2001);
+        wait_block_filter(&node, 2001);
 
         let mut net = Net::new(
             self.name(),
@@ -257,21 +261,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
         let node = nodes.pop().unwrap();
         let total = 2001;
         node.mine(total);
-
-        let tip_header = node.get_header_by_number(node.get_tip_block_number());
-        info!("tip hash: {}", tip_header.hash());
-        assert_eq!(tip_header.number(), total);
-        let _success = wait_until(5, || {
-            node.rpc_client()
-                .get_block_filter(tip_header.hash())
-                .is_some()
-        });
-        // FIXME: uncomment this later
-        // assert!(
-        //     success,
-        //     "the last block(number={}) filter is missing",
-        //     tip_header.number()
-        // );
+        wait_block_filter(&node, total);
 
         let mut net = Net::new(
             self.name(),
@@ -279,7 +269,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
             vec![SupportProtocols::Filter],
         );
         net.connect(&node);
-        let filters_count = 1;
+        let filters_count = 123;
         let start_number: u64 = total - filters_count + 1;
         info!("start_number: {}", start_number);
         let request = {
@@ -350,4 +340,20 @@ impl Spec for GetBlockFiltersNotReachBatch {
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         config.store.block_filter_enable = true;
     }
+}
+
+fn wait_block_filter(node: &Node, total: BlockNumber) {
+    let tip_header = node.get_header_by_number(node.get_tip_block_number());
+    info!("sync block filter for tip hash: {}", tip_header.hash());
+    assert_eq!(tip_header.number(), total);
+    let success = wait_until(5, || {
+        node.rpc_client()
+            .get_block_filter(tip_header.hash())
+            .is_some()
+    });
+    assert!(
+        success,
+        "the last block(number={}) filter is missing",
+        tip_header.number()
+    );
 }

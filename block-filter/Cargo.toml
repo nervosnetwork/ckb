@@ -12,6 +12,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 ckb-store = { path = "../store", version = "= 0.105.0-pre" }
+ckb-shared = { path = "../shared", version = "= 0.105.0-pre" }
 ckb-notify = { path = "../notify", version = "= 0.105.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.105.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.105.0-pre" }

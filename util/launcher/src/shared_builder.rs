@@ -357,22 +357,22 @@ impl SharedBuilder {
 
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
 
-        if store_config.block_filter_enable {
-            // start block filter service
-            BlockFilter::new(store.clone()).start(&notify_controller);
-        }
-
         let ibd_finished = Arc::new(AtomicBool::new(false));
         let shared = Shared::new(
             store,
             tx_pool_controller,
-            notify_controller,
+            notify_controller.clone(),
             txs_verify_cache,
             consensus,
             snapshot_mgr,
             async_handle,
             ibd_finished,
         );
+
+        if store_config.block_filter_enable {
+            // start block filter service
+            BlockFilter::new(shared.clone()).start(&notify_controller);
+        }
 
         let pack = SharedPackage {
             table: Some(table),

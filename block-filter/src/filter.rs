@@ -1,7 +1,8 @@
 use ckb_channel::select;
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
-use ckb_store::{ChainDB, ChainStore};
+use ckb_shared::Shared;
+use ckb_store::ChainStore;
 use ckb_types::{core::HeaderView, prelude::*};
 use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
 use std::thread;
@@ -10,13 +11,13 @@ const THREAD_NAME: &str = "BlockFilter";
 
 /// A block filter creation service
 pub struct BlockFilter {
-    db: ChainDB,
+    shared: Shared,
 }
 
 impl BlockFilter {
     /// Create a new block filter service
-    pub fn new(db: ChainDB) -> Self {
-        Self { db }
+    pub fn new(shared: Shared) -> Self {
+        Self { shared }
     }
 
     /// start background single-threaded service to create block filter data
@@ -43,7 +44,7 @@ impl BlockFilter {
 
     /// build block filter data to the latest block
     fn build_filter_data(&self) {
-        let snapshot = self.db.get_snapshot();
+        let snapshot = self.shared.snapshot();
         let tip_header = snapshot.get_tip_header().expect("tip stored");
         let start_number = match snapshot.get_latest_built_filter_data_block_hash() {
             Some(block_hash) => {
@@ -84,6 +85,7 @@ impl BlockFilter {
                 .expect("header stored");
             self.build_filter_data_for_block(&header);
         }
+        self.shared.refresh_snapshot();
     }
 
     fn build_filter_data_for_block(&self, header: &HeaderView) {
@@ -92,7 +94,7 @@ impl BlockFilter {
             header.number(),
             header.hash()
         );
-        let db = &self.db;
+        let db = self.shared.store();
         if db.get_block_filter(&header.hash()).is_some() {
             debug!(
                 "Filter data for block {:#x} already exist, skip build",
