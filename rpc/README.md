@@ -37,6 +37,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `get_block_by_number`](#method-get_block_by_number)
         * [Method `get_header`](#method-get_header)
         * [Method `get_header_by_number`](#method-get_header_by_number)
+        * [Method `get_block_filter`](#method-get_block_filter)
         * [Method `get_transaction`](#method-get_transaction)
         * [Method `get_block_hash`](#method-get_block_hash)
         * [Method `get_tip_header`](#method-get_tip_header)
@@ -644,6 +645,62 @@ Response
 
 
 The response looks like below when `verbosity` is 0.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
+
+
+#### Method `get_block_filter`
+* `get_block_filter(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`JsonBytes`](#type-jsonbytes) `|` `null`
+
+Returns the block filter by block hash.
+
+###### Params
+
+*   `block_hash` - the block hash.
+
+###### Returns
+
+The block filter data
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_filter",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+
+The response looks like below when the block have block filter.
 
 
 ```

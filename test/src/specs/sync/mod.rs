@@ -1,3 +1,4 @@
+mod block_filter;
 mod block_sync;
 mod chain_forks;
 mod get_blocks;
@@ -8,6 +9,7 @@ mod last_common_header;
 mod sync_and_mine;
 mod sync_timeout;
 
+pub use block_filter::*;
 pub use block_sync::*;
 pub use chain_forks::*;
 pub use get_blocks::*;

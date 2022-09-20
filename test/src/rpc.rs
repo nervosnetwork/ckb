@@ -6,8 +6,8 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, LocalNode,
-    OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction, TransactionProof,
+    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
+    LocalNode, OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction, TransactionProof,
     TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
@@ -67,6 +67,12 @@ impl RpcClient {
         self.inner
             .get_header_by_number(number.into())
             .expect("rpc call get_header_by_number")
+    }
+
+    pub fn get_block_filter(&self, hash: Byte32) -> Option<JsonBytes> {
+        self.inner
+            .get_block_filter(hash.unpack())
+            .expect("rpc call get_block_filter")
     }
 
     pub fn get_transaction(&self, hash: Byte32) -> Option<TransactionWithStatus> {
@@ -302,6 +308,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_block_by_number(&self, _number: BlockNumber) -> Option<BlockView>;
     pub fn get_header(&self, _hash: H256) -> Option<HeaderView>;
     pub fn get_header_by_number(&self, _number: BlockNumber) -> Option<HeaderView>;
+    pub fn get_block_filter(&self, _hash: H256) -> Option<JsonBytes>;
     pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>) -> Option<TransactionWithStatus>;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;

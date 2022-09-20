@@ -495,6 +495,7 @@ dependencies = [
  "ckb-channel",
  "ckb-logger",
  "ckb-notify",
+ "ckb-shared",
  "ckb-store",
  "ckb-types",
  "golomb-coded-set",
