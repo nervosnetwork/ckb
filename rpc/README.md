@@ -695,6 +695,18 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+
+The response looks like below when the block have block filter.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
   "result": "0x..."
 }
 ```
