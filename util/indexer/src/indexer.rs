@@ -1,15 +1,15 @@
+use crate::error::Error;
 use crate::{
     pool::Pool,
     store::{Batch, IteratorDirection, Store},
 };
-
-use crate::error::Error;
 use ckb_types::{
     core::{BlockNumber, BlockView},
     packed::{Byte32, Bytes, CellOutput, OutPoint, Script},
     prelude::*,
 };
-
+use numext_fixed_uint::U256;
+use rhai::{Engine, EvalAltResult, Scope, AST};
 use std::convert::TryInto;
 use std::{
     collections::HashMap,
@@ -59,8 +59,8 @@ pub enum Key<'a> {
     TxTypeScript(&'a Script, BlockNumber, TxIndex, CellIndex, CellType),
     /// Tx hash
     TxHash(&'a Byte32),
-    /// Header
-    Header(BlockNumber, &'a Byte32),
+    /// (block_number, block_hash, txs_filtered)
+    Header(BlockNumber, &'a Byte32, bool),
 }
 
 /// Storage value
@@ -71,8 +71,8 @@ pub enum Value<'a> {
     TxHash(&'a Byte32),
     /// Transaction inputs
     TransactionInputs(Vec<OutPoint>),
-    /// Transactions
-    Transactions(Vec<(Byte32, u32)>),
+    /// (tx_hash, outputs_len, tx_index)
+    Transactions(Vec<(Byte32, u32, Option<u32>)>),
 }
 
 /// Key prefix
@@ -145,10 +145,13 @@ impl<'a> From<Key<'a>> for Vec<u8> {
                 encoded.push(KeyPrefix::TxHash as u8);
                 encoded.extend_from_slice(tx_hash.as_slice());
             }
-            Key::Header(block_number, block_hash) => {
+            Key::Header(block_number, block_hash, filtered) => {
                 encoded.push(KeyPrefix::Header as u8);
                 encoded.extend_from_slice(&block_number.to_be_bytes());
                 encoded.extend_from_slice(block_hash.as_slice());
+                if filtered {
+                    encoded.push(1);
+                }
             }
         }
         encoded
@@ -197,9 +200,12 @@ impl<'a> From<Value<'a>> for Vec<u8> {
                     .for_each(|out_point| encoded.extend_from_slice(out_point.as_slice()));
             }
             Value::Transactions(txs) => {
-                txs.iter().for_each(|(tx_hash, outputs_len)| {
+                txs.iter().for_each(|(tx_hash, outputs_len, tx_index)| {
                     encoded.extend_from_slice(tx_hash.as_slice());
                     encoded.extend_from_slice(&(outputs_len).to_le_bytes());
+                    if let Some(i) = tx_index {
+                        encoded.extend_from_slice(&i.to_le_bytes());
+                    }
                 });
             }
         }
@@ -224,15 +230,29 @@ impl<'a> Value<'a> {
     }
 
     /// Decode transactions from binary
-    pub fn parse_transactions_value(slice: &[u8]) -> Vec<(Byte32, u32)> {
+    pub fn parse_transactions_value(
+        slice: &[u8],
+        filtered: bool,
+    ) -> Vec<(Byte32, u32, Option<u32>)> {
+        let chunk_size = if filtered { 32 + 4 + 4 } else { 32 + 4 }; // hash(32) + outputs_len(4) + tx_index(4)
         slice
-            .chunks_exact(36) // hash(32) + outputs_len(4)
+            .chunks_exact(chunk_size)
             .map(|s| {
                 let tx_hash = Byte32::from_slice(&s[0..32]).expect("stored block value: tx_hash");
                 let outputs_len = u32::from_le_bytes(
-                    s[32..].try_into().expect("stored block value: outputs_len"),
+                    s[32..36]
+                        .try_into()
+                        .expect("stored block value: outputs_len"),
                 );
-                (tx_hash, outputs_len)
+                let tx_index = if filtered {
+                    let tx_index = u32::from_le_bytes(
+                        s[36..].try_into().expect("stored block value: tx_index"),
+                    );
+                    Some(tx_index)
+                } else {
+                    None
+                };
+                (tx_hash, outputs_len, tx_index)
             })
             .collect()
     }
@@ -252,7 +272,6 @@ pub struct DetailedLiveCell {
 }
 
 /// Indexer store wrapper
-#[derive(Clone)]
 pub(crate) struct Indexer<S> {
     /// storage
     store: S,
@@ -264,6 +283,8 @@ pub(crate) struct Indexer<S> {
     /// An optional overlay to index the pending txs in the ckb tx pool
     /// currently only supports removals of dead cells from the pending txs
     pool: Option<Arc<RwLock<Pool>>>,
+    /// custom filters
+    custom_filters: CustomFilters,
 }
 
 impl<S> Indexer<S> {
@@ -273,12 +294,14 @@ impl<S> Indexer<S> {
         keep_num: u64,
         prune_interval: u64,
         pool: Option<Arc<RwLock<Pool>>>,
+        custom_filters: CustomFilters,
     ) -> Self {
         Self {
             store,
             keep_num,
             prune_interval,
             pool,
+            custom_filters,
         }
     }
 
@@ -296,24 +319,20 @@ where
     /// Parse the block, store the Cell Transction etc. contained in the block with the designed index
     pub(crate) fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
-        // insert block transactions
-        batch.put_kv(
-            Key::Header(block.number(), &block.hash()),
-            Value::Transactions(
-                block
-                    .transactions()
-                    .iter()
-                    .map(|tx| (tx.hash(), tx.outputs().len() as u32))
-                    .collect(),
-            ),
-        )?;
+        if !self.custom_filters.is_block_filter_match(block) {
+            batch.put_kv(Key::Header(block.number(), &block.hash(), true), vec![])?;
+            batch.commit()?;
+            return Ok(());
+        }
 
         let block_number = block.number();
         let transactions = block.transactions();
+        let mut matched_txs = vec![];
         let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         for (tx_index, tx) in transactions.iter().enumerate() {
             let tx_index = tx_index as u32;
             let tx_hash = tx.hash();
+            let mut tx_matched = false;
             // skip cellbase
             if tx_index > 0 {
                 for (input_index, input) in tx.inputs().into_iter().enumerate() {
@@ -323,56 +342,40 @@ where
                     let out_point = input.previous_output();
                     let key_vec = Key::OutPoint(&out_point).into_vec();
 
-                    let stored_live_cell = self
-                        .store
-                        .get(&key_vec)?
-                        .or_else(|| {
-                            transactions
-                                .iter()
-                                .enumerate()
-                                .find(|(_i, tx)| tx.hash() == out_point.tx_hash())
-                                .map(|(i, tx)| {
-                                    Value::Cell(
-                                        block_number,
-                                        i as u32,
-                                        &tx.outputs()
-                                            .get(out_point.index().unpack())
-                                            .expect("index should match"),
-                                        &tx.outputs_data()
-                                            .get(out_point.index().unpack())
-                                            .expect("index should match"),
-                                    )
-                                    .into()
-                                })
-                        })
-                        .expect("stored live cell or consume output in same block");
+                    if let Some(stored_live_cell) = self.store.get(&key_vec)?.or_else(|| {
+                        transactions
+                            .iter()
+                            .enumerate()
+                            .find(|(_i, tx)| tx.hash() == out_point.tx_hash())
+                            .map(|(i, tx)| {
+                                Value::Cell(
+                                    block_number,
+                                    i as u32,
+                                    &tx.outputs()
+                                        .get(out_point.index().unpack())
+                                        .expect("index should match"),
+                                    &tx.outputs_data()
+                                        .get(out_point.index().unpack())
+                                        .expect("index should match"),
+                                )
+                                .into()
+                            })
+                    }) {
+                        let (generated_by_block_number, generated_by_tx_index, output, output_data) =
+                            Value::parse_cell_value(&stored_live_cell);
 
-                    let (generated_by_block_number, generated_by_tx_index, output, _output_data) =
-                        Value::parse_cell_value(&stored_live_cell);
+                        if !self
+                            .custom_filters
+                            .is_cell_filter_match(&output, &output_data)
+                        {
+                            continue;
+                        } else {
+                            tx_matched = true;
+                        }
 
-                    batch.delete(
-                        Key::CellLockScript(
-                            &output.lock(),
-                            generated_by_block_number,
-                            generated_by_tx_index,
-                            out_point.index().unpack(),
-                        )
-                        .into_vec(),
-                    )?;
-                    batch.put_kv(
-                        Key::TxLockScript(
-                            &output.lock(),
-                            block_number,
-                            tx_index,
-                            input_index,
-                            CellType::Input,
-                        ),
-                        Value::TxHash(&tx_hash),
-                    )?;
-                    if let Some(script) = output.type_().to_opt() {
                         batch.delete(
-                            Key::CellTypeScript(
-                                &script,
+                            Key::CellLockScript(
+                                &output.lock(),
                                 generated_by_block_number,
                                 generated_by_tx_index,
                                 out_point.index().unpack(),
@@ -380,8 +383,8 @@ where
                             .into_vec(),
                         )?;
                         batch.put_kv(
-                            Key::TxTypeScript(
-                                &script,
+                            Key::TxLockScript(
+                                &output.lock(),
                                 block_number,
                                 tx_index,
                                 input_index,
@@ -389,12 +392,33 @@ where
                             ),
                             Value::TxHash(&tx_hash),
                         )?;
-                    };
-                    batch.delete(key_vec)?;
-                    batch.put_kv(
-                        Key::ConsumedOutPoint(block_number, &out_point),
-                        stored_live_cell,
-                    )?;
+                        if let Some(script) = output.type_().to_opt() {
+                            batch.delete(
+                                Key::CellTypeScript(
+                                    &script,
+                                    generated_by_block_number,
+                                    generated_by_tx_index,
+                                    out_point.index().unpack(),
+                                )
+                                .into_vec(),
+                            )?;
+                            batch.put_kv(
+                                Key::TxTypeScript(
+                                    &script,
+                                    block_number,
+                                    tx_index,
+                                    input_index,
+                                    CellType::Input,
+                                ),
+                                Value::TxHash(&tx_hash),
+                            )?;
+                        };
+                        batch.delete(key_vec)?;
+                        batch.put_kv(
+                            Key::ConsumedOutPoint(block_number, &out_point),
+                            stored_live_cell,
+                        )?;
+                    }
                 }
             }
 
@@ -405,6 +429,16 @@ where
                     .outputs_data()
                     .get(output_index)
                     .expect("outputs_data len should equals outputs len");
+
+                if !self
+                    .custom_filters
+                    .is_cell_filter_match(&output, &output_data)
+                {
+                    continue;
+                } else {
+                    tx_matched = true;
+                }
+
                 let output_index = output_index as u32;
                 let out_point = OutPoint::new(tx.hash(), output_index);
                 batch.put_kv(
@@ -443,18 +477,38 @@ where
                 )?;
             }
 
-            // insert tx
+            if tx_matched {
+                matched_txs.push((tx.hash(), tx.outputs().len() as u32, Some(tx_index)));
+                // insert tx
+                batch.put_kv(
+                    Key::TxHash(&tx_hash),
+                    Value::TransactionInputs(
+                        tx.inputs()
+                            .into_iter()
+                            .map(|input| input.previous_output())
+                            .collect(),
+                    ),
+                )?;
+            }
+        }
+
+        // insert block transactions
+        if matched_txs.len() == transactions.len() {
             batch.put_kv(
-                Key::TxHash(&tx_hash),
-                Value::TransactionInputs(
-                    tx.inputs()
+                Key::Header(block.number(), &block.hash(), false),
+                Value::Transactions(
+                    matched_txs
                         .into_iter()
-                        .map(|input| input.previous_output())
+                        .map(|(tx_hash, outputs_len, _)| (tx_hash, outputs_len, None))
                         .collect(),
                 ),
             )?;
+        } else {
+            batch.put_kv(
+                Key::Header(block.number(), &block.hash(), true),
+                Value::Transactions(matched_txs),
+            )?;
         }
-
         batch.commit()?;
 
         if let Some(mut pool) = pool {
@@ -469,54 +523,50 @@ where
 
     /// Rollback the current tip
     pub(crate) fn rollback(&self) -> Result<(), Error> {
-        if let Some((block_number, block_hash)) = self.tip()? {
+        let mut iter = self
+            .store
+            .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
+        if let Some((block_number, block_hash, filtered, txs)) = iter.next().map(|(key, value)| {
+            let filtered = key.len() == 42 && key[41] == 1;
+            (
+                BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key")),
+                Byte32::from_slice(&key[9..41]).expect("stored block key"),
+                filtered,
+                Value::parse_transactions_value(&value, filtered),
+            )
+        }) {
             let mut batch = self.store.batch()?;
-            let txs = Value::parse_transactions_value(
-                &self
-                    .store
-                    .get(Key::Header(block_number, &block_hash).into_vec())?
-                    .expect("stored block"),
-            );
-            for (tx_index, (tx_hash, outputs_len)) in txs.into_iter().enumerate().rev() {
-                let tx_index = tx_index as u32;
+            for (tx_index, (tx_hash, outputs_len, stored_tx_index)) in
+                txs.into_iter().enumerate().rev()
+            {
+                println!("rollback stored_tx_index {:?}", stored_tx_index);
+                let tx_index = stored_tx_index.unwrap_or(tx_index as u32);
                 // rollback live cells
                 for output_index in 0..outputs_len {
                     let out_point = OutPoint::new(tx_hash.clone(), output_index);
                     let out_point_key = Key::OutPoint(&out_point).into_vec();
 
-                    let (_generated_by_block_number, _generated_by_tx_index, output, _output_data) =
-                        if let Some(stored_live_cell) = self.store.get(&out_point_key)? {
-                            Value::parse_cell_value(&stored_live_cell)
-                        } else {
-                            let consumed_cell = self
-                                .store
-                                .get(Key::ConsumedOutPoint(block_number, &out_point).into_vec())?
-                                .expect("stored live cell or consume output in same block");
-                            Value::parse_cell_value(&consumed_cell)
-                        };
-
-                    batch.delete(
-                        Key::CellLockScript(&output.lock(), block_number, tx_index, output_index)
-                            .into_vec(),
-                    )?;
-                    batch.delete(
-                        Key::TxLockScript(
-                            &output.lock(),
-                            block_number,
-                            tx_index,
-                            output_index,
-                            CellType::Output,
-                        )
-                        .into_vec(),
-                    )?;
-                    if let Some(script) = output.type_().to_opt() {
+                    if let Some(output) = match self.store.get(&out_point_key)? {
+                        Some(stored_live_cell) => {
+                            Some(Value::parse_cell_value(&stored_live_cell).2)
+                        }
+                        None => self
+                            .store
+                            .get(Key::ConsumedOutPoint(block_number, &out_point).into_vec())?
+                            .map(|consumed_cell| Value::parse_cell_value(&consumed_cell).2),
+                    } {
                         batch.delete(
-                            Key::CellTypeScript(&script, block_number, tx_index, output_index)
-                                .into_vec(),
+                            Key::CellLockScript(
+                                &output.lock(),
+                                block_number,
+                                tx_index,
+                                output_index,
+                            )
+                            .into_vec(),
                         )?;
                         batch.delete(
-                            Key::TxTypeScript(
-                                &script,
+                            Key::TxLockScript(
+                                &output.lock(),
                                 block_number,
                                 tx_index,
                                 output_index,
@@ -524,8 +574,24 @@ where
                             )
                             .into_vec(),
                         )?;
-                    };
-                    batch.delete(out_point_key)?;
+                        if let Some(script) = output.type_().to_opt() {
+                            batch.delete(
+                                Key::CellTypeScript(&script, block_number, tx_index, output_index)
+                                    .into_vec(),
+                            )?;
+                            batch.delete(
+                                Key::TxTypeScript(
+                                    &script,
+                                    block_number,
+                                    tx_index,
+                                    output_index,
+                                    CellType::Output,
+                                )
+                                .into_vec(),
+                            )?;
+                        };
+                        batch.delete(out_point_key)?;
+                    }
                 }
 
                 // rollback inputs
@@ -535,7 +601,7 @@ where
                     for (input_index, out_point) in self
                         .store
                         .get(&transaction_key)?
-                        .expect("stored transaction inputs")
+                        .unwrap_or_default()
                         .chunks_exact(OutPoint::TOTAL_SIZE)
                         .map(|slice| {
                             OutPoint::from_slice(slice)
@@ -543,44 +609,23 @@ where
                         })
                         .enumerate()
                     {
-                        let input_index = input_index as u32;
                         let consumed_out_point_key =
                             Key::ConsumedOutPoint(block_number, &out_point).into_vec();
 
-                        let stored_consumed_cell = self
-                            .store
-                            .get(consumed_out_point_key)?
-                            .expect("stored consumed cells value");
-                        let (
-                            generated_by_block_number,
-                            generated_by_tx_index,
-                            output,
-                            _output_data,
-                        ) = Value::parse_cell_value(&stored_consumed_cell);
-
-                        batch.put_kv(
-                            Key::CellLockScript(
-                                &output.lock(),
+                        if let Some(stored_consumed_cell) =
+                            self.store.get(consumed_out_point_key)?
+                        {
+                            let (
                                 generated_by_block_number,
                                 generated_by_tx_index,
-                                out_point.index().unpack(),
-                            ),
-                            Value::TxHash(&out_point.tx_hash()),
-                        )?;
-                        batch.delete(
-                            Key::TxLockScript(
-                                &output.lock(),
-                                block_number,
-                                tx_index,
-                                input_index,
-                                CellType::Input,
-                            )
-                            .into_vec(),
-                        )?;
-                        if let Some(script) = output.type_().to_opt() {
+                                output,
+                                _output_data,
+                            ) = Value::parse_cell_value(&stored_consumed_cell);
+                            let input_index = input_index as u32;
+
                             batch.put_kv(
-                                Key::CellTypeScript(
-                                    &script,
+                                Key::CellLockScript(
+                                    &output.lock(),
                                     generated_by_block_number,
                                     generated_by_tx_index,
                                     out_point.index().unpack(),
@@ -588,8 +633,8 @@ where
                                 Value::TxHash(&out_point.tx_hash()),
                             )?;
                             batch.delete(
-                                Key::TxTypeScript(
-                                    &script,
+                                Key::TxLockScript(
+                                    &output.lock(),
                                     block_number,
                                     tx_index,
                                     input_index,
@@ -597,16 +642,36 @@ where
                                 )
                                 .into_vec(),
                             )?;
+                            if let Some(script) = output.type_().to_opt() {
+                                batch.put_kv(
+                                    Key::CellTypeScript(
+                                        &script,
+                                        generated_by_block_number,
+                                        generated_by_tx_index,
+                                        out_point.index().unpack(),
+                                    ),
+                                    Value::TxHash(&out_point.tx_hash()),
+                                )?;
+                                batch.delete(
+                                    Key::TxTypeScript(
+                                        &script,
+                                        block_number,
+                                        tx_index,
+                                        input_index,
+                                        CellType::Input,
+                                    )
+                                    .into_vec(),
+                                )?;
+                            }
+                            batch.put_kv(Key::OutPoint(&out_point), stored_consumed_cell)?;
                         }
-                        batch.put_kv(Key::OutPoint(&out_point), stored_consumed_cell)?;
                     }
                 }
                 // delete transaction
                 batch.delete(transaction_key)?;
             }
-
             // delete block transactions
-            batch.delete(Key::Header(block_number, &block_hash).into_vec())?;
+            batch.delete(Key::Header(block_number, &block_hash, filtered).into_vec())?;
 
             batch.commit()?;
         }
@@ -621,7 +686,7 @@ where
         Ok(iter.next().map(|(key, _)| {
             (
                 BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key")),
-                Byte32::from_slice(&key[9..]).expect("stored block key"),
+                Byte32::from_slice(&key[9..41]).expect("stored block key"),
             )
         }))
     }
@@ -640,7 +705,7 @@ where
                 .next()
             {
                 Some((key, _v)) if key.starts_with(&key_prefix_header) => {
-                    Some(Byte32::from_slice(&key[9..]).expect("stored block key"))
+                    Some(Byte32::from_slice(&key[9..41]).expect("stored block key"))
                 }
                 _ => None,
             },
@@ -659,7 +724,8 @@ where
                 .store
                 .iter(&key_prefix_consumed_out_point, IteratorDirection::Forward)?
                 .take_while(|(key, _value)| key.starts_with(&key_prefix_consumed_out_point));
-            for (_block_number, key) in iter
+            let mut min_block_number = BlockNumber::max_value();
+            for (block_number, key) in iter
                 .map(|(key, _value)| {
                     (
                         BlockNumber::from_be_bytes(
@@ -670,25 +736,34 @@ where
                 })
                 .take_while(|(block_number, _key)| prune_to_block.gt(block_number))
             {
+                if min_block_number == BlockNumber::max_value() {
+                    min_block_number = block_number;
+                }
                 batch.delete(key)?;
             }
 
-            // prune TxHash => TransactionInputs
+            // prune Header => Transactions and TxHash => TransactionInputs
             let mut key_prefix_header = vec![KeyPrefix::Header as u8];
-            key_prefix_header.extend_from_slice(&prune_to_block.to_be_bytes());
+            key_prefix_header.extend_from_slice(&min_block_number.to_be_bytes());
             let iter = self
                 .store
-                .iter(&key_prefix_header, IteratorDirection::Reverse)?
-                .take_while(|(key, _value)| key.starts_with(&[KeyPrefix::Header as u8]));
-            for txs in iter.map(|(_key, value)| Value::parse_transactions_value(&value)) {
-                let (first_tx_hash, _) = txs.get(0).expect("none empty block");
-                if self.store.exists(Key::TxHash(first_tx_hash).into_vec())? {
-                    for (tx_hash, _outputs_len) in txs {
-                        batch.delete(Key::TxHash(&tx_hash).into_vec())?;
-                    }
-                } else {
-                    break;
+                .iter(&key_prefix_header, IteratorDirection::Forward)?
+                .take_while(|(key, _value)| {
+                    key.starts_with(&[KeyPrefix::Header as u8])
+                        && BlockNumber::from_be_bytes(
+                            key[1..9].try_into().expect("stored block_number"),
+                        ) <= prune_to_block
+                });
+            for (txs, header_key) in iter.map(|(header_key, value)| {
+                (
+                    Value::parse_transactions_value(&value, header_key.len() == 42),
+                    header_key,
+                )
+            }) {
+                for (tx_hash, _outputs_len, _tx_index) in txs {
+                    batch.delete(Key::TxHash(&tx_hash).into_vec())?;
                 }
+                batch.delete(header_key)?;
             }
 
             batch.commit()?;
@@ -828,6 +903,96 @@ where
     }
 }
 
+/// Custom filters
+///
+/// base on embedded scripting language Rhai
+pub struct CustomFilters {
+    engine: Engine,
+    block_filter: Option<AST>,
+    cell_filter: Option<AST>,
+}
+
+fn to_uint(s: &str) -> Result<U256, Box<EvalAltResult>> {
+    match &s[..2] {
+        "0b" => U256::from_bin_str(&s[2..]),
+        "0o" => U256::from_oct_str(&s[2..]),
+        "0x" => U256::from_hex_str(&s[2..]),
+        _ => U256::from_dec_str(s),
+    }
+    .map_err(|e| e.to_string().into())
+}
+
+macro_rules! register_ops {
+    ($engine:ident $(, $op:tt)+ $(,)?) => {
+        $(
+            $engine.register_fn(stringify!($op), |a: U256, b: U256| a $op b);
+        )+
+    };
+}
+
+impl CustomFilters {
+    /// Construct new CustomFilters
+    pub fn new(block_filter_str: Option<&str>, cell_filter_str: Option<&str>) -> Self {
+        let mut engine = Engine::new();
+        engine.register_fn("to_uint", to_uint);
+        register_ops!(engine, +, -, *, /, %, ==, !=, <, <=, >, >=);
+
+        let block_filter = block_filter_str.map(|block_filter| {
+            engine
+                .compile(block_filter)
+                .expect("compile block_filter should be ok")
+        });
+        let cell_filter = cell_filter_str.map(|cell_filter| {
+            engine
+                .compile(cell_filter)
+                .expect("compile cell_filter should be ok")
+        });
+
+        Self {
+            engine,
+            block_filter,
+            cell_filter,
+        }
+    }
+
+    pub(crate) fn is_block_filter_match(&self, block: &BlockView) -> bool {
+        self.block_filter
+            .as_ref()
+            .map(|block_filter| {
+                let json_block: ckb_jsonrpc_types::BlockView = block.clone().into();
+                let parsed_block = self
+                    .engine
+                    .parse_json(serde_json::to_string(&json_block).unwrap(), true)
+                    .unwrap();
+                let mut scope = Scope::new();
+                scope.push("block", parsed_block);
+                self.engine
+                    .eval_ast_with_scope(&mut scope, block_filter)
+                    .expect("eval block_filter should be ok")
+            })
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn is_cell_filter_match(&self, output: &CellOutput, output_data: &Bytes) -> bool {
+        self.cell_filter
+            .as_ref()
+            .map(|cell_filter| {
+                let json_output: ckb_jsonrpc_types::CellOutput = output.clone().into();
+                let parsed_output = self
+                    .engine
+                    .parse_json(serde_json::to_string(&json_output).unwrap(), true)
+                    .unwrap();
+                let mut scope = Scope::new();
+                scope.push("output", parsed_output);
+                scope.push("output_data", format!("{:#x}", output_data));
+                self.engine
+                    .eval_ast_with_scope(&mut scope, cell_filter)
+                    .expect("eval cell_filter should be ok")
+            })
+            .unwrap_or(true)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -845,7 +1010,7 @@ mod tests {
     fn new_indexer<S: Store>(prefix: &str) -> Indexer<S> {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let store = S::new(tmp_dir.path().to_str().unwrap());
-        Indexer::new(store, 10, 1, None)
+        Indexer::new(store, 10, 1, None, CustomFilters::new(None, None))
     }
 
     #[test]
@@ -1722,5 +1887,363 @@ mod tests {
             .unwrap();
         //tx00 (output)
         assert_eq!(vec![tx00.hash()], transactions);
+    }
+
+    fn new_indexer_with_custom_filters<S: Store>(
+        prefix: &str,
+        block_filter_str: Option<&str>,
+        cell_filter_str: Option<&str>,
+    ) -> Indexer<S> {
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
+        let store = S::new(tmp_dir.path().to_str().unwrap());
+        Indexer::new(
+            store,
+            10,
+            1,
+            None,
+            CustomFilters::new(block_filter_str, cell_filter_str),
+        )
+    }
+
+    #[test]
+    fn with_custom_block_filter() {
+        let indexer = new_indexer_with_custom_filters::<RocksdbStore>(
+            "with_custom_block_filter",
+            Some(r#"block.header.number.to_uint() >= "0x1".to_uint()"#),
+            None,
+        );
+
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let lock_script2 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script2".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let type_script2 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"type_script2".to_vec()).pack())
+            .build();
+
+        let cellbase0 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx00 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx01 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script2.clone())
+                    .type_(Some(type_script2.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let block0 = BlockBuilder::default()
+            .transaction(cellbase0)
+            .transaction(tx00.clone())
+            .transaction(tx01.clone())
+            .header(HeaderBuilder::default().number(0.pack()).build())
+            .build();
+        indexer.append(&block0).unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(0, tip_number);
+        assert_eq!(block0.hash(), tip_hash);
+
+        let cellbase1 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(1))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx10 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx11 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script2)
+                    .type_(Some(type_script2).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let block1 = BlockBuilder::default()
+            .transaction(cellbase1)
+            .transaction(tx10)
+            .transaction(tx11)
+            .header(
+                HeaderBuilder::default()
+                    .number(1.pack())
+                    .parent_hash(block0.hash())
+                    .build(),
+            )
+            .build();
+
+        indexer.append(&block1).unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(1, tip_number);
+        assert_eq!(block1.hash(), tip_hash);
+        assert_eq!(
+            2, // cellbase1, tx10
+            indexer
+                .get_live_cells_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            2, //cellbase1, tx10(only output)
+            indexer
+                .get_transactions_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+
+        indexer.rollback().unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(0, tip_number);
+        assert_eq!(block0.hash(), tip_hash);
+        assert_eq!(
+            0,
+            indexer
+                .get_live_cells_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            0,
+            indexer
+                .get_transactions_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+    }
+
+    #[test]
+    fn with_custom_cell_filter() {
+        let indexer = new_indexer_with_custom_filters::<RocksdbStore>(
+            "with_custom_cell_filter",
+            None,
+            Some(r#"output.type?.args == "0x747970655f73637269707431""#), // "type_script1" in hex string
+        );
+
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let lock_script2 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script2".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let type_script2 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"type_script2".to_vec()).pack())
+            .build();
+
+        let cellbase0 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx00 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx01 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script2.clone())
+                    .type_(Some(type_script2.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let block0 = BlockBuilder::default()
+            .transaction(cellbase0)
+            .transaction(tx00.clone())
+            .transaction(tx01.clone())
+            .header(HeaderBuilder::default().number(0.pack()).build())
+            .build();
+        indexer.append(&block0).unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(0, tip_number);
+        assert_eq!(block0.hash(), tip_hash);
+        assert_eq!(
+            1, // cellbase1, tx00
+            indexer
+                .get_live_cells_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            1, //tx00
+            indexer
+                .get_transactions_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+
+        let cellbase1 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(1))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx10 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx11 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script2)
+                    .type_(Some(type_script2).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let block1 = BlockBuilder::default()
+            .transaction(cellbase1)
+            .transaction(tx10)
+            .transaction(tx11)
+            .header(
+                HeaderBuilder::default()
+                    .number(1.pack())
+                    .parent_hash(block0.hash())
+                    .build(),
+            )
+            .build();
+
+        indexer.append(&block1).unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(1, tip_number);
+        assert_eq!(block1.hash(), tip_hash);
+        assert_eq!(
+            1, // tx10
+            indexer
+                .get_live_cells_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            3, //tx00(input and output), tx10(only output)
+            indexer
+                .get_transactions_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+
+        indexer.rollback().unwrap();
+        let (tip_number, tip_hash) = indexer.tip().unwrap().unwrap();
+        assert_eq!(0, tip_number);
+        assert_eq!(block0.hash(), tip_hash);
+        assert_eq!(
+            1, // tx00
+            indexer
+                .get_live_cells_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            1, // tx00
+            indexer
+                .get_transactions_by_lock_script(&lock_script1)
+                .unwrap()
+                .len()
+        );
     }
 }

@@ -1,6 +1,6 @@
 //！The indexer service.
 
-use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
+use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
 use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
@@ -40,6 +40,8 @@ pub struct IndexerService {
     async_handle: Handle,
     stop_handler: StopHandler<()>,
     stop: watch::Receiver<u8>,
+    block_filter: Option<String>,
+    cell_filter: Option<String>,
 }
 
 impl IndexerService {
@@ -81,6 +83,8 @@ impl IndexerService {
             stop_handler,
             stop,
             poll_interval: Duration::from_secs(config.poll_interval),
+            block_filter: config.block_filter.clone(),
+            cell_filter: config.cell_filter.clone(),
         }
     }
 
@@ -136,7 +140,13 @@ impl IndexerService {
         if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
             error!("secondary_db try_catch_up_with_primary error {}", e);
         }
-        let indexer = Indexer::new(self.store.clone(), keep_num, 1000, self.pool.clone());
+        let indexer = Indexer::new(
+            self.store.clone(),
+            keep_num,
+            1000,
+            self.pool.clone(),
+            CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
+        );
         loop {
             if let Some((tip_number, tip_hash)) = indexer.tip().expect("get tip should be OK") {
                 match self.get_block_by_number(tip_number + 1) {
@@ -391,7 +401,7 @@ impl IndexerHandle {
             .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
             .expect("iter Header should be OK");
         Ok(iter.next().map(|(key, _)| IndexerTip {
-            block_hash: packed::Byte32::from_slice(&key[9..])
+            block_hash: packed::Byte32::from_slice(&key[9..41])
                 .expect("stored block key")
                 .unpack(),
             block_number: core::BlockNumber::from_be_bytes(
@@ -900,7 +910,7 @@ impl IndexerHandle {
         let mut tip_iter = snapshot.iterator(tip_mode);
         Ok(tip_iter.next().map(|(key, _value)| CellsCapacity {
             capacity: capacity.into(),
-            block_hash: packed::Byte32::from_slice(&key[9..])
+            block_hash: packed::Byte32::from_slice(&key[9..41])
                 .expect("stored block key")
                 .unpack(),
             block_number: core::BlockNumber::from_be_bytes(
@@ -1051,7 +1061,7 @@ mod tests {
     fn rpc() {
         let store = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
-        let indexer = Indexer::new(store.clone(), 10, 100, None);
+        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
         let stop_handler = StopHandler::new(SignalSender::Dummy, None, "indexer-test".to_string());
         let rpc = IndexerHandle {
             store,
