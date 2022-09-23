@@ -15,6 +15,12 @@ pub struct IndexerConfig {
     pub poll_interval: u64,
     /// Whether to index the pending txs in the ckb tx-pool
     pub index_tx_pool: bool,
+    /// Customize block filter
+    #[serde(default)]
+    pub block_filter: Option<String>,
+    /// Customize cell filter
+    #[serde(default)]
+    pub cell_filter: Option<String>,
 }
 
 const fn default_poll_interval() -> u64 {
@@ -28,6 +34,8 @@ impl Default for IndexerConfig {
             index_tx_pool: false,
             store: PathBuf::new(),
             secondary_path: PathBuf::new(),
+            block_filter: None,
+            cell_filter: None,
         }
     }
 }
