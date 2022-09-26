@@ -79,6 +79,20 @@ impl SecondaryDB {
         self.inner.get_pinned_cf(cf, &key).map_err(Into::into)
     }
 
+    /// Make the secondary instance catch up with the primary by tailing and
+    /// replaying the MANIFEST and WAL of the primary.
+    // Column families created by the primary after the secondary instance starts
+    // will be ignored unless the secondary instance closes and restarts with the
+    // newly created column families.
+    // Column families that exist before secondary instance starts and dropped by
+    // the primary afterwards will be marked as dropped. However, as long as the
+    // secondary instance does not delete the corresponding column family
+    // handles, the data of the column family is still accessible to the
+    // secondary.
+    pub fn try_catch_up_with_primary(&self) -> Result<(), Error> {
+        self.inner.try_catch_up_with_primary().map_err(Into::into)
+    }
+
     /// This is used when you want to iterate over a specific ColumnFamily
     fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIterator, Error> {
         let opts = ReadOptions::default();

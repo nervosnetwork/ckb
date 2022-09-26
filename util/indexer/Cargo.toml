@@ -17,12 +17,12 @@ ckb-db-schema = { path = "../../db-schema", version = "= 0.105.0-pre" }
 ckb-types = { path = "../types", version = "= 0.105.0-pre" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.0-pre" }
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.9", features = ["macros", "rt-multi-thread", "time"] }
 ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
 ckb-app-config = { path = "../app-config", version = "= 0.105.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.105.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.105.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.105.0-pre" }
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -6,6 +6,10 @@ use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
+use ckb_async_runtime::{
+    tokio::{self, sync::watch, time},
+    Handle,
+};
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
@@ -13,7 +17,7 @@ use ckb_db_schema::{
 use ckb_jsonrpc_types::{
     BlockNumber, Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint32, Uint64,
 };
-use ckb_logger::{error, info, trace};
+use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_store::ChainStore;
@@ -22,9 +26,7 @@ use rocksdb::{prelude::*, Direction, IteratorMode};
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-use tokio::sync::watch;
-use tokio::time::sleep;
+use std::time::Duration;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
 
@@ -35,13 +37,14 @@ pub struct IndexerService {
     secondary_db: SecondaryDB,
     pool: Option<Arc<RwLock<Pool>>>,
     poll_interval: Duration,
+    async_handle: Handle,
     stop_handler: StopHandler<()>,
     stop: watch::Receiver<u8>,
 }
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
-    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig) -> Self {
+    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
         let (stop_sender, stop) = watch::channel(WATCH_INIT);
         let stop_handler = StopHandler::new(
             SignalSender::Watch(stop_sender),
@@ -74,9 +77,10 @@ impl IndexerService {
             store,
             secondary_db,
             pool,
-            poll_interval: Duration::from_secs(config.poll_interval),
+            async_handle,
             stop_handler,
             stop,
+            poll_interval: Duration::from_secs(config.poll_interval),
         }
     }
 
@@ -93,23 +97,27 @@ impl IndexerService {
     }
 
     /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub async fn index_tx_pool(&self, notify_controller: NotifyController) {
-        let mut new_transaction_receiver = notify_controller
+    pub fn index_tx_pool(&self, notify_controller: NotifyController) {
+        let service = self.clone();
+        let mut stop = self.stop.clone();
+
+        self.async_handle.spawn(async move {
+            let mut new_transaction_receiver = notify_controller
             .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
             .await;
         let mut reject_transaction_receiver = notify_controller
             .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
             .await;
-        let mut stop = self.stop.clone();
+
         loop {
             tokio::select! {
                 Some(tx_entry) = new_transaction_receiver.recv() => {
-                    if let Some(pool) = self.pool.as_ref() {
+                    if let Some(pool) = service.pool.as_ref() {
                         pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
                     }
                 }
                 Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
-                    if let Some(pool) = self.pool.as_ref() {
+                    if let Some(pool) = service.pool.as_ref() {
                         pool.write()
                         .expect("acquire lock")
                         .transaction_rejected(&tx_entry.transaction);
@@ -119,21 +127,20 @@ impl IndexerService {
                 else => break,
             }
         }
+        });
     }
 
-    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
-    pub async fn poll(&self) {
+    fn try_loop_sync(&self) {
         // assume that long fork will not happen >= 100 blocks.
         let keep_num = 100;
+        if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+            error!("secondary_db try_catch_up_with_primary error {}", e);
+        }
         let indexer = Indexer::new(self.store.clone(), keep_num, 1000, self.pool.clone());
-
-        let mut last_updated_time = Instant::now();
-        let mut last_warning_time = Instant::now();
         loop {
             if let Some((tip_number, tip_hash)) = indexer.tip().expect("get tip should be OK") {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
-                        last_updated_time = Instant::now();
                         if block.parent_hash() == tip_hash {
                             info!("append {}, {}", block.number(), block.hash());
                             indexer.append(&block).expect("append block should be OK");
@@ -148,7 +155,7 @@ impl IndexerService {
                                         .expect("stored block header");
                                     if block.hash() != stored_block_hash {
                                         error!("long fork detected, ckb-indexer stored block {} => {:#x}, ckb node returns block {} => {:#x}, please check if ckb-indexer is connected to the same network ckb node.", longest_fork_number, stored_block_hash, longest_fork_number, block.hash());
-                                        sleep(self.poll_interval).await;
+                                        break;
                                     } else {
                                         info!("rollback {}, {}", tip_number, tip_hash);
                                         indexer.rollback().expect("rollback block should be OK");
@@ -156,29 +163,13 @@ impl IndexerService {
                                 }
                                 None => {
                                     error!("long fork detected, ckb-indexer stored block {}, ckb node returns none, please check if ckb-indexer is connected to the same network ckb node.", longest_fork_number);
-                                    sleep(self.poll_interval).await;
+                                    break;
                                 }
                             }
                         }
                     }
                     None => {
-                        if last_updated_time.elapsed() > Duration::from_secs(60)
-                            && last_warning_time.elapsed() > Duration::from_secs(60)
-                        {
-                            if let Some(ckb_tip_header) = self.get_tip_header() {
-                                error!(
-                                    "it has been {}s since the last update, ckb.tip_number = {}, ckb.tip_hash = {:#x}, indexer.tip_number = {}, indexer.tip_hash = {:#x}",
-                                    last_updated_time.elapsed().as_secs(),
-                                    ckb_tip_header.number(),
-                                    ckb_tip_header.hash(),
-                                    tip_number,
-                                    tip_hash,
-                                );
-                                last_warning_time = Instant::now();
-                            }
-                        }
-                        trace!("no new block");
-                        sleep(self.poll_interval).await;
+                        break;
                     }
                 }
             } else {
@@ -186,23 +177,56 @@ impl IndexerService {
                     Some(block) => indexer.append(&block).expect("append block should be OK"),
                     None => {
                         error!("ckb node returns an empty genesis block");
-                        sleep(self.poll_interval).await;
+                        break;
                     }
                 }
             }
-            if self.stop.has_changed().unwrap_or(true) {
-                break;
-            }
         }
+    }
+
+    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
+    pub fn spawn_poll(&self, notify_controller: NotifyController) {
+        let initial_service = self.clone();
+        let initial_syncing = self
+            .async_handle
+            .spawn_blocking(move || initial_service.try_loop_sync());
+        let mut stop = self.stop.clone();
+        let async_handle = self.async_handle.clone();
+        let poll_service = self.clone();
+        self.async_handle.spawn(async move {
+            let _initial_finished = initial_syncing.await;
+            let mut new_block_receiver = notify_controller
+                .subscribe_new_block(SUBSCRIBER_NAME.to_string())
+                .await;
+            let sleep = time::sleep(poll_service.poll_interval);
+            tokio::pin!(sleep);
+            loop {
+                tokio::select! {
+                    Some(_) = new_block_receiver.recv() => {
+                        let service = poll_service.clone();
+                        if let Err(e) = async_handle.spawn_blocking(move || {
+                            service.try_loop_sync()
+                        }).await {
+                            error!("ckb indexer syncing join error {:?}", e);
+                        }
+                    },
+                    _ = &mut sleep => {
+                        let service = poll_service.clone();
+                        if let Err(e) = async_handle.spawn_blocking(move || {
+                            service.try_loop_sync()
+                        }).await {
+                            error!("ckb indexer syncing join error {:?}", e);
+                        }
+                    }
+                    _ = stop.changed() => break,
+                }
+            }
+        });
     }
 
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
         let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
-    }
-
-    fn get_tip_header(&self) -> Option<core::HeaderView> {
-        self.secondary_db.get_tip_header()
     }
 }
 
