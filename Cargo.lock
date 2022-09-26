@@ -673,6 +673,7 @@ name = "ckb-indexer"
 version = "0.105.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-db-schema",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -685,7 +686,6 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
