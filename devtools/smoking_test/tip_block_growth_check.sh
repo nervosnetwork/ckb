@@ -21,7 +21,7 @@ function get_tip_block_number() {
 }
 sleep 60 #waiting for ckb start
 FIRST_TIP_BLOCK_NUMBER=$(get_tip_block_number)
-echo "Fsirt tip block number is "$FIRST_TIP_BLOCK_NUMBER
+echo "First tip block number is "$FIRST_TIP_BLOCK_NUMBER
 sleep 600
 SECOND_TIP_BLOCK_NUMBER=$(get_tip_block_number)
 echo "Second tip block number is "$SECOND_TIP_BLOCK_NUMBER
