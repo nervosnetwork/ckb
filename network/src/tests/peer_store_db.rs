@@ -22,13 +22,13 @@ fn test_peer_store_persistent() {
         let addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/42/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-        AddrInfo::new(addr, 0, 60)
+        AddrInfo::new(addr, 0, 60, 0)
     };
     let addr2 = {
         let addr: Multiaddr = format!("/ip4/127.0.0.5/tcp/42/p2p/{}", PeerId::random().to_base58())
             .parse()
             .unwrap();
-        let mut addr_info = AddrInfo::new(addr, 100, 30);
+        let mut addr_info = AddrInfo::new(addr, 100, 30, 0);
         addr_info.mark_tried(now_ms);
         addr_info
     };
@@ -169,7 +169,7 @@ fn test_peer_store_dump_with_broken_tmp_file_should_be_ok() {
         )
         .parse()
         .unwrap();
-        addr_manager.add(AddrInfo::new(addr, 0, 60));
+        addr_manager.add(AddrInfo::new(addr, 0, 60, 0));
     }
     let ban_list = peer_store.mut_ban_list();
     let now_ms = faketime::unix_time_as_millis();

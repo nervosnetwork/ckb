@@ -935,6 +935,7 @@ dependencies = [
 name = "ckb-network"
 version = "0.105.0-pre"
 dependencies = [
+ "bitflags",
  "bloom-filters",
  "bs58",
  "ckb-app-config",

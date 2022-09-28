@@ -24,7 +24,12 @@ impl AddrManager {
             {
                 // replace exists addr if has later last_connected_at_ms
                 if addr_info.last_connected_at_ms > exists_last_connected_at_ms {
-                    self.remove(&addr_info.addr);
+                    if let Some(old) = self.remove(&addr_info.addr) {
+                        // init from `add_outbound_addr`
+                        if addr_info.flags == 0 {
+                            addr_info.flags = old.flags;
+                        }
+                    }
                 } else {
                     return;
                 }

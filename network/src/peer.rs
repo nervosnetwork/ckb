@@ -1,5 +1,7 @@
 use crate::network_group::Group;
-use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
+use crate::{
+    multiaddr::Multiaddr, protocols::identify::Flags, ProtocolId, ProtocolVersion, SessionType,
+};
 use p2p::SessionId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -9,6 +11,8 @@ use std::time::{Duration, Instant};
 pub struct PeerIdentifyInfo {
     /// Node version
     pub client_version: String,
+    /// Node flags
+    pub flags: Flags,
 }
 
 /// Peer info

@@ -8,6 +8,8 @@ use p2p::{
     SessionId,
 };
 
+use crate::Flags;
+
 use super::{
     addr::AddrKnown,
     protocol::{encode, DiscoveryMessage, Node, Nodes},
@@ -29,7 +31,7 @@ pub struct SessionState {
     // FIXME: Remote listen address, resolved by id protocol
     pub(crate) remote_addr: RemoteAddress,
     last_announce: Option<Instant>,
-    pub(crate) announce_multiaddrs: Vec<Multiaddr>,
+    pub(crate) announce_multiaddrs: Vec<(Multiaddr, Flags)>,
     pub(crate) received_get_nodes: bool,
     pub(crate) received_nodes: bool,
 }
@@ -62,6 +64,7 @@ impl SessionState {
                 version: FIRST_VERSION,
                 count: MAX_ADDR_TO_SEND as u32,
                 listen_port: port,
+                required_flags: addr_manager.required_flags(),
             });
 
             if context.send_message(msg).await.is_err() {
@@ -108,7 +111,8 @@ impl SessionState {
                 .announce_multiaddrs
                 .drain(..)
                 .map(|addr| Node {
-                    addresses: vec![addr],
+                    addresses: vec![addr.0],
+                    flags: addr.1,
                 })
                 .collect::<Vec<_>>();
             let msg = encode(DiscoveryMessage::Nodes(Nodes {

@@ -1,4 +1,7 @@
-use crate::protocols::discovery::protocol::{decode, encode, DiscoveryMessage};
+use crate::protocols::{
+    discovery::protocol::{decode, encode, DiscoveryMessage},
+    identify::Flags,
+};
 
 #[test]
 fn test_codec() {
@@ -6,12 +9,14 @@ fn test_codec() {
         version: 0,
         count: 1,
         listen_port: Some(1),
+        required_flags: Flags::COMPATIBILITY,
     };
 
     let msg2 = DiscoveryMessage::GetNodes {
         version: 0,
         count: 1,
         listen_port: Some(2),
+        required_flags: Flags::COMPATIBILITY,
     };
 
     let b1 = encode(msg1.clone());

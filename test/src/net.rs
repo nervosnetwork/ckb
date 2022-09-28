@@ -7,7 +7,7 @@ use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender
 use ckb_logger::info;
 use ckb_network::{
     async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
-    CKBProtocolHandler, DefaultExitHandler, NetworkController, NetworkService, NetworkState,
+    CKBProtocolHandler, DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState,
     PeerIndex, ProtocolId, SupportProtocols,
 };
 use ckb_util::Mutex;
@@ -68,8 +68,11 @@ impl Net {
             Arc::clone(&network_state),
             ckb_protocols,
             Vec::new(),
-            consensus.identify_name(),
-            "0.1.0".to_string(),
+            (
+                consensus.identify_name(),
+                "0.1.0".to_string(),
+                Flags::COMPATIBILITY,
+            ),
             DefaultExitHandler::default(),
         )
         .start(&async_handle)

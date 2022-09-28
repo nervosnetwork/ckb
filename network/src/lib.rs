@@ -32,8 +32,8 @@ pub use crate::{
     peer_registry::PeerRegistry,
     peer_store::Score,
     protocols::{
-        support_protocols::SupportProtocols, CKBProtocol, CKBProtocolContext, CKBProtocolHandler,
-        PeerIndex,
+        identify::Flags, support_protocols::SupportProtocols, CKBProtocol, CKBProtocolContext,
+        CKBProtocolHandler, PeerIndex,
     },
 };
 pub use p2p::{

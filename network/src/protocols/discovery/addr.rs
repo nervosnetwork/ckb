@@ -3,6 +3,8 @@ use std::collections::hash_map::RandomState;
 use bloom_filters::{BloomFilter, DefaultBuildHashKernels, StableBloomFilter};
 use p2p::{context::SessionContext, multiaddr::Multiaddr, ProtocolId, SessionId};
 
+use crate::Flags;
+
 pub(crate) const DEFAULT_BUCKETS_NUM: usize = 5000;
 
 #[derive(Debug, Clone)]
@@ -39,10 +41,12 @@ pub trait AddressManager {
     fn register(&self, id: SessionId, pid: ProtocolId, version: &str);
     fn unregister(&self, id: SessionId, pid: ProtocolId);
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool;
-    fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr);
-    fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>);
+    fn add_new_addr(&mut self, session_id: SessionId, addr: (Multiaddr, Flags));
+    fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<(Multiaddr, Flags)>);
     fn misbehave(&mut self, session: &SessionContext, kind: &Misbehavior) -> MisbehaveResult;
-    fn get_random(&mut self, n: usize) -> Vec<Multiaddr>;
+    fn get_random(&mut self, n: usize, target: Flags) -> Vec<(Multiaddr, Flags)>;
+    fn required_flags(&self) -> Flags;
+    fn node_flags(&self, id: SessionId) -> Flags;
 }
 
 // bitcoin: bloom.h, bloom.cpp => CRollingBloomFilter

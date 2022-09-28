@@ -18,6 +18,7 @@ proptest! {
                 addr,
                 0,
                 0,
+                0
             )
         }
         let mut addr_manager: AddrManager = Default::default();
