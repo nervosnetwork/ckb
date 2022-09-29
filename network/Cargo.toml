@@ -25,7 +25,7 @@ bs58 = { version = "0.4.0", optional = true }
 sentry = { version = "0.26.0", optional = true }
 faster-hex = { version = "0.6", optional = true }
 ckb-hash = {path = "../util/hash", version = "= 0.105.0-pre"}
-secp256k1 = {version = "0.20", features = ["recovery"], optional = true }
+secp256k1 = {version = "0.24", features = ["recovery"], optional = true }
 trust-dns-resolver = { version = "0.20", optional = true }
 snap = "1"
 ckb-types = { path = "../util/types", version = "= 0.105.0-pre" }

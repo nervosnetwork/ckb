@@ -2,7 +2,7 @@ use std::{error::Error, sync::Arc, time::Duration};
 
 use ckb_logger::{debug, error, trace, warn};
 use faster_hex::hex_decode;
-use secp256k1::key::PublicKey;
+use secp256k1::PublicKey;
 use tokio::time::Interval;
 
 mod seed_record;

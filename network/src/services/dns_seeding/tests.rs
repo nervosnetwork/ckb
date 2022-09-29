@@ -2,8 +2,7 @@ use ckb_hash::blake2b_256;
 use p2p::secio::PeerId;
 use rand::Rng;
 use secp256k1::{
-    key::{PublicKey, SecretKey},
-    Message,
+    Message, {PublicKey, SecretKey},
 };
 use std::{
     net::IpAddr,
@@ -60,7 +59,7 @@ impl SeedRecord {
         let hash = blake2b_256(&data);
         let message = Message::from_slice(&hash).expect("create message error");
 
-        let signature = SECP256K1.sign_recoverable(&message, privkey);
+        let signature = SECP256K1.sign_ecdsa_recoverable(&message, privkey);
         let (recid, signed_data) = signature.serialize_compact();
         let mut sig = [0u8; 65];
         sig[0..64].copy_from_slice(&signed_data[0..64]);
