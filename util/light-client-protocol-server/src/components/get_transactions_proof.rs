@@ -47,66 +47,98 @@ impl<'a> GetTransactionsProofProcess<'a> {
 
         let snapshot = self.protocol.shared.shared().snapshot();
 
-        let mut txs_in_blocks = HashMap::new();
-
-        for tx_hash in self.message.tx_hashes().iter() {
-            if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash.to_entity()) {
-                txs_in_blocks
-                    .entry(tx_info.block_hash)
-                    .or_insert_with(Vec::new)
-                    .push((tx.data(), tx_info.index));
-            }
-        }
-
-        let positions: Vec<_> = txs_in_blocks
-            .keys()
-            .filter_map(|hash| {
-                active_chain
-                    .get_block_header(hash)
-                    .map(|header| header.number())
-            })
-            .filter(|number| last_block.number() != *number)
-            .filter_map(|number| active_chain.get_ancestor(&last_hash, number))
-            .map(|header| leaf_index_to_pos(header.number()))
-            .collect();
-
-        let filtered_blocks: Vec<_> = txs_in_blocks
+        let (txs_in_blocks, missing_txs) = self
+            .message
+            .tx_hashes()
+            .to_entity()
             .into_iter()
-            .filter_map(|(block_hash, txs_and_tx_indices)| {
-                snapshot.get_block(&block_hash).map(|block| {
-                    let merkle_proof = CBMT::build_merkle_proof(
-                        &block
-                            .transactions()
-                            .iter()
-                            .map(|tx| tx.hash())
-                            .collect::<Vec<_>>(),
-                        &txs_and_tx_indices
-                            .iter()
-                            .map(|(_tx, index)| *index as u32)
-                            .collect::<Vec<_>>(),
-                    )
-                    .expect("build proof with verified inputs should be OK");
-
-                    let txs: Vec<_> = txs_and_tx_indices.into_iter().map(|(tx, _)| tx).collect();
-
-                    packed::FilteredBlock::new_builder()
-                        .header(block.header().data())
-                        .witnesses_root(block.calc_witnesses_root())
-                        .transactions(txs.pack())
-                        .proof(
-                            packed::MerkleProof::new_builder()
-                                .indices(merkle_proof.indices().to_owned().pack())
-                                .lemmas(merkle_proof.lemmas().to_owned().pack())
-                                .build(),
-                        )
-                        .build()
-                })
+            .map(|tx_hash| {
+                let tx_with_info = snapshot.get_transaction_with_info(&tx_hash);
+                (tx_hash, tx_with_info)
             })
-            .collect();
+            .fold(
+                (HashMap::new(), Vec::new()),
+                |(mut found, mut missing_txs), (tx_hash, tx_with_info)| {
+                    if let Some((tx, tx_info)) = tx_with_info {
+                        found
+                            .entry(tx_info.block_hash)
+                            .or_insert_with(Vec::new)
+                            .push((tx, tx_info.index));
+                    } else {
+                        missing_txs.push(tx_hash);
+                    }
+                    (found, missing_txs)
+                },
+            );
+
+        let (positions, filtered_blocks, missing_txs) = txs_in_blocks
+            .into_iter()
+            .map(|(block_hash, txs_and_tx_indices)| {
+                active_chain
+                    .get_block_header(&block_hash)
+                    .map(|header| header.number())
+                    .filter(|number| *number != last_block.number())
+                    .and_then(|number| active_chain.get_ancestor(&last_hash, number))
+                    .filter(|header| header.hash() == block_hash)
+                    .and_then(|_| active_chain.get_block(&block_hash))
+                    .map(|block| (block, txs_and_tx_indices.clone()))
+                    .ok_or_else(|| {
+                        txs_and_tx_indices
+                            .into_iter()
+                            .map(|(tx, _)| tx.hash())
+                            .collect::<Vec<_>>()
+                    })
+            })
+            .fold(
+                (Vec::new(), Vec::new(), missing_txs),
+                |(mut positions, mut filtered_blocks, mut missing_txs), result| {
+                    match result {
+                        Ok((block, txs_and_tx_indices)) => {
+                            let merkle_proof = CBMT::build_merkle_proof(
+                                &block
+                                    .transactions()
+                                    .iter()
+                                    .map(|tx| tx.hash())
+                                    .collect::<Vec<_>>(),
+                                &txs_and_tx_indices
+                                    .iter()
+                                    .map(|(_, index)| *index as u32)
+                                    .collect::<Vec<_>>(),
+                            )
+                            .expect("build proof with verified inputs should be OK");
+
+                            let txs: Vec<_> = txs_and_tx_indices
+                                .into_iter()
+                                .map(|(tx, _)| tx.data())
+                                .collect();
+
+                            let filtered_block = packed::FilteredBlock::new_builder()
+                                .header(block.header().data())
+                                .witnesses_root(block.calc_witnesses_root())
+                                .transactions(txs.pack())
+                                .proof(
+                                    packed::MerkleProof::new_builder()
+                                        .indices(merkle_proof.indices().to_owned().pack())
+                                        .lemmas(merkle_proof.lemmas().to_owned().pack())
+                                        .build(),
+                                )
+                                .build();
+
+                            positions.push(leaf_index_to_pos(block.number()));
+                            filtered_blocks.push(filtered_block);
+                        }
+                        Err(tx_hashes) => {
+                            missing_txs.extend(tx_hashes);
+                        }
+                    }
+                    (positions, filtered_blocks, missing_txs)
+                },
+            );
 
         let proved_items = packed::FilteredBlockVec::new_builder()
             .set(filtered_blocks)
             .build();
+        let missing_items = missing_txs.pack();
 
         self.protocol.reply_proof::<packed::SendTransactionsProof>(
             self.peer,
@@ -114,6 +146,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
             &last_block,
             positions,
             proved_items,
+            missing_items,
         )
     }
 }

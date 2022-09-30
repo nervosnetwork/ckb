@@ -16,3 +16,16 @@ ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
 ckb-types = { path = "../types", version = "= 0.105.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
 ckb-merkle-mountain-range = "0.5.1"
+
+[dev-dependencies]
+ckb-chain = { path = "../../chain", version = "= 0.105.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.105.0-pre" }
+ckb-tx-pool = { path = "../../tx-pool", version = "= 0.105.0-pre" }
+ckb-launcher = { path = "../launcher", version = "= 0.105.0-pre" }
+ckb-app-config = { path = "../app-config", version = "= 0.105.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.0-pre" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.105.0-pre" }
+ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.105.0-pre" }
+tempfile = "3.0"
+faketime = "0.2"
+tokio = "1.20"

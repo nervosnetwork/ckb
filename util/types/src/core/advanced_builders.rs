@@ -553,6 +553,11 @@ impl core::HeaderView {
 }
 
 impl core::BlockView {
+    /// Creates an empty advanced builder.
+    pub fn new_advanced_builder() -> BlockBuilder {
+        Default::default()
+    }
+
     /// Creates an advanced builder base on current data.
     pub fn as_advanced_builder(&self) -> BlockBuilder {
         let core::BlockView {

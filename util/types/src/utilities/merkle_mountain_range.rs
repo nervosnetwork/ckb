@@ -354,50 +354,66 @@ where
     Self::Entity: Into<packed::LightClientMessageUnion>,
 {
     /// The type of the proved items.
-    type Items;
+    type ProvedItems;
+    /// The type of the missing items.
+    type MissingItems;
     /// Set the verifiable header which includes the chain root.
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self;
     /// Set the proof for all items which require verifying.
     fn set_proof(self, proof: packed::HeaderDigestVec) -> Self;
     /// Set the proved items.
-    fn set_items(self, items: Self::Items) -> Self;
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self;
+    /// Set the missing items.
+    fn set_missing_items(self, items: Self::MissingItems) -> Self;
 }
 
 impl ProverMessageBuilder for packed::SendLastStateProofBuilder {
-    type Items = packed::VerifiableHeaderVec;
+    type ProvedItems = packed::VerifiableHeaderVec;
+    type MissingItems = ();
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)
     }
     fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
         self.proof(proof)
     }
-    fn set_items(self, items: Self::Items) -> Self {
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
         self.headers(items)
+    }
+    fn set_missing_items(self, _: Self::MissingItems) -> Self {
+        self
     }
 }
 
 impl ProverMessageBuilder for packed::SendBlocksProofBuilder {
-    type Items = packed::HeaderVec;
+    type ProvedItems = packed::HeaderVec;
+    type MissingItems = packed::Byte32Vec;
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)
     }
     fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
         self.proof(proof)
     }
-    fn set_items(self, items: Self::Items) -> Self {
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
         self.headers(items)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_block_hashes(items)
     }
 }
 
 impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
-    type Items = packed::FilteredBlockVec;
+    type ProvedItems = packed::FilteredBlockVec;
+    type MissingItems = packed::Byte32Vec;
     fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
         self.last_header(last_header)
     }
     fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
         self.proof(proof)
     }
-    fn set_items(self, items: Self::Items) -> Self {
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
         self.filtered_blocks(items)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_tx_hashes(items)
     }
 }

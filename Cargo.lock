@@ -792,13 +792,24 @@ dependencies = [
 name = "ckb-light-client-protocol-server"
 version = "0.105.0-pre"
 dependencies = [
+ "ckb-app-config",
+ "ckb-chain",
+ "ckb-chain-spec",
+ "ckb-dao-utils",
+ "ckb-jsonrpc-types",
+ "ckb-launcher",
  "ckb-logger",
  "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
+ "ckb-test-chain-utils",
+ "ckb-tx-pool",
  "ckb-types",
+ "faketime",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

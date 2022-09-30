@@ -172,6 +172,16 @@ function check_dependencies_for() {
                 "${deptype}" "${dependency}" "${pkgroot}"
             fi
             ;;
+          tokio)
+            if [ "$(basename "$pkgroot")" != "light-client-protocol-server" ]; then
+              printf "Error: [%s::%s] in <%s>\n" \
+                "${deptype}" "${dependency}" "${pkgroot}"
+              ERRCNT=$((ERRCNT + 1))
+            else
+              printf "Warn: [%s::%s] used as macros in <%s>\n" \
+                "${deptype}" "${dependency}" "${pkgroot}"
+            fi
+            ;;
           *)
             printf "Error: [%s::%s] in <%s>\n" \
               "${deptype}" "${dependency}" "${pkgroot}"
