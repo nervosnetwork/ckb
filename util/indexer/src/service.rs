@@ -10,10 +10,7 @@ use ckb_async_runtime::{
     tokio::{self, sync::watch, time},
     Handle,
 };
-use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
-};
+use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
 use ckb_jsonrpc_types::{
     BlockNumber, Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint32, Uint64,
 };
@@ -65,9 +62,6 @@ impl IndexerService {
             COLUMN_META,
             COLUMN_BLOCK_HEADER,
             COLUMN_BLOCK_BODY,
-            COLUMN_BLOCK_UNCLE,
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            COLUMN_BLOCK_EXTENSION,
         ];
         let secondary_db = SecondaryDB::open_cf(
             &ckb_db_config.path,

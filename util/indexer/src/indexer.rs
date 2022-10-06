@@ -316,7 +316,7 @@ impl<S> Indexer<S>
 where
     S: Store,
 {
-    /// Parse the block, store the Cell Transction etc. contained in the block with the designed index
+    /// Parse the block, store the Cell Transaction etc. contained in the block with the designed index
     pub(crate) fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
         if !self.custom_filters.is_block_filter_match(block) {
