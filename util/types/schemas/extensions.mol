@@ -375,6 +375,9 @@ table SendBlocksProof {
 
     // Block headers for the blocks which require verifying.
     headers:                    HeaderVec,
+
+    // Block hashes for the blocks which were not found.
+    missing_block_hashes:       Byte32Vec,
 }
 
 table GetTransactionsProof {
@@ -394,6 +397,9 @@ table SendTransactionsProof {
     // A collection of filtered blocks, which include all requested
     // transactions, and be verified in the proof.
     filtered_blocks:            FilteredBlockVec,
+
+    // Transaction hashes for the blocks which were not found.
+    missing_tx_hashes:          Byte32Vec,
 }
 
 /* Types for Network/Others */

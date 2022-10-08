@@ -389,6 +389,7 @@ impl<'a> GetLastStateProofProcess<'a> {
             &last_block,
             positions,
             proved_items,
+            (),
         )
     }
 }

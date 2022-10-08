@@ -16,6 +16,9 @@ mod constant;
 mod prelude;
 mod status;
 
+#[cfg(test)]
+mod tests;
+
 pub use status::{Status, StatusCode};
 
 /// Light client protocol handler.
@@ -167,7 +170,8 @@ impl LightClientProtocol {
         nc: &dyn CKBProtocolContext,
         last_block: &core::BlockView,
         items_positions: Vec<u64>,
-        items: <<T as Entity>::Builder as ProverMessageBuilder>::Items,
+        proved_items: <<T as Entity>::Builder as ProverMessageBuilder>::ProvedItems,
+        missing_items: <<T as Entity>::Builder as ProverMessageBuilder>::MissingItems,
     ) -> Status
     where
         T: Entity,
@@ -202,7 +206,8 @@ impl LightClientProtocol {
         let content = T::new_builder()
             .set_last_header(verifiable_last_header)
             .set_proof(proof.pack())
-            .set_items(items)
+            .set_proved_items(proved_items)
+            .set_missing_items(missing_items)
             .build();
         let message = packed::LightClientMessage::new_builder()
             .set(content)

@@ -17554,6 +17554,12 @@ impl ::core::fmt::Display for SendBlocksProof {
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
         write!(f, ", {}: {}", "headers", self.headers())?;
+        write!(
+            f,
+            ", {}: {}",
+            "missing_block_hashes",
+            self.missing_block_hashes()
+        )?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -17564,8 +17570,8 @@ impl ::core::fmt::Display for SendBlocksProof {
 impl ::core::default::Default for SendBlocksProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            148, 1, 0, 0, 16, 0, 0, 0, 140, 1, 0, 0, 144, 1, 0, 0, 124, 1, 0, 0, 20, 0, 0, 0, 228,
-            0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            156, 1, 0, 0, 20, 0, 0, 0, 144, 1, 0, 0, 148, 1, 0, 0, 152, 1, 0, 0, 124, 1, 0, 0, 20,
+            0, 0, 0, 228, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -17578,13 +17584,13 @@ impl ::core::default::Default for SendBlocksProof {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendBlocksProof::new_unchecked(v.into())
     }
 }
 impl SendBlocksProof {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17616,11 +17622,17 @@ impl SendBlocksProof {
     pub fn headers(&self) -> HeaderVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        HeaderVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn missing_block_hashes(&self) -> Byte32Vec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            HeaderVec::new_unchecked(self.0.slice(start..end))
+            let end = molecule::unpack_number(&slice[20..]) as usize;
+            Byte32Vec::new_unchecked(self.0.slice(start..end))
         } else {
-            HeaderVec::new_unchecked(self.0.slice(start..))
+            Byte32Vec::new_unchecked(self.0.slice(start..))
         }
     }
     pub fn as_reader<'r>(&'r self) -> SendBlocksProofReader<'r> {
@@ -17653,6 +17665,7 @@ impl molecule::prelude::Entity for SendBlocksProof {
             .last_header(self.last_header())
             .proof(self.proof())
             .headers(self.headers())
+            .missing_block_hashes(self.missing_block_hashes())
     }
 }
 #[derive(Clone, Copy)]
@@ -17677,6 +17690,12 @@ impl<'r> ::core::fmt::Display for SendBlocksProofReader<'r> {
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
         write!(f, ", {}: {}", "headers", self.headers())?;
+        write!(
+            f,
+            ", {}: {}",
+            "missing_block_hashes",
+            self.missing_block_hashes()
+        )?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -17685,7 +17704,7 @@ impl<'r> ::core::fmt::Display for SendBlocksProofReader<'r> {
     }
 }
 impl<'r> SendBlocksProofReader<'r> {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -17717,11 +17736,17 @@ impl<'r> SendBlocksProofReader<'r> {
     pub fn headers(&self) -> HeaderVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        HeaderVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn missing_block_hashes(&self) -> Byte32VecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            HeaderVecReader::new_unchecked(&self.as_slice()[start..end])
+            let end = molecule::unpack_number(&slice[20..]) as usize;
+            Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            HeaderVecReader::new_unchecked(&self.as_slice()[start..])
+            Byte32VecReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -17777,6 +17802,7 @@ impl<'r> molecule::prelude::Reader<'r> for SendBlocksProofReader<'r> {
         VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         HeaderDigestVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         HeaderVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Byte32VecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
@@ -17785,9 +17811,10 @@ pub struct SendBlocksProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
     pub(crate) headers: HeaderVec,
+    pub(crate) missing_block_hashes: Byte32Vec,
 }
 impl SendBlocksProofBuilder {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
         self
@@ -17800,6 +17827,10 @@ impl SendBlocksProofBuilder {
         self.headers = v;
         self
     }
+    pub fn missing_block_hashes(mut self, v: Byte32Vec) -> Self {
+        self.missing_block_hashes = v;
+        self
+    }
 }
 impl molecule::prelude::Builder for SendBlocksProofBuilder {
     type Entity = SendBlocksProof;
@@ -17809,6 +17840,7 @@ impl molecule::prelude::Builder for SendBlocksProofBuilder {
             + self.last_header.as_slice().len()
             + self.proof.as_slice().len()
             + self.headers.as_slice().len()
+            + self.missing_block_hashes.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -17819,6 +17851,8 @@ impl molecule::prelude::Builder for SendBlocksProofBuilder {
         total_size += self.proof.as_slice().len();
         offsets.push(total_size);
         total_size += self.headers.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.missing_block_hashes.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
@@ -17826,6 +17860,7 @@ impl molecule::prelude::Builder for SendBlocksProofBuilder {
         writer.write_all(self.last_header.as_slice())?;
         writer.write_all(self.proof.as_slice())?;
         writer.write_all(self.headers.as_slice())?;
+        writer.write_all(self.missing_block_hashes.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -18122,6 +18157,7 @@ impl ::core::fmt::Display for SendTransactionsProof {
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
         write!(f, ", {}: {}", "filtered_blocks", self.filtered_blocks())?;
+        write!(f, ", {}: {}", "missing_tx_hashes", self.missing_tx_hashes())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -18132,8 +18168,8 @@ impl ::core::fmt::Display for SendTransactionsProof {
 impl ::core::default::Default for SendTransactionsProof {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            148, 1, 0, 0, 16, 0, 0, 0, 140, 1, 0, 0, 144, 1, 0, 0, 124, 1, 0, 0, 20, 0, 0, 0, 228,
-            0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            156, 1, 0, 0, 20, 0, 0, 0, 144, 1, 0, 0, 148, 1, 0, 0, 152, 1, 0, 0, 124, 1, 0, 0, 20,
+            0, 0, 0, 228, 0, 0, 0, 4, 1, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -18145,14 +18181,14 @@ impl ::core::default::Default for SendTransactionsProof {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0,
-            0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendTransactionsProof::new_unchecked(v.into())
     }
 }
 impl SendTransactionsProof {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -18184,11 +18220,17 @@ impl SendTransactionsProof {
     pub fn filtered_blocks(&self) -> FilteredBlockVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        FilteredBlockVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn missing_tx_hashes(&self) -> Byte32Vec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            FilteredBlockVec::new_unchecked(self.0.slice(start..end))
+            let end = molecule::unpack_number(&slice[20..]) as usize;
+            Byte32Vec::new_unchecked(self.0.slice(start..end))
         } else {
-            FilteredBlockVec::new_unchecked(self.0.slice(start..))
+            Byte32Vec::new_unchecked(self.0.slice(start..))
         }
     }
     pub fn as_reader<'r>(&'r self) -> SendTransactionsProofReader<'r> {
@@ -18221,6 +18263,7 @@ impl molecule::prelude::Entity for SendTransactionsProof {
             .last_header(self.last_header())
             .proof(self.proof())
             .filtered_blocks(self.filtered_blocks())
+            .missing_tx_hashes(self.missing_tx_hashes())
     }
 }
 #[derive(Clone, Copy)]
@@ -18245,6 +18288,7 @@ impl<'r> ::core::fmt::Display for SendTransactionsProofReader<'r> {
         write!(f, "{}: {}", "last_header", self.last_header())?;
         write!(f, ", {}: {}", "proof", self.proof())?;
         write!(f, ", {}: {}", "filtered_blocks", self.filtered_blocks())?;
+        write!(f, ", {}: {}", "missing_tx_hashes", self.missing_tx_hashes())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
             write!(f, ", .. ({} fields)", extra_count)?;
@@ -18253,7 +18297,7 @@ impl<'r> ::core::fmt::Display for SendTransactionsProofReader<'r> {
     }
 }
 impl<'r> SendTransactionsProofReader<'r> {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -18285,11 +18329,17 @@ impl<'r> SendTransactionsProofReader<'r> {
     pub fn filtered_blocks(&self) -> FilteredBlockVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
+        let end = molecule::unpack_number(&slice[16..]) as usize;
+        FilteredBlockVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn missing_tx_hashes(&self) -> Byte32VecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[16..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[16..]) as usize;
-            FilteredBlockVecReader::new_unchecked(&self.as_slice()[start..end])
+            let end = molecule::unpack_number(&slice[20..]) as usize;
+            Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
-            FilteredBlockVecReader::new_unchecked(&self.as_slice()[start..])
+            Byte32VecReader::new_unchecked(&self.as_slice()[start..])
         }
     }
 }
@@ -18345,6 +18395,7 @@ impl<'r> molecule::prelude::Reader<'r> for SendTransactionsProofReader<'r> {
         VerifiableHeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         HeaderDigestVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         FilteredBlockVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Byte32VecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Ok(())
     }
 }
@@ -18353,9 +18404,10 @@ pub struct SendTransactionsProofBuilder {
     pub(crate) last_header: VerifiableHeader,
     pub(crate) proof: HeaderDigestVec,
     pub(crate) filtered_blocks: FilteredBlockVec,
+    pub(crate) missing_tx_hashes: Byte32Vec,
 }
 impl SendTransactionsProofBuilder {
-    pub const FIELD_COUNT: usize = 3;
+    pub const FIELD_COUNT: usize = 4;
     pub fn last_header(mut self, v: VerifiableHeader) -> Self {
         self.last_header = v;
         self
@@ -18368,6 +18420,10 @@ impl SendTransactionsProofBuilder {
         self.filtered_blocks = v;
         self
     }
+    pub fn missing_tx_hashes(mut self, v: Byte32Vec) -> Self {
+        self.missing_tx_hashes = v;
+        self
+    }
 }
 impl molecule::prelude::Builder for SendTransactionsProofBuilder {
     type Entity = SendTransactionsProof;
@@ -18377,6 +18433,7 @@ impl molecule::prelude::Builder for SendTransactionsProofBuilder {
             + self.last_header.as_slice().len()
             + self.proof.as_slice().len()
             + self.filtered_blocks.as_slice().len()
+            + self.missing_tx_hashes.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
         let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
@@ -18387,6 +18444,8 @@ impl molecule::prelude::Builder for SendTransactionsProofBuilder {
         total_size += self.proof.as_slice().len();
         offsets.push(total_size);
         total_size += self.filtered_blocks.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.missing_tx_hashes.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
             writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
@@ -18394,6 +18453,7 @@ impl molecule::prelude::Builder for SendTransactionsProofBuilder {
         writer.write_all(self.last_header.as_slice())?;
         writer.write_all(self.proof.as_slice())?;
         writer.write_all(self.filtered_blocks.as_slice())?;
+        writer.write_all(self.missing_tx_hashes.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
