@@ -1,6 +1,10 @@
 use crate::notifier::Notifier;
+use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_notify::NotifyService;
+use ckb_stop_handler::StopHandler;
 use ckb_types::{packed, prelude::*};
+use once_cell::unsync;
+use std::borrow::Borrow;
 
 fn build_alert(
     id: u32,
@@ -20,7 +24,21 @@ fn build_alert(
 }
 
 fn new_notifier(version: &str) -> Notifier {
-    let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
+    thread_local! {
+        // NOTICE：we can't put the runtime directly into thread_local here,
+        // on windows the runtime in thread_local will get stuck when dropping
+        static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
+    }
+
+    let notify_controller = RUNTIME_HANDLE.with(|runtime| {
+        NotifyService::new(Default::default()).start(
+            runtime
+                .borrow()
+                .get_or_init(new_background_runtime)
+                .0
+                .clone(),
+        )
+    });
     Notifier::new(version.into(), notify_controller)
 }
 

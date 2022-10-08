@@ -75,6 +75,8 @@ pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
+/// Command line argument `--indexer`.
+pub const ARG_INDEXER: &str = "indexer";
 /// Command line argument `--from`.
 pub const ARG_FROM: &str = "from";
 /// Command line argument `--to`.
@@ -190,7 +192,11 @@ fn run<'help>() -> Command<'help> {
             the download of the block starts; If the assume valid target is not found or it's \
             timestamp within 24 hours of the current time, the target will automatically become invalid, \
             and the download of the block will be started with verify")
-    )
+        ).arg(
+            Arg::new(ARG_INDEXER)
+            .long(ARG_INDEXER)
+            .help("Start the built-in indexer service"),
+        )
 }
 
 fn miner<'help>() -> Command<'help> {

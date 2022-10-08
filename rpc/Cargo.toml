@@ -18,7 +18,6 @@ ckb-store = { path = "../store", version = "= 0.105.0-pre" }
 ckb-sync = { path = "../sync", version = "= 0.105.0-pre" }
 ckb-chain = { path = "../chain", version = "= 0.105.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.105.0-pre"}
-ckb-channel = { path = "../util/channel", version = "= 0.105.0-pre" }
 ckb-logger-service = { path = "../util/logger-service", version = "= 0.105.0-pre"}
 ckb-network-alert = { path = "../util/network-alert", version = "= 0.105.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.105.0-pre" }
@@ -31,7 +30,6 @@ jsonrpc-ws-server = "18.0"
 jsonrpc-server-utils = "18.0"
 jsonrpc-pubsub = "18.0"
 serde_json = "1.0"
-num_cpus = "1.10"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.105.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.105.0-pre" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.105.0-pre" }
@@ -44,6 +42,8 @@ ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.105
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.105.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.105.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.105.0-pre" }
+ckb-indexer = { path = "../util/indexer", version = "= 0.105.0-pre" }
+tokio = "1"
 
 [dev-dependencies]
 reqwest = { version = "0.11.4", features = ["blocking", "json"] }

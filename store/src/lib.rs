@@ -18,3 +18,5 @@ pub use snapshot::StoreSnapshot;
 pub use store::ChainStore;
 pub use transaction::StoreTransaction;
 pub use write_batch::StoreWriteBatch;
+
+pub use ckb_freezer::Freezer;

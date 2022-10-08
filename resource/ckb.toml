@@ -112,7 +112,7 @@ listen_address = "127.0.0.1:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
 # dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
@@ -191,3 +191,7 @@ block_uncles_cache_size    = 30
 # notify = ["http://127.0.0.1:8888"]
 # # Or you may want use more flexible scripts, block template as arg.
 # notify_scripts = ["{cmd} {blocktemplate}"]
+#
+# [indexer_v2]
+# # Indexing the pending txs in the ckb tx-pool
+# index_tx_pool = false
