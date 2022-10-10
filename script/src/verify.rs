@@ -852,8 +852,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     /// Gets the cost model.
     ///
     /// Cost model is used to evaluate consumed cycles.
-    pub fn cost_model(&self) -> Box<InstructionCycleFunc> {
-        Box::new(instruction_cycles)
+    pub fn cost_model(&self) -> &'a InstructionCycleFunc {
+        &instruction_cycles
     }
 
     /// Prepares syscalls.
