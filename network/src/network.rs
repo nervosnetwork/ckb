@@ -868,6 +868,7 @@ impl<T: ExitHandler> NetworkService<T> {
         let mut service_builder = ServiceBuilder::default();
         let yamux_config = YamuxConfig {
             max_stream_count: protocol_metas.len(),
+            max_stream_window_size: 1024 * 1024,
             ..Default::default()
         };
         for meta in protocol_metas.into_iter() {
