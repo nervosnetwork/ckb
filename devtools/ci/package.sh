@@ -25,13 +25,14 @@ cp -R docs "releases/$PKG_NAME"
 cp rpc/README.md "releases/$PKG_NAME/docs/rpc.md"
 
 if [ ! "${SKIP_CKB_CLI:-false}" == "true" ]; then
-  curl -LO "https://github.com/nervosnetwork/ckb-cli/releases/download/${CKB_CLI_VERSION}/ckb-cli_${CKB_CLI_VERSION}_${REL_PKG}"
-  if [ "${REL_PKG##*.}" = "zip" ]; then
-    unzip "ckb-cli_${CKB_CLI_VERSION}_${REL_PKG}"
+  CKB_CLI_REL_PKG="$(echo "$REL_PKG" | sed 's/-portable//')"
+  curl -LO "https://github.com/nervosnetwork/ckb-cli/releases/download/${CKB_CLI_VERSION}/ckb-cli_${CKB_CLI_VERSION}_${CKB_CLI_REL_PKG}"
+  if [ "${CKB_CLI_REL_PKG##*.}" = "zip" ]; then
+    unzip "ckb-cli_${CKB_CLI_VERSION}_${CKB_CLI_REL_PKG}"
   else
-    tar -xzf "ckb-cli_${CKB_CLI_VERSION}_${REL_PKG}"
+    tar -xzf "ckb-cli_${CKB_CLI_VERSION}_${CKB_CLI_REL_PKG}"
   fi
-  mv "ckb-cli_${CKB_CLI_VERSION}_${REL_PKG%%.*}/ckb-cli" "releases/$PKG_NAME/ckb-cli"
+  mv "ckb-cli_${CKB_CLI_VERSION}_${CKB_CLI_REL_PKG%%.*}/ckb-cli" "releases/$PKG_NAME/ckb-cli"
 fi
 
 pushd releases

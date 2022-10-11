@@ -11,8 +11,11 @@ mod shared_builder;
 #[cfg(test)]
 mod tests;
 
-use ckb_app_config::{BlockAssemblerConfig, ExitCode, RunArgs, SupportProtocol};
+use ckb_app_config::{
+    BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
+};
 use ckb_async_runtime::Handle;
+use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
@@ -28,6 +31,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
+use ckb_stop_handler::StopHandler;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -238,6 +242,23 @@ impl Launcher {
         chain_controller
     }
 
+    fn adjust_rpc_config(&self) -> RpcConfig {
+        let mut config = self.args.config.rpc.clone();
+        if self.args.indexer && !config.indexer_enable() {
+            config.modules.push(RpcModule::Indexer);
+        }
+        config
+    }
+
+    /// start block filter service
+    pub fn start_block_filter(&self, shared: &Shared) -> Option<StopHandler<()>> {
+        if self.args.config.store.block_filter_enable {
+            Some(BlockFilterService::new(shared.clone()).start())
+        } else {
+            None
+        }
+    }
+
     /// Start network service and rpc serve
     pub fn start_network_and_rpc(
         &self,
@@ -339,21 +360,18 @@ impl Launcher {
         .start(shared.async_handle())
         .expect("Start network service failed");
 
-        let builder = ServiceBuilder::new(&self.args.config.rpc)
+        let rpc_config = self.adjust_rpc_config();
+        let builder = ServiceBuilder::new(&rpc_config)
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
                 self.args.config.tx_pool.min_fee_rate,
-                self.args
-                    .config
-                    .rpc
+                rpc_config
                     .extra_well_known_lock_scripts
                     .iter()
                     .map(|script| script.clone().into())
                     .collect(),
-                self.args
-                    .config
-                    .rpc
+                rpc_config
                     .extra_well_known_type_scripts
                     .iter()
                     .map(|script| script.clone().into())
@@ -370,13 +388,19 @@ impl Launcher {
             .enable_experiment(shared.clone())
             .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
             .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+            .enable_indexer(
+                shared.clone(),
+                &self.args.config.db,
+                &self.args.config.indexer,
+            )
             .enable_debug();
         let io_handler = builder.build();
 
         let rpc_server = RpcServer::new(
-            self.args.config.rpc.clone(),
+            rpc_config.clone(),
             io_handler,
             shared.notify_controller(),
+            self.async_handle.clone().into_inner(),
         );
 
         (network_controller, rpc_server)

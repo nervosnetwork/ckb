@@ -6,7 +6,6 @@ use crate::migrate::Migrate;
 use ckb_app_config::ExitCode;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_background_runtime, Handle};
-use ckb_block_filter::filter::BlockFilter;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_channel::Receiver;
@@ -327,7 +326,7 @@ impl SharedBuilder {
         let store_config = store_config.unwrap_or_default();
         let consensus = Arc::new(consensus.unwrap_or_default());
 
-        let notify_controller = start_notify_service(notify_config);
+        let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
         let store = build_store(db, store_config, ancient_path).map_err(|e| {
             eprintln!("build_store {}", e);
@@ -361,18 +360,13 @@ impl SharedBuilder {
         let shared = Shared::new(
             store,
             tx_pool_controller,
-            notify_controller.clone(),
+            notify_controller,
             txs_verify_cache,
             consensus,
             snapshot_mgr,
             async_handle,
             ibd_finished,
         );
-
-        if store_config.block_filter_enable {
-            // start block filter service
-            BlockFilter::new(shared.clone()).start(&notify_controller);
-        }
 
         let pack = SharedPackage {
             table: Some(table),
@@ -411,8 +405,8 @@ impl SharedPackage {
     }
 }
 
-fn start_notify_service(notify_config: NotifyConfig) -> NotifyController {
-    NotifyService::new(notify_config).start(Some("NotifyService"))
+fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
+    NotifyService::new(notify_config).start(handle)
 }
 
 fn build_store(

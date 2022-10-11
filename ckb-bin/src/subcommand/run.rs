@@ -43,6 +43,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
+    let block_filter = launcher.start_block_filter(&shared);
+
     let (network_controller, rpc_server) = launcher.start_network_and_rpc(
         &shared,
         chain_controller.non_owning_clone(),
@@ -68,6 +70,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     })?;
 
     drop(rpc_server);
+    drop(block_filter);
     drop(network_controller);
     drop(chain_controller);
     Ok(())

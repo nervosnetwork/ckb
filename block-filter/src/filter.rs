@@ -1,15 +1,15 @@
-use ckb_channel::select;
+use ckb_async_runtime::tokio::{self, sync::oneshot, task::block_in_place};
 use ckb_logger::debug;
-use ckb_notify::NotifyController;
 use ckb_shared::Shared;
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_types::{core::HeaderView, prelude::*};
 use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
-use std::thread;
 
-const THREAD_NAME: &str = "BlockFilter";
+const NAME: &str = "BlockFilter";
 
 /// A block filter creation service
+#[derive(Clone)]
 pub struct BlockFilter {
     shared: Shared,
 }
@@ -21,25 +21,32 @@ impl BlockFilter {
     }
 
     /// start background single-threaded service to create block filter data
-    pub fn start(self, notify_controller: &NotifyController) {
-        let thread_builder = thread::Builder::new().name(THREAD_NAME.to_string());
+    pub fn start(self) -> StopHandler<()> {
+        let notify_controller = self.shared.notify_controller().clone();
+        let async_handle = self.shared.async_handle().clone();
+        let (stop, mut stop_rx) = oneshot::channel::<()>();
+        let filter_data_builder = self.clone();
 
-        let notify_controller = notify_controller.clone();
-        let _thread = thread_builder
-            .spawn(move || {
-                // catch up to the latest block
-                self.build_filter_data();
-                // subscribe to new block
-                let new_block_receiver = notify_controller.subscribe_new_block(THREAD_NAME);
-                loop {
-                    select! {
-                        recv(new_block_receiver) -> _ => {
-                            self.build_filter_data();
-                        }
+        let build_filter_data =
+            async_handle.spawn_blocking(move || filter_data_builder.build_filter_data());
+
+        async_handle.spawn(async move {
+            let mut new_block_receiver = notify_controller
+                .subscribe_new_block(NAME.to_string())
+                .await;
+            let _build_filter_data_finished = build_filter_data.await;
+
+            loop {
+                tokio::select! {
+                    Some(_) = new_block_receiver.recv() => {
+                        block_in_place(|| self.build_filter_data());
                     }
+                    _ = &mut stop_rx => break,
+                    else => break,
                 }
-            })
-            .expect("Start block filter service failed");
+            }
+        });
+        StopHandler::new(SignalSender::Tokio(stop), None, NAME.to_string())
     }
 
     /// build block filter data to the latest block
@@ -104,10 +111,10 @@ impl BlockFilter {
         }
         let mut filter_writer = std::io::Cursor::new(Vec::new());
         let mut filter = build_gcs_filter(&mut filter_writer);
-        let transcations = db.get_block_body(&header.hash());
-        let transactions_size: usize = transcations.iter().map(|tx| tx.data().total_size()).sum();
+        let transactions = db.get_block_body(&header.hash());
+        let transactions_size: usize = transactions.iter().map(|tx| tx.data().total_size()).sum();
 
-        for tx in transcations {
+        for tx in transactions {
             if !tx.is_cellbase() {
                 for out_point in tx.input_pts_iter() {
                     let input_cell = db
