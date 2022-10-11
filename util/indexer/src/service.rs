@@ -101,30 +101,30 @@ impl IndexerService {
 
         self.async_handle.spawn(async move {
             let mut new_transaction_receiver = notify_controller
-            .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
-            .await;
-        let mut reject_transaction_receiver = notify_controller
-            .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
-            .await;
+                .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
+                .await;
+            let mut reject_transaction_receiver = notify_controller
+                .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
+                .await;
 
-        loop {
-            tokio::select! {
-                Some(tx_entry) = new_transaction_receiver.recv() => {
-                    if let Some(pool) = service.pool.as_ref() {
-                        pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
+            loop {
+                tokio::select! {
+                    Some(tx_entry) = new_transaction_receiver.recv() => {
+                        if let Some(pool) = service.pool.as_ref() {
+                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
+                        }
                     }
-                }
-                Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
-                    if let Some(pool) = service.pool.as_ref() {
-                        pool.write()
-                        .expect("acquire lock")
-                        .transaction_rejected(&tx_entry.transaction);
+                    Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
+                        if let Some(pool) = service.pool.as_ref() {
+                            pool.write()
+                            .expect("acquire lock")
+                            .transaction_rejected(&tx_entry.transaction);
+                        }
                     }
+                    _ = stop.changed() => break,
+                    else => break,
                 }
-                _ = stop.changed() => break,
-                else => break,
             }
-        }
         });
     }
 
