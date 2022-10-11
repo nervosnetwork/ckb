@@ -13,9 +13,8 @@ use p2p::{
     utils::{is_reachable, socketaddr_to_multiaddr},
 };
 use secp256k1::{
-    key::PublicKey,
-    recovery::{RecoverableSignature, RecoveryId},
-    Message,
+    ecdsa::{RecoverableSignature, RecoveryId},
+    Message, PublicKey,
 };
 
 lazy_static! {
@@ -111,7 +110,7 @@ impl SeedRecord {
         let hash = blake2b_256(&data);
         let message = Message::from_slice(&hash).expect("create message error");
 
-        if let Ok(pubkey) = SECP256K1.recover(&message, &signature) {
+        if let Ok(pubkey) = SECP256K1.recover_ecdsa(&message, &signature) {
             Ok(SeedRecord {
                 ip,
                 port,

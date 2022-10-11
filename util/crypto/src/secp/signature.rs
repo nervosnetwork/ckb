@@ -4,7 +4,7 @@ use super::Message;
 use super::SECP256K1;
 use ckb_fixed_hash::{h256, H256, H520};
 use faster_hex::hex_string;
-use secp256k1::recovery::{RecoverableSignature, RecoveryId};
+use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use secp256k1::Message as SecpMessage;
 use std::fmt;
 use std::str::FromStr;
@@ -91,7 +91,7 @@ impl Signature {
         let context = &SECP256K1;
         let recoverable_signature = self.to_recoverable()?;
         let message = SecpMessage::from_slice(message.as_bytes())?;
-        let pubkey = context.recover(&message, &recoverable_signature)?;
+        let pubkey = context.recover_ecdsa(&message, &recoverable_signature)?;
         let serialized = pubkey.serialize_uncompressed();
 
         let mut pubkey = [0u8; 64];

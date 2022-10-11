@@ -967,6 +967,7 @@ impl<T: ExitHandler> NetworkService<T> {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(addr) {
                                 use p2p::service::TcpSocket;
+                                let domain = socket2::Domain::for_address(addr);
                                 service_builder =
                                     service_builder.tcp_config(move |socket: TcpSocket| {
                                         let socket_ref = socket2::SockRef::from(&socket);
@@ -978,7 +979,9 @@ impl<T: ExitHandler> NetworkService<T> {
                                         socket_ref.set_reuse_port(true)?;
 
                                         socket_ref.set_reuse_address(true)?;
-                                        socket_ref.bind(&addr.into())?;
+                                        if socket_ref.domain()? == domain {
+                                            socket_ref.bind(&addr.into())?;
+                                        }
                                         Ok(socket)
                                     });
                                 init.transform(TransportType::Tcp)

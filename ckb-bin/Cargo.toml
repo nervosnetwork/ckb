@@ -11,6 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 clap = { version = "3.1" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
 serde_plain = "0.3.0"
 toml = "0.5"
 ckb-app-config = { path = "../util/app-config", version = "= 0.105.0-pre" }

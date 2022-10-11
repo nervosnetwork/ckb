@@ -1,6 +1,4 @@
-use ckb_channel::select;
 use ckb_jsonrpc_types::Topic;
-use ckb_logger::error;
 use ckb_notify::NotifyController;
 use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
@@ -15,7 +13,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     RwLock,
 };
-use std::thread;
+use tokio::runtime::Handle;
+
+const SUBSCRIBER_NAME: &str = "TcpSubscription";
 
 #[derive(Clone, Debug)]
 pub struct SubscriptionSession {
@@ -274,98 +274,74 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 }
 
 impl SubscriptionRpcImpl {
-    pub fn new<S: ToString>(notify_controller: NotifyController, name: S) -> Self {
-        let new_block_receiver = notify_controller.subscribe_new_block(name.to_string());
-        let new_transaction_receiver =
-            notify_controller.subscribe_new_transaction(name.to_string());
-        let proposed_transaction_receiver =
-            notify_controller.subscribe_proposed_transaction(name.to_string());
-        let reject_transaction_receiver =
-            notify_controller.subscribe_reject_transaction(name.to_string());
+    pub fn new(notify_controller: NotifyController, handle: Handle) -> Self {
+        let mut new_block_receiver =
+            handle.block_on(notify_controller.subscribe_new_block(SUBSCRIBER_NAME.to_string()));
+        let mut new_transaction_receiver = handle
+            .block_on(notify_controller.subscribe_new_transaction(SUBSCRIBER_NAME.to_string()));
+        let mut proposed_transaction_receiver = handle.block_on(
+            notify_controller.subscribe_proposed_transaction(SUBSCRIBER_NAME.to_string()),
+        );
+        let mut reject_transaction_receiver = handle
+            .block_on(notify_controller.subscribe_reject_transaction(SUBSCRIBER_NAME.to_string()));
 
         let subscription_rpc_impl = SubscriptionRpcImpl::default();
         let subscribers = Arc::clone(&subscription_rpc_impl.subscribers);
-
-        let thread_builder = thread::Builder::new().name(name.to_string());
-        thread_builder
-            .spawn(move || loop {
-                select! {
-                    recv(new_block_receiver) -> msg => match msg {
-                        Ok(block) => {
-                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
-                            if let Some(new_tip_header_subscribers) = subscribers.get(&Topic::NewTipHeader) {
-                                let header: ckb_jsonrpc_types::HeaderView  = block.header().into();
-                                let json_string = Ok(serde_json::to_string(&header).expect("serialization should be ok"));
-                                for sink in new_tip_header_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone());
-                                }
+        handle.spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(block) = new_block_receiver.recv() => {
+                        let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                        if let Some(new_tip_header_subscribers) = subscribers.get(&Topic::NewTipHeader) {
+                            let header: ckb_jsonrpc_types::HeaderView  = block.header().into();
+                            let json_string = Ok(serde_json::to_string(&header).expect("serialization should be ok"));
+                            for sink in new_tip_header_subscribers.values() {
+                                let _ = sink.notify(json_string.clone());
                             }
-                            if let Some(new_tip_block_subscribers) = subscribers.get(&Topic::NewTipBlock) {
-                                let block: ckb_jsonrpc_types::BlockView  = block.into();
-                                let json_string = Ok(serde_json::to_string(&block).expect("serialization should be ok"));
-                                for sink in new_tip_block_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone());
-                                }
+                        }
+                        if let Some(new_tip_block_subscribers) = subscribers.get(&Topic::NewTipBlock) {
+                            let block: ckb_jsonrpc_types::BlockView  = block.into();
+                            let json_string = Ok(serde_json::to_string(&block).expect("serialization should be ok"));
+                            for sink in new_tip_block_subscribers.values() {
+                                let _ = sink.notify(json_string.clone());
                             }
-                        },
-                        _ => {
-                            error!("new_block_receiver closed");
-                            break;
-                        },
+                        }
                     },
-                    recv(new_transaction_receiver) -> msg => match msg {
-                        Ok(tx_entry) => {
-                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
-                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
-                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
-                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
-                                for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone());
-                                }
+                    Some(tx_entry) = new_transaction_receiver.recv() => {
+                        let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                        if let Some(new_transaction_subscribers) = subscribers.get(&Topic::NewTransaction) {
+                            let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                            let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                            for sink in new_transaction_subscribers.values() {
+                                let _ = sink.notify(json_string.clone());
                             }
-                        },
-                        _ => {
-                            error!("new_transaction_receiver closed");
-                            break;
-                        },
+                        }
                     },
-                    recv(proposed_transaction_receiver) -> msg => match msg {
-                        Ok(tx_entry) => {
-                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
-                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::ProposedTransaction) {
-                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
-                                let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
-                                for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone());
-                                }
+                    Some(tx_entry) = proposed_transaction_receiver.recv() => {
+                        let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                        if let Some(new_transaction_subscribers) = subscribers.get(&Topic::ProposedTransaction) {
+                            let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                            let json_string = Ok(serde_json::to_string(&entry).expect("serialization should be ok"));
+                            for sink in new_transaction_subscribers.values() {
+                                let _ = sink.notify(json_string.clone());
                             }
-                        },
-                        _ => {
-                            error!("proposed_transaction_receiver closed");
-                            break;
-                        },
+                        }
                     },
-
-                    recv(reject_transaction_receiver) -> msg => match msg {
-                        Ok((tx_entry, reject)) => {
-                            let subscribers = subscribers.read().expect("acquiring subscribers read lock");
-                            if let Some(new_transaction_subscribers) = subscribers.get(&Topic::RejectedTransaction) {
-                                let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
-                                let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
-                                let json_string = Ok(serde_json::to_string(&(entry, reject)).expect("serialization should be ok"));
-                                for sink in new_transaction_subscribers.values() {
-                                    let _ = sink.notify(json_string.clone());
-                                }
+                    Some((tx_entry, reject)) = reject_transaction_receiver.recv() => {
+                        let subscribers = subscribers.read().expect("acquiring subscribers read lock");
+                        if let Some(new_transaction_subscribers) = subscribers.get(&Topic::RejectedTransaction) {
+                            let entry: ckb_jsonrpc_types::PoolTransactionEntry = tx_entry.into();
+                            let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
+                            let json_string = Ok(serde_json::to_string(&(entry, reject)).expect("serialization should be ok"));
+                            for sink in new_transaction_subscribers.values() {
+                                let _ = sink.notify(json_string.clone());
                             }
-                        },
-                        _ => {
-                            error!("reject_transaction_receiver closed");
-                            break;
-                        },
-                    },
+                        }
+                    }
+                    else => break,
                 }
-            })
-            .expect("Start SubscriptionRpc thread failed");
+            }
+        });
 
         subscription_rpc_impl
     }

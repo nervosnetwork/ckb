@@ -1,6 +1,5 @@
 //! CKB logger and logging service.
 
-use ansi_term::Colour;
 use backtrace::Backtrace;
 use ckb_channel::{self, unbounded};
 use env_logger::filter::{Builder, Filter};
@@ -18,6 +17,7 @@ use time::{
 
 use ckb_logger_config::Config;
 use ckb_util::{strings, Mutex, RwLock};
+use yansi::Paint;
 
 #[cfg(test)]
 mod tests;
@@ -71,8 +71,9 @@ struct ExtraLogger {
 
 #[cfg(target_os = "windows")]
 fn enable_ansi_support() {
-    ansi_term::enable_ansi_support()
-        .unwrap_or_else(|code| println!("Cannot enable ansi support: {:?}", code));
+    if !Paint::enable_windows_ascii() {
+        Paint::disable();
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -421,10 +422,10 @@ impl Log for Logger {
             });
             if let Ok(dt) = utc.format(&fmt) {
                 let with_color = {
-                    let thread_name = format!("{}", Colour::Blue.bold().paint(thread_name));
+                    let thread_name = format!("{}", Paint::blue(thread_name).bold());
                     format!(
                         "{} {} {} {}  {}",
-                        Colour::Black.bold().paint(dt),
+                        Paint::black(dt).bold(),
                         thread_name,
                         record.level(),
                         record.target(),

@@ -43,6 +43,8 @@ pub struct RunArgs {
     pub overwrite_chain_spec: bool,
     /// Hash of serialized configured chain spec
     pub chain_spec_hash: Byte32,
+    /// Whether start indexer, default false
+    pub indexer: bool,
 }
 
 /// Enable profile on blocks in the range `[from, to]`.
