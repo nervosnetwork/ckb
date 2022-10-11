@@ -480,10 +480,10 @@ dependencies = [
 name = "ckb-block-filter"
 version = "0.105.0-pre"
 dependencies = [
- "ckb-channel",
+ "ckb-async-runtime",
  "ckb-logger",
- "ckb-notify",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "golomb-coded-set",

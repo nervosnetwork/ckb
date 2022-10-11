@@ -15,6 +15,7 @@ use ckb_app_config::{
     BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
 use ckb_async_runtime::Handle;
+use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
@@ -30,6 +31,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
+use ckb_stop_handler::StopHandler;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -246,6 +248,15 @@ impl Launcher {
             config.modules.push(RpcModule::Indexer);
         }
         config
+    }
+
+    /// start block filter service
+    pub fn start_block_filter(&self, shared: &Shared) -> Option<StopHandler<()>> {
+        if self.args.config.store.block_filter_enable {
+            Some(BlockFilterService::new(shared.clone()).start())
+        } else {
+            None
+        }
     }
 
     /// Start network service and rpc serve
