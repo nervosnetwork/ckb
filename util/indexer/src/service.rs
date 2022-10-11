@@ -1038,8 +1038,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
-            TransactionBuilder,
+            capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
+            ScriptHashType, TransactionBuilder,
         },
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
         H256,
@@ -1178,6 +1178,14 @@ mod tests {
                     HeaderBuilder::default()
                         .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
