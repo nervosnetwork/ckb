@@ -121,6 +121,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
     * [Type `DepType`](#type-deptype)
     * [Type `DryRunResult`](#type-dryrunresult)
+    * [Type `Either`](#type-either)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
@@ -147,6 +148,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
+    * [Type `ResponseFormat`](#type-responseformat)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
     * [Type `SearchKey`](#type-searchkey)
@@ -159,7 +161,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `TransactionProof`](#type-transactionproof)
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
-    * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
     * [Type `Tx`](#type-tx)
     * [Type `TxPoolEntries`](#type-txpoolentries)
     * [Type `TxPoolEntry`](#type-txpoolentry)
@@ -670,7 +672,7 @@ The response looks like below when `verbosity` is 0.
 * `get_transaction(tx_hash, verbosity)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`TransactionWithStatus`](#type-transactionwithstatus) `|` `null`
+* result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse) `|` `null`
 
 Returns the information about a transaction requested by transaction hash.
 
@@ -688,7 +690,7 @@ If the transaction is in the chain, the block hash is also returned.
 
 ###### Returns
 
-When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release. It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+When verbosity=0, it’s response value is as same as verbosity=2, but it return a 0x-prefixed hex encoded molecule packed::Transaction on `transaction` field
 
 When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
 
@@ -759,6 +761,25 @@ Response
       "version": "0x0",
       "witnesses": []
     },
+    "tx_status": {
+      "block_hash": null,
+      "status": "pending",
+      "reason": null
+    }
+  }
+}
+```
+
+
+The response looks like below when `verbosity` is 0.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "transaction": "0x.....",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -5220,6 +5241,16 @@ Response result of the RPC method `dry_run_transaction`.
 *   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
 
 
+### Type `Either`
+
+The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
+
+`Either` is equivalent to `"left" | "right"`.
+
+*   A value of type `L`.
+*   A value of type `R`.
+
+
 ### Type `EpochNumber`
 
 Consecutive epoch number starting from 0.
@@ -5868,6 +5899,21 @@ The information about an active running protocol.
 *   `version`: `string` - Active protocol version.
 
 
+### Type `ResponseFormat`
+
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+##### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat` is a JSON object with the following fields.
+
+*   `inner`: [`Either`](#type-either) - The inner value.
+
+
 ### Type `Script`
 
 Describes the lock script and type script for a cell.
@@ -6131,15 +6177,15 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 *   `hash`: [`H256`](#type-h256) - The transaction hash.
 
 
-### Type `TransactionWithStatus`
+### Type `TransactionWithStatusResponse`
 
 The JSON view of a transaction as well as its status.
 
 #### Fields
 
-`TransactionWithStatus` is a JSON object with the following fields.
+`TransactionWithStatusResponse` is a JSON object with the following fields.
 
-*   `transaction`: [`TransactionView`](#type-transactionview) `|` `null` - The transaction.
+*   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

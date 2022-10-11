@@ -1,8 +1,9 @@
 use crate::bytes::JsonBytes;
 use crate::{
     BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    Timestamp, Uint128, Uint32, Uint64, Version,
+    ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64, Version,
 };
+use ckb_types::core::tx_pool;
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -515,66 +516,32 @@ impl From<Transaction> for packed::Transaction {
 }
 
 /// The JSON view of a transaction as well as its status.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct TransactionWithStatus {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TransactionWithStatusResponse {
     /// The transaction.
-    pub transaction: Option<TransactionView>,
+    pub transaction: Option<ResponseFormat<TransactionView>>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
 
-impl TransactionWithStatus {
-    /// Build with pending status
-    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
-        Self {
-            tx_status: TxStatus::pending(),
-            transaction: tx.map(Into::into),
+impl TransactionWithStatusResponse {
+    /// Transpose `tx_pool::TransactionWithStatus` to `TransactionWithStatusResponse`
+    /// according to the type of inner_type
+    pub fn from(t: tx_pool::TransactionWithStatus, inner_type: ResponseFormatInnerType) -> Self {
+        match inner_type {
+            ResponseFormatInnerType::Hex => TransactionWithStatusResponse {
+                transaction: t
+                    .transaction
+                    .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
+                tx_status: t.tx_status.into(),
+            },
+            ResponseFormatInnerType::Json => TransactionWithStatusResponse {
+                transaction: t
+                    .transaction
+                    .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
+                tx_status: t.tx_status.into(),
+            },
         }
-    }
-
-    /// Build with proposed status
-    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
-        Self {
-            tx_status: TxStatus::proposed(),
-            transaction: tx.map(Into::into),
-        }
-    }
-
-    /// Build with committed status
-    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
-        Self {
-            tx_status: TxStatus::committed(hash),
-            transaction: tx.map(Into::into),
-        }
-    }
-
-    /// Build with rejected status
-    pub fn with_rejected(reason: String) -> Self {
-        Self {
-            tx_status: TxStatus::rejected(reason),
-            transaction: None,
-        }
-    }
-
-    /// Build with rejected status
-    pub fn with_unknown() -> Self {
-        Self {
-            tx_status: TxStatus::unknown(),
-            transaction: None,
-        }
-    }
-
-    /// Build with status only
-    pub fn status_only(tx_status: TxStatus) -> Self {
-        Self {
-            tx_status,
-            transaction: None,
-        }
-    }
-
-    /// Returns true if the tx_status is Unknown.
-    pub fn is_unknown(&self) -> bool {
-        self.tx_status.is_unknown()
     }
 }
 
@@ -605,6 +572,18 @@ pub struct TxStatus {
     pub block_hash: Option<H256>,
     /// The reason why the transaction is rejected
     pub reason: Option<String>,
+}
+
+impl From<tx_pool::TxStatus> for TxStatus {
+    fn from(tx_pool_status: core::tx_pool::TxStatus) -> Self {
+        match tx_pool_status {
+            tx_pool::TxStatus::Pending => TxStatus::pending(),
+            tx_pool::TxStatus::Proposed => TxStatus::proposed(),
+            tx_pool::TxStatus::Committed(hash) => TxStatus::committed(hash),
+            tx_pool::TxStatus::Unknown => TxStatus::unknown(),
+            tx_pool::TxStatus::Rejected(reason) => TxStatus::rejected(reason),
+        }
+    }
 }
 
 impl TxStatus {

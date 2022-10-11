@@ -23,10 +23,18 @@ pub fn is_transaction_committed(node: &Node, transaction: &TransactionView) -> b
         .unwrap_or(false)
 }
 
+pub fn is_transaction_rejected(node: &Node, transaction: &TransactionView) -> bool {
+    node.rpc_client()
+        .get_transaction(transaction.hash())
+        .map(|txstatus| txstatus.tx_status.status == Status::Rejected)
+        .unwrap_or(false)
+}
+
 pub fn is_transaction_unknown(node: &Node, transaction: &TransactionView) -> bool {
     node.rpc_client()
         .get_transaction(transaction.hash())
-        .is_none()
+        .map(|txstatus| txstatus.tx_status.is_unknown())
+        .unwrap_or(true)
 }
 
 pub fn assert_epoch_should_be(node: &Node, number: u64, index: u64, length: u64) {

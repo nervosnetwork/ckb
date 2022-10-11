@@ -11,12 +11,13 @@ use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
-use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
+use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
+use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds},
@@ -901,22 +902,22 @@ async fn process(mut service: TxPoolService, message: Message) {
             let tx_pool = service.tx_pool.read().await;
 
             let ret = if tx_pool.proposed.contains_key(&id) {
-                Ok(TxStatus::proposed())
+                Ok(TxStatus::Proposed)
             } else if tx_pool.pending.contains_key(&id) || tx_pool.gap.contains_key(&id) {
-                Ok(TxStatus::pending())
+                Ok(TxStatus::Pending)
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
                     if let Some(record) = recent_reject {
-                        Ok(TxStatus::rejected(record))
+                        Ok(TxStatus::Rejected(record))
                     } else {
-                        Ok(TxStatus::unknown())
+                        Ok(TxStatus::Unknown)
                     }
                 } else {
                     Err(recent_reject_result.unwrap_err())
                 }
             } else {
-                Ok(TxStatus::unknown())
+                Ok(TxStatus::Unknown)
             };
 
             if let Err(e) = responder.send(ret) {

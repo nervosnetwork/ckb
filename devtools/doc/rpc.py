@@ -264,8 +264,8 @@ class RPCVar():
                 self.require_children(1)
             elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
                 self.require_children(2)
-            elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
-                self.require_children(2)
+            elif self.ty == '../../ckb_jsonrpc_types/struct.ResponseFormat.html':
+                self.require_children(1)
             elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
                 self.require_children(1)
             elif self.ty.startswith('../'):
@@ -318,9 +318,8 @@ class RPCVar():
                     elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
                         self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(
                             self.children[0].ty, self.children[1].ty)
-                    elif self.ty == '../../ckb_jsonrpc_types/enum.ResponseFormat.html':
-                        molecule_name = self.children[1].ty.split(
-                            '`](')[0][2:]
+                    elif self.ty == '../../ckb_jsonrpc_types/struct.ResponseFormat.html':
+                        molecule_name = self.children[0].ty.split('`]')[0][2:].replace('View', '')
                         self.ty = '{} `|` [`Serialized{}`](#type-serialized{})'.format(
                             self.children[0].ty, molecule_name, molecule_name.lower())
                     elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
