@@ -15,8 +15,7 @@ master | develop
 
 CKB is a public and permissionless layer-1 blockchain. CKB uses [Proof of Work](https://en.wikipedia.org/wiki/Proof-of-work_system) and [improved Nakamoto consensus](https://medium.com/nervosnetwork/breaking-the-throughput-limit-of-nakamoto-consensus-ccdf65fe0832) to achieve maximized performance on average hardware and network bandwidth, without sacrificing layer-1's core values - decentralization and security.
 
-CKB supports scripting in any programming language with its own [CKB-VM](https://github.com/nervosnetwork/ckb-vm/), a virtual machine fully compatible with RISC-V ISA. 
-
+CKB supports scripting in any programming language with its own [CKB-VM](https://github.com/nervosnetwork/ckb-vm/), a virtual machine fully compatible with RISC-V ISA.
 CKB is a [Universal Verification Layer](https://medium.com/nervosnetwork/https-medium-com-nervosnetwork-cell-model-7323fca57571) which focuses on verification, leaves computation to layer 2 (and higher) applications/protocols.
 
 [CKB](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md) is a part of [Nervos Network](https://www.nervos.org), which defines [a suite of scalable and interoperable blockchain protocols](https://github.com/nervosnetwork/rfcs) to create a self-evolving distributed economy.
