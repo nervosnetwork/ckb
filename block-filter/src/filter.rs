@@ -111,10 +111,10 @@ impl BlockFilter {
         }
         let mut filter_writer = std::io::Cursor::new(Vec::new());
         let mut filter = build_gcs_filter(&mut filter_writer);
-        let transcations = db.get_block_body(&header.hash());
-        let transactions_size: usize = transcations.iter().map(|tx| tx.data().total_size()).sum();
+        let transactions = db.get_block_body(&header.hash());
+        let transactions_size: usize = transactions.iter().map(|tx| tx.data().total_size()).sum();
 
-        for tx in transcations {
+        for tx in transactions {
             if !tx.is_cellbase() {
                 for out_point in tx.input_pts_iter() {
                     let input_cell = db
