@@ -29,6 +29,10 @@ impl<'a> GetBlocksProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        if self.message.block_hashes().is_empty() {
+            return StatusCode::MalformedProtocolMessage.with_context("no block");
+        }
+
         if self.message.block_hashes().len() > constant::GET_BLOCKS_PROOF_LIMIT {
             return StatusCode::MalformedProtocolMessage.with_context("too many blocks");
         }

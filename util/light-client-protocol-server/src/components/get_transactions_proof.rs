@@ -30,8 +30,12 @@ impl<'a> GetTransactionsProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
+        if self.message.tx_hashes().is_empty() {
+            return StatusCode::MalformedProtocolMessage.with_context("no transaction");
+        }
+
         if self.message.tx_hashes().len() > constant::GET_TRANSACTIONS_PROOF_LIMIT {
-            return StatusCode::MalformedProtocolMessage.with_context("Too many transactions");
+            return StatusCode::MalformedProtocolMessage.with_context("too many transactions");
         }
 
         let active_chain = self.protocol.shared.active_chain();

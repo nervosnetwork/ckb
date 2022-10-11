@@ -188,11 +188,15 @@ impl LightClientProtocol {
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
-            let proof = match mmr.gen_proof(items_positions) {
-                Ok(proof) => proof.proof_items().to_owned(),
-                Err(err) => {
-                    let errmsg = format!("failed to generate a proof since {:?}", err);
-                    return StatusCode::InternalError.with_context(errmsg);
+            let proof = if items_positions.is_empty() {
+                Default::default()
+            } else {
+                match mmr.gen_proof(items_positions) {
+                    Ok(proof) => proof.proof_items().to_owned(),
+                    Err(err) => {
+                        let errmsg = format!("failed to generate a proof since {:?}", err);
+                        return StatusCode::InternalError.with_context(errmsg);
+                    }
                 }
             };
             (parent_chain_root, proof)
