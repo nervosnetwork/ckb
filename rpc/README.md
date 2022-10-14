@@ -106,7 +106,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `BlockView`](#type-blockview)
     * [Type `Byte32`](#type-byte32)
     * [Type `Capacity`](#type-capacity)
-    * [Type `Cell`](#type-cell)
     * [Type `CellData`](#type-celldata)
     * [Type `CellDep`](#type-celldep)
     * [Type `CellInfo`](#type-cellinfo)
@@ -114,7 +113,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `CellOutput`](#type-celloutput)
     * [Type `CellWithStatus`](#type-cellwithstatus)
     * [Type `CellbaseTemplate`](#type-cellbasetemplate)
-    * [Type `CellsCapacity`](#type-cellscapacity)
     * [Type `ChainInfo`](#type-chaininfo)
     * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
@@ -129,14 +127,21 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
+    * [Type `IndexerCell`](#type-indexercell)
+    * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
+    * [Type `IndexerOrder`](#type-indexerorder)
+    * [Type `IndexerRange`](#type-indexerrange)
+    * [Type `IndexerScriptType`](#type-indexerscripttype)
+    * [Type `IndexerSearchKey`](#type-indexersearchkey)
+    * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
     * [Type `IndexerTip`](#type-indexertip)
+    * [Type `IndexerTx`](#type-indexertx)
     * [Type `JsonBytes`](#type-jsonbytes)
     * [Type `LocalNode`](#type-localnode)
     * [Type `LocalNodeProtocol`](#type-localnodeprotocol)
     * [Type `MerkleProof`](#type-merkleproof)
     * [Type `MinerReward`](#type-minerreward)
     * [Type `NodeAddress`](#type-nodeaddress)
-    * [Type `Order`](#type-order)
     * [Type `OutPoint`](#type-outpoint)
     * [Type `OutputsValidator`](#type-outputsvalidator)
     * [Type `PeerSyncState`](#type-peersyncstate)
@@ -151,7 +156,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `ResponseFormat`](#type-responseformat)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
-    * [Type `SearchKey`](#type-searchkey)
     * [Type `SerializedBlock`](#type-serializedblock)
     * [Type `SerializedHeader`](#type-serializedheader)
     * [Type `Status`](#type-status)
@@ -162,7 +166,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
     * [Type `TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
-    * [Type `Tx`](#type-tx)
     * [Type `TxPoolEntries`](#type-txpoolentries)
     * [Type `TxPoolEntry`](#type-txpoolentry)
     * [Type `TxPoolIds`](#type-txpoolids)
@@ -1713,11 +1716,11 @@ Response
 
 #### Method `get_cells`
 * `get_cells(search_key, order, limit, after)`
-    * `search_key`: [`SearchKey`](#type-searchkey)
-    * `order`: [`Order`](#type-order)
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: `Pagination<` [`Cell`](#type-cell) `>`
+* result: `IndexerPagination<` [`IndexerCell`](#type-indexercell) `>`
 
 Returns the live cells collection by the lock or type script.
 
@@ -2098,11 +2101,11 @@ Response
 
 #### Method `get_transactions`
 * `get_transactions(search_key, order, limit, after)`
-    * `search_key`: [`SearchKey`](#type-searchkey)
-    * `order`: [`Order`](#type-order)
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: `Pagination<` [`Tx`](#type-tx) `>`
+* result: `IndexerPagination<` [`IndexerTx`](#type-indexertx) `>`
 
 Returns the transactions collection by the lock or type script.
 
@@ -2540,8 +2543,8 @@ Response
 
 #### Method `get_cells_capacity`
 * `get_cells_capacity(search_key)`
-    * `search_key`: [`SearchKey`](#type-searchkey)
-* result: [`CellsCapacity`](#type-cellscapacity) `|` `null`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+* result: [`IndexerCellsCapacity`](#type-indexercellscapacity) `|` `null`
 
 Returns the live cells capacity by the lock or type script.
 
@@ -4870,12 +4873,6 @@ The capacity of a cell is the value of the cell in Shannons. It is also the uppe
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
-### Type `Cell`
-
-Cells Returned by get_cells
-
-
-
 ### Type `CellData`
 
 The cell data content and hash.
@@ -5100,12 +5097,6 @@ The cellbase transaction template of the new block for miners.
     Miners can utilize this field to ensure that the total cycles do not exceed the limit while selecting transactions.
 
 *   `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
-
-
-### Type `CellsCapacity`
-
-Cells capacity Returned by get_cells_capacity
-
 
 
 ### Type `ChainInfo`
@@ -5436,9 +5427,165 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 *   `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
 
 
+### Type `IndexerCell`
+
+Live cell
+
+#### Fields
+
+`IndexerCell` is a JSON object with the following fields.
+
+*   `output`: [`CellOutput`](#type-celloutput) - the fields of an output cell
+
+*   `output_data`: [`JsonBytes`](#type-jsonbytes) `|` `null` - the cell data
+
+*   `out_point`: [`OutPoint`](#type-outpoint) - reference to a cell via transaction hash and output index
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+*   `tx_index`: [`Uint32`](#type-uint32) - the position index of the transaction committed in the block
+
+
+### Type `IndexerCellsCapacity`
+
+Cells capacity
+
+#### Fields
+
+`IndexerCellsCapacity` is a JSON object with the following fields.
+
+*   `capacity`: [`Capacity`](#type-capacity) - total capacity
+
+*   `block_hash`: [`H256`](#type-h256) - indexed tip block hash
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - indexed tip block number
+
+
+### Type `IndexerOrder`
+
+Order Desc | Asc
+
+`IndexerOrder` is equivalent to `"desc" | "asc"`.
+
+*   Descending order
+*   Ascending order
+
+
+### Type `IndexerRange`
+
+A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+
+##### Examples
+
+
+|  JSON | range |
+| --- |--- |
+|  [“0x0”, “0x2”] | [0, 2) |
+|  [“0x0”, “0x174876e801”] | [0, 100000000001) |
+
+
+
+
+### Type `IndexerScriptType`
+
+ScriptType `Lock` | `Type`
+
+`IndexerScriptType` is equivalent to `"lock" | "type"`.
+
+*   Lock
+*   Type
+
+
+### Type `IndexerSearchKey`
+
+SearchKey represent indexer support params
+
+#### Fields
+
+`IndexerSearchKey` is a JSON object with the following fields.
+
+*   `script`: [`Script`](#type-script) - Script, supports prefix search
+
+*   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
+
+*   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
+
+*   `with_data`: `boolean` `|` `null` - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+
+*   `group_by_transaction`: `boolean` `|` `null` - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+
+
+### Type `IndexerSearchKeyFilter`
+
+IndexerSearchKeyFilter represent indexer params `filter`
+
+#### Fields
+
+`IndexerSearchKeyFilter` is a JSON object with the following fields.
+
+*   `script`: [`Script`](#type-script) `|` `null` - if search script type is lock, filter cells by type script prefix, and vice versa
+
+*   `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by script len range
+
+*   `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output data len range
+
+*   `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output capacity range
+
+*   `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by block number range
+
+
 ### Type `IndexerTip`
 
-Indexer tip information Returned by get_indexer_tip
+Indexer tip information
+
+#### Fields
+
+`IndexerTip` is a JSON object with the following fields.
+
+*   `block_hash`: [`H256`](#type-h256) - indexed tip block hash
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - indexed tip block number
+
+
+### Type `IndexerTx`
+
+Indexer Transaction Object
+
+`IndexerTx` is equivalent to `"ungrouped" | "grouped"`.
+
+*   ###### Ungrouped format represent as `IndexerTxWithCell`
+
+    ####### Fields
+
+    `IndexerCellType` is equivalent to `"input" | "output"`.
+
+    `IndexerTxWithCell` is a JSON object with the following fields.
+
+    *   `tx_hash`: [`H256`](#type-h256) - transaction hash
+
+    *   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+    *   `tx_index`: [`Uint32`](#type-uint32) - the position index of the transaction committed in the block
+
+    *   `io_index`: [`Uint32`](#type-uint32) - the position index of the cell in the transaction inputs or outputs
+
+    *   `io_type`: [`IndexerCellType`](#type-indexercelltype) - io type
+
+*   ###### Grouped format represent as `IndexerTxWithCells`
+
+    ####### Fields
+
+    `IndexerCellType` is equivalent to `"input" | "output"`.
+
+    `IndexerTxWithCells` is a JSON object with the following fields.
+
+    *   `tx_hash`: [`H256`](#type-h256) - transaction hash
+
+    *   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+    *   `tx_index`: [`Uint32`](#type-uint32)- the position index of the transaction committed in the block
+
+    *   `cells`: Array <(IndexerCellType, Uint32)>
 
 
 
@@ -5600,16 +5747,6 @@ Node P2P address and score.
 *   `score`: [`Uint64`](#type-uint64) - Address score.
 
     A higher score means a higher probability of a successful connection.
-
-
-### Type `Order`
-
-Order Desc | Asc
-
-`Order` is equivalent to `"desc" | "asc"`.
-
-*   Descending order
-*   Ascending order
 
 
 ### Type `OutPoint`
@@ -5956,12 +6093,6 @@ Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/
 *   Type “data1” matches script code via cell data hash, and run the script code in v1 CKB VM.
 
 
-### Type `SearchKey`
-
-SearchKey represent indexer support params
-
-
-
 ### Type `SerializedBlock`
 
 This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.
@@ -6188,16 +6319,6 @@ The JSON view of a transaction as well as its status.
 *   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
-
-
-### Type `Tx`
-
-Transaction Returned by get_transactions
-
-`Tx` is equivalent to `"ungrouped" | "grouped"`.
-
-*   Tx default form
-*   Txs grouped by the tx hash
 
 
 ### Type `TxPoolEntries`

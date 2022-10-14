@@ -266,7 +266,7 @@ class RPCVar():
                 self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/struct.ResponseFormat.html':
                 self.require_children(1)
-            elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
+            elif self.ty == '../../ckb_jsonrpc_types/indexer/struct.IndexerPagination.html':
                 self.require_children(1)
             elif self.ty.startswith('../'):
                 if '/struct.' in self.ty:
@@ -322,8 +322,8 @@ class RPCVar():
                         molecule_name = self.children[0].ty.split('`]')[0][2:].replace('View', '')
                         self.ty = '{} `|` [`Serialized{}`](#type-serialized{})'.format(
                             self.children[0].ty, molecule_name, molecule_name.lower())
-                    elif self.ty == '../../ckb_indexer/service/struct.Pagination.html':
-                        self.ty = '`Pagination<` {} `>`'.format(self.children[0].ty)
+                    elif self.ty == '../../ckb_jsonrpc_types/indexer/struct.IndexerPagination.html':
+                        self.ty = '`IndexerPagination<` {} `>`'.format(self.children[0].ty)
                 else:
                     self.completed_children += 1
 

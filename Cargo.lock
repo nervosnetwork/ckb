@@ -697,7 +697,6 @@ dependencies = [
  "numext-fixed-uint",
  "rand 0.8.5",
  "rhai",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror",

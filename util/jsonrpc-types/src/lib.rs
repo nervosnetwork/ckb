@@ -9,6 +9,7 @@ mod debug;
 mod experiment;
 mod fee_rate;
 mod fixed_bytes;
+mod indexer;
 mod net;
 mod pool;
 mod primitive;
@@ -47,6 +48,11 @@ pub use self::pool::{
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
+pub use indexer::{
+    IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
+    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerTip,
+    IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
+};
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
     Timestamp, Version,
