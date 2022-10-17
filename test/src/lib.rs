@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod assertion;
 pub mod generic;
 pub mod global;

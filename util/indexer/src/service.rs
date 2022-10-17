@@ -12,7 +12,9 @@ use ckb_async_runtime::{
 };
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
 use ckb_jsonrpc_types::{
-    BlockNumber, Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint32, Uint64,
+    IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
+    IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx, IndexerTxWithCell,
+    IndexerTxWithCells, JsonBytes, Uint32,
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -20,7 +22,6 @@ use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -234,143 +235,6 @@ impl IndexerService {
     }
 }
 
-/// SearchKey represent indexer support params
-#[derive(Deserialize)]
-pub struct SearchKey {
-    script: Script,
-    script_type: ScriptType,
-    filter: Option<SearchKeyFilter>,
-    with_data: Option<bool>,
-    group_by_transaction: Option<bool>,
-}
-
-impl Default for SearchKey {
-    fn default() -> Self {
-        Self {
-            script: Script::default(),
-            script_type: ScriptType::Lock,
-            filter: None,
-            with_data: None,
-            group_by_transaction: None,
-        }
-    }
-}
-
-/// SearchKeyFilter represent indexer params `filter`
-#[derive(Deserialize, Default)]
-pub struct SearchKeyFilter {
-    script: Option<Script>,
-    script_len_range: Option<[Uint64; 2]>,
-    output_data_len_range: Option<[Uint64; 2]>,
-    output_capacity_range: Option<[Uint64; 2]>,
-    block_range: Option<[BlockNumber; 2]>,
-}
-
-/// ScriptType `Lock` | `Type`
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ScriptType {
-    /// lock_script
-    Lock,
-    /// type_script
-    Type,
-}
-
-/// Order Desc | Asc
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Order {
-    /// Descending order
-    Desc,
-    /// Ascending order
-    Asc,
-}
-
-/// Indexer tip information
-/// Returned by get_indexer_tip
-#[derive(Serialize)]
-pub struct IndexerTip {
-    block_hash: H256,
-    block_number: BlockNumber,
-}
-
-/// Cells capacity
-/// Returned by get_cells_capacity
-#[derive(Serialize)]
-pub struct CellsCapacity {
-    capacity: Capacity,
-    block_hash: H256,
-    block_number: BlockNumber,
-}
-
-/// Cells
-/// Returned by get_cells
-#[derive(Serialize)]
-pub struct Cell {
-    output: CellOutput,
-    output_data: Option<JsonBytes>,
-    out_point: OutPoint,
-    block_number: BlockNumber,
-    tx_index: Uint32,
-}
-
-/// Transaction
-/// Returned by get_transactions
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum Tx {
-    /// Tx default form
-    Ungrouped(TxWithCell),
-    /// Txs grouped by the tx hash
-    Grouped(TxWithCells),
-}
-
-impl Tx {
-    /// Return tx hash
-    pub fn tx_hash(&self) -> H256 {
-        match self {
-            Tx::Ungrouped(tx) => tx.tx_hash.clone(),
-            Tx::Grouped(tx) => tx.tx_hash.clone(),
-        }
-    }
-}
-
-/// Ungrouped Tx inner type
-#[derive(Serialize)]
-pub struct TxWithCell {
-    tx_hash: H256,
-    block_number: BlockNumber,
-    tx_index: Uint32,
-    io_index: Uint32,
-    io_type: CellType,
-}
-
-/// Grouped Tx inner type
-#[derive(Serialize)]
-pub struct TxWithCells {
-    tx_hash: H256,
-    block_number: BlockNumber,
-    tx_index: Uint32,
-    cells: Vec<(CellType, Uint32)>,
-}
-
-/// Cell type
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum CellType {
-    /// Input
-    Input,
-    /// Output
-    Output,
-}
-
-/// Pagination wraps objects array and last_cursor to provide paging
-#[derive(Serialize)]
-pub struct Pagination<T> {
-    objects: Vec<T>,
-    last_cursor: JsonBytes,
-}
-
 /// Handle to the indexer.
 ///
 /// The handle is internally reference-counted and can be freely cloned.
@@ -408,11 +272,11 @@ impl IndexerHandle {
     /// Get cells by specified params
     pub fn get_cells(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
-    ) -> Result<Pagination<Cell>, Error> {
+    ) -> Result<IndexerPagination<IndexerCell>, Error> {
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -421,8 +285,8 @@ impl IndexerHandle {
             after_cursor,
         )?;
         let filter_script_type = match search_key.script_type {
-            ScriptType::Lock => ScriptType::Type,
-            ScriptType::Type => ScriptType::Lock,
+            IndexerScriptType::Lock => IndexerScriptType::Type,
+            IndexerScriptType::Type => IndexerScriptType::Lock,
         };
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -457,7 +321,7 @@ impl IndexerHandle {
 
                 if let Some(prefix) = filter_options.script_prefix.as_ref() {
                     match filter_script_type {
-                        ScriptType::Lock => {
+                        IndexerScriptType::Lock => {
                             if !extract_raw_data(&output.lock())
                                 .as_slice()
                                 .starts_with(prefix)
@@ -465,7 +329,7 @@ impl IndexerHandle {
                                 return None;
                             }
                         }
-                        ScriptType::Type => {
+                        IndexerScriptType::Type => {
                             if output.type_().is_none()
                                 || !extract_raw_data(&output.type_().to_opt().unwrap())
                                     .as_slice()
@@ -479,13 +343,13 @@ impl IndexerHandle {
 
                 if let Some([r0, r1]) = filter_options.script_len_range {
                     match filter_script_type {
-                        ScriptType::Lock => {
+                        IndexerScriptType::Lock => {
                             let script_len = extract_raw_data(&output.lock()).len();
                             if script_len < r0 || script_len > r1 {
                                 return None;
                             }
                         }
-                        ScriptType::Type => {
+                        IndexerScriptType::Type => {
                             let script_len = output
                                 .type_()
                                 .to_opt()
@@ -519,7 +383,7 @@ impl IndexerHandle {
 
                 last_key = key.to_vec();
 
-                Some(Cell {
+                Some(IndexerCell {
                     output: output.into(),
                     output_data: if filter_options.with_data {
                         Some(output_data.into())
@@ -534,20 +398,17 @@ impl IndexerHandle {
             .take(limit.value() as usize)
             .collect::<Vec<_>>();
 
-        Ok(Pagination {
-            objects: cells,
-            last_cursor: JsonBytes::from_vec(last_key),
-        })
+        Ok(IndexerPagination::new(cells, JsonBytes::from_vec(last_key)))
     }
 
     /// Get transaction by specified params
     pub fn get_transactions(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
-    ) -> Result<Pagination<Tx>, Error> {
+    ) -> Result<IndexerPagination<IndexerTx>, Error> {
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::TxLockScript,
@@ -575,16 +436,18 @@ impl IndexerHandle {
             }
             let filter_script: Option<packed::Script> =
                 filter.script.as_ref().map(|script| script.clone().into());
-            let filter_block_range: Option<[core::BlockNumber; 2]> =
-                filter.block_range.map(|r| [r[0].into(), r[1].into()]);
+            let filter_block_range: Option<[core::BlockNumber; 2]> = filter
+                .block_range
+                .as_ref()
+                .map(|r| [r.start().into(), r.end().into()]);
             (filter_script, filter_block_range)
         } else {
             (None, None)
         };
 
         let filter_script_type = match search_key.script_type {
-            ScriptType::Lock => ScriptType::Type,
-            ScriptType::Type => ScriptType::Lock,
+            IndexerScriptType::Lock => IndexerScriptType::Type,
+            IndexerScriptType::Type => IndexerScriptType::Lock,
         };
 
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -592,7 +455,7 @@ impl IndexerHandle {
         let iter = snapshot.iterator(mode).skip(skip);
 
         if search_key.group_by_transaction.unwrap_or_default() {
-            let mut tx_with_cells: Vec<TxWithCells> = Vec::new();
+            let mut tx_with_cells: Vec<IndexerTxWithCells> = Vec::new();
             let mut last_key = Vec::new();
             for (key, value) in iter.take_while(|(key, _value)| key.starts_with(&prefix)) {
                 let tx_hash: H256 = packed::Byte32::from_slice(&value)
@@ -620,14 +483,14 @@ impl IndexerHandle {
                         .expect("stored io_index"),
                 );
                 let io_type = if *key.last().expect("stored io_type") == 0 {
-                    CellType::Input
+                    IndexerCellType::Input
                 } else {
-                    CellType::Output
+                    IndexerCellType::Output
                 };
 
                 if let Some(filter_script) = filter_script.as_ref() {
                     let filter_script_matched = match filter_script_type {
-                        ScriptType::Lock => snapshot
+                        IndexerScriptType::Lock => snapshot
                             .get(
                                 Key::TxLockScript(
                                     filter_script,
@@ -635,15 +498,15 @@ impl IndexerHandle {
                                     tx_index,
                                     io_index,
                                     match io_type {
-                                        CellType::Input => indexer::CellType::Input,
-                                        CellType::Output => indexer::CellType::Output,
+                                        IndexerCellType::Input => indexer::CellType::Input,
+                                        IndexerCellType::Output => indexer::CellType::Output,
                                     },
                                 )
                                 .into_vec(),
                             )
                             .expect("get TxLockScript should be OK")
                             .is_some(),
-                        ScriptType::Type => snapshot
+                        IndexerScriptType::Type => snapshot
                             .get(
                                 Key::TxTypeScript(
                                     filter_script,
@@ -651,8 +514,8 @@ impl IndexerHandle {
                                     tx_index,
                                     io_index,
                                     match io_type {
-                                        CellType::Input => indexer::CellType::Input,
-                                        CellType::Output => indexer::CellType::Output,
+                                        IndexerCellType::Input => indexer::CellType::Input,
+                                        IndexerCellType::Output => indexer::CellType::Output,
                                     },
                                 )
                                 .into_vec(),
@@ -684,7 +547,7 @@ impl IndexerHandle {
                     .unwrap_or_default();
 
                 if !last_tx_hash_is_same {
-                    tx_with_cells.push(TxWithCells {
+                    tx_with_cells.push(IndexerTxWithCells {
                         tx_hash,
                         block_number: block_number.into(),
                         tx_index: tx_index.into(),
@@ -693,10 +556,10 @@ impl IndexerHandle {
                 }
             }
 
-            Ok(Pagination {
-                objects: tx_with_cells.into_iter().map(Tx::Grouped).collect(),
-                last_cursor: JsonBytes::from_vec(last_key),
-            })
+            Ok(IndexerPagination::new(
+                tx_with_cells.into_iter().map(IndexerTx::Grouped).collect(),
+                JsonBytes::from_vec(last_key),
+            ))
         } else {
             let mut last_key = Vec::new();
             let txs = iter
@@ -719,14 +582,14 @@ impl IndexerHandle {
                             .expect("stored io_index"),
                     );
                     let io_type = if *key.last().expect("stored io_type") == 0 {
-                        CellType::Input
+                        IndexerCellType::Input
                     } else {
-                        CellType::Output
+                        IndexerCellType::Output
                     };
 
                     if let Some(filter_script) = filter_script.as_ref() {
                         match filter_script_type {
-                            ScriptType::Lock => {
+                            IndexerScriptType::Lock => {
                                 snapshot
                                     .get(
                                         Key::TxLockScript(
@@ -735,15 +598,17 @@ impl IndexerHandle {
                                             tx_index,
                                             io_index,
                                             match io_type {
-                                                CellType::Input => indexer::CellType::Input,
-                                                CellType::Output => indexer::CellType::Output,
+                                                IndexerCellType::Input => indexer::CellType::Input,
+                                                IndexerCellType::Output => {
+                                                    indexer::CellType::Output
+                                                }
                                             },
                                         )
                                         .into_vec(),
                                     )
                                     .expect("get TxLockScript should be OK")?;
                             }
-                            ScriptType::Type => {
+                            IndexerScriptType::Type => {
                                 snapshot
                                     .get(
                                         Key::TxTypeScript(
@@ -752,8 +617,10 @@ impl IndexerHandle {
                                             tx_index,
                                             io_index,
                                             match io_type {
-                                                CellType::Input => indexer::CellType::Input,
-                                                CellType::Output => indexer::CellType::Output,
+                                                IndexerCellType::Input => indexer::CellType::Input,
+                                                IndexerCellType::Output => {
+                                                    indexer::CellType::Output
+                                                }
                                             },
                                         )
                                         .into_vec(),
@@ -770,7 +637,7 @@ impl IndexerHandle {
                     }
 
                     last_key = key.to_vec();
-                    Some(Tx::Ungrouped(TxWithCell {
+                    Some(IndexerTx::Ungrouped(IndexerTxWithCell {
                         tx_hash: tx_hash.unpack(),
                         block_number: block_number.into(),
                         tx_index: tx_index.into(),
@@ -781,28 +648,25 @@ impl IndexerHandle {
                 .take(limit)
                 .collect::<Vec<_>>();
 
-            Ok(Pagination {
-                objects: txs,
-                last_cursor: JsonBytes::from_vec(last_key),
-            })
+            Ok(IndexerPagination::new(txs, JsonBytes::from_vec(last_key)))
         }
     }
 
     /// Get cells_capacity by specified search_key
     pub fn get_cells_capacity(
         &self,
-        search_key: SearchKey,
-    ) -> Result<Option<CellsCapacity>, Error> {
+        search_key: IndexerSearchKey,
+    ) -> Result<Option<IndexerCellsCapacity>, Error> {
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
             KeyPrefix::CellTypeScript,
-            Order::Asc,
+            IndexerOrder::Asc,
             None,
         )?;
         let filter_script_type = match search_key.script_type {
-            ScriptType::Lock => ScriptType::Type,
-            ScriptType::Type => ScriptType::Lock,
+            IndexerScriptType::Lock => IndexerScriptType::Type,
+            IndexerScriptType::Type => IndexerScriptType::Lock,
         };
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -836,7 +700,7 @@ impl IndexerHandle {
 
                 if let Some(prefix) = filter_options.script_prefix.as_ref() {
                     match filter_script_type {
-                        ScriptType::Lock => {
+                        IndexerScriptType::Lock => {
                             if !extract_raw_data(&output.lock())
                                 .as_slice()
                                 .starts_with(prefix)
@@ -844,7 +708,7 @@ impl IndexerHandle {
                                 return None;
                             }
                         }
-                        ScriptType::Type => {
+                        IndexerScriptType::Type => {
                             if output.type_().is_none()
                                 || !extract_raw_data(&output.type_().to_opt().unwrap())
                                     .as_slice()
@@ -858,13 +722,13 @@ impl IndexerHandle {
 
                 if let Some([r0, r1]) = filter_options.script_len_range {
                     match filter_script_type {
-                        ScriptType::Lock => {
+                        IndexerScriptType::Lock => {
                             let script_len = extract_raw_data(&output.lock()).len();
                             if script_len < r0 || script_len > r1 {
                                 return None;
                             }
                         }
-                        ScriptType::Type => {
+                        IndexerScriptType::Type => {
                             let script_len = output
                                 .type_()
                                 .to_opt()
@@ -902,7 +766,7 @@ impl IndexerHandle {
 
         let tip_mode = IteratorMode::From(&[KeyPrefix::Header as u8 + 1], Direction::Reverse);
         let mut tip_iter = snapshot.iterator(tip_mode);
-        Ok(tip_iter.next().map(|(key, _value)| CellsCapacity {
+        Ok(tip_iter.next().map(|(key, _value)| IndexerCellsCapacity {
             capacity: capacity.into(),
             block_hash: packed::Byte32::from_slice(&key[9..41])
                 .expect("stored block key")
@@ -919,15 +783,15 @@ const MAX_PREFIX_SEARCH_SIZE: usize = u16::max_value() as usize;
 
 // a helper fn to build query options from search paramters, returns prefix, from_key, direction and skip offset
 fn build_query_options(
-    search_key: &SearchKey,
+    search_key: &IndexerSearchKey,
     lock_prefix: KeyPrefix,
     type_prefix: KeyPrefix,
-    order: Order,
+    order: IndexerOrder,
     after_cursor: Option<JsonBytes>,
 ) -> Result<(Vec<u8>, Vec<u8>, Direction, usize), Error> {
     let mut prefix = match search_key.script_type {
-        ScriptType::Lock => vec![lock_prefix as u8],
-        ScriptType::Type => vec![type_prefix as u8],
+        IndexerScriptType::Lock => vec![lock_prefix as u8],
+        IndexerScriptType::Type => vec![type_prefix as u8],
     };
     let script: packed::Script = search_key.script.clone().into();
     let args_len = script.args().len();
@@ -940,11 +804,11 @@ fn build_query_options(
     prefix.extend_from_slice(extract_raw_data(&script).as_slice());
 
     let (from_key, direction, skip) = match order {
-        Order::Asc => after_cursor.map_or_else(
+        IndexerOrder::Asc => after_cursor.map_or_else(
             || (prefix.clone(), Direction::Forward, 0),
             |json_bytes| (json_bytes.as_bytes().into(), Direction::Forward, 1),
         ),
-        Order::Desc => after_cursor.map_or_else(
+        IndexerOrder::Desc => after_cursor.map_or_else(
             || {
                 (
                     [
@@ -972,11 +836,11 @@ struct FilterOptions {
     with_data: bool,
 }
 
-impl TryInto<FilterOptions> for SearchKey {
+impl TryInto<FilterOptions> for IndexerSearchKey {
     type Error = Error;
 
     fn try_into(self) -> Result<FilterOptions, Error> {
-        let SearchKey {
+        let IndexerSearchKey {
             script: _,
             script_type: _,
             filter,
@@ -999,26 +863,28 @@ impl TryInto<FilterOptions> for SearchKey {
             None
         };
 
-        let script_len_range = filter.script_len_range.map(|[r0, r1]| {
+        let script_len_range = filter.script_len_range.map(|range| {
             [
-                Into::<u64>::into(r0) as usize,
-                Into::<u64>::into(r1) as usize,
+                Into::<u64>::into(range.start()) as usize,
+                Into::<u64>::into(range.end()) as usize,
             ]
         });
 
-        let output_data_len_range = filter.output_data_len_range.map(|[r0, r1]| {
+        let output_data_len_range = filter.output_data_len_range.map(|range| {
             [
-                Into::<u64>::into(r0) as usize,
-                Into::<u64>::into(r1) as usize,
+                Into::<u64>::into(range.start()) as usize,
+                Into::<u64>::into(range.end()) as usize,
             ]
         });
-        let output_capacity_range = filter.output_capacity_range.map(|[r0, r1]| {
+        let output_capacity_range = filter.output_capacity_range.map(|range| {
             [
-                core::Capacity::shannons(r0.into()),
-                core::Capacity::shannons(r1.into()),
+                core::Capacity::shannons(range.start().into()),
+                core::Capacity::shannons(range.end().into()),
             ]
         });
-        let block_range = filter.block_range.map(|r| [r[0].into(), r[1].into()]);
+        let block_range = filter
+            .block_range
+            .map(|r| [r.start().into(), r.end().into()]);
 
         Ok(FilterOptions {
             script_prefix,
@@ -1035,6 +901,7 @@ impl TryInto<FilterOptions> for SearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
+    use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
     use ckb_types::{
         bytes::Bytes,
         core::{
@@ -1201,23 +1068,23 @@ mod tests {
         // test get_cells rpc
         let cells_page_1 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 None,
             )
             .unwrap();
         let cells_page_2 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     with_data: Some(false),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 Some(cells_page_1.last_cursor),
             )
@@ -1244,11 +1111,11 @@ mod tests {
 
         let desc_cells_page_1 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 150.into(),
                 None,
             )
@@ -1256,11 +1123,11 @@ mod tests {
 
         let desc_cells_page_2 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 150.into(),
                 Some(desc_cells_page_1.last_cursor),
             )
@@ -1278,15 +1145,15 @@ mod tests {
 
         let filter_cells_page_1 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 60.into(),
                 None,
             )
@@ -1294,15 +1161,15 @@ mod tests {
 
         let filter_cells_page_2 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 60.into(),
                 Some(filter_cells_page_1.last_cursor),
             )
@@ -1316,15 +1183,15 @@ mod tests {
 
         let filter_empty_type_script_cells_page_1 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        script_len_range: Some([0.into(), 1.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        script_len_range: Some(IndexerRange::new(0, 1)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 None,
             )
@@ -1332,15 +1199,15 @@ mod tests {
 
         let filter_empty_type_script_cells_page_2 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        script_len_range: Some([0.into(), 1.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        script_len_range: Some(IndexerRange::new(0, 1)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 Some(filter_empty_type_script_cells_page_1.last_cursor),
             )
@@ -1356,22 +1223,22 @@ mod tests {
         // test get_transactions rpc
         let txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 500.into(),
                 None,
             )
             .unwrap();
         let txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 500.into(),
                 Some(txs_page_1.last_cursor),
             )
@@ -1381,22 +1248,22 @@ mod tests {
 
         let desc_txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 500.into(),
                 None,
             )
             .unwrap();
         let desc_txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 500.into(),
                 Some(desc_txs_page_1.last_cursor),
             )
@@ -1410,15 +1277,15 @@ mod tests {
 
         let filter_txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 200.into(),
                 None,
             )
@@ -1426,15 +1293,15 @@ mod tests {
 
         let filter_txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 200.into(),
                 Some(filter_txs_page_1.last_cursor),
             )
@@ -1449,24 +1316,24 @@ mod tests {
         // test get_transactions rpc group by tx hash
         let txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 500.into(),
                 None,
             )
             .unwrap();
         let txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 500.into(),
                 Some(txs_page_1.last_cursor),
             )
@@ -1480,24 +1347,24 @@ mod tests {
 
         let desc_txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 500.into(),
                 None,
             )
             .unwrap();
         let desc_txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
                     ..Default::default()
                 },
-                Order::Desc,
+                IndexerOrder::Desc,
                 500.into(),
                 Some(desc_txs_page_1.last_cursor),
             )
@@ -1515,16 +1382,16 @@ mod tests {
 
         let filter_txs_page_1 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 None,
             )
@@ -1532,16 +1399,16 @@ mod tests {
 
         let filter_txs_page_2 = rpc
             .get_transactions(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     group_by_transaction: Some(true),
-                    filter: Some(SearchKeyFilter {
-                        block_range: Some([100.into(), 200.into()]),
+                    filter: Some(IndexerSearchKeyFilter {
+                        block_range: Some(IndexerRange::new(100, 200)),
                         ..Default::default()
                     }),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 Some(filter_txs_page_1.last_cursor),
             )
@@ -1555,7 +1422,7 @@ mod tests {
 
         // test get_cells_capacity rpc
         let capacity = rpc
-            .get_cells_capacity(SearchKey {
+            .get_cells_capacity(IndexerSearchKey {
                 script: lock_script1.clone().into(),
                 ..Default::default()
             })
@@ -1569,7 +1436,7 @@ mod tests {
         );
 
         let capacity = rpc
-            .get_cells_capacity(SearchKey {
+            .get_cells_capacity(IndexerSearchKey {
                 script: lock_script2.into(),
                 ..Default::default()
             })
@@ -1598,22 +1465,22 @@ mod tests {
 
         let cells_page_1 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 None,
             )
             .unwrap();
         let cells_page_2 = rpc
             .get_cells(
-                SearchKey {
+                IndexerSearchKey {
                     script: lock_script1.clone().into(),
                     ..Default::default()
                 },
-                Order::Asc,
+                IndexerOrder::Asc,
                 150.into(),
                 Some(cells_page_1.last_cursor),
             )
@@ -1627,7 +1494,7 @@ mod tests {
 
         // test get_cells_capacity rpc with tx-pool overlay
         let capacity = rpc
-            .get_cells_capacity(SearchKey {
+            .get_cells_capacity(IndexerSearchKey {
                 script: lock_script1.into(),
                 ..Default::default()
             })

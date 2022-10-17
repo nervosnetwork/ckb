@@ -4,6 +4,7 @@ use crate::core::{
     Capacity, Cycle, FeeRate,
 };
 use crate::packed::Byte32;
+use crate::{core, H256};
 use ckb_error::{
     impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
 };
@@ -83,12 +84,20 @@ impl Reject {
 impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 
 /// Tx-pool transaction status
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TxStatus {
     /// Status "pending". The transaction is in the pool, and not proposed yet.
     Pending,
     /// Status "proposed". The transaction is in the pool and has been proposed.
     Proposed,
+    /// Status "committed". The transaction has been committed to the canonical chain.
+    Committed(H256),
+    /// Status "unknown". The node has not seen the transaction,
+    /// or it should be rejected but was cleared due to storage limitations.
+    Unknown,
+    /// Status "rejected". The transaction has been recently removed from the pool.
+    /// Due to storage limitations, the node can only hold the most recently removed transactions.
+    Rejected(String),
 }
 
 /// Tx-pool entry info
@@ -126,4 +135,68 @@ pub struct TxPoolEntryInfo {
     pub pending: HashMap<Byte32, TxEntryInfo>,
     /// Proposed transaction entry info
     pub proposed: HashMap<Byte32, TxEntryInfo>,
+}
+
+/// The JSON view of a transaction as well as its status.
+#[derive(Clone, Debug)]
+pub struct TransactionWithStatus {
+    /// The transaction.
+    pub transaction: Option<core::TransactionView>,
+    /// The Transaction status.
+    pub tx_status: TxStatus,
+}
+
+impl TransactionWithStatus {
+    /// Build with pending status
+    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
+        Self {
+            tx_status: TxStatus::Pending,
+            transaction: tx,
+        }
+    }
+
+    /// Build with proposed status
+    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
+        Self {
+            tx_status: TxStatus::Proposed,
+            transaction: tx,
+        }
+    }
+
+    /// Build with committed status
+    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
+        Self {
+            tx_status: TxStatus::Committed(hash),
+            transaction: tx,
+        }
+    }
+
+    /// Build with rejected status
+    pub fn with_rejected(reason: String) -> Self {
+        Self {
+            tx_status: TxStatus::Rejected(reason),
+            transaction: None,
+        }
+    }
+
+    /// Build with rejected status
+    pub fn with_unknown() -> Self {
+        Self {
+            tx_status: TxStatus::Unknown,
+            transaction: None,
+        }
+    }
+
+    /// Build with status only
+    pub fn status_only(tx_status: TxStatus) -> Self {
+        Self {
+            tx_status,
+            transaction: None,
+        }
+    }
+
+    /// Returns true if the tx_status is Unknown.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self.tx_status, TxStatus::Unknown)
+    }
 }

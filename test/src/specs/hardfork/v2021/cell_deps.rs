@@ -7,6 +7,7 @@ use crate::{
     Node, Spec,
 };
 use ckb_jsonrpc_types as rpc;
+use ckb_jsonrpc_types::Either;
 use ckb_logger::{info, trace};
 use ckb_types::packed::Byte32;
 use ckb_types::{
@@ -509,15 +510,19 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     fn get_previous_output(&self, cell_input: &packed::CellInput) -> rpc::CellOutput {
         let previous_output = cell_input.previous_output();
         let previous_output_index: usize = previous_output.index().unpack();
-        self.node
+        if let Either::Left(tx) = self
+            .node
             .rpc_client()
             .get_transaction(previous_output.tx_hash())
             .unwrap()
             .transaction
             .unwrap()
             .inner
-            .outputs[previous_output_index]
-            .clone()
+        {
+            tx.inner.outputs[previous_output_index].clone()
+        } else {
+            panic!("get previous output failed");
+        }
     }
 
     fn new_data_script_as_lock_script_input(
