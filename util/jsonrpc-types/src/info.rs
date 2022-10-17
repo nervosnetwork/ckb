@@ -1,13 +1,18 @@
-use crate::{AlertMessage, EpochNumberWithFraction, Timestamp, EpochNumber, BlockNumber};
+use crate::{AlertMessage, EpochNumber, EpochNumberWithFraction, Timestamp};
+use ckb_types::{H256, U256};
 use serde::{Deserialize, Serialize};
-use ckb_types::{U256, H256, prelude::*};
+use std::collections::BTreeMap;
 
-#[derive(Deserialize, Serialize, Debug)]
+/// Deployment name
+#[derive(Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum DeploymentPos {
+    /// Dummy
+    Testdummy,
     /// light client protocol
     LightClient,
 }
 
+/// The possible softfork deployment state
 #[derive(Deserialize, Serialize, Debug)]
 pub enum DeploymentState {
     /// First state that each softfork starts.
@@ -26,21 +31,33 @@ pub enum DeploymentState {
 
 /// Chain information.
 #[derive(Deserialize, Serialize, Debug)]
-pub struct ChainInfo {
+pub struct DeploymentsInfo {
+    /// requested block hash
     pub hash: H256,
+    /// requested block epoch
     pub epoch: EpochNumber,
-    pub deployments: BtreeMap<DeploymentPos, DeploymentInfo>
+    /// deployments info
+    pub deployments: BTreeMap<DeploymentPos, DeploymentInfo>,
 }
 
+/// An object containing various state info regarding deployments of consensus changes
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DeploymentInfo {
+    /// determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+    /// It is chosen from the set {0,1,2,...,28}.
     pub bit: u8,
+    /// specifies the first epoch in which the bit gains meaning.
     pub start: EpochNumber,
+    /// specifies an epoch at which the miner signaling ends.
+    /// Once this epoch has been reached,
+    /// if the softfork has not yet locked_in (excluding this epoch block's bit state),
+    /// the deployment is considered failed on all descendants of the block.
     pub timeout: EpochNumber,
+    /// specifies the epoch at which the softfork is allowed to become active.
     pub min_activation_epoch: EpochNumber,
+    /// With each epoch and softfork, we associate a deployment state. The possible states are
     pub state: DeploymentState,
 }
-
 
 /// Chain information.
 #[derive(Deserialize, Serialize, Debug)]

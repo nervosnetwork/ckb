@@ -1,6 +1,8 @@
 //! Versionbits 9 defines a finite-state-machine to deploy a softfork in multiple stages.
 //!
 
+mod convert;
+
 use crate::consensus::Consensus;
 use ckb_types::{
     core::{EpochExt, EpochNumber, HeaderView, Ratio, TransactionView, Version},
@@ -92,13 +94,24 @@ pub trait VersionbitsIndexer {
 ///Struct for each individual consensus rule change using soft fork.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Deployment {
-    pub(crate) bit: u8,
-    pub(crate) start: EpochNumber,
-    pub(crate) timeout: EpochNumber,
-    pub(crate) min_activation_epoch: EpochNumber,
-    pub(crate) period: EpochNumber,
-    pub(crate) active_mode: ActiveMode,
-    pub(crate) threshold: Ratio,
+    /// Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+    /// It is chosen from the set {0,1,2,...,28}.
+    pub bit: u8,
+    /// Specifies the first epoch in which the bit gains meaning.
+    pub start: EpochNumber,
+    /// Specifies an epoch at which the miner signaling ends.
+    /// Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
+    /// the deployment is considered failed on all descendants of the block.
+    pub timeout: EpochNumber,
+    /// Specifies the epoch at which the softfork is allowed to become active.
+    pub min_activation_epoch: EpochNumber,
+    /// Specifies length of epochs of the signalling period.
+    pub period: EpochNumber,
+    /// This is useful for testing, as it means tests don't need to deal with the activation process
+    pub active_mode: ActiveMode,
+    /// Specifies the minimum ratio of block per `period`,
+    /// which indicate the locked_in of the softfork during the `period`.
+    pub threshold: Ratio,
 }
 
 type Cache = Mutex<HashMap<Byte32, ThresholdState>>;
