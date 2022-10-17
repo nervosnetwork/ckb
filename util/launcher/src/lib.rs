@@ -288,6 +288,7 @@ impl Launcher {
         )];
 
         let support_protocols = &self.args.config.network.support_protocols;
+        let mut flags = Flags::all();
 
         if support_protocols.contains(&SupportProtocol::Relay) {
             let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
@@ -297,6 +298,8 @@ impl Launcher {
                 Box::new(relayer),
                 Arc::clone(&network_state),
             ));
+        } else {
+            flags.remove(Flags::RELAY);
         }
 
         if support_protocols.contains(&SupportProtocol::Filter) {
@@ -307,6 +310,8 @@ impl Launcher {
                 Box::new(filter),
                 Arc::clone(&network_state),
             ));
+        } else {
+            flags.remove(Flags::BLOCK_FILTER);
         }
 
         if support_protocols.contains(&SupportProtocol::Time) {
@@ -325,6 +330,8 @@ impl Launcher {
                 Box::new(light_client),
                 Arc::clone(&network_state),
             ));
+        } else {
+            flags.remove(Flags::LIGHT_CLIENT);
         }
 
         let alert_signature_config = self.args.config.alert_signature.clone().unwrap_or_default();
@@ -353,7 +360,7 @@ impl Launcher {
             (
                 shared.consensus().identify_name(),
                 self.version.to_string(),
-                Flags::all(),
+                flags,
             ),
             exit_handler.clone(),
         )
