@@ -512,10 +512,10 @@ impl ChainSpec {
                 let mut deployments = HashMap::new();
                 let light_client = Deployment {
                     bit: 1,
-                    start: 10_000,
-                    timeout: 10_180,
-                    min_activation_epoch: 10_200,
-                    period: 10,
+                    start: 5_346, // 2022/11/01
+                    timeout: 5_606,
+                    min_activation_epoch: 5_676, // 2022/12/25
+                    period: 42,
                     active_mode: ActiveMode::Normal,
                     threshold: TESTNET_ACTIVATION_THRESHOLD,
                 };

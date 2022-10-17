@@ -18,7 +18,7 @@ pub const VERSIONBITS_TOP_MASK: Version = 0xE0000000;
 /// Total bits available for versionbits
 pub const VERSIONBITS_NUM_BITS: u32 = 29;
 
-/// RFC0000 defines a finite-state-machine to deploy a soft fork in multiple stages.
+/// RFC0043 defines a finite-state-machine to deploy a soft fork in multiple stages.
 /// State transitions happen during epoch if conditions are met
 /// In case of reorg, transitions can go backward. Without transition, state is
 /// inherited between epochs. All blocks of a epoch share the same state.
