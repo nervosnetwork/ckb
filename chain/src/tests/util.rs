@@ -6,7 +6,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, NetworkController, NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 pub use ckb_test_chain_utils::MockStore;
@@ -309,8 +309,11 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
         network_state,
         vec![],
         vec![],
-        shared.consensus().identify_name(),
-        "test".to_string(),
+        (
+            shared.consensus().identify_name(),
+            "test".to_string(),
+            Flags::COMPATIBILITY,
+        ),
         DefaultExitHandler::default(),
     )
     .start(shared.async_handle())
@@ -378,9 +381,16 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
             .dao(dao)
             .transaction(cellbase)
@@ -395,9 +405,16 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(U256::from(difficulty)).pack())
             .dao(dao)
             .transaction(cellbase)
@@ -412,10 +429,17 @@ impl<'a> MockChain<'a> {
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
 
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().as_data_provider())
+            .unwrap()
+            .epoch();
+
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .number((parent.number() + 1).pack())
             .compact_target(difficulty_to_compact(difficulty + U256::from(inc)).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
             .dao(dao)
             .transaction(cellbase)
             .build();

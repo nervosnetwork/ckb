@@ -7,6 +7,7 @@ use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
@@ -16,13 +17,18 @@ use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
+        cell::{
+            resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider,
+            ResolvedTransaction,
+        },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, HeaderView,
+        BlockExt, BlockNumber, BlockView, Capacity, Cycle, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
+    utilities::merkle_mountain_range::ChainRootMMR,
     U256,
 };
+use ckb_verification::cache::Completed;
 use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
@@ -703,14 +709,25 @@ impl ChainService {
         fork: &mut ForkChanges,
         switch: Switch,
     ) -> Result<(), Error> {
+        if fork.attached_blocks().is_empty() {
+            return Ok(());
+        }
+
         let txs_verify_cache = self.shared.txs_verify_cache();
         let consensus = self.shared.consensus();
         let async_handle = self.shared.tx_pool_controller().handle();
+
+        let start_block_header = fork.attached_blocks()[0].header();
+        let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
+        trace!("light-client: new chain root MMR with size = {}", mmr_size);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn);
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
             txn.attach_block(b)?;
             attach_block_cell(txn, b)?;
+            mmr.push(b.digest())
+                .map_err(|e| InternalErrorKind::MMR.other(e))?;
         }
 
         let verify_context = VerifyContext::new(txn, consensus);
@@ -723,117 +740,161 @@ impl ChainService {
         {
             if !switch.disable_all() {
                 if found_error.is_none() {
-                    let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
-                    let mut seen_inputs = HashSet::new();
-                    let block_cp = match BlockCellProvider::new(b) {
-                        Ok(block_cp) => block_cp,
-                        Err(err) => {
-                            found_error = Some(err);
-                            continue;
-                        }
-                    };
-
-                    let transactions = b.transactions();
-                    let resolved = {
-                        let cell_provider = OverlayCellProvider::new(&block_cp, txn);
-                        transactions
-                            .iter()
-                            .cloned()
-                            .map(|x| {
-                                resolve_transaction(
-                                    x,
-                                    &mut seen_inputs,
-                                    &cell_provider,
-                                    &verify_context,
-                                )
-                            })
-                            .collect::<Result<Vec<ResolvedTransaction>, _>>()
-                    };
-
+                    let resolved = self.resolve_block_transactions(txn, b, &verify_context);
                     match resolved {
                         Ok(resolved) => {
-                            match contextual_block_verifier.verify(
-                                &resolved,
-                                b,
-                                Arc::clone(&txs_verify_cache),
-                                async_handle,
-                                switch,
-                            ) {
+                            let verified = {
+                                let contextual_block_verifier = ContextualBlockVerifier::new(
+                                    &verify_context,
+                                    async_handle,
+                                    switch,
+                                    Arc::clone(&txs_verify_cache),
+                                    &mmr,
+                                );
+                                contextual_block_verifier.verify(&resolved, b)
+                            };
+                            match verified {
                                 Ok((cycles, cache_entries)) => {
                                     let txs_fees =
                                         cache_entries.iter().map(|entry| entry.fee).collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
-                                    let mut mut_ext = ext.clone();
-                                    mut_ext.verified = Some(true);
-                                    mut_ext.txs_fees = txs_fees;
-                                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
-                                    if !switch.disable_script() && b.transactions().len() > 1 {
-                                        info!(
-                                            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
-                                            b.number(),
-                                            b.hash(),
-                                            b.data().serialized_size_without_uncle_proposals(),
-                                            self.shared.consensus().max_block_bytes(),
-                                            cycles,
-                                            self.shared.consensus().max_block_cycles()
-                                        );
+                                    mmr.push(b.digest())
+                                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
 
-                                        // log tx verification result for monitor node
-                                        if log_enabled_target!("ckb_tx_monitor", Trace) {
-                                            // `cache_entries` already excludes cellbase tx, but `resolved` includes cellbase tx, skip it
-                                            // to make them aligned
-                                            for (rtx, cycles) in
-                                                resolved.iter().skip(1).zip(cache_entries.iter())
-                                            {
-                                                trace_target!(
-                                                    "ckb_tx_monitor",
-                                                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
-                                                    rtx.transaction.hash(),
-                                                    cycles.cycles
-                                                );
-                                            }
-                                        }
+                                    self.insert_ok_ext(
+                                        txn,
+                                        &b.header().hash(),
+                                        ext.clone(),
+                                        Some(txs_fees),
+                                    )?;
+
+                                    if !switch.disable_script() && b.transactions().len() > 1 {
+                                        self.monitor_block_txs_verified(
+                                            b,
+                                            &resolved,
+                                            &cache_entries,
+                                            cycles,
+                                        );
                                     }
                                 }
                                 Err(err) => {
-                                    error!("block verify error, block number: {}, hash: {}, error: {:?}", b.header().number(),
-                                            b.header().hash(), err);
-                                    if log_enabled!(ckb_logger::Level::Trace) {
-                                        trace!("block {}", b.data());
-                                    }
+                                    self.print_error(b, &err);
                                     found_error = Some(err);
-                                    let mut mut_ext = ext.clone();
-                                    mut_ext.verified = Some(false);
-                                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
+                                    self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
                                 }
                             }
                         }
                         Err(err) => {
-                            found_error = Some(err.into());
-                            let mut mut_ext = ext.clone();
-                            mut_ext.verified = Some(false);
-                            txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
+                            found_error = Some(err);
+                            self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
                         }
                     }
                 } else {
-                    let mut mut_ext = ext.clone();
-                    mut_ext.verified = Some(false);
-                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
+                    self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
                 }
             } else {
                 txn.attach_block(b)?;
                 attach_block_cell(txn, b)?;
-                let mut mut_ext = ext.clone();
-                mut_ext.verified = Some(true);
-                txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
+                mmr.push(b.digest())
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                self.insert_ok_ext(txn, &b.header().hash(), ext.clone(), None)?;
             }
         }
 
         if let Some(err) = found_error {
             Err(err)
         } else {
+            trace!("light-client: commit");
+            // Before commit, all new MMR nodes are in memory only.
+            mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
             Ok(())
+        }
+    }
+
+    fn resolve_block_transactions<HC: HeaderChecker>(
+        &self,
+        txn: &StoreTransaction,
+        block: &BlockView,
+        verify_context: &HC,
+    ) -> Result<Vec<ResolvedTransaction>, Error> {
+        let mut seen_inputs = HashSet::new();
+        let block_cp = BlockCellProvider::new(block)?;
+        let transactions = block.transactions();
+        let cell_provider = OverlayCellProvider::new(&block_cp, txn);
+        let resolved = transactions
+            .iter()
+            .cloned()
+            .map(|tx| resolve_transaction(tx, &mut seen_inputs, &cell_provider, verify_context))
+            .collect::<Result<Vec<ResolvedTransaction>, _>>()?;
+        Ok(resolved)
+    }
+
+    fn insert_ok_ext(
+        &self,
+        txn: &StoreTransaction,
+        hash: &Byte32,
+        mut ext: BlockExt,
+        txs_fees: Option<Vec<Capacity>>,
+    ) -> Result<(), Error> {
+        ext.verified = Some(true);
+        if let Some(txs_fees) = txs_fees {
+            ext.txs_fees = txs_fees;
+        }
+        txn.insert_block_ext(hash, &ext)
+    }
+
+    fn insert_failure_ext(
+        &self,
+        txn: &StoreTransaction,
+        hash: &Byte32,
+        mut ext: BlockExt,
+    ) -> Result<(), Error> {
+        ext.verified = Some(false);
+        txn.insert_block_ext(hash, &ext)
+    }
+
+    fn monitor_block_txs_verified(
+        &self,
+        b: &BlockView,
+        resolved: &[ResolvedTransaction],
+        cache_entries: &[Completed],
+        cycles: Cycle,
+    ) {
+        info!(
+            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
+            b.number(),
+            b.hash(),
+            b.data().serialized_size_without_uncle_proposals(),
+            self.shared.consensus().max_block_bytes(),
+            cycles,
+            self.shared.consensus().max_block_cycles()
+        );
+
+        // log tx verification result for monitor node
+        if log_enabled_target!("ckb_tx_monitor", Trace) {
+            // `cache_entries` already excludes cellbase tx, but `resolved` includes cellbase tx, skip it
+            // to make them aligned
+            for (rtx, cycles) in resolved.iter().skip(1).zip(cache_entries.iter()) {
+                trace_target!(
+                    "ckb_tx_monitor",
+                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
+                    rtx.transaction.hash(),
+                    cycles.cycles
+                );
+            }
+        }
+    }
+
+    fn print_error(&self, b: &BlockView, err: &Error) {
+        error!(
+            "block verify error, block number: {}, hash: {}, error: {:?}",
+            b.header().number(),
+            b.header().hash(),
+            err
+        );
+        if log_enabled!(ckb_logger::Level::Trace) {
+            trace!("block {}", b.data());
         }
     }
 

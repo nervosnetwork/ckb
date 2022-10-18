@@ -475,6 +475,7 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
+/// Perform inputs and outputs `capacity` field related verification
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction,
     // It's Option because special genesis block do not have dao system cell
@@ -482,6 +483,7 @@ pub struct CapacityVerifier<'a> {
 }
 
 impl<'a> CapacityVerifier<'a> {
+    /// Create a new `CapacityVerifier`
     pub fn new(
         resolved_transaction: &'a ResolvedTransaction,
         dao_type_hash: Option<Byte32>,
@@ -492,6 +494,8 @@ impl<'a> CapacityVerifier<'a> {
         }
     }
 
+    /// Verify sum of inputs capacity should be greater than or equal to sum of outputs capacity
+    /// Verify outputs capacity should be greater than or equal to its occupied capacity
     pub fn verify(&self) -> Result<(), Error> {
         // skip OutputsSumOverflow verification for resolved cellbase and DAO
         // withdraw transactions.

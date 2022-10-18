@@ -29,6 +29,7 @@ sentry = { version = "0.26.0", optional = true }
 ckb-constant = { path = "../util/constant", version = "= 0.105.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.105.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.105.0-pre" }
+ckb-hash = { path = "../util/hash", version = "= 0.105.0-pre" }
 tokio = { version = "1", features = ["sync"] }
 lru = "0.7.1"
 futures = "0.3"

@@ -539,7 +539,6 @@ where
             for (tx_index, (tx_hash, outputs_len, stored_tx_index)) in
                 txs.into_iter().enumerate().rev()
             {
-                println!("rollback stored_tx_index {:?}", stored_tx_index);
                 let tx_index = stored_tx_index.unwrap_or(tx_index as u32);
                 // rollback live cells
                 for output_index in 0..outputs_len {
@@ -1001,8 +1000,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
-            TransactionBuilder,
+            capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
+            ScriptHashType, TransactionBuilder,
         },
         packed::{CellInput, CellOutputBuilder, OutPoint, ScriptBuilder},
         H256,
@@ -1213,6 +1212,10 @@ mod tests {
                 HeaderBuilder::default()
                     .number(1.pack())
                     .parent_hash(block0.hash())
+                    .epoch(
+                        EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();
@@ -1383,6 +1386,10 @@ mod tests {
                 HeaderBuilder::default()
                     .number(1.pack())
                     .parent_hash(block0.hash())
+                    .epoch(
+                        EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();
@@ -1542,6 +1549,14 @@ mod tests {
                     HeaderBuilder::default()
                         .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
@@ -1621,6 +1636,14 @@ mod tests {
                     HeaderBuilder::default()
                         .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
@@ -1783,6 +1806,14 @@ mod tests {
                     HeaderBuilder::default()
                         .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
@@ -1810,7 +1841,12 @@ mod tests {
                 .build();
             let block = BlockBuilder::default()
                 .transaction(cellbase)
-                .header(HeaderBuilder::default().number(i.pack()).build())
+                .header(
+                    HeaderBuilder::default()
+                        .number(i.pack())
+                        .epoch(EpochNumberWithFraction::new(i + 1, i, 1000).pack())
+                        .build(),
+                )
                 .build();
             indexer.append(&block).unwrap();
             block.hash()
@@ -1905,6 +1941,10 @@ mod tests {
                 HeaderBuilder::default()
                     .number(1.pack())
                     .parent_hash(block0.hash())
+                    .epoch(
+                        EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();
@@ -2095,6 +2135,10 @@ mod tests {
                 HeaderBuilder::default()
                     .number(1.pack())
                     .parent_hash(block0.hash())
+                    .epoch(
+                        EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();
@@ -2273,6 +2317,10 @@ mod tests {
                 HeaderBuilder::default()
                     .number(1.pack())
                     .parent_hash(block0.hash())
+                    .epoch(
+                        EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();

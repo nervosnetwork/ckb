@@ -314,7 +314,7 @@ fn repeatedly_switch_fork() {
         .consensus(Consensus::default())
         .build()
         .unwrap();
-    let mut chain_service = ChainService::new(shared, pack.take_proposal_table());
+    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u128, &mock_store);
@@ -339,10 +339,16 @@ fn repeatedly_switch_fork() {
     //switch fork1
     let uncle = fork2.blocks().last().cloned().unwrap().as_uncle();
     let parent = fork1.blocks().last().cloned().unwrap();
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
     let new_block1 = BlockBuilder::default()
         .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(1u128.pack())
         .uncle(uncle)
         .build();
@@ -352,20 +358,32 @@ fn repeatedly_switch_fork() {
 
     //switch fork2
     let mut parent = fork2.blocks().last().cloned().unwrap();
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
     let new_block2 = BlockBuilder::default()
         .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(2u128.pack())
         .build();
     parent = new_block2.clone();
     chain_service
         .process_block(Arc::new(new_block2), Switch::DISABLE_ALL)
         .unwrap();
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
     let new_block3 = BlockBuilder::default()
         .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(2u128.pack())
         .build();
     chain_service
@@ -374,10 +392,16 @@ fn repeatedly_switch_fork() {
 
     //switch fork1
     parent = new_block1;
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
     let new_block4 = BlockBuilder::default()
         .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(1u128.pack())
         .build();
     chain_service
@@ -385,10 +409,16 @@ fn repeatedly_switch_fork() {
         .unwrap();
 
     parent = new_block4;
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .unwrap()
+        .epoch();
     let new_block5 = BlockBuilder::default()
         .parent_hash(parent.hash())
         .number((parent.number() + 1).pack())
         .compact_target(parent.compact_target().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(1u128.pack())
         .build();
     chain_service

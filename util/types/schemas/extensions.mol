@@ -14,6 +14,7 @@ array BeUint64 [byte; 8];
 
 vector Uint32Vec <Uint32>;
 vector Uint64Vec <Uint64>;
+vector Uint256Vec <Uint256>;
 
 /* Extension Types for Chain */
 
@@ -21,6 +22,26 @@ option CellOutputOpt (CellOutput);
 
 vector HeaderVec <Header>;
 vector OutPointVec <OutPoint>;
+
+/* Types for Light Client */
+
+struct HeaderDigest {
+    hash:                   Byte32,
+
+    total_difficulty:       Uint256,
+
+    start_number:           Uint64,
+    end_number:             Uint64,
+
+    start_epoch:            Uint64,
+    end_epoch:              Uint64,
+
+    start_timestamp:        Uint64,
+    end_timestamp:          Uint64,
+
+    start_compact_target:   Uint32,
+    end_compact_target:     Uint32,
+}
 
 /* Types for Storage */
 
@@ -164,6 +185,47 @@ table IndexTransaction {
 }
 vector IndexTransactionVec <IndexTransaction>;
 
+/* Types for Network/BlockFilter */
+
+union BlockFilterMessage {
+    GetBlockFilters,
+    BlockFilters,
+    GetBlockFilterHashes,
+    BlockFilterHashes,
+    GetBlockFilterCheckPoints,
+    BlockFilterCheckPoints,
+}
+
+struct GetBlockFilters {
+    start_number:   Uint64,
+}
+
+table BlockFilters {
+    start_number:   Uint64,
+    block_hashes:   Byte32Vec,
+    filters:        BytesVec,
+}
+
+struct GetBlockFilterHashes {
+    start_number:   Uint64,
+}
+
+table BlockFilterHashes {
+    start_number:               Uint64,
+    parent_block_filter_hash:   Byte32,
+    block_filter_hashes:        Byte32Vec,
+}
+
+struct GetBlockFilterCheckPoints {
+    start_number:   Uint64,
+}
+
+table BlockFilterCheckPoints {
+    start_number:           Uint64,
+    block_filter_hashes:    Byte32Vec,
+}
+
+
 /* Types for Network/Sync */
 
 union SyncMessage {
@@ -210,6 +272,7 @@ table ClearFilter {
 
 table FilteredBlock {
     header:                 Header,
+    witnesses_root:         Byte32,
     transactions:           TransactionVec,
     proof:                  MerkleProof,
 }
@@ -220,6 +283,123 @@ table MerkleProof {
 }
 
 table InIBD {
+}
+
+/* Types for Network/LightClient */
+
+vector HeaderDigestVec <HeaderDigest>;
+
+table VerifiableHeader {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    extension:              BytesOpt,
+    parent_chain_root:      HeaderDigest,
+}
+
+vector VerifiableHeaderVec <VerifiableHeader>;
+
+vector FilteredBlockVec <FilteredBlock>;
+
+union LightClientMessage {
+    // A client asks the server for the last state of the chain.
+    GetLastState,
+    SendLastState,
+    // A client asks the server for the proof of the last state which the
+    // client known.
+    GetLastStateProof,
+    SendLastStateProof,
+    // A client asks the server for the proof of some blocks.
+    GetBlocksProof,
+    SendBlocksProof,
+    // A client asks the server for the proof of some transactions.
+    GetTransactionsProof,
+    SendTransactionsProof,
+}
+
+table GetLastState {
+    // Whether the server is requested to push the state automatically.
+    subscribe:                  Bool,
+}
+
+table SendLastState {
+    // The verifiable header for the tip block in the server.
+    last_header:                VerifiableHeader,
+}
+
+table GetLastStateProof {
+    // The last block hash known by the client.
+    // It could be different with the tip hash in the server.
+    last_hash:                  Byte32,
+
+    // The hash of the last proved block.
+    start_hash:                 Byte32,
+    // The block number of the last proved block.
+    start_number:               Uint64,
+
+    // How many continuous blocks before the tip block should be included at
+    // least, if possible?
+    last_n_blocks:              Uint64,
+    // All blocks, whose total difficulty is not less than this difficulty
+    // boundary, should be included in the proof.
+    difficulty_boundary:        Uint256,
+    // The sampled difficulties.
+    difficulties:               Uint256Vec,
+}
+
+table SendLastStateProof {
+    // If the block whose hash is sent from the client is on the chain, then
+    // returns its verifiable header; otherwise, returns the verifiable
+    // header for the tip block in the server.
+    last_header:                VerifiableHeader,
+    // The MMR proof for the chain root whose hash is in the last header.
+    // Be empty if the block hash sent from the client isn't on the chain.
+    proof:                      HeaderDigestVec,
+
+    // Verifiable headers for all sampled blocks.
+    headers:                    VerifiableHeaderVec,
+}
+
+table GetBlocksProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Block hashes for the blocks which require verifying.
+    block_hashes:               Byte32Vec,
+}
+
+table SendBlocksProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // Block headers for the blocks which require verifying.
+    headers:                    HeaderVec,
+
+    // Block hashes for the blocks which were not found.
+    missing_block_hashes:       Byte32Vec,
+}
+
+table GetTransactionsProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Transaction hashes for the transactions which require verifying.
+    tx_hashes:                  Byte32Vec,
+}
+
+table SendTransactionsProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // A collection of filtered blocks, which include all requested
+    // transactions, and be verified in the proof.
+    filtered_blocks:            FilteredBlockVec,
+
+    // Transaction hashes for the blocks which were not found.
+    missing_tx_hashes:          Byte32Vec,
 }
 
 /* Types for Network/Others */

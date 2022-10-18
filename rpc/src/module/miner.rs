@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
-use ckb_logger::{debug, error, info};
-use ckb_network::{NetworkController, SupportProtocols};
+use ckb_logger::{debug, error, info, warn};
+use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::HeaderVerifier;
@@ -89,7 +89,7 @@ pub trait MinerRpc {
     ///         ],
     ///         "version": "0x0",
     ///         "witnesses": [
-    ///           "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+    ///           "0x6a0000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac311000000000000202054455354206d657373616765"
     ///         ]
     ///       },
     ///       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
@@ -266,12 +266,6 @@ impl MinerRpc for MinerRpcImpl {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
 
-        // Reject block extension for public chain: mainnet and testnet.
-        if block.extension().is_some() && consensus.is_public_chain() {
-            let err = "the block extension should be null";
-            return Err(RPCError::custom_with_error(RPCError::Invalid, err));
-        }
-
         // Verify header
         HeaderVerifier::new(snapshot, consensus)
             .verify(&header)
@@ -306,6 +300,46 @@ impl MinerRpc for MinerRpcImpl {
                 .quick_broadcast(pid, message.as_bytes())
             {
                 error!("Broadcast new block failed: {:?}", err);
+            }
+
+            let parent_chain_root = {
+                let mmr = snapshot.chain_root_mmr(header.number() - 1);
+                match mmr.get_root() {
+                    Ok(root) => root,
+                    Err(err) => {
+                        error!("Generate last state to light client failed: {:?}", err);
+                        return Ok(header.hash().unpack());
+                    }
+                }
+            };
+
+            let tip_header = packed::VerifiableHeader::new_builder()
+                .header(header.data())
+                .uncles_hash(block.calc_uncles_hash())
+                .extension(Pack::pack(&block.extension()))
+                .parent_chain_root(parent_chain_root)
+                .build();
+            let light_client_message = {
+                let content = packed::SendLastState::new_builder()
+                    .last_header(tip_header)
+                    .build();
+                packed::LightClientMessage::new_builder()
+                    .set(content)
+                    .build()
+            };
+            let light_client_peers: HashSet<PeerIndex> = self
+                .network_controller
+                .connected_peers()
+                .into_iter()
+                .filter(|(_id, peer)| peer.if_lightclient_subscribed)
+                .map(|(id, _)| id)
+                .collect();
+            if let Err(err) = self.network_controller.p2p_control().filter_broadcast(
+                TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+                SupportProtocols::LightClient.protocol_id(),
+                light_client_message.as_bytes(),
+            ) {
+                warn!("Broadcast last state to light client failed: {:?}", err);
             }
         }
 

@@ -264,6 +264,8 @@ class RPCVar():
                 self.require_children(1)
             elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
                 self.require_children(2)
+            elif self.ty == RUST_DOC_PREFIX + '/alloc/collections/btree/map/struct.BTreeMap.html':
+                self.require_children(2)
             elif self.ty == '../../ckb_jsonrpc_types/struct.ResponseFormat.html':
                 self.require_children(1)
             elif self.ty == '../../ckb_jsonrpc_types/indexer/struct.IndexerPagination.html':
@@ -316,6 +318,9 @@ class RPCVar():
                     elif self.ty == RUST_DOC_PREFIX + '/alloc/vec/struct.Vec.html':
                         self.ty = '`Array<` {} `>`'.format(self.children[0].ty)
                     elif self.ty == RUST_DOC_PREFIX + '/std/collections/hash/map/struct.HashMap.html':
+                        self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(
+                            self.children[0].ty, self.children[1].ty)
+                    elif self.ty == RUST_DOC_PREFIX + '/alloc/collections/btree/map/struct.BTreeMap.html':
                         self.ty = '`{{ [ key:` {} `]: ` {} `}}`'.format(
                             self.children[0].ty, self.children[1].ty)
                     elif self.ty == '../../ckb_jsonrpc_types/struct.ResponseFormat.html':

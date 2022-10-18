@@ -1,5 +1,6 @@
 //! Types utilities.
 mod difficulty;
+pub mod merkle_mountain_range;
 mod merkle_tree;
 
 #[cfg(test)]

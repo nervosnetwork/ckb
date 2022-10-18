@@ -477,6 +477,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-block-filter"
+version = "0.105.0-pre"
+dependencies = [
+ "ckb-async-runtime",
+ "ckb-logger",
+ "ckb-shared",
+ "ckb-stop-handler",
+ "ckb-store",
+ "ckb-types",
+ "golomb-coded-set",
+]
+
+[[package]]
 name = "ckb-build-info"
 version = "0.105.0-pre"
 
@@ -493,6 +506,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-metrics",
  "ckb-network",
  "ckb-proposal-table",
@@ -536,6 +550,7 @@ dependencies = [
  "ckb-resource",
  "ckb-traits",
  "ckb-types",
+ "ckb-util",
  "serde",
  "toml",
 ]
@@ -734,6 +749,7 @@ version = "0.105.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
+ "ckb-block-filter",
  "ckb-build-info",
  "ckb-chain",
  "ckb-chain-spec",
@@ -744,6 +760,7 @@ dependencies = [
  "ckb-error",
  "ckb-freezer",
  "ckb-jsonrpc-types",
+ "ckb-light-client-protocol-server",
  "ckb-logger",
  "ckb-migration-template",
  "ckb-network",
@@ -779,6 +796,30 @@ dependencies = [
  "libc",
  "pkg-config",
  "rust-ini",
+]
+
+[[package]]
+name = "ckb-light-client-protocol-server"
+version = "0.105.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-chain",
+ "ckb-chain-spec",
+ "ckb-dao-utils",
+ "ckb-jsonrpc-types",
+ "ckb-launcher",
+ "ckb-logger",
+ "ckb-merkle-mountain-range",
+ "ckb-network",
+ "ckb-shared",
+ "ckb-store",
+ "ckb-sync",
+ "ckb-test-chain-utils",
+ "ckb-tx-pool",
+ "ckb-types",
+ "faketime",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -826,6 +867,15 @@ dependencies = [
  "once_cell",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
+]
+
+[[package]]
+name = "ckb-merkle-mountain-range"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d659aac26a152a9d384bb759eaf56c028d58416f98bd4cbb089ef56424a1b0a4"
+dependencies = [
+ "cfg-if 1.0.0",
 ]
 
 [[package]]
@@ -906,6 +956,7 @@ dependencies = [
 name = "ckb-network"
 version = "0.105.0-pre"
 dependencies = [
+ "bitflags",
  "bloom-filters",
  "bs58",
  "ckb-app-config",
@@ -1181,6 +1232,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-proposal-table",
  "ckb-store",
  "ckb-traits",
@@ -1211,6 +1263,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
+ "ckb-merkle-mountain-range",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
@@ -1232,6 +1285,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-hash",
  "ckb-launcher",
  "ckb-logger",
  "ckb-metrics",
@@ -1343,6 +1397,7 @@ dependencies = [
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
+ "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
  "ckb-rational",
  "derive_more",
@@ -1396,6 +1451,7 @@ dependencies = [
  "ckb-error",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-reward-calculator",
  "ckb-shared",
  "ckb-store",
@@ -2206,6 +2262,15 @@ dependencies = [
  "log",
  "plain",
  "scroll",
+]
+
+[[package]]
+name = "golomb-coded-set"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7076c0cd6257d84b785b0f22c36443dd47a5e86a1256d7ef82c8cb88ea9a7e"
+dependencies = [
+ "siphasher",
 ]
 
 [[package]]

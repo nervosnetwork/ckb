@@ -1,5 +1,5 @@
 use crate::network::async_disconnect_with_message;
-use crate::NetworkState;
+use crate::{Flags, NetworkState};
 use ckb_logger::debug;
 use p2p::{
     async_trait,
@@ -27,8 +27,18 @@ impl ServiceProtocol for Feeler {
     async fn connected(&mut self, context: ProtocolContextMutRef<'_>, _version: &str) {
         let session = context.session;
         if context.session.ty.is_outbound() {
+            let flags = self.network_state.with_peer_registry(|reg| {
+                if let Some(p) = reg.get_peer(session.id) {
+                    p.identify_info
+                        .as_ref()
+                        .map(|i| i.flags)
+                        .unwrap_or(Flags::COMPATIBILITY)
+                } else {
+                    Flags::COMPATIBILITY
+                }
+            });
             self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_outbound_addr(session.address.clone());
+                peer_store.add_outbound_addr(session.address.clone(), flags);
             });
         }
 

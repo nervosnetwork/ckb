@@ -1,13 +1,19 @@
 //! Rocksdb snapshot wrapper
 
 use arc_swap::{ArcSwap, Guard};
-use ckb_chain_spec::consensus::{Consensus, ConsensusProvider};
+use ckb_chain_spec::{
+    consensus::{Consensus, ConsensusProvider},
+    versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
+};
 use ckb_db::{
     iter::{DBIter, IteratorMode},
     DBPinnableSlice,
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
+use ckb_merkle_mountain_range::{
+    leaf_index_to_mmr_size, Error as MMRError, MMRStore, Result as MMRResult,
+};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::HeaderProvider;
@@ -15,9 +21,10 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
-        BlockNumber, EpochExt, HeaderView,
+        BlockNumber, EpochExt, HeaderView, TransactionView, Version,
     },
-    packed::{Byte32, OutPoint},
+    packed::{Byte32, HeaderDigest, OutPoint},
+    utilities::merkle_mountain_range::ChainRootMMR,
     U256,
 };
 use std::hash::{Hash, Hasher};
@@ -156,6 +163,25 @@ impl Snapshot {
     pub fn total_difficulty(&self) -> &U256 {
         &self.total_difficulty
     }
+
+    /// Returns what version a new block should use.
+    pub fn compute_versionbits(&self, parent: &HeaderView) -> Option<Version> {
+        self.consensus.compute_versionbits(parent, self)
+    }
+
+    /// Returns specified softfork active or not
+    pub fn versionbits_active(&self, pos: DeploymentPos) -> bool {
+        self.consensus
+            .versionbits_state(pos, &self.tip_header, self)
+            .map(|state| state == ThresholdState::Active)
+            .unwrap_or(false)
+    }
+
+    /// Returns the chain root MMR for a provided block.
+    pub fn chain_root_mmr(&self, block_number: BlockNumber) -> ChainRootMMR<&Self> {
+        let mmr_size = leaf_index_to_mmr_size(block_number);
+        ChainRootMMR::new(mmr_size, self)
+    }
 }
 
 impl<'a> ChainStore<'a> for Snapshot {
@@ -183,6 +209,24 @@ impl<'a> ChainStore<'a> for Snapshot {
 
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         Some(self.epoch_ext.clone())
+    }
+}
+
+impl VersionbitsIndexer for Snapshot {
+    fn block_epoch_index(&self, block_hash: &Byte32) -> Option<Byte32> {
+        ChainStore::get_block_epoch_index(self, block_hash)
+    }
+
+    fn epoch_ext(&self, index: &Byte32) -> Option<EpochExt> {
+        ChainStore::get_epoch_ext(self, index)
+    }
+
+    fn block_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+        ChainStore::get_block_header(self, block_hash)
+    }
+
+    fn cellbase(&self, block_hash: &Byte32) -> Option<TransactionView> {
+        ChainStore::get_cellbase(self, block_hash)
     }
 }
 
@@ -218,7 +262,7 @@ impl HeaderChecker for Snapshot {
         if !self.is_main_chain(block_hash) {
             return Err(OutPointError::InvalidHeader(block_hash.clone()));
         }
-        self.get_block_header(block_hash)
+        ChainStore::get_block_header(self, block_hash)
             .ok_or_else(|| OutPointError::InvalidHeader(block_hash.clone()))?;
         Ok(())
     }
@@ -233,5 +277,17 @@ impl HeaderProvider for Snapshot {
 impl ConsensusProvider for Snapshot {
     fn get_consensus(&self) -> &Consensus {
         self.consensus()
+    }
+}
+
+impl MMRStore<HeaderDigest> for &Snapshot {
+    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
+        Ok(self.store.get_header_digest(pos))
+    }
+
+    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
+        Err(MMRError::StoreError(
+            "Failed to append to MMR, snapshot MMR is readonly".into(),
+        ))
     }
 }

@@ -2,6 +2,8 @@ use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
 use ckb_types::{packed, prelude::*};
 
+use crate::Flags;
+
 pub(crate) fn encode(data: DiscoveryMessage) -> Bytes {
     data.encode()
 }
@@ -16,6 +18,7 @@ pub enum DiscoveryMessage {
         version: u32,
         count: u32,
         listen_port: Option<u16>,
+        required_flags: Flags,
     },
     Nodes(Nodes),
 }
@@ -27,21 +30,10 @@ impl DiscoveryMessage {
                 version,
                 count,
                 listen_port,
+                required_flags,
             } => {
-                let version_le = version.to_le_bytes();
-                let count_le = count.to_le_bytes();
-                let version = packed::Uint32::new_builder()
-                    .nth0(version_le[0].into())
-                    .nth1(version_le[1].into())
-                    .nth2(version_le[2].into())
-                    .nth3(version_le[3].into())
-                    .build();
-                let count = packed::Uint32::new_builder()
-                    .nth0(count_le[0].into())
-                    .nth1(count_le[1].into())
-                    .nth2(count_le[2].into())
-                    .nth3(count_le[3].into())
-                    .build();
+                let version = version.pack();
+                let count = count.pack();
                 let listen_port = packed::PortOpt::new_builder()
                     .set(listen_port.map(|port| {
                         let port_le = port.to_le_bytes();
@@ -51,11 +43,15 @@ impl DiscoveryMessage {
                             .build()
                     }))
                     .build();
-                let get_node = packed::GetNodes::new_builder()
+                let required_flags = required_flags.bits().pack();
+                let get_node = packed::GetNodes2::new_builder()
                     .listen_port(listen_port)
                     .count(count)
                     .version(version)
+                    .required_flags(required_flags)
                     .build();
+
+                let get_node = packed::GetNodes::new_unchecked(get_node.as_bytes());
                 packed::DiscoveryPayload::new_builder()
                     .set(get_node)
                     .build()
@@ -74,14 +70,20 @@ impl DiscoveryMessage {
                         )
                     }
                     let bytes_vec = packed::BytesVec::new_builder().set(vec_addrs).build();
-                    let node = packed::Node::new_builder().addresses(bytes_vec).build();
+                    let flags = item.flags.bits().pack();
+                    let node = packed::Node2::new_builder()
+                        .addresses(bytes_vec)
+                        .flags(flags)
+                        .build();
                     item_vec.push(node)
                 }
-                let items = packed::NodeVec::new_builder().set(item_vec).build();
-                let nodes = packed::Nodes::new_builder()
+                let items = packed::Node2Vec::new_builder().set(item_vec).build();
+                let nodes = packed::Nodes2::new_builder()
                     .announce(announce)
                     .items(items)
                     .build();
+
+                let nodes = packed::Nodes::new_unchecked(nodes.as_bytes());
                 packed::DiscoveryPayload::new_builder().set(nodes).build()
             }
         };
@@ -111,10 +113,20 @@ impl DiscoveryMessage {
                     b.copy_from_slice(port_reader.raw_data());
                     u16::from_le_bytes(b)
                 });
+
+                let required_flags = if reader.has_extra_fields() {
+                    let get_nodes2 =
+                        packed::GetNodes2::from_compatible_slice(reader.as_slice()).ok()?;
+                    let reader = get_nodes2.as_reader();
+                    Flags::from_bits_truncate(reader.required_flags().unpack())
+                } else {
+                    Flags::COMPATIBILITY
+                };
                 Some(DiscoveryMessage::GetNodes {
                     version,
                     count,
                     listen_port,
+                    required_flags,
                 })
             }
             packed::DiscoveryPayloadUnionReader::Nodes(reader) => {
@@ -130,7 +142,15 @@ impl DiscoveryMessage {
                         addresses
                             .push(Multiaddr::try_from(address_reader.raw_data().to_vec()).ok()?)
                     }
-                    items.push(Node { addresses })
+                    let flags = if node_reader.has_extra_fields() {
+                        let node2 =
+                            packed::Node2::from_compatible_slice(node_reader.as_slice()).ok()?;
+                        let reader = node2.as_reader();
+                        Flags::from_bits_truncate(reader.flags().unpack())
+                    } else {
+                        Flags::COMPATIBILITY
+                    };
+                    items.push(Node { addresses, flags })
                 }
                 Some(DiscoveryMessage::Nodes(Nodes { announce, items }))
             }
@@ -147,6 +167,7 @@ pub struct Nodes {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Node {
     pub(crate) addresses: Vec<Multiaddr>,
+    pub(crate) flags: Flags,
 }
 
 impl std::fmt::Display for DiscoveryMessage {

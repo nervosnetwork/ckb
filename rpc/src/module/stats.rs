@@ -1,10 +1,12 @@
-use ckb_jsonrpc_types::{AlertMessage, ChainInfo};
+use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_traits::HeaderProvider;
+use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// RPC Module Stats for getting various statistic data.
@@ -50,6 +52,45 @@ pub trait StatsRpc {
     /// ```
     #[rpc(name = "get_blockchain_info")]
     fn get_blockchain_info(&self) -> Result<ChainInfo>;
+
+    /// Returns statistics about the chain.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_deployments_info",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "epoch": "0x1",
+    ///     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///        "deployments": {
+    ///            "Testdummy": {
+    ///                "bit": 1,
+    ///                "min_activation_epoch": "0x0",
+    ///                "start": "0x0",
+    ///                "state": "Failed",
+    ///                "timeout": "0x0"
+    ///            }
+    ///        }
+    ///   }
+    /// }
+    /// ```
+    #[rpc(name = "get_deployments_info")]
+    fn get_deployments_info(&self) -> Result<DeploymentsInfo>;
 }
 
 pub(crate) struct StatsRpcImpl {
@@ -97,6 +138,33 @@ impl StatsRpc for StatsRpcImpl {
             difficulty,
             is_initial_block_download,
             alerts,
+        })
+    }
+
+    fn get_deployments_info(&self) -> Result<DeploymentsInfo> {
+        let snapshot = self.shared.snapshot();
+        let deployments: BTreeMap<DeploymentPos, DeploymentInfo> = self
+            .shared
+            .consensus()
+            .deployments
+            .clone()
+            .into_iter()
+            .filter_map(|(pos, deployment)| {
+                self.shared
+                    .consensus()
+                    .versionbits_state(pos, snapshot.tip_header(), snapshot.as_ref())
+                    .map(|state| {
+                        let mut info: DeploymentInfo = deployment.into();
+                        info.state = state.into();
+                        (pos.into(), info)
+                    })
+            })
+            .collect();
+
+        Ok(DeploymentsInfo {
+            hash: snapshot.tip_hash().unpack(),
+            epoch: snapshot.tip_header().epoch().number().into(),
+            deployments,
         })
     }
 }

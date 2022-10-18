@@ -24,6 +24,7 @@ tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 ckb-async-runtime = { path = "../../util/runtime", version = "= 0.105.0-pre" }
 ckb-verification-traits = { path = "../traits", version = "= 0.105.0-pre" }
 ckb-verification = { path = "..", version = "= 0.105.0-pre" }
+ckb-merkle-mountain-range = "0.5.1"
 
 [dev-dependencies]
 ckb-chain = { path = "../../chain", version = "= 0.105.0-pre" }

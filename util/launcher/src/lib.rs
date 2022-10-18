@@ -15,13 +15,15 @@ use ckb_app_config::{
     BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
 use ckb_async_runtime::Handle;
+use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
+use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_network::{
-    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, NetworkController,
+    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, Flags, NetworkController,
     NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
@@ -29,8 +31,9 @@ use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
+use ckb_stop_handler::StopHandler;
 use ckb_store::{ChainDB, ChainStore};
-use ckb_sync::{NetTimeProtocol, Relayer, SyncShared, Synchronizer};
+use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
@@ -247,6 +250,15 @@ impl Launcher {
         config
     }
 
+    /// start block filter service
+    pub fn start_block_filter(&self, shared: &Shared) -> Option<StopHandler<()>> {
+        if self.args.config.store.block_filter_enable {
+            Some(BlockFilterService::new(shared.clone()).start())
+        } else {
+            None
+        }
+    }
+
     /// Start network service and rpc serve
     pub fn start_network_and_rpc(
         &self,
@@ -276,6 +288,7 @@ impl Launcher {
         )];
 
         let support_protocols = &self.args.config.network.support_protocols;
+        let mut flags = Flags::all();
 
         if support_protocols.contains(&SupportProtocol::Relay) {
             let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
@@ -285,6 +298,20 @@ impl Launcher {
                 Box::new(relayer),
                 Arc::clone(&network_state),
             ));
+        } else {
+            flags.remove(Flags::RELAY);
+        }
+
+        if support_protocols.contains(&SupportProtocol::Filter) {
+            let filter = BlockFilter::new(Arc::clone(&sync_shared));
+
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::Filter,
+                Box::new(filter),
+                Arc::clone(&network_state),
+            ));
+        } else {
+            flags.remove(Flags::BLOCK_FILTER);
         }
 
         if support_protocols.contains(&SupportProtocol::Time) {
@@ -294,6 +321,17 @@ impl Launcher {
                 Box::new(net_timer),
                 Arc::clone(&network_state),
             ));
+        }
+
+        if support_protocols.contains(&SupportProtocol::LightClient) {
+            let light_client = LightClientProtocol::new(Arc::clone(&sync_shared));
+            protocols.push(CKBProtocol::new_with_support_protocol(
+                SupportProtocols::LightClient,
+                Box::new(light_client),
+                Arc::clone(&network_state),
+            ));
+        } else {
+            flags.remove(Flags::LIGHT_CLIENT);
         }
 
         let alert_signature_config = self.args.config.alert_signature.clone().unwrap_or_default();
@@ -319,8 +357,11 @@ impl Launcher {
             Arc::clone(&network_state),
             protocols,
             required_protocol_ids,
-            shared.consensus().identify_name(),
-            self.version.to_string(),
+            (
+                shared.consensus().identify_name(),
+                self.version.to_string(),
+                flags,
+            ),
             exit_handler.clone(),
         )
         .start(shared.async_handle())

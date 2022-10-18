@@ -4,12 +4,12 @@ mod block_template;
 mod blockchain;
 mod bytes;
 mod cell;
-mod chain_info;
 mod debug;
 mod experiment;
 mod fee_rate;
 mod fixed_bytes;
 mod indexer;
+mod info;
 mod net;
 mod pool;
 mod primitive;
@@ -32,11 +32,11 @@ pub use self::blockchain::{
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
-pub use self::chain_info::ChainInfo;
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DaoWithdrawingCalculationKind, DryRunResult};
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
+pub use self::info::{ChainInfo, DeploymentInfo, DeploymentPos, DeploymentState, DeploymentsInfo};
 pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,

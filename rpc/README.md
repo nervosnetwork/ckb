@@ -37,6 +37,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `get_block_by_number`](#method-get_block_by_number)
         * [Method `get_header`](#method-get_header)
         * [Method `get_header_by_number`](#method-get_header_by_number)
+        * [Method `get_block_filter`](#method-get_block_filter)
         * [Method `get_transaction`](#method-get_transaction)
         * [Method `get_block_hash`](#method-get_block_hash)
         * [Method `get_tip_header`](#method-get_tip_header)
@@ -88,6 +89,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
+        * [Method `get_deployments_info`](#method-get_deployments_info)
     * [Module Subscription](#module-subscription)
         * [Method `subscribe`](#method-subscribe)
         * [Method `unsubscribe`](#method-unsubscribe)
@@ -118,6 +120,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `Cycle`](#type-cycle)
     * [Type `DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
     * [Type `DepType`](#type-deptype)
+    * [Type `DeploymentInfo`](#type-deploymentinfo)
+    * [Type `DeploymentPos`](#type-deploymentpos)
+    * [Type `DeploymentState`](#type-deploymentstate)
+    * [Type `DeploymentsInfo`](#type-deploymentsinfo)
     * [Type `DryRunResult`](#type-dryrunresult)
     * [Type `Either`](#type-either)
     * [Type `EpochNumber`](#type-epochnumber)
@@ -660,6 +666,62 @@ Response
 
 
 The response looks like below when `verbosity` is 0.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
+
+
+#### Method `get_block_filter`
+* `get_block_filter(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`JsonBytes`](#type-jsonbytes) `|` `null`
+
+Returns the block filter by block hash.
+
+###### Params
+
+*   `block_hash` - the block hash.
+
+###### Returns
+
+The block filter data
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_filter",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+
+The response looks like below when the block have block filter.
 
 
 ```
@@ -3177,7 +3239,7 @@ Response
         ],
         "version": "0x0",
         "witnesses": [
-          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+          "0x6a0000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac311000000000000202054455354206d657373616765"
         ]
       },
       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
@@ -4263,6 +4325,51 @@ Response
 ```
 
 
+#### Method `get_deployments_info`
+* `get_deployments_info()`
+* result: [`DeploymentsInfo`](#type-deploymentsinfo)
+
+Returns statistics about the chain.
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_deployments_info",
+  "params": []
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "epoch": "0x1",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+       "deployments": {
+           "Testdummy": {
+               "bit": 1,
+               "min_activation_epoch": "0x0",
+               "start": "0x0",
+               "state": "Failed",
+               "timeout": "0x0"
+           }
+       }
+  }
+}
+```
+
+
 ### Module Subscription
 
 RPC Module Subscription that CKB node will push new messages to subscribers.
@@ -5219,6 +5326,63 @@ The dep cell type. Allowed values: “code” and “dep_group”.
 
     The dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.
 
+
+
+### Type `DeploymentInfo`
+
+An object containing various state info regarding deployments of consensus changes
+
+#### Fields
+
+`DeploymentInfo` is a JSON object with the following fields.
+
+*   `bit`: https://doc.rust-lang.org/1.61.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+
+*   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
+
+*   `timeout`: [`EpochNumber`](#type-epochnumber) - specifies an epoch at which the miner signaling ends. Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block’s bit state), the deployment is considered failed on all descendants of the block.
+
+*   `min_activation_epoch`: [`EpochNumber`](#type-epochnumber) - specifies the epoch at which the softfork is allowed to become active.
+
+*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+
+
+### Type `DeploymentPos`
+
+Deployment name
+
+`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
+
+*   Dummy
+*   light client protocol
+
+
+### Type `DeploymentState`
+
+The possible softfork deployment state
+
+`DeploymentState` is equivalent to `"defined" | "started" | "locked_in" | "active" | "failed"`.
+
+*   First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
+*   For epochs past the `start` epoch.
+*   For one epoch after the first epoch period with STARTED epochs of which at least `threshold` has the associated bit set in `version`.
+*   For all epochs after the LOCKED_IN epoch.
+*   For one epoch period past the `timeout_epoch`, if LOCKED_IN was not reached.
+
+
+### Type `DeploymentsInfo`
+
+Chain information.
+
+#### Fields
+
+`DeploymentsInfo` is a JSON object with the following fields.
+
+*   `hash`: [`H256`](#type-h256) - requested block hash
+
+*   `epoch`: [`EpochNumber`](#type-epochnumber) - requested block epoch
+
+*   `deployments`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}` - deployments info
 
 
 ### Type `DryRunResult`

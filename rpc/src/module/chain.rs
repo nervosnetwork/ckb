@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
-    HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, ResponseFormatInnerType,
-    Timestamp, TransactionProof, TransactionWithStatusResponse, Uint32,
+    HeaderView, JsonBytes, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
+    ResponseFormatInnerType, Timestamp, TransactionProof, TransactionWithStatusResponse, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -438,6 +438,53 @@ pub trait ChainRpc {
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
     ) -> Result<Option<ResponseFormat<HeaderView>>>;
+
+    /// Returns the block filter by block hash.
+    ///
+    /// ## Params
+    ///
+    /// * `block_hash` - the block hash.
+    ///
+    /// ## Returns
+    ///
+    /// The block filter data
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_block_filter",
+    ///   "params": [
+    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
+    ///
+    /// The response looks like below when the block have block filter.
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x..."
+    /// }
+    /// ```
+    #[rpc(name = "get_block_filter")]
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>>;
 
     /// Returns the information about a transaction requested by transaction hash.
     ///
@@ -1360,6 +1407,15 @@ impl ChainRpc for ChainRpcImpl {
             error!("{}", message);
             RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
         })
+    }
+
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>> {
+        let snapshot = self.shared.snapshot();
+        let block_hash = block_hash.pack();
+        if !snapshot.is_main_chain(&block_hash) {
+            return Ok(None);
+        }
+        Ok(snapshot.get_block_filter(&block_hash).map(Into::into))
     }
 
     fn get_transaction(
