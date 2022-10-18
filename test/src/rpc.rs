@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
     CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
     LocalNode, OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction, TransactionProof,
-    TransactionWithStatus, TxPoolInfo, Uint32, Uint64, Version,
+    TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -75,18 +75,15 @@ impl RpcClient {
             .expect("rpc call get_block_filter")
     }
 
-    pub fn get_transaction(&self, hash: Byte32) -> Option<TransactionWithStatus> {
-        // keep legacy mode
-        self.inner
-            .get_transaction(hash.unpack(), Some(0u32.into()))
-            .expect("rpc call get_transaction")
+    pub fn get_transaction(&self, hash: Byte32) -> Option<TransactionWithStatusResponse> {
+        self.get_transaction_with_verbosity(hash, 2)
     }
 
     pub fn get_transaction_with_verbosity(
         &self,
         hash: Byte32,
         verbosity: u32,
-    ) -> Option<TransactionWithStatus> {
+    ) -> Option<TransactionWithStatusResponse> {
         self.inner
             .get_transaction(hash.unpack(), Some(verbosity.into()))
             .expect("rpc call get_transaction")
@@ -309,7 +306,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_header(&self, _hash: H256) -> Option<HeaderView>;
     pub fn get_header_by_number(&self, _number: BlockNumber) -> Option<HeaderView>;
     pub fn get_block_filter(&self, _hash: H256) -> Option<JsonBytes>;
-    pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>) -> Option<TransactionWithStatus>;
+    pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>) -> Option<TransactionWithStatusResponse>;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;

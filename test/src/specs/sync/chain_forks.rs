@@ -1,6 +1,8 @@
 use crate::node::{disconnect_all, waiting_for_sync};
 use crate::util::cell::gen_spendable;
-use crate::util::check::{is_transaction_committed, is_transaction_pending};
+use crate::util::check::{
+    is_transaction_committed, is_transaction_pending, is_transaction_unknown,
+};
 use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
@@ -608,11 +610,13 @@ impl Spec for ForkedTransaction {
         let fixed_point = node0.get_tip_block_number();
         let tx = node1.new_transaction_spend_tip_cellbase();
 
-        // `node0` doesn't have `tx`      => TxStatus: None
+        // `node0` doesn't have `tx`      => TxStatus: Unknown
         {
             node0.mine(1 + 2 * finalization_delay_length);
-            let tx_status = node0.rpc_client().get_transaction(tx.hash());
-            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+            assert!(
+                is_transaction_unknown(node0, &tx),
+                "node0 maintains tx in unverified fork"
+            );
         }
 
         // `node1` have `tx` on main-fork => TxStatus: Some(Committed)
@@ -622,7 +626,7 @@ impl Spec for ForkedTransaction {
             assert!(is_transaction_committed(node1, &tx));
         }
 
-        // `node0` have `tx` on unverified-fork only => TxStatus: None
+        // `node0` have `tx` on unverified-fork only => TxStatus: Unknown
         //
         // We submit the main-fork of `node1` to `node0`, that will be persisted as an
         // unverified-fork inside `node0`.
@@ -631,8 +635,10 @@ impl Spec for ForkedTransaction {
                 let block = node1.get_block_by_number(number);
                 node0.submit_block(&block);
             });
-            let tx_status = node0.rpc_client().get_transaction(tx.hash());
-            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+            assert!(
+                is_transaction_unknown(node0, &tx),
+                "node0 maintains tx in unverified fork"
+            );
         }
 
         // node1 have `tx` on verified-fork   => TxStatus: Some(Pending)

@@ -1,9 +1,9 @@
 use crate::error::RPCError;
-use ckb_indexer::{
-    service::{Cell, CellsCapacity, IndexerTip, Order, Pagination, SearchKey, Tx},
-    IndexerHandle,
+use ckb_indexer::IndexerHandle;
+use ckb_jsonrpc_types::{
+    IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
+    IndexerTip, IndexerTx, JsonBytes, Uint32,
 };
-use ckb_jsonrpc_types::{JsonBytes, Uint32};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 
@@ -389,11 +389,11 @@ pub trait IndexerRpc {
     #[rpc(name = "get_cells")]
     fn get_cells(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
-    ) -> Result<Pagination<Cell>>;
+    ) -> Result<IndexerPagination<IndexerCell>>;
 
     /// Returns the transactions collection by the lock or type script.
     ///
@@ -801,11 +801,11 @@ pub trait IndexerRpc {
     #[rpc(name = "get_transactions")]
     fn get_transactions(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
-    ) -> Result<Pagination<Tx>>;
+    ) -> Result<IndexerPagination<IndexerTx>>;
 
     /// Returns the live cells capacity by the lock or type script.
     ///
@@ -862,7 +862,10 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_cells_capacity")]
-    fn get_cells_capacity(&self, search_key: SearchKey) -> Result<Option<CellsCapacity>>;
+    fn get_cells_capacity(
+        &self,
+        search_key: IndexerSearchKey,
+    ) -> Result<Option<IndexerCellsCapacity>>;
 }
 
 pub(crate) struct IndexerRpcImpl {
@@ -884,11 +887,11 @@ impl IndexerRpc for IndexerRpcImpl {
 
     fn get_cells(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
-    ) -> Result<Pagination<Cell>> {
+    ) -> Result<IndexerPagination<IndexerCell>> {
         self.handle
             .get_cells(search_key, order, limit, after)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
@@ -896,17 +899,20 @@ impl IndexerRpc for IndexerRpcImpl {
 
     fn get_transactions(
         &self,
-        search_key: SearchKey,
-        order: Order,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
-    ) -> Result<Pagination<Tx>> {
+    ) -> Result<IndexerPagination<IndexerTx>> {
         self.handle
             .get_transactions(search_key, order, limit, after)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_cells_capacity(&self, search_key: SearchKey) -> Result<Option<CellsCapacity>> {
+    fn get_cells_capacity(
+        &self,
+        search_key: IndexerSearchKey,
+    ) -> Result<Option<IndexerCellsCapacity>> {
         self.handle
             .get_cells_capacity(search_key)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
