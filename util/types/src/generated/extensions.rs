@@ -2490,7 +2490,7 @@ impl ::core::fmt::Debug for HeaderDigest {
 impl ::core::fmt::Display for HeaderDigest {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "children_hash", self.children_hash())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "end_number", self.end_number())?;
@@ -2529,7 +2529,7 @@ impl HeaderDigest {
     pub const TOTAL_SIZE: usize = 120;
     pub const FIELD_SIZES: [usize; 10] = [32, 32, 8, 8, 8, 8, 8, 8, 4, 4];
     pub const FIELD_COUNT: usize = 10;
-    pub fn hash(&self) -> Byte32 {
+    pub fn children_hash(&self) -> Byte32 {
         Byte32::new_unchecked(self.0.slice(0..32))
     }
     pub fn total_difficulty(&self) -> Uint256 {
@@ -2586,7 +2586,7 @@ impl molecule::prelude::Entity for HeaderDigest {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .hash(self.hash())
+            .children_hash(self.children_hash())
             .total_difficulty(self.total_difficulty())
             .start_number(self.start_number())
             .end_number(self.end_number())
@@ -2617,7 +2617,7 @@ impl<'r> ::core::fmt::Debug for HeaderDigestReader<'r> {
 impl<'r> ::core::fmt::Display for HeaderDigestReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "children_hash", self.children_hash())?;
         write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "end_number", self.end_number())?;
@@ -2644,7 +2644,7 @@ impl<'r> HeaderDigestReader<'r> {
     pub const TOTAL_SIZE: usize = 120;
     pub const FIELD_SIZES: [usize; 10] = [32, 32, 8, 8, 8, 8, 8, 8, 4, 4];
     pub const FIELD_COUNT: usize = 10;
-    pub fn hash(&self) -> Byte32Reader<'r> {
+    pub fn children_hash(&self) -> Byte32Reader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[0..32])
     }
     pub fn total_difficulty(&self) -> Uint256Reader<'r> {
@@ -2698,7 +2698,7 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderDigestReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct HeaderDigestBuilder {
-    pub(crate) hash: Byte32,
+    pub(crate) children_hash: Byte32,
     pub(crate) total_difficulty: Uint256,
     pub(crate) start_number: Uint64,
     pub(crate) end_number: Uint64,
@@ -2713,8 +2713,8 @@ impl HeaderDigestBuilder {
     pub const TOTAL_SIZE: usize = 120;
     pub const FIELD_SIZES: [usize; 10] = [32, 32, 8, 8, 8, 8, 8, 8, 4, 4];
     pub const FIELD_COUNT: usize = 10;
-    pub fn hash(mut self, v: Byte32) -> Self {
-        self.hash = v;
+    pub fn children_hash(mut self, v: Byte32) -> Self {
+        self.children_hash = v;
         self
     }
     pub fn total_difficulty(mut self, v: Uint256) -> Self {
@@ -2761,7 +2761,7 @@ impl molecule::prelude::Builder for HeaderDigestBuilder {
         Self::TOTAL_SIZE
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
-        writer.write_all(self.hash.as_slice())?;
+        writer.write_all(self.children_hash.as_slice())?;
         writer.write_all(self.total_difficulty.as_slice())?;
         writer.write_all(self.start_number.as_slice())?;
         writer.write_all(self.end_number.as_slice())?;

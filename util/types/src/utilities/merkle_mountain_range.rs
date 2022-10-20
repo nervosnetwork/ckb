@@ -211,7 +211,7 @@ impl Merge for MergeHeaderDigest {
     type Item = packed::HeaderDigest;
 
     fn merge(lhs: &Self::Item, rhs: &Self::Item) -> MMRResult<Self::Item> {
-        let hash = {
+        let children_hash = {
             let mut hasher = new_blake2b();
             let mut hash = [0u8; 32];
             hasher.update(&lhs.calc_mmr_hash().raw_data());
@@ -249,7 +249,7 @@ impl Merge for MergeHeaderDigest {
         }
 
         Ok(Self::Item::new_builder()
-            .hash(hash.pack())
+            .children_hash(children_hash.pack())
             .total_difficulty(total_difficulty.pack())
             .start_number(lhs.start_number())
             .start_epoch(lhs.start_epoch())

@@ -26,7 +26,7 @@ vector OutPointVec <OutPoint>;
 /* Types for Light Client */
 
 struct HeaderDigest {
-    hash:                   Byte32,
+    children_hash:          Byte32,
 
     total_difficulty:       Uint256,
 
