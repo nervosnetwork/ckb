@@ -1,88 +1,8 @@
 //! Types for variable difficulty Merkle Mountain Range (MMR) in CKB.
 //!
-//! Since CKB doesn't record MMR data in headers since the genesis block, we use an activation
-//! block number to enable MMR and create all MMR nodes before that block to make sure that the
-//! index of MMR leaf is EQUAL to the block number.
-//!
-//! ```text
-//!          height                position
-//!
-//!             3                     14
-//!                                  /  \
-//!                                 /    \
-//!                                /      \
-//!                               /        \
-//!                              /          \
-//!                             /            \
-//!             2              6             13
-//!                           / \            / \
-//!                          /   \          /   \
-//!                         /     \        /     \
-//!             1          2       5       9      12      17
-//!                       / \     / \     / \    /  \    /  \
-//!             0        0   1   3   4   7   8  10  11  15  16   18
-//!         --------------------------------------------------------
-//! index                0   1   2   3   4   5   6   7   8   9   10 ... N
-//!         --------------------------------------------------------
-//! number               0   1   2   3   4   5   6   7   8   9   10 ... N
-//!         --------------------------------------------------------
-//! ```
-//!
-//! - `height`: the MMR node height.
-//! - `position`: the MMR node position.
-//! - `index`: the MMR leaf index; same as the block height.
-//! - `number`: the block height.
-//! - `N`: the activation block number; the block number of the last block which doesn't records MMR root hash.
-//!
-//! There are three kind of blocks base on its MMR data:
-//!
-//! - The genesis block
-//!
-//!   First node, also first leaf node in MMR; no chain root;
-//!
-//! - The blocks which height is less than `N`
-//!
-//!   No chain root in blocks but store them in database.
-//!
-//! - The blocks which height is equal to or greater than `N`
-//!
-//!   Has chain root in blocks.
-//!
-//! There are two kinds of MMR nodes: leaf node and non-leaf node.
-//!
-//! Each MMR node is defined as follows:
-//!
-//! - `hash`
-//!
-//!   - For leaf node, it's an empty hash (`0x0000...0000`).
-//!
-//!   - For non-leaf node, it's the hash of it's child nodes' hashes (concatenate serialized data).
-//!
-//! - `total_difficulty`
-//!
-//!  - For leaf node, it's the difficulty it took to mine the current block.
-//!
-//!  - For non-leaf node, it's the sum of `total_difficulty` in it's child nodes.
-//!
-//! - `start_*`
-//!
-//!   Such as `start_number`, `start_epoch`, `start_timestamp`, `start_compact_target`.
-//!
-//!   - For leaf node, it's the data of current block.
-//!
-//!   - For non-leaf node, it's the `start_*` of left node.
-//!
-//! - `end_*`
-//!
-//!   Such as `end_number`, `end_epoch`, `end_timestamp`, `end_compact_target`.
-//!
-//!   - For leaf node, it's the data of current block.
-//!
-//!   - For non-leaf node, it's the `end_*` of right node.
-//!
 //! ## References
 //!
-//! - [Peter Todd, Merkle mountain range.](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md).
+//! - [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md)
 
 use ckb_hash::new_blake2b;
 use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as MMRResult, MMR};
