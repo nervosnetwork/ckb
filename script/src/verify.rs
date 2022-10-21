@@ -905,7 +905,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let default_machine = machine_builder.build();
 
         #[cfg(has_asm)]
-        let machine = AsmMachine::new(default_machine, None);
+        let machine = AsmMachine::new(default_machine);
         #[cfg(not(has_asm))]
         let machine = TraceMachine::new(default_machine);
 
