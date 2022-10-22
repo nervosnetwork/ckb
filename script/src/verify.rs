@@ -34,10 +34,10 @@ use ckb_vm::{
 };
 
 #[cfg(has_asm)]
-use ckb_vm::machine::asm::AsmMachine;
+use ckb_vm::machine::asm::AsmMachine as VerifyMachine;
 
 #[cfg(not(has_asm))]
-use ckb_vm::TraceMachine;
+use ckb_vm::TraceMachine as VerifyMachine;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -903,12 +903,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
-
-        #[cfg(has_asm)]
-        let machine = AsmMachine::new(default_machine);
-        #[cfg(not(has_asm))]
-        let machine = TraceMachine::new(default_machine);
-
+        let machine = VerifyMachine::new(default_machine);
         Ok(machine)
     }
 
