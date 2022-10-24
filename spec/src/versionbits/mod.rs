@@ -14,7 +14,7 @@ use std::collections::{hash_map, HashMap};
 use std::sync::Arc;
 
 /// What bits to set in version for versionbits blocks
-pub const VERSIONBITS_TOP_BITS: Version = 0x20000000;
+pub const VERSIONBITS_TOP_BITS: Version = 0x00000000;
 /// What bitmask determines whether versionbits is in use
 pub const VERSIONBITS_TOP_MASK: Version = 0xE0000000;
 /// Total bits available for versionbits
