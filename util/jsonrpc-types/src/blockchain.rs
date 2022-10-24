@@ -520,6 +520,8 @@ impl From<Transaction> for packed::Transaction {
 pub struct TransactionWithStatusResponse {
     /// The transaction.
     pub transaction: Option<ResponseFormat<TransactionView>>,
+    /// The cycles of the transaction
+    pub cycles: Cycle,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
@@ -527,18 +529,24 @@ pub struct TransactionWithStatusResponse {
 impl TransactionWithStatusResponse {
     /// Transpose `tx_pool::TransactionWithStatus` to `TransactionWithStatusResponse`
     /// according to the type of inner_type
-    pub fn from(t: tx_pool::TransactionWithStatus, inner_type: ResponseFormatInnerType) -> Self {
+    pub fn from(
+        t: tx_pool::TransactionWithStatus,
+        cycles: Cycle,
+        inner_type: ResponseFormatInnerType,
+    ) -> Self {
         match inner_type {
             ResponseFormatInnerType::Hex => TransactionWithStatusResponse {
                 transaction: t
                     .transaction
                     .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
+                cycles: cycles,
                 tx_status: t.tx_status.into(),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
                     .transaction
                     .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
+                cycles: cycles,
                 tx_status: t.tx_status.into(),
             },
         }

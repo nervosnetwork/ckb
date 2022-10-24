@@ -1432,19 +1432,37 @@ impl ChainRpc for ChainRpcImpl {
             // when verbosity=0, it's response value is as same as verbosity=2, but it
             // return a 0x-prefixed hex encoded molecule packed::Transaction` on `transaction` field
             self.get_transaction_verbosity2(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Hex))
+                op.map(|tx| {
+                    TransactionWithStatusResponse::from(
+                        tx,
+                        tx.cycles.into(),
+                        ResponseFormatInnerType::Hex,
+                    )
+                })
             })
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
             self.get_transaction_verbosity1(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
+                op.map(|tx| {
+                    TransactionWithStatusResponse::from(
+                        tx,
+                        tx.cycles.into(),
+                        ResponseFormatInnerType::Json,
+                    )
+                })
             })
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
             self.get_transaction_verbosity2(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
+                op.map(|tx| {
+                    TransactionWithStatusResponse::from(
+                        tx,
+                        tx.cycles.into(),
+                        ResponseFormatInnerType::Json,
+                    )
+                })
             })
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))

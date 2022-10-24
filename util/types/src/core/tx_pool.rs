@@ -142,24 +142,28 @@ pub struct TxPoolEntryInfo {
 pub struct TransactionWithStatus {
     /// The transaction.
     pub transaction: Option<core::TransactionView>,
+    /// The cycles of the transaction
+    pub cycles: Cycle,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>, cycles: Cycle) -> Self {
         Self {
             tx_status: TxStatus::Pending,
             transaction: tx,
+            cycles,
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>, cycles: Cycle) -> Self {
         Self {
             tx_status: TxStatus::Proposed,
             transaction: tx,
+            cycles,
         }
     }
 
@@ -176,6 +180,7 @@ impl TransactionWithStatus {
         Self {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
+            cycles: 0
         }
     }
 
