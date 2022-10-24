@@ -15,7 +15,7 @@ ckb-shared = { path = "../../shared", version = "= 0.105.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
 ckb-types = { path = "../types", version = "= 0.105.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
-ckb-merkle-mountain-range = "0.5.1"
+ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
 ckb-chain = { path = "../../chain", version = "= 0.105.0-pre" }
