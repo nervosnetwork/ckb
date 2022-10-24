@@ -931,14 +931,21 @@ async fn process(mut service: TxPoolService, message: Message) {
             let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
 
-            let ret = if let Some(tx) = tx_pool.proposed.get_tx(&id) {
-                Ok(TransactionWithStatus::with_proposed(Some(tx.clone())))
-            } else if let Some(tx) = tx_pool.get_tx_from_pending_or_else_gap(&id) {
-                Ok(TransactionWithStatus::with_pending(Some(tx.clone())))
+            let ret = if let Some(tx) = tx_pool.proposed.get(&id) {
+                Ok(TransactionWithStatus::with_proposed(
+                    Some(tx.rtx.transaction()),
+                    tx.cycles,
+                ))
+            } else if let Some(tx_entry) = tx_pool.get_tx_entry_from_pending_or_else_gap(&id) {
+                Ok(TransactionWithStatus::with_pending(
+                    Some(tx_entry.transaction().clone()),
+                    tx_entry.cycles,
+                ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
                     if let Some(record) = recent_reject {
+                        // TODO cycles for a reject transaction?
                         Ok(TransactionWithStatus::with_rejected(record))
                     } else {
                         Ok(TransactionWithStatus::with_unknown())

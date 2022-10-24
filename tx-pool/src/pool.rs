@@ -199,12 +199,18 @@ impl TxPool {
             .or_else(|| self.proposed.get_tx(id))
     }
 
+    /// Returns tx entry from pending and gap corresponding to the id. RPC
+    pub fn get_tx_entry_from_pending_or_else_gap(&self, id: &ProposalShortId) -> Option<&TxEntry> {
+        self.pending.get(id).or_else(|| self.gap.get(id))
+    }
+
     /// Returns tx from pending and gap corresponding to the id. RPC
     pub fn get_tx_from_pending_or_else_gap(
         &self,
         id: &ProposalShortId,
     ) -> Option<&TransactionView> {
-        self.pending.get_tx(id).or_else(|| self.gap.get_tx(id))
+        self.get_tx_entry_from_pending_or_else_gap(id)
+            .map(|entry| entry.transaction())
     }
 
     pub(crate) fn proposed(&self) -> &ProposedPool {
