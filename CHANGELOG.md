@@ -1,3 +1,23 @@
+# [v0.105.0](https://github.com/nervosnetwork/ckb/compare/v0.104.0...v0.105.0) (2022-10-25)
+
+### Features
+
+* #3544: Add GetTransactions message to light client protocol (@quake)
+* #3595: P2P Flags features (@driftluo)
+* #3565: ChainRpcImpl: support return raw molecule hex bytes for `get_transaction` rpc method (@eval-exec)
+* #3564: Adding JSON output support for `ckb list-hashes` (@code-monad)
+* #3609: Merge indexer (@zhangsoledad)
+* #3627: Bump ckb-vm to v0.21.7 (@mohanson)
+* #3631 **light-client:** Add light client support to ckb full node (@quake)
+* #3515 **light-client:** Light client softfork (@zhangsoledad)
+* #3643 **light-client:** Activation parameters for testnet lightclient (@zhangsoledad)
+
+### Bug Fixes
+
+* #3516: Fix atomic fetch update ordering (@driftluo)
+* #3566: Fix tcp reuse bind (@driftluo)
+* #3642: Network flags should be configured accordingly (@quake)
+
 # [v0.104.0](https://github.com/nervosnetwork/ckb/compare/v0.103.0...v0.104.0) (2022-07-19)
 
 ### Features
