@@ -1,6 +1,6 @@
 [package]
 name = "ckb-launcher"
-version = "0.105.0-pre"
+version = "0.106.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,37 +11,37 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.105.0-pre" }
-ckb-store = { path = "../../store", version = "= 0.105.0-pre" }
-ckb-db = { path = "../../db", version = "= 0.105.0-pre" }
-ckb-migration-template = { path = "migration-template", version = "= 0.105.0-pre" }
-ckb-app-config = { path = "../app-config", version = "= 0.105.0-pre" }
-ckb-db-migration = { path = "../../db-migration", version = "= 0.105.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.105.0-pre" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.105.0-pre" }
-ckb-error = { path = "../../error", version = "= 0.105.0-pre" }
-ckb-build-info = { path = "../build-info", version = "= 0.105.0-pre" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.0-pre" }
-ckb-chain = { path = "../../chain", version = "= 0.105.0-pre" }
-ckb-shared = { path = "../../shared", version = "= 0.105.0-pre" }
-ckb-network = { path = "../../network", version = "= 0.105.0-pre"}
-ckb-rpc = { path = "../../rpc", version = "= 0.105.0-pre"}
-ckb-resource = { path = "../../resource", version = "= 0.105.0-pre"}
-ckb-network-alert = { path = "../network-alert", version = "= 0.105.0-pre" }
-ckb-sync = { path = "../../sync", version = "= 0.105.0-pre"}
-ckb-verification = { path = "../../verification", version = "= 0.105.0-pre" }
-ckb-verification-traits = { path = "../../verification/traits", version = "= 0.105.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.105.0-pre" }
-ckb-proposal-table = { path = "../proposal-table", version = "= 0.105.0-pre" }
-ckb-channel = { path = "../channel", version = "= 0.105.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.105.0-pre" }
-ckb-freezer = { path = "../../freezer", version = "= 0.105.0-pre" }
-ckb-notify = { path = "../../notify", version = "= 0.105.0-pre" }
-ckb-snapshot = { path = "../snapshot", version = "= 0.105.0-pre" }
-ckb-tx-pool = { path = "../../tx-pool", version = "= 0.105.0-pre" }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.105.0-pre" }
-ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.105.0-pre" }
-ckb-block-filter = { path = "../../block-filter", version = "= 0.105.0-pre" }
+ckb-types = { path = "../types", version = "= 0.106.0-pre" }
+ckb-store = { path = "../../store", version = "= 0.106.0-pre" }
+ckb-db = { path = "../../db", version = "= 0.106.0-pre" }
+ckb-migration-template = { path = "migration-template", version = "= 0.106.0-pre" }
+ckb-app-config = { path = "../app-config", version = "= 0.106.0-pre" }
+ckb-db-migration = { path = "../../db-migration", version = "= 0.106.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.106.0-pre" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.106.0-pre" }
+ckb-error = { path = "../../error", version = "= 0.106.0-pre" }
+ckb-build-info = { path = "../build-info", version = "= 0.106.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.106.0-pre" }
+ckb-chain = { path = "../../chain", version = "= 0.106.0-pre" }
+ckb-shared = { path = "../../shared", version = "= 0.106.0-pre" }
+ckb-network = { path = "../../network", version = "= 0.106.0-pre"}
+ckb-rpc = { path = "../../rpc", version = "= 0.106.0-pre"}
+ckb-resource = { path = "../../resource", version = "= 0.106.0-pre"}
+ckb-network-alert = { path = "../network-alert", version = "= 0.106.0-pre" }
+ckb-sync = { path = "../../sync", version = "= 0.106.0-pre"}
+ckb-verification = { path = "../../verification", version = "= 0.106.0-pre" }
+ckb-verification-traits = { path = "../../verification/traits", version = "= 0.106.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.106.0-pre" }
+ckb-proposal-table = { path = "../proposal-table", version = "= 0.106.0-pre" }
+ckb-channel = { path = "../channel", version = "= 0.106.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.106.0-pre" }
+ckb-freezer = { path = "../../freezer", version = "= 0.106.0-pre" }
+ckb-notify = { path = "../../notify", version = "= 0.106.0-pre" }
+ckb-snapshot = { path = "../snapshot", version = "= 0.106.0-pre" }
+ckb-tx-pool = { path = "../../tx-pool", version = "= 0.106.0-pre" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.106.0-pre" }
+ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.106.0-pre" }
+ckb-block-filter = { path = "../../block-filter", version = "= 0.106.0-pre" }
 num_cpus = "1.10"
 once_cell = "1.8.0"
 tempfile = "3.0"
