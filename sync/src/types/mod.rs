@@ -1910,6 +1910,7 @@ pub struct ActiveChain {
     state: Arc<SyncState>,
 }
 
+#[doc(hidden)]
 impl ActiveChain {
     fn store(&self) -> &ChainDB {
         self.shared.store()
@@ -1929,6 +1930,10 @@ impl ActiveChain {
 
     pub fn get_block_header(&self, h: &packed::Byte32) -> Option<core::HeaderView> {
         self.store().get_block_header(h)
+    }
+
+    pub fn get_block_ext(&self, h: &packed::Byte32) -> Option<core::BlockExt> {
+        self.snapshot().get_block_ext(h)
     }
 
     pub fn shared(&self) -> &SyncShared {

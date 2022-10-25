@@ -16,6 +16,7 @@ pub mod types;
 pub(crate) use crate::Behaviour;
 pub use crate::SessionType;
 use p2p::multiaddr::Multiaddr;
+pub(crate) use peer_store_impl::required_flags_filter;
 pub use peer_store_impl::PeerStore;
 
 /// peer store evict peers after reach this limitation

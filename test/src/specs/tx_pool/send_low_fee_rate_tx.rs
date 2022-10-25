@@ -1,11 +1,8 @@
 use crate::utils::wait_until;
 use crate::{Node, Spec};
+use ckb_jsonrpc_types::Either;
 use ckb_logger::info;
-use ckb_types::{
-    core::{FeeRate, TransactionView},
-    packed,
-    prelude::*,
-};
+use ckb_types::{core::FeeRate, packed, prelude::*};
 
 pub struct SendLowFeeRateTx;
 
@@ -22,16 +19,21 @@ impl Spec for SendLowFeeRateTx {
                 .is_some()
         });
         assert!(ret, "send tx should success");
-        let tx: TransactionView = packed::Transaction::from(
-            node0
+        let tx = {
+            if let Either::Left(tx) = node0
                 .rpc_client()
                 .get_transaction(tx_hash_0.clone())
                 .unwrap()
                 .transaction
                 .unwrap()
-                .inner,
-        )
-        .into_view();
+                .inner
+            {
+                packed::Transaction::from(tx.inner).into_view()
+            } else {
+                panic!("get transaction view failed");
+            }
+        };
+
         let capacity = tx.outputs_capacity().unwrap();
 
         info!("Generate zero fee rate tx");

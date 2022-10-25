@@ -20,6 +20,7 @@ table Pong {
 }
 
 vector NodeVec <Node>;
+vector Node2Vec <Node2>;
 array Uint16 [byte; 2];
 option PortOpt (Uint16);
 
@@ -39,13 +40,30 @@ table GetNodes {
     listen_port: PortOpt,
 }
 
+table GetNodes2 {
+    version: Uint32,
+    count: Uint32,
+    listen_port: PortOpt,
+    required_flags: Uint64,
+}
+
 table Nodes {
     announce: Bool,
     items: NodeVec,
 }
 
+table Nodes2 {
+    announce: Bool,
+    items: Node2Vec,
+}
+
 table Node {
     addresses: BytesVec,
+}
+
+table Node2 {
+    addresses: BytesVec,
+    flags: Uint64,
 }
 
 // identify 0.0.1

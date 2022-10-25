@@ -296,6 +296,57 @@ impl Relayer {
                     err,
                 );
             }
+
+            if let Some(p2p_control) = nc.p2p_control() {
+                let snapshot = self.shared.shared().snapshot();
+                let parent_chain_root = {
+                    let mmr = snapshot.chain_root_mmr(boxed.header().number() - 1);
+                    match mmr.get_root() {
+                        Ok(root) => root,
+                        Err(err) => {
+                            error_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "Generate last state to light client failed: {:?}",
+                                err
+                            );
+                            return;
+                        }
+                    }
+                };
+
+                let tip_header = packed::VerifiableHeader::new_builder()
+                    .header(boxed.header().data())
+                    .uncles_hash(boxed.calc_uncles_hash())
+                    .extension(Pack::pack(&boxed.extension()))
+                    .parent_chain_root(parent_chain_root)
+                    .build();
+                let light_client_message = {
+                    let content = packed::SendLastState::new_builder()
+                        .last_header(tip_header)
+                        .build();
+                    packed::LightClientMessage::new_builder()
+                        .set(content)
+                        .build()
+                };
+                let light_client_peers: HashSet<PeerIndex> = nc
+                    .connected_peers()
+                    .into_iter()
+                    .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
+                    .filter(|(_id, peer)| peer.if_lightclient_subscribed)
+                    .map(|(id, _)| id)
+                    .collect();
+                if let Err(err) = p2p_control.filter_broadcast(
+                    TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+                    SupportProtocols::LightClient.protocol_id(),
+                    light_client_message.as_bytes(),
+                ) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "relayer send last state to light client when accept block, error: {:?}",
+                        err,
+                    );
+                }
+            }
         }
     }
 

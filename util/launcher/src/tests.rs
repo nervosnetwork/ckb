@@ -4,7 +4,7 @@ use ckb_chain_spec::consensus::build_genesis_epoch_ext;
 use ckb_db::RocksDB;
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_EPOCH, COLUMN_META,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
     META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_types::{
@@ -41,8 +41,12 @@ fn test_mock_migration() {
     {
         let hash = genesis.hash();
         let header = genesis.header().pack();
+        let number = header.data().raw().number();
         let uncles = genesis.uncles().pack();
         let proposals = genesis.data().proposals();
+        db_txn
+            .put(COLUMN_INDEX, number.as_slice(), hash.as_slice())
+            .unwrap();
         db_txn
             .put(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())
             .unwrap();

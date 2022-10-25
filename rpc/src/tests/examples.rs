@@ -7,16 +7,17 @@ use ckb_app_config::{
 };
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, NetworkService, NetworkState};
+use ckb_network::{DefaultExitHandler, Flags, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, FeeRate,
+        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, FeeRate, Ratio,
         TransactionBuilder, TransactionView,
     },
     h256,
@@ -29,6 +30,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::cmp;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::fs::{read_dir, File};
 use std::hash;
 use std::io::{self, BufRead};
@@ -63,10 +65,22 @@ fn always_success_consensus() -> Consensus {
         .dao(dao)
         .transaction(always_success_tx)
         .build();
+    let mut deployments = HashMap::new();
+    let test_dummy = Deployment {
+        bit: 1,
+        start: 0,
+        timeout: 0,
+        min_activation_epoch: 0,
+        period: 10,
+        active_mode: ActiveMode::Never,
+        threshold: Ratio::new(3, 4),
+    };
+    deployments.insert(DeploymentPos::Testdummy, test_dummy);
     ConsensusBuilder::default()
         .genesis_block(genesis)
         .initial_primary_epoch_reward(Capacity::shannons(EPOCH_REWARD))
         .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
+        .softfork_deployments(deployments)
         .build()
 }
 
@@ -132,8 +146,11 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             Arc::clone(&network_state),
             Vec::new(),
             Vec::new(),
-            shared.consensus().identify_name(),
-            "0.1.0".to_string(),
+            (
+                shared.consensus().identify_name(),
+                "0.1.0".to_string(),
+                Flags::COMPATIBILITY,
+            ),
             DefaultExitHandler::default(),
         )
         .start(shared.async_handle())
@@ -170,7 +187,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         pack.take_relay_tx_receiver(),
     ));
 
-    let notify_controller = NotifyService::new(Default::default()).start(Some("test"));
+    let notify_controller =
+        NotifyService::new(Default::default()).start(shared.async_handle().clone());
     let (alert_notifier, alert_verifier) = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
@@ -245,7 +263,12 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .enable_alert(alert_verifier, alert_notifier, network_controller);
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(rpc_config, io_handler, shared.notify_controller());
+    let rpc_server = RpcServer::new(
+        rpc_config,
+        io_handler,
+        shared.notify_controller(),
+        shared.async_handle().clone().into_inner(),
+    );
     let rpc_uri = format!(
         "http://{}:{}/",
         rpc_server.http_address().ip(),
@@ -452,6 +475,7 @@ fn collect_rpc_examples() -> io::Result<BTreeSet<RpcTestExample>> {
         if path.extension().unwrap_or_default() == "rs"
             && path.file_stem().unwrap_or_default() != "mod"
             && path.file_stem().unwrap_or_default() != "debug"
+            && path.file_stem().unwrap_or_default() != "indexer"
         {
             collect_rpc_examples_in_file(&mut examples, path)?;
         }

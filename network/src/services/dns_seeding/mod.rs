@@ -5,6 +5,8 @@ use faster_hex::hex_decode;
 use secp256k1::PublicKey;
 use tokio::time::Interval;
 
+use crate::Flags;
+
 mod seed_record;
 
 #[cfg(test)]
@@ -107,7 +109,7 @@ impl DnsSeedingService {
         debug!("DNS seeding got {} address", addrs.len());
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                let _ = peer_store.add_addr(addr);
+                let _ = peer_store.add_addr(addr, Flags::empty());
             }
         });
         Ok(())

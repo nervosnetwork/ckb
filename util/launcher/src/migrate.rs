@@ -26,6 +26,9 @@ impl Migrate {
         migrations.add_migration(Box::new(migrations::AddNumberHashMapping)); // since v0.40.0
         migrations.add_migration(Box::new(migrations::AddExtraDataHash)); // since v0.43.0
         migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily)); // since v0.100.0
+        migrations.add_migration(Box::new(migrations::AddChainRootMMR)); // TODO(light-client) update the comment: which version?
+        migrations.add_migration(Box::new(migrations::AddBlockFilterColumnFamily)); // since v0.105.0
+        migrations.add_migration(Box::new(migrations::RebuildBlockFilter)); // since v0.105.0
 
         Migrate {
             migrations,

@@ -1,5 +1,5 @@
 use ckb_types::{
-    core::{BlockNumber, HeaderBuilder},
+    core::{BlockNumber, EpochNumberWithFraction, HeaderBuilder},
     packed::Byte32,
     prelude::*,
     U256,
@@ -18,7 +18,9 @@ fn test_get_ancestor_use_skip_list() {
 
     let mut parent_hash = None;
     for number in 0..SKIPLIST_LENGTH {
-        let mut header_builder = HeaderBuilder::default().number(number.pack());
+        let mut header_builder = HeaderBuilder::default()
+            .number(number.pack())
+            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack());
         if let Some(parent_hash) = parent_hash.take() {
             header_builder = header_builder.parent_hash(parent_hash);
         }

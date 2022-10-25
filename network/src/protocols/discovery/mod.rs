@@ -24,7 +24,7 @@ use self::{
     protocol::{decode, encode},
     state::RemoteAddress,
 };
-use crate::{NetworkState, ProtocolId};
+use crate::{Flags, NetworkState, ProtocolId};
 
 mod addr;
 pub(crate) mod protocol;
@@ -106,6 +106,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                         listen_port,
                         count,
                         version,
+                        required_flags,
                     } => {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
@@ -118,7 +119,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                             state.received_get_nodes = true;
                             // must get the item first, otherwise it is possible to load
                             // the address of peer listen.
-                            let mut items = self.addr_mgr.get_random(2500);
+                            let mut items = self.addr_mgr.get_random(2500, required_flags);
 
                             // change client random outbound port to client listen port
                             debug!("listen port: {:?}", listen_port);
@@ -127,7 +128,9 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                                 state.addr_known.insert(state.remote_addr.to_inner());
                                 // add client listen address to manager
                                 if let RemoteAddress::Listen(ref addr) = state.remote_addr {
-                                    self.addr_mgr.add_new_addr(session.id, addr.clone());
+                                    let flags = self.addr_mgr.node_flags(session.id);
+                                    self.addr_mgr
+                                        .add_new_addr(session.id, (addr.clone(), flags));
                                 }
                             }
                             if version >= state::REUSE_PORT_VERSION {
@@ -148,7 +151,8 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                             let items = items
                                 .into_iter()
                                 .map(|addr| Node {
-                                    addresses: vec![addr],
+                                    addresses: vec![addr.0],
+                                    flags: addr.1,
                                 })
                                 .collect::<Vec<_>>();
 
@@ -185,7 +189,9 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                                 let addrs = nodes
                                     .items
                                     .into_iter()
-                                    .flat_map(|node| node.addresses.into_iter())
+                                    .flat_map(|node| {
+                                        node.addresses.into_iter().map(move |a| (a, node.flags))
+                                    })
                                     .collect::<Vec<_>>();
 
                                 state.addr_known.extend(addrs.iter());
@@ -226,7 +232,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                 .check_timer(now, ANNOUNCE_INTERVAL)
                 .filter(|addr| self.addr_mgr.is_valid_addr(addr))
             {
-                announce_list.push(addr.clone());
+                announce_list.push((addr.clone(), self.addr_mgr.node_flags(*id)));
             }
         }
 
@@ -238,7 +244,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                 for key in keys.iter().take(3) {
                     if let Some(value) = self.sessions.get_mut(key) {
                         trace!(
-                            ">> send {} to: {:?}, contains: {}",
+                            ">> send {:?} to: {:?}, contains: {}",
                             announce_multiaddr,
                             value.remote_addr,
                             value.addr_known.contains(&announce_multiaddr)
@@ -324,19 +330,19 @@ impl AddressManager for DiscoveryAddressManager {
         }
     }
 
-    fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr) {
+    fn add_new_addr(&mut self, session_id: SessionId, addr: (Multiaddr, Flags)) {
         self.add_new_addrs(session_id, vec![addr])
     }
 
-    fn add_new_addrs(&mut self, _session_id: SessionId, addrs: Vec<Multiaddr>) {
+    fn add_new_addrs(&mut self, _session_id: SessionId, addrs: Vec<(Multiaddr, Flags)>) {
         if addrs.is_empty() {
             return;
         }
 
-        for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
+        for (addr, flags) in addrs.into_iter().filter(|addr| self.is_valid_addr(&addr.0)) {
             trace!("Add discovered address:{:?}", addr);
             self.network_state.with_peer_store_mut(|peer_store| {
-                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
                     debug!(
                         "Failed to add discoved address to peer_store {:?} {:?}",
                         err, addr
@@ -356,20 +362,38 @@ impl AddressManager for DiscoveryAddressManager {
         MisbehaveResult::Disconnect
     }
 
-    fn get_random(&mut self, n: usize) -> Vec<Multiaddr> {
+    fn get_random(&mut self, n: usize, flags: Flags) -> Vec<(Multiaddr, Flags)> {
         let fetch_random_addrs = self
             .network_state
-            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n));
+            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n, flags));
         let addrs = fetch_random_addrs
             .into_iter()
             .filter_map(|paddr| {
                 if !self.is_valid_addr(&paddr.addr) {
                     return None;
                 }
-                Some(paddr.addr)
+                let f = Flags::from_bits_truncate(paddr.flags);
+                Some((paddr.addr, f))
             })
             .collect();
         trace!("discovery send random addrs: {:?}", addrs);
         addrs
+    }
+
+    fn required_flags(&self) -> super::identify::Flags {
+        self.network_state.required_flags
+    }
+
+    fn node_flags(&self, id: SessionId) -> Flags {
+        self.network_state.with_peer_registry(|reg| {
+            if let Some(peer) = reg.get_peer(id) {
+                peer.identify_info
+                    .as_ref()
+                    .map(|a| a.flags)
+                    .unwrap_or(Flags::COMPATIBILITY)
+            } else {
+                Flags::COMPATIBILITY
+            }
+        })
     }
 }

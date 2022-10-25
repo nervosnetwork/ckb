@@ -1,5 +1,7 @@
 use crate::network_group::Group;
-use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
+use crate::{
+    multiaddr::Multiaddr, protocols::identify::Flags, ProtocolId, ProtocolVersion, SessionType,
+};
 use p2p::SessionId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -9,6 +11,8 @@ use std::time::{Duration, Instant};
 pub struct PeerIdentifyInfo {
     /// Node version
     pub client_version: String,
+    /// Node flags
+    pub flags: Flags,
 }
 
 /// Peer info
@@ -36,6 +40,8 @@ pub struct Peer {
     pub protocols: HashMap<ProtocolId, ProtocolVersion>,
     /// Whether a whitelist
     pub is_whitelist: bool,
+    /// Whether the remote peer is a light client, and it subscribes the chain state.
+    pub if_lightclient_subscribed: bool,
 }
 
 impl Peer {
@@ -58,6 +64,7 @@ impl Peer {
             session_type,
             protocols: HashMap::with_capacity_and_hasher(1, Default::default()),
             is_whitelist,
+            if_lightclient_subscribed: false,
         }
     }
 

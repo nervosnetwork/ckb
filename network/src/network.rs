@@ -9,7 +9,7 @@ use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
-    identify::{IdentifyCallback, IdentifyProtocol},
+    identify::{Flags, IdentifyCallback, IdentifyProtocol},
     ping::PingHandler,
     support_protocols::SupportProtocols,
 };
@@ -86,6 +86,7 @@ pub struct NetworkState {
     /// Node supported protocols
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
+    pub(crate) required_flags: Flags,
 }
 
 impl NetworkState {
@@ -136,7 +137,15 @@ impl NetworkState {
             local_peer_id,
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
+            required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
         })
+    }
+
+    /// use to discovery get nodes message to announce what kind of node information need from the other peer
+    /// default with `Flags::SYNC | Flags::DISCOVERY | Flags::RELAY`
+    pub fn required_flags(mut self, flags: Flags) -> Self {
+        self.required_flags = flags;
+        self
     }
 
     pub(crate) fn report_session(
@@ -771,8 +780,8 @@ impl<T: ExitHandler> NetworkService<T> {
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
         required_protocol_ids: Vec<ProtocolId>,
-        name: String,
-        version: String,
+        // name, version, flags
+        identify_announce: (String, String, Flags),
         exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
@@ -797,8 +806,12 @@ impl<T: ExitHandler> NetworkService<T> {
         // == Build special protocols
 
         // Identify is a core protocol, user cannot disable it via config
-        let identify_callback =
-            IdentifyCallback::new(Arc::clone(&network_state), name, version.clone());
+        let identify_callback = IdentifyCallback::new(
+            Arc::clone(&network_state),
+            identify_announce.0,
+            identify_announce.1.clone(),
+            identify_announce.2,
+        );
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
             ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
         });
@@ -868,6 +881,7 @@ impl<T: ExitHandler> NetworkService<T> {
         let mut service_builder = ServiceBuilder::default();
         let yamux_config = YamuxConfig {
             max_stream_count: protocol_metas.len(),
+            max_stream_window_size: 1024 * 1024,
             ..Default::default()
         };
         for meta in protocol_metas.into_iter() {
@@ -1024,7 +1038,7 @@ impl<T: ExitHandler> NetworkService<T> {
             network_state,
             ping_controller,
             bg_services,
-            version,
+            version: identify_announce.1,
         }
     }
 
@@ -1040,12 +1054,14 @@ impl<T: ExitHandler> NetworkService<T> {
             self.network_state.dial_identify(&p2p_control, addr);
         }
 
+        let target = &self.network_state.required_flags;
+
         // get bootnodes
         // try get addrs from peer_store, if peer_store have no enough addrs then use bootnodes
         let bootnodes = self.network_state.with_peer_store_mut(|peer_store| {
             let count = max((config.max_outbound_peers >> 1) as usize, 1);
             let mut addrs: Vec<_> = peer_store
-                .fetch_addrs_to_attempt(count)
+                .fetch_addrs_to_attempt(count, *target)
                 .into_iter()
                 .map(|paddr| paddr.addr)
                 .collect();
@@ -1184,6 +1200,11 @@ impl NetworkController {
     /// Node peer id's base58 format string
     pub fn node_id(&self) -> String {
         self.network_state.node_id()
+    }
+
+    /// p2p service control
+    pub fn p2p_control(&self) -> &ServiceControl {
+        &self.p2p_control
     }
 
     /// Dial remote node

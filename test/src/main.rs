@@ -370,6 +370,10 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
+        Box::new(GetBlockFilterCheckPoints),
+        Box::new(GetBlockFilterHashes),
+        Box::new(GetBlockFilters),
+        Box::new(GetBlockFiltersNotReachBatch),
         Box::new(GetBlocksTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),
@@ -525,7 +529,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckCellDeps),
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
-        Box::new(CheckBlockExtension),
         Box::new(CheckVmVersion),
         Box::new(CheckVmBExtension),
     ];

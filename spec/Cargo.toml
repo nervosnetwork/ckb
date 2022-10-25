@@ -22,3 +22,4 @@ ckb-crypto = { path = "../util/crypto", version = "= 0.105.0-rc1"}
 ckb-hash = { path = "../util/hash", version = "= 0.105.0-rc1"}
 ckb-error = { path = "../error", version = "= 0.105.0-rc1" }
 ckb-traits = { path = "../traits", version = "= 0.105.0-rc1" }
+ckb-util = { path = "../util", version = "= 0.105.0-rc1" }

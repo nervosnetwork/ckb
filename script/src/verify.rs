@@ -30,8 +30,7 @@ use ckb_types::{
 
 use ckb_vm::{
     snapshot::{resume, Snapshot},
-    DefaultMachineBuilder, Error as VMInternalError, InstructionCycleFunc, SupportMachine,
-    Syscalls,
+    DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
 
 #[cfg(has_asm)]
@@ -849,13 +848,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         }
     }
 
-    /// Gets the cost model.
-    ///
-    /// Cost model is used to evaluate consumed cycles.
-    pub fn cost_model(&self) -> Box<InstructionCycleFunc> {
-        Box::new(instruction_cycles)
-    }
-
     /// Prepares syscalls.
     pub fn generate_syscalls(
         &'a self,
@@ -905,7 +897,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let script_version = self.select_version(&script_group.script)?;
         let core_machine = script_version.init_core_machine(max_cycles);
         let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
-            .instruction_cycle_func(self.cost_model());
+            .instruction_cycle_func(&instruction_cycles);
         let machine_builder = self
             .generate_syscalls(script_version, script_group)
             .into_iter()

@@ -68,6 +68,7 @@ members = [
     "db-migration",
     "util/network-alert",
     "store",
+    "util/indexer",
     "util/chain-iter",
     "util/test-chain-utils",
     "util/dao",
@@ -78,11 +79,13 @@ members = [
     "verification/contextual",
     "tx-pool",
     "shared",
+    "block-filter",
     "chain",
     "sync",
     "util/instrument",
     "rpc",
     "util/launcher/migration-template",
+    "util/light-client-protocol-server",
     "util/launcher",
     "ckb-bin"
 ]
