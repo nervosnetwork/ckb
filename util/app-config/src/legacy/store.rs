@@ -13,8 +13,6 @@ pub(crate) struct StoreConfig {
     block_extensions_cache_size: usize,
     #[serde(default = "default_freezer_enable")]
     freezer_enable: bool,
-    #[serde(default = "default_block_filter_enable")]
-    block_filter_enable: bool,
 }
 
 const fn default_block_extensions_cache_size() -> usize {
@@ -22,10 +20,6 @@ const fn default_block_extensions_cache_size() -> usize {
 }
 
 const fn default_freezer_enable() -> bool {
-    false
-}
-
-const fn default_block_filter_enable() -> bool {
     false
 }
 
@@ -46,7 +40,6 @@ impl Default for StoreConfig {
             cellbase_cache_size: None,
             block_extensions_cache_size: default_block_extensions_cache_size(),
             freezer_enable: default_freezer_enable(),
-            block_filter_enable: default_block_filter_enable(),
         }
     }
 }
@@ -62,7 +55,6 @@ impl From<StoreConfig> for crate::StoreConfig {
             cellbase_cache_size: _,
             block_extensions_cache_size,
             freezer_enable,
-            block_filter_enable,
         } = input;
         Self {
             header_cache_size,
@@ -72,7 +64,6 @@ impl From<StoreConfig> for crate::StoreConfig {
             block_uncles_cache_size,
             block_extensions_cache_size,
             freezer_enable,
-            block_filter_enable,
         }
     }
 }
