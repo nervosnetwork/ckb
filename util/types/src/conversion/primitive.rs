@@ -173,6 +173,26 @@ impl Pack<packed::Bytes> for String {
     }
 }
 
+impl<'r> Unpack<Option<Vec<u64>>> for packed::Uint64VecOptReader<'r> {
+    fn unpack(&self) -> Option<Vec<u64>> {
+        self.to_opt().map(|x| x.unpack())
+    }
+}
+
+impl_conversion_for_entity_unpack!(Option<Vec<u64>>, Uint64VecOpt);
+
+impl Pack<packed::Uint64VecOpt> for Option<Vec<u64>> {
+    fn pack(&self) -> packed::Uint64VecOpt {
+        if let Some(inner) = self.as_ref() {
+            packed::Uint64VecOptBuilder::default()
+                .set(Some(inner.pack()))
+                .build()
+        } else {
+            packed::Uint64VecOpt::default()
+        }
+    }
+}
+
 impl_conversion_for_option!(bool, BoolOpt, BoolOptReader);
 impl_conversion_for_vector!(u32, Uint32Vec, Uint32VecReader);
 impl_conversion_for_vector!(usize, Uint32Vec, Uint32VecReader);

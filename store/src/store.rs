@@ -241,9 +241,24 @@ pub trait ChainStore<'a>: Send + Sync + Sized {
     }
 
     /// Get block ext by block header hash
+    ///
+    /// Since v0.106, `BlockExt` added two option fields, so we have to use compatibility mode to read
     fn get_block_ext(&'a self, block_hash: &packed::Byte32) -> Option<BlockExt> {
         self.get(COLUMN_BLOCK_EXT, block_hash.as_slice())
-            .map(|slice| packed::BlockExtReader::from_slice_should_be_ok(slice.as_ref()).unpack())
+            .map(|slice| {
+                let reader =
+                    packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
+                match reader.count_extra_fields() {
+                    0 => reader.unpack(),
+                    2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).unpack(),
+                    _ => {
+                        panic!(
+                            "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
+                            reader.field_count()
+                        )
+                    }
+                }
+            })
     }
 
     /// Get block header hash by block number

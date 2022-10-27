@@ -52,6 +52,8 @@ impl MockStore {
             total_uncles_count: 0,
             verified: Some(true),
             txs_fees: vec![],
+            cycles: None,
+            txs_sizes: None,
         };
         let store = Self::default();
         {
@@ -94,6 +96,8 @@ impl MockStore {
                     + block.data().uncles().len() as u64,
                 verified: Some(true),
                 txs_fees: vec![],
+                cycles: None,
+                txs_sizes: None,
             };
             db_txn.insert_block_ext(&block.hash(), &block_ext).unwrap();
         }

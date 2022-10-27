@@ -181,6 +181,8 @@ impl ChainDB {
             total_uncles_count: 0,
             verified: Some(true),
             txs_fees: vec![],
+            cycles: Some(vec![]),
+            txs_sizes: Some(vec![]),
         };
 
         attach_block_cell(&db_txn, genesis)?;

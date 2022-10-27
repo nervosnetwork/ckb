@@ -66,6 +66,8 @@ fn test_find_fork_case1() {
         // if txs in parent is invalid, txs in block is also invalid
         verified: None,
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
 
     let mut fork = ForkChanges::default();
@@ -136,6 +138,8 @@ fn test_find_fork_case2() {
         // if txs in parent is invalid, txs in block is also invalid
         verified: None,
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
 
     let mut fork = ForkChanges::default();
@@ -207,6 +211,8 @@ fn test_find_fork_case3() {
         // if txs in parent is invalid, txs in block is also invalid
         verified: None,
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
     let mut fork = ForkChanges::default();
 
@@ -277,6 +283,8 @@ fn test_find_fork_case4() {
         // if txs in parent is invalid, txs in block is also invalid
         verified: None,
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
 
     let mut fork = ForkChanges::default();
