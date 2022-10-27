@@ -578,6 +578,7 @@ pub trait ChainRpc {
     ///       "version": "0x0",
     ///       "witnesses": []
     ///     },
+    ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",
@@ -596,6 +597,7 @@ pub trait ChainRpc {
     ///   "jsonrpc": "2.0",
     ///   "result": {
     ///     "transaction": "0x.....",
+    ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",
@@ -1834,10 +1836,20 @@ impl ChainRpcImpl {
         &self,
         tx_hash: packed::Byte32,
     ) -> Result<Option<TransactionWithStatus>> {
-        if let Some(tx_info) = self.shared.snapshot().get_transaction_info(&tx_hash) {
+        let snapshot = self.shared.snapshot();
+        if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
+            let cycles = snapshot
+                .get_block_ext(&tx_info.block_hash)
+                .and_then(|block_ext| {
+                    block_ext
+                        .cycles
+                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                });
+
             return Ok(Some(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_hash.unpack(),
+                cycles,
             )));
         }
 
@@ -1853,18 +1865,30 @@ impl ChainRpcImpl {
             error!("get_tx_status from db error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
-        let tx_status = tx_status.unwrap();
-        Ok(Some(TransactionWithStatus::status_only(tx_status)))
+        let (tx_status, cycles) = tx_status.unwrap();
+        Ok(Some(TransactionWithStatus::omit_transaction(
+            tx_status, cycles,
+        )))
     }
 
     fn get_transaction_verbosity2(
         &self,
         tx_hash: packed::Byte32,
     ) -> Result<Option<TransactionWithStatus>> {
-        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
+        let snapshot = self.shared.snapshot();
+        if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
+            let cycles = snapshot
+                .get_block_ext(&tx_info.block_hash)
+                .and_then(|block_ext| {
+                    block_ext
+                        .cycles
+                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                });
+
             return Ok(Some(TransactionWithStatus::with_committed(
                 Some(tx),
-                block_hash.unpack(),
+                tx_info.block_hash.unpack(),
+                cycles,
             )));
         }
 

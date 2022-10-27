@@ -5,21 +5,21 @@ use ckb_types::core::{BlockView, EpochNumberWithFraction, HeaderView, Transactio
 pub fn is_transaction_pending(node: &Node, transaction: &TransactionView) -> bool {
     node.rpc_client()
         .get_transaction(transaction.hash())
-        .map(|txstatus| txstatus.tx_status.status == Status::Pending)
+        .map(|ret| ret.tx_status.status == Status::Pending && ret.cycles.is_some())
         .unwrap_or(false)
 }
 
 pub fn is_transaction_proposed(node: &Node, transaction: &TransactionView) -> bool {
     node.rpc_client()
         .get_transaction(transaction.hash())
-        .map(|txstatus| txstatus.tx_status.status == Status::Proposed)
+        .map(|ret| ret.tx_status.status == Status::Proposed && ret.cycles.is_some())
         .unwrap_or(false)
 }
 
 pub fn is_transaction_committed(node: &Node, transaction: &TransactionView) -> bool {
     node.rpc_client()
         .get_transaction(transaction.hash())
-        .map(|txstatus| txstatus.tx_status.status == Status::Committed)
+        .map(|ret| ret.tx_status.status == Status::Committed && ret.cycles.is_some())
         .unwrap_or(false)
 }
 

@@ -520,6 +520,8 @@ impl From<Transaction> for packed::Transaction {
 pub struct TransactionWithStatusResponse {
     /// The transaction.
     pub transaction: Option<ResponseFormat<TransactionView>>,
+    /// The transaction consumed cycles.
+    pub cycles: Option<Cycle>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
@@ -534,12 +536,14 @@ impl TransactionWithStatusResponse {
                     .transaction
                     .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
                     .transaction
                     .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
         }
     }

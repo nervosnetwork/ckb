@@ -142,32 +142,41 @@ pub struct TxPoolEntryInfo {
 pub struct TransactionWithStatus {
     /// The transaction.
     pub transaction: Option<core::TransactionView>,
-    /// The Transaction status.
+    /// The transaction status.
     pub tx_status: TxStatus,
+    /// The transaction verification consumed cycles
+    pub cycles: Option<core::Cycle>,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
         Self {
             tx_status: TxStatus::Pending,
             transaction: tx,
+            cycles: Some(cycles),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
         Self {
             tx_status: TxStatus::Proposed,
             transaction: tx,
+            cycles: Some(cycles),
         }
     }
 
     /// Build with committed status
-    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
+    pub fn with_committed(
+        tx: Option<core::TransactionView>,
+        hash: H256,
+        cycles: Option<core::Cycle>,
+    ) -> Self {
         Self {
             tx_status: TxStatus::Committed(hash),
             transaction: tx,
+            cycles,
         }
     }
 
@@ -176,6 +185,7 @@ impl TransactionWithStatus {
         Self {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
+            cycles: None,
         }
     }
 
@@ -184,14 +194,16 @@ impl TransactionWithStatus {
         Self {
             tx_status: TxStatus::Unknown,
             transaction: None,
+            cycles: None,
         }
     }
 
-    /// Build with status only
-    pub fn status_only(tx_status: TxStatus) -> Self {
+    /// Omit transaction
+    pub fn omit_transaction(tx_status: TxStatus, cycles: Option<core::Cycle>) -> Self {
         Self {
             tx_status,
             transaction: None,
+            cycles,
         }
     }
 

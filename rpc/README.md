@@ -827,6 +827,7 @@ Response
       "version": "0x0",
       "witnesses": []
     },
+    "cycles": "0x219",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -846,6 +847,7 @@ The response looks like below when `verbosity` is 0.
   "jsonrpc": "2.0",
   "result": {
     "transaction": "0x.....",
+    "cycles": "0x219",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -6572,6 +6574,8 @@ The JSON view of a transaction as well as its status.
 `TransactionWithStatusResponse` is a JSON object with the following fields.
 
 *   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
+
+*   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
