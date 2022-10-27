@@ -97,6 +97,9 @@ discovery_local_address = false # {{
 # Ensure that itself can continue to serve as a bootnode node
 bootnode_mode = false
 
+# Supported protocols list, only "Sync" and "Identify" are mandatory, others are optional
+support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter"]
+
 # [network.sync.header_map]
 # memory_limit = "600MB"
 

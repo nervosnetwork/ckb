@@ -78,10 +78,6 @@ impl Spec for GetBlockFilterCheckPoints {
             _ => panic!("unexpected message"),
         }
     }
-
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.store.block_filter_enable = true;
-    }
 }
 
 pub struct GetBlockFilterHashes;
@@ -158,10 +154,6 @@ impl Spec for GetBlockFilterHashes {
             },
             _ => panic!("unexpected message"),
         }
-    }
-
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.store.block_filter_enable = true;
     }
 }
 
@@ -245,10 +237,6 @@ impl Spec for GetBlockFilters {
             },
             _ => panic!("unexpected message"),
         }
-    }
-
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.store.block_filter_enable = true;
     }
 }
 
@@ -335,10 +323,6 @@ impl Spec for GetBlockFiltersNotReachBatch {
             },
             _ => panic!("unexpected message"),
         }
-    }
-
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.store.block_filter_enable = true;
     }
 }
 

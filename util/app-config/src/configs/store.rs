@@ -18,6 +18,4 @@ pub struct Config {
     pub block_extensions_cache_size: usize,
     /// whether enable freezer
     pub freezer_enable: bool,
-    /// whether enable block filter
-    pub block_filter_enable: bool,
 }

@@ -252,7 +252,13 @@ impl Launcher {
 
     /// start block filter service
     pub fn start_block_filter(&self, shared: &Shared) -> Option<StopHandler<()>> {
-        if self.args.config.store.block_filter_enable {
+        if self
+            .args
+            .config
+            .network
+            .support_protocols
+            .contains(&SupportProtocol::Filter)
+        {
             Some(BlockFilterService::new(shared.clone()).start())
         } else {
             None
