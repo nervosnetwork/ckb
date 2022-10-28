@@ -1,6 +1,6 @@
 [package]
 name = "ckb-light-client-protocol-server"
-version = "0.105.0"
+version = "0.105.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,23 +9,23 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-network = { path = "../../network", version = "= 0.105.0" }
-ckb-sync = { path = "../../sync", version = "= 0.105.0" }
-ckb-shared = { path = "../../shared", version = "= 0.105.0" }
-ckb-logger = { path = "../logger", version = "= 0.105.0" }
-ckb-types = { path = "../types", version = "= 0.105.0" }
-ckb-store = { path = "../../store", version = "= 0.105.0" }
+ckb-network = { path = "../../network", version = "= 0.105.1" }
+ckb-sync = { path = "../../sync", version = "= 0.105.1" }
+ckb-shared = { path = "../../shared", version = "= 0.105.1" }
+ckb-logger = { path = "../logger", version = "= 0.105.1" }
+ckb-types = { path = "../types", version = "= 0.105.1" }
+ckb-store = { path = "../../store", version = "= 0.105.1" }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.105.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.105.0" }
-ckb-tx-pool = { path = "../../tx-pool", version = "= 0.105.0" }
-ckb-launcher = { path = "../launcher", version = "= 0.105.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.105.0" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.0" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.105.0" }
-ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.105.0" }
+ckb-chain = { path = "../../chain", version = "= 0.105.1" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.105.1" }
+ckb-tx-pool = { path = "../../tx-pool", version = "= 0.105.1" }
+ckb-launcher = { path = "../launcher", version = "= 0.105.1" }
+ckb-app-config = { path = "../app-config", version = "= 0.105.1" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.105.1" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.105.1" }
+ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.105.1" }
 tempfile = "3.0"
 faketime = "0.2"
 tokio = "1.20"
