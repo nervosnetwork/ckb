@@ -51,6 +51,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `get_fork_block`](#method-get_fork_block)
         * [Method `get_consensus`](#method-get_consensus)
         * [Method `get_block_median_time`](#method-get_block_median_time)
+        * [Method `estimate_cycles`](#method-estimate_cycles)
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
@@ -124,11 +125,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `DeploymentPos`](#type-deploymentpos)
     * [Type `DeploymentState`](#type-deploymentstate)
     * [Type `DeploymentsInfo`](#type-deploymentsinfo)
-    * [Type `DryRunResult`](#type-dryrunresult)
     * [Type `Either`](#type-either)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
+    * [Type `EstimateCycles`](#type-estimatecycles)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
@@ -1574,6 +1575,92 @@ Response
 ```
 
 
+#### Method `estimate_cycles`
+* `estimate_cycles(tx)`
+    * `tx`: [`Transaction`](#type-transaction)
+* result: [`EstimateCycles`](#type-estimatecycles)
+
+`estimate_cycles` run a transaction and return the execution consumed cycles.
+
+This method will not check the transaction validity, but only run the lock script and type script and then return the execution cycles.
+
+It is used to estimate how many cycles the scripts consume.
+
+###### Errors
+
+*   [`TransactionFailedToResolve (-301)`](#error-transactionfailedtoresolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+
+*   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - There is a script returns with an error.
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "estimate_cycles",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    }
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cycles": "0x219"
+  }
+}
+```
+
+
 ### Module Experiment
 
 RPC Module Experiment for experimenting methods.
@@ -1585,7 +1672,11 @@ The methods here may be removed or changed in future releases without prior noti
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
-* result: [`DryRunResult`](#type-dryrunresult)
+* result: [`EstimateCycles`](#type-estimatecycles)
+
+👎 Deprecated since 0.105.1:
+Please use the RPC method [`estimate_cycles`](#method-estimate_cycles) instead
+
 
 Dry run a transaction and return the execution cycles.
 
@@ -5385,17 +5476,6 @@ Chain information.
 *   `deployments`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}` - deployments info
 
 
-### Type `DryRunResult`
-
-Response result of the RPC method `dry_run_transaction`.
-
-#### Fields
-
-`DryRunResult` is a JSON object with the following fields.
-
-*   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
-
-
 ### Type `Either`
 
 The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
@@ -5466,6 +5546,17 @@ CKB adjusts difficulty based on epochs.
 *   `length`: [`BlockNumber`](#type-blocknumber) - The number of blocks in this epoch.
 
 *   `compact_target`: [`Uint32`](#type-uint32) - The difficulty target for any block in this epoch.
+
+
+### Type `EstimateCycles`
+
+Response result of the RPC method `estimate_cycles`.
+
+#### Fields
+
+`EstimateCycles` is a JSON object with the following fields.
+
+*   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
 
 
 ### Type `H256`
