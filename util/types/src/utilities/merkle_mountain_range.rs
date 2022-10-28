@@ -216,7 +216,8 @@ impl VerifiableHeader {
 
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
-        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
+        let has_chain_root =
+            !self.header().is_genesis() && self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root {
             let is_extension_beginning_with_chain_root_hash = self
                 .extension()
