@@ -1,3 +1,13 @@
+# [v0.105.1](https://github.com/nervosnetwork/ckb/compare/v0.105.0...v0.105.1) (2022-10-28)
+
+### Features
+
+* #3650: Bump ckb-vm to v0.22.0 (@mohanson)
+* #3664: Decrease max memory and increase speed, during chain root mmr migration (@yangby-cryptape)
+* #3665: Remove `block_filter_enable` option (@quake)
+
+    Two configuration options (`block_filter_enable` and `support_protocols`) are conflicting.
+
 # [v0.105.0](https://github.com/nervosnetwork/ckb/compare/v0.104.0...v0.105.0) (2022-10-25)
 
 ### Features
