@@ -2,9 +2,9 @@ use crate::{Cycle, OutPoint};
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 
-/// Response result of the RPC method `dry_run_transaction`.
+/// Response result of the RPC method `estimate_cycles`.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct DryRunResult {
+pub struct EstimateCycles {
     /// The count of cycles that the VM has consumed to verify this transaction.
     pub cycles: Cycle,
 }
