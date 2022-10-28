@@ -6,7 +6,7 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockNumber, BlockTemplate, BlockView, Capacity,
-    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, JsonBytes,
+    CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles, HeaderView, JsonBytes,
     LocalNode, OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction, TransactionProof,
     TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64, Version,
 };
@@ -215,10 +215,10 @@ impl RpcClient {
             .expect("rpc call get_raw_tx_pool")
     }
 
-    pub fn dry_run_transaction(&self, tx: Transaction) -> DryRunResult {
+    pub fn estimate_cycles(&self, tx: Transaction) -> EstimateCycles {
         self.inner
-            .dry_run_transaction(tx)
-            .expect("rpc call dry_run_transaction")
+            .estimate_cycles(tx)
+            .expect("rpc call estimate_cycles")
     }
 
     pub fn send_alert(&self, alert: Alert) {
@@ -336,7 +336,7 @@ jsonrpc!(pub struct Inner {
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
     pub fn get_blockchain_info(&self) -> ChainInfo;
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
-    pub fn dry_run_transaction(&self, _tx: Transaction) -> DryRunResult;
+    pub fn estimate_cycles(&self, _tx: Transaction) -> EstimateCycles;
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
     pub fn remove_transaction(&self, tx_hash: H256) -> bool;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
