@@ -25,10 +25,11 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockEconomicState, BlockIssuance, BlockView, CellDep, CellInput, CellOutput, Consensus,
-    DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof, MinerReward, OutPoint,
-    ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionProof, TransactionView,
-    TransactionWithStatusResponse, TxStatus, UncleBlock, UncleBlockView,
+    Block, BlockEconomicState, BlockIssuance, BlockResponse, BlockView, CellDep, CellInput,
+    CellOutput, Consensus, DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof,
+    MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType, Status, Transaction,
+    TransactionProof, TransactionView, TransactionWithStatusResponse, TxStatus, UncleBlock,
+    UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
@@ -63,7 +64,7 @@ use ckb_types::bytes::Bytes;
 
 /// The enum `Either` with variants `Left` and `Right` is a general purpose
 /// sum type with two cases.
-#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Either<L, R> {
     /// A value of type `L`.
@@ -78,7 +79,7 @@ pub enum Either<L, R> {
 ///
 /// `ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized
 /// Hex format.
-#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone)]
 #[serde(transparent)]
 pub struct ResponseFormat<V> {
     /// The inner value.

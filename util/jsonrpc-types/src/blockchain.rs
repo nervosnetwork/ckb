@@ -914,6 +914,17 @@ pub struct Block {
     pub extension: Option<JsonBytes>,
 }
 
+/// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockResponse {
+    /// The block structure
+    #[serde(flatten)]
+    pub block: ResponseFormat<BlockView>,
+    /// The block transactions consumed cycles.
+    #[serde(default)]
+    pub cycles: Option<Vec<Cycle>>,
+}
+
 /// The JSON view of a Block including header and body.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockView {
