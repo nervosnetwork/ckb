@@ -18,11 +18,12 @@ allow = [
     "CC0-1.0",
     "ISC",
     "MIT",
+    # https://softwareengineering.stackexchange.com/questions/317944/can-i-include-code-licensed-under-mpl-within-a-project-under-mit-license
+    "MPL-2.0",
 ]
 copyleft = "deny"
 default = "deny"
 exceptions = [
-    { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
     { allow = ["MIT", "ISC", "OpenSSL"], name = "ring", version = "*" },
 ]
 

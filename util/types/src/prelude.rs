@@ -7,6 +7,8 @@ pub use molecule::{
     prelude::{Builder, Entity, Reader},
 };
 
+pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
+
 /// An alias of `unwrap()` to mark where we are really have confidence to do unwrap.
 ///
 /// We can also customize the panic message or do something else in this alias.

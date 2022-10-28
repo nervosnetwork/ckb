@@ -2,7 +2,7 @@ use super::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
-    identify::{IdentifyCallback, IdentifyProtocol},
+    identify::{Flags, IdentifyCallback, IdentifyProtocol},
     ping::PingHandler,
 };
 
@@ -98,7 +98,12 @@ impl Node {
     }
 }
 
-fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
+fn net_service_start(
+    name: String,
+    enable_discovery_push: bool,
+    required_flags: Flags,
+    self_flags: Flags,
+) -> Node {
     let config = NetworkConfig {
         max_peers: 19,
         max_outbound_peers: 5,
@@ -121,8 +126,11 @@ fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
         ..Default::default()
     };
 
-    let network_state =
-        Arc::new(NetworkState::from_config(config.clone()).expect("Init network state failed"));
+    let network_state = Arc::new(
+        NetworkState::from_config(config.clone())
+            .expect("Init network state failed")
+            .required_flags(required_flags),
+    );
 
     network_state.protocols.write().push((
         SupportProtocols::Ping.protocol_id(),
@@ -172,8 +180,12 @@ fn net_service_start(name: String, enable_discovery_push: bool) -> Node {
     });
 
     // Identify protocol
-    let identify_callback =
-        IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
+    let identify_callback = IdentifyCallback::new(
+        Arc::clone(&network_state),
+        name,
+        "0.1.0".to_string(),
+        self_flags,
+    );
     let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
         ProtocolHandle::Callback(Box::new(
             IdentifyProtocol::new(identify_callback).global_ip_only(false),
@@ -270,14 +282,15 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
 }
 
 #[allow(clippy::blocks_in_if_conditions)]
-fn wait_discovery(node: &Node) {
+fn wait_discovery(node: &Node, assert: impl Fn(usize) -> bool) {
     if !wait_until(100, || {
-        node.network_state
-            .peer_store
-            .lock()
-            .mut_addr_manager()
-            .count()
-            >= 2
+        assert(
+            node.network_state
+                .peer_store
+                .lock()
+                .mut_addr_manager()
+                .count(),
+        )
     }) {
         panic!("discovery can't find other node")
     }
@@ -285,9 +298,39 @@ fn wait_discovery(node: &Node) {
 
 #[test]
 fn test_identify_behavior() {
-    let node1 = net_service_start("/test/1".to_string(), false);
-    let node2 = net_service_start("/test/2".to_string(), false);
-    let node3 = net_service_start("/test/1".to_string(), false);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        false,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/2".to_string(),
+        false,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node3 = net_service_start(
+        "/test/1".to_string(),
+        false,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+
+    let node4 = net_service_start(
+        "/test/1".to_string(),
+        false,
+        Flags::SYNC | Flags::RELAY | Flags::DISCOVERY | Flags::BLOCK_FILTER,
+        Flags::SYNC | Flags::RELAY | Flags::DISCOVERY,
+    );
+
+    node4.dial(
+        &node1,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+
+    thread::sleep(Duration::from_secs(1));
+    wait_connect_state(&node4, 0);
 
     node1.dial(
         &node3,
@@ -367,8 +410,18 @@ fn test_identify_behavior() {
 
 #[test]
 fn test_feeler_behavior() {
-    let node1 = net_service_start("/test/1".to_string(), true);
-    let node2 = net_service_start("/test/1".to_string(), true);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
 
     node1.dial(
         &node2,
@@ -389,9 +442,24 @@ fn test_feeler_behavior() {
 
 #[test]
 fn test_discovery_behavior() {
-    let node1 = net_service_start("/test/1".to_string(), true);
-    let node2 = net_service_start("/test/1".to_string(), true);
-    let node3 = net_service_start("/test/1".to_string(), true);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node3 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
 
     node1.dial(
         &node2,
@@ -407,7 +475,7 @@ fn test_discovery_behavior() {
 
     wait_connect_state(&node2, 2);
 
-    wait_discovery(&node3);
+    wait_discovery(&node3, |num| num >= 2);
 
     let addrs = {
         let listen_addr = &node3.listen_addr;
@@ -475,8 +543,18 @@ fn test_discovery_behavior() {
 
 #[test]
 fn test_dial_all() {
-    let node1 = net_service_start("/test/1".to_string(), true);
-    let node2 = net_service_start("/test/1".to_string(), true);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
 
     node1.dial(&node2, TargetProtocol::All);
 
@@ -486,8 +564,18 @@ fn test_dial_all() {
 
 #[test]
 fn test_ban() {
-    let node1 = net_service_start("/test/1".to_string(), true);
-    let node2 = net_service_start("/test/1".to_string(), true);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
 
     node1.dial(
         &node2,
@@ -525,12 +613,42 @@ fn test_ban() {
 
 #[test]
 fn test_bootnode_mode_inbound_eviction() {
-    let node1 = net_service_start("/test/1".to_string(), true);
-    let node2 = net_service_start("/test/1".to_string(), true);
-    let node3 = net_service_start("/test/1".to_string(), true);
-    let node4 = net_service_start("/test/1".to_string(), true);
-    let node5 = net_service_start("/test/1".to_string(), true);
-    let node6 = net_service_start("/test/1".to_string(), true);
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node3 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node4 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node5 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let node6 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
 
     node2.dial(
         &node1,

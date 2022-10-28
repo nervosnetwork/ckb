@@ -49,6 +49,10 @@ pub enum SupportProtocols {
     /// Alert: A protocol reserved by the Nervos Foundation to publish network-wide announcements.
     /// Any information sent from the protocol is verified by multi-signature
     Alert,
+    /// LightClient: A protocol used for light client.
+    LightClient,
+    /// Filter: A protocol used for client side block data filtering.
+    Filter,
 }
 
 impl SupportProtocols {
@@ -64,6 +68,8 @@ impl SupportProtocols {
             SupportProtocols::RelayV2 => 101,
             SupportProtocols::Time => 102,
             SupportProtocols::Alert => 110,
+            SupportProtocols::LightClient => 120,
+            SupportProtocols::Filter => 121,
         }
         .into()
     }
@@ -80,6 +86,8 @@ impl SupportProtocols {
             SupportProtocols::RelayV2 => "/ckb/relay",
             SupportProtocols::Time => "/ckb/tim",
             SupportProtocols::Alert => "/ckb/alt",
+            SupportProtocols::LightClient => "/ckb/lightclient",
+            SupportProtocols::Filter => "/ckb/filter",
         }
         .to_owned()
     }
@@ -89,7 +97,7 @@ impl SupportProtocols {
         // Here you have to make sure that the list of supported versions is sorted from smallest to largest
         match self {
             SupportProtocols::Ping => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Discovery => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::Discovery => vec![LASTEST_VERSION.to_owned(), "2.1".to_owned()],
             SupportProtocols::Identify => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::Feeler => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::DisconnectMessage => {
@@ -99,21 +107,25 @@ impl SupportProtocols {
             SupportProtocols::Time => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::Alert => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::RelayV2 => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::LightClient => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::Filter => vec![LASTEST_VERSION.to_owned()],
         }
     }
 
     /// Protocol message max length
     pub fn max_frame_length(&self) -> usize {
         match self {
-            SupportProtocols::Ping => 1024,               // 1   KB
-            SupportProtocols::Discovery => 512 * 1024,    // 512 KB
-            SupportProtocols::Identify => 2 * 1024,       // 2   KB
-            SupportProtocols::Feeler => 1024,             // 1   KB
-            SupportProtocols::DisconnectMessage => 1024,  // 1   KB
-            SupportProtocols::Sync => 2 * 1024 * 1024,    // 2   MB
-            SupportProtocols::RelayV2 => 4 * 1024 * 1024, // 4   MB
-            SupportProtocols::Time => 1024,               // 1   KB
-            SupportProtocols::Alert => 128 * 1024,        // 128 KB
+            SupportProtocols::Ping => 1024,                   // 1   KB
+            SupportProtocols::Discovery => 512 * 1024,        // 512 KB
+            SupportProtocols::Identify => 2 * 1024,           // 2   KB
+            SupportProtocols::Feeler => 1024,                 // 1   KB
+            SupportProtocols::DisconnectMessage => 1024,      // 1   KB
+            SupportProtocols::Sync => 2 * 1024 * 1024,        // 2   MB
+            SupportProtocols::RelayV2 => 4 * 1024 * 1024,     // 4   MB
+            SupportProtocols::Time => 1024,                   // 1   KB
+            SupportProtocols::Alert => 128 * 1024,            // 128 KB
+            SupportProtocols::LightClient => 2 * 1024 * 1024, // 2 MB
+            SupportProtocols::Filter => 2 * 1024 * 1024,      // 2   MB
         }
     }
 

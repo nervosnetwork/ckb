@@ -2,8 +2,8 @@ use super::error::Error;
 use super::signature::Signature;
 use super::{Message, Pubkey, SECP256K1};
 use ckb_fixed_hash::H256;
-use secp256k1::key;
 use secp256k1::Message as SecpMessage;
+use secp256k1::{PublicKey, SecretKey};
 use std::str::FromStr;
 use std::{ptr, sync::atomic};
 
@@ -19,9 +19,9 @@ impl Privkey {
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
+        let privkey = SecretKey::from_slice(self.inner.as_bytes())?;
         let message = SecpMessage::from_slice(message)?;
-        let data = context.sign_recoverable(&message, &privkey);
+        let data = context.sign_ecdsa_recoverable(&message, &privkey);
         let (rec_id, data) = data.serialize_compact();
         Ok(Signature::from_compact(rec_id, data))
     }
@@ -29,8 +29,8 @@ impl Privkey {
     /// Creates a new Pubkey from a Privkey.
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
-        let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
-        let pubkey = key::PublicKey::from_secret_key(context, &privkey);
+        let privkey = SecretKey::from_slice(self.inner.as_bytes())?;
+        let pubkey = PublicKey::from_secret_key(context, &privkey);
         Ok(Pubkey::from(pubkey))
     }
 
@@ -72,8 +72,8 @@ impl FromStr for Privkey {
     }
 }
 
-impl From<key::SecretKey> for Privkey {
-    fn from(key: key::SecretKey) -> Self {
+impl From<SecretKey> for Privkey {
+    fn from(key: SecretKey) -> Self {
         let mut h = [0u8; 32];
         h.copy_from_slice(&key[0..32]);
         Privkey { inner: h.into() }

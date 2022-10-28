@@ -17,7 +17,7 @@ use p2p::{
 
 mod protocol;
 
-use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols};
+use crate::{peer_store::required_flags_filter, NetworkState, PeerIdentifyInfo, SupportProtocols};
 use ckb_types::{packed, prelude::*};
 
 use protocol::IdentifyMessage;
@@ -269,6 +269,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         session
                     );
                     let _ = context.disconnect(session.id).await;
+                    return;
                 }
                 if let MisbehaveResult::Disconnect = self
                     .callback
@@ -280,6 +281,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         session,
                     );
                     let _ = context.disconnect(session.id).await;
+                    return;
                 }
                 if let MisbehaveResult::Disconnect =
                     self.process_listens(&mut context, message.listen_addrs.clone())
@@ -289,6 +291,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                         session, message.listen_addrs,
                     );
                     let _ = context.disconnect(session.id).await;
+                    return;
                 }
                 if let MisbehaveResult::Disconnect =
                     self.process_observed(&mut context, message.observed_addr.clone())
@@ -339,9 +342,8 @@ impl IdentifyCallback {
         network_state: Arc<NetworkState>,
         name: String,
         client_version: String,
+        flags: Flags,
     ) -> IdentifyCallback {
-        let flags = Flags(Flag::FullNode as u64);
-
         IdentifyCallback {
             network_state,
             identify: Identify::new(name, flags, client_version),
@@ -365,15 +367,6 @@ impl Callback for IdentifyCallback {
                 peer.protocols.insert(context.proto_id, version.to_owned());
             })
         });
-        if context.session.ty.is_outbound() {
-            // why don't set inbound here?
-            // because inbound address can't feeler during staying connected
-            // and if set it to peer store, it will be broadcast to the entire network,
-            // but this is an unverified address
-            self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_outbound_addr(context.session.address.clone());
-            });
-        }
     }
 
     fn unregister(&self, context: &ProtocolContextMutRef) {
@@ -382,10 +375,18 @@ impl Callback for IdentifyCallback {
             // disconnected after a long connection is maintained for more than seven days,
             // it is possible that the node will be accidentally evicted, so it is necessary
             // to reset the information of the node when disconnected.
-            self.network_state.with_peer_store_mut(|peer_store| {
-                if !peer_store.is_addr_banned(&context.session.address) {
-                    peer_store.add_outbound_addr(context.session.address.clone());
+            let flags = self.network_state.with_peer_registry(|reg| {
+                if let Some(p) = reg.get_peer(context.session.id) {
+                    p.identify_info
+                        .as_ref()
+                        .map(|i| i.flags)
+                        .unwrap_or(Flags::COMPATIBILITY)
+                } else {
+                    Flags::COMPATIBILITY
                 }
+            });
+            self.network_state.with_peer_store_mut(|peer_store| {
+                peer_store.add_outbound_addr(context.session.address.clone(), flags);
             });
         }
     }
@@ -415,12 +416,25 @@ impl Callback for IdentifyCallback {
                         if let Some(peer) = registry.get_peer_mut(context.session.id) {
                             peer.identify_info = Some(PeerIdentifyInfo {
                                 client_version: version,
+                                flags,
                             })
                         }
                     });
                 };
 
+                registry_client_version(client_version);
+
+                let required_flags = self.network_state.required_flags;
+
                 if context.session.ty.is_outbound() {
+                    // why don't set inbound here?
+                    // because inbound address can't feeler during staying connected
+                    // and if set it to peer store, it will be broadcast to the entire network,
+                    // but this is an unverified address
+                    self.network_state.with_peer_store_mut(|peer_store| {
+                        peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                    });
+
                     if self
                         .network_state
                         .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
@@ -431,9 +445,7 @@ impl Callback for IdentifyCallback {
                                 TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
                             )
                             .await;
-                    } else if flags.contains(self.identify.flags) {
-                        registry_client_version(client_version);
-
+                    } else if required_flags_filter(required_flags, flags) {
                         // The remote end can support all local protocols.
                         let _ = context
                             .open_protocols(
@@ -448,8 +460,6 @@ impl Callback for IdentifyCallback {
                         warn!("IdentifyProtocol close session, reason: the peer's flag does not meet the requirement");
                         return MisbehaveResult::Disconnect;
                     }
-                } else {
-                    registry_client_version(client_version);
                 }
                 MisbehaveResult::Continue
             }
@@ -467,14 +477,20 @@ impl Callback for IdentifyCallback {
             session,
             addrs,
         );
-        self.network_state.with_peer_registry_mut(|reg| {
+        let flags = self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(session.id) {
                 peer.listened_addrs = addrs.clone();
+                peer.identify_info
+                    .as_ref()
+                    .map(|a| a.flags)
+                    .unwrap_or(Flags::COMPATIBILITY)
+            } else {
+                Flags::COMPATIBILITY
             }
         });
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if let Err(err) = peer_store.add_addr(addr.clone()) {
+                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
                     error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
                 }
             }
@@ -533,31 +549,23 @@ impl Callback for IdentifyCallback {
 #[derive(Clone)]
 struct Identify {
     name: String,
-    client_version: String,
-    flags: Flags,
     encode_data: ckb_types::bytes::Bytes,
 }
 
 impl Identify {
     fn new(name: String, flags: Flags, client_version: String) -> Self {
         Identify {
+            encode_data: packed::Identify::new_builder()
+                .name(name.as_str().pack())
+                .flag(flags.bits().pack())
+                .client_version(client_version.as_str().pack())
+                .build()
+                .as_bytes(),
             name,
-            client_version,
-            flags,
-            encode_data: ckb_types::bytes::Bytes::default(),
         }
     }
 
     fn encode(&mut self) -> &[u8] {
-        if self.encode_data.is_empty() {
-            self.encode_data = packed::Identify::new_builder()
-                .name(self.name.as_str().pack())
-                .flag(self.flags.0.pack())
-                .client_version(self.client_version.as_str().pack())
-                .build()
-                .as_bytes();
-        }
-
         &self.encode_data
     }
 
@@ -580,35 +588,24 @@ impl Identify {
 
         let raw_client_version = reader.client_version().as_utf8().ok()?.to_owned();
 
-        Some((Flags::from(flag), raw_client_version))
+        Some((Flags::from_bits_truncate(flag), raw_client_version))
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u64)]
-enum Flag {
-    /// Support all protocol
-    FullNode = 0x1,
-}
-
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-struct Flags(u64);
-
-impl Flags {
-    /// Check if contains a target flag
-    fn contains(self, flags: Flags) -> bool {
-        (self.0 & flags.0) == flags.0
-    }
-}
-
-impl From<Flag> for Flags {
-    fn from(value: Flag) -> Flags {
-        Flags(value as u64)
-    }
-}
-
-impl From<u64> for Flags {
-    fn from(value: u64) -> Flags {
-        Flags(value)
+bitflags::bitflags! {
+    /// Node Function Identification
+    pub struct Flags: u64 {
+        /// Compatibility reserved
+        const COMPATIBILITY = 0b1;
+        /// Discovery protocol, which can provide peers data service
+        const DISCOVERY = 0b10;
+        /// Sync protocol can provide Block and Header download service
+        const SYNC = 0b100;
+        /// Relay protocol, which can provide CompactBlock and Transaction broadcast/forwarding services
+        const RELAY = 0b1000;
+        /// Light client protocol, which can provide Block / Transaction data and existence-proof services
+        const LIGHT_CLIENT = 0b10000;
+        /// Client-side block filter protocol can provide BlockFilter download service
+        const BLOCK_FILTER = 0b100000;
     }
 }

@@ -391,7 +391,7 @@ impl Spec for RequestUnverifiedBlocks {
 
         let mut received = Vec::new();
         while let Ok((_, _, data)) = net.receive_timeout(target_node, Duration::from_secs(10)) {
-            let message = SyncMessage::from_slice(&data).unwrap();
+            let message = SyncMessage::from_compatible_slice(&data).unwrap();
             if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
             {
                 received.push(reader.block().calc_header_hash());

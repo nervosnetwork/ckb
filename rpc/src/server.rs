@@ -7,6 +7,7 @@ use jsonrpc_pubsub::Session;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use std::net::{SocketAddr, ToSocketAddrs};
+use tokio::runtime::Handle;
 
 #[doc(hidden)]
 pub struct RpcServer {
@@ -27,13 +28,14 @@ impl RpcServer {
         config: RpcConfig,
         io_handler: IoHandler,
         notify_controller: &NotifyController,
+        handle: Handle,
     ) -> RpcServer {
         let http = jsonrpc_http_server::ServerBuilder::new(io_handler.clone())
             .cors(DomainsValidation::AllowOnly(vec![
                 AccessControlAllowOrigin::Null,
                 AccessControlAllowOrigin::Any,
             ]))
-            .threads(config.threads.unwrap_or_else(num_cpus::get))
+            .event_loop_executor(handle.clone())
             .max_request_body_size(config.max_request_body_size)
             .health_api(("/ping", "ping"))
             .start_http(
@@ -52,7 +54,7 @@ impl RpcServer {
             .as_ref()
             .map(|tcp_listen_address| {
                 let subscription_rpc_impl =
-                    SubscriptionRpcImpl::new(notify_controller.clone(), "TcpSubscription");
+                    SubscriptionRpcImpl::new(notify_controller.clone(), handle.clone());
                 let mut handler = io_handler.clone();
                 if config.subscription_enable() {
                     handler.extend_with(subscription_rpc_impl.to_delegate());
@@ -79,8 +81,7 @@ impl RpcServer {
             });
 
         let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
-            let subscription_rpc_impl =
-                SubscriptionRpcImpl::new(notify_controller.clone(), "WsSubscription");
+            let subscription_rpc_impl = SubscriptionRpcImpl::new(notify_controller.clone(), handle);
             let mut handler = io_handler.clone();
             if config.subscription_enable() {
                 handler.extend_with(subscription_rpc_impl.to_delegate());

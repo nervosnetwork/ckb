@@ -2,8 +2,8 @@ use crate::tests::util::{start_chain, start_chain_with_tx_pool_config};
 use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_jsonrpc_types::{Status, TxStatus};
 use ckb_test_chain_utils::{is_even_lib, load_is_even};
+use ckb_types::core::tx_pool::TxStatus;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -108,7 +108,7 @@ fn test_load_code() {
     let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
     assert!(ret.is_ok(), "ret {:?}", ret);
     let tx_status = tx_pool.get_tx_status(tx.hash());
-    assert_eq!(tx_status.unwrap().unwrap(), TxStatus::pending());
+    assert_eq!(tx_status.unwrap().unwrap(), TxStatus::Pending);
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn test_load_code_with_snapshot() {
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
             if let Ok(Ok(status)) = tx_status {
-                if status.status == Status::Pending {
+                if status == TxStatus::Pending {
                     break;
                 }
             }
@@ -266,7 +266,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
             if let Ok(Ok(status)) = tx_status {
-                if status.status == Status::Pending {
+                if status == TxStatus::Pending {
                     break;
                 }
             }

@@ -22,9 +22,9 @@ env:
 
 jobs:
    Start_and_sync:
-    runs-on: [self-hosted,Linux]
+    runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download&Unzip v0.35.0
       run: |
         echo "start_time=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
@@ -53,6 +53,8 @@ jobs:
         sudo systemctl daemon-reload
         sudo systemctl reset-failed
         rm ${{ github.workspace }}/ckb
+    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib
+    - run: sudo apt-get install -y wget ca-certificates && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - && sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" >> /etc/apt/sources.list.d/pgdg.list' && sudo apt-get update && sudo apt-get install -y postgresql postgresql-contrib
     - name: Download target ckb release pkg and copy binary to github workspace
       if: |
         (github.event_name == 'workflow_dispatch' && github.event.inputs.CKB_linux_release_package != '')
@@ -126,3 +128,4 @@ jobs:
         fi
     env:
       CKB_DIR: ${{ github.workspace }}
+

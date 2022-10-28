@@ -1,17 +1,18 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
-    HeaderView, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, Timestamp,
-    TransactionProof, TransactionWithStatus, Uint32,
+    HeaderView, JsonBytes, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
+    ResponseFormatInnerType, Timestamp, TransactionProof, TransactionWithStatusResponse, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
+use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
     core::{self, cell::CellProvider},
-    packed::{self, Block, Header},
+    packed,
     prelude::*,
     utilities::{merkle_root, MerkleProof, CBMT},
     H256,
@@ -158,7 +159,7 @@ pub trait ChainRpc {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
+    ) -> Result<Option<ResponseFormat<BlockView>>>;
 
     /// Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
     ///
@@ -277,7 +278,7 @@ pub trait ChainRpc {
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
+    ) -> Result<Option<ResponseFormat<BlockView>>>;
 
     /// Returns the information about a block header by hash.
     ///
@@ -355,7 +356,7 @@ pub trait ChainRpc {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<HeaderView, Header>>>;
+    ) -> Result<Option<ResponseFormat<HeaderView>>>;
 
     /// Returns the block header in the [canonical chain](#canonical-chain) with the specific block
     /// number.
@@ -436,7 +437,54 @@ pub trait ChainRpc {
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<HeaderView, Header>>>;
+    ) -> Result<Option<ResponseFormat<HeaderView>>>;
+
+    /// Returns the block filter by block hash.
+    ///
+    /// ## Params
+    ///
+    /// * `block_hash` - the block hash.
+    ///
+    /// ## Returns
+    ///
+    /// The block filter data
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_block_filter",
+    ///   "params": [
+    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
+    ///
+    /// The response looks like below when the block have block filter.
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x..."
+    /// }
+    /// ```
+    #[rpc(name = "get_block_filter")]
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>>;
 
     /// Returns the information about a transaction requested by transaction hash.
     ///
@@ -454,8 +502,8 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release.
-    /// It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+    /// When verbosity=0, it's response value is as same as verbosity=2, but it
+    /// return a 0x-prefixed hex encoded molecule packed::Transaction on `transaction` field
     ///
     /// When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
     ///
@@ -532,12 +580,31 @@ pub trait ChainRpc {
     ///   }
     /// }
     /// ```
+    ///
+    ///
+    /// The response looks like below when `verbosity` is 0.
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "transaction": "0x.....",
+    ///     "tx_status": {
+    ///       "block_hash": null,
+    ///       "status": "pending",
+    ///       "reason": null
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    ///
     #[rpc(name = "get_transaction")]
     fn get_transaction(
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatus>>;
+    ) -> Result<Option<TransactionWithStatusResponse>>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
     /// `block_number`.
@@ -646,10 +713,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_tip_header")]
-    fn get_tip_header(
-        &self,
-        verbosity: Option<Uint32>,
-    ) -> Result<ResponseFormat<HeaderView, Header>>;
+    fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>>;
 
     /// Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
     ///
@@ -1093,7 +1157,7 @@ pub trait ChainRpc {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>>;
+    ) -> Result<Option<ResponseFormat<BlockView>>>;
 
     /// Return various consensus parameters.
     ///
@@ -1221,7 +1285,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+    ) -> Result<Option<ResponseFormat<BlockView>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = block_hash.pack();
         if !snapshot.is_main_chain(&block_hash) {
@@ -1235,11 +1299,11 @@ impl ChainRpc for ChainRpcImpl {
         if verbosity == 2 {
             Ok(snapshot
                 .get_block(&block_hash)
-                .map(|block| ResponseFormat::Json(block.into())))
+                .map(|block| ResponseFormat::json(block.into())))
         } else if verbosity == 0 {
             Ok(snapshot
                 .get_packed_block(&block_hash)
-                .map(ResponseFormat::Hex))
+                .map(|packed| ResponseFormat::hex(packed.as_bytes())))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -1249,7 +1313,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+    ) -> Result<Option<ResponseFormat<BlockView>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = match snapshot.get_block_hash(block_number.into()) {
             Some(block_hash) => block_hash,
@@ -1263,11 +1327,11 @@ impl ChainRpc for ChainRpcImpl {
         let result = if verbosity == 2 {
             snapshot
                 .get_block(&block_hash)
-                .map(|block| Some(ResponseFormat::Json(block.into())))
+                .map(|block| Some(ResponseFormat::json(block.into())))
         } else if verbosity == 0 {
             snapshot
                 .get_packed_block(&block_hash)
-                .map(|block| Some(ResponseFormat::Hex(block)))
+                .map(|block| Some(ResponseFormat::hex(block.as_bytes())))
         } else {
             return Err(RPCError::invalid_params("invalid verbosity level"));
         };
@@ -1286,7 +1350,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+    ) -> Result<Option<ResponseFormat<HeaderView>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = block_hash.pack();
         if !snapshot.is_main_chain(&block_hash) {
@@ -1299,11 +1363,11 @@ impl ChainRpc for ChainRpcImpl {
         if verbosity == 1 {
             Ok(snapshot
                 .get_block_header(&block_hash)
-                .map(|header| ResponseFormat::Json(header.into())))
+                .map(|header| ResponseFormat::json(header.into())))
         } else if verbosity == 0 {
             Ok(snapshot
                 .get_packed_block_header(&block_hash)
-                .map(ResponseFormat::Hex))
+                .map(|packed| ResponseFormat::hex(packed.as_bytes())))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -1313,7 +1377,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<HeaderView, Header>>> {
+    ) -> Result<Option<ResponseFormat<HeaderView>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = match snapshot.get_block_hash(block_number.into()) {
             Some(block_hash) => block_hash,
@@ -1326,11 +1390,11 @@ impl ChainRpc for ChainRpcImpl {
         let result = if verbosity == 1 {
             snapshot
                 .get_block_header(&block_hash)
-                .map(|header| Some(ResponseFormat::Json(header.into())))
+                .map(|header| Some(ResponseFormat::json(header.into())))
         } else if verbosity == 0 {
             snapshot
                 .get_packed_block_header(&block_hash)
-                .map(|header| Some(ResponseFormat::Hex(header)))
+                .map(|header| Some(ResponseFormat::hex(header.as_bytes())))
         } else {
             return Err(RPCError::invalid_params("invalid verbosity level"));
         };
@@ -1345,31 +1409,43 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>> {
+        let snapshot = self.shared.snapshot();
+        let block_hash = block_hash.pack();
+        if !snapshot.is_main_chain(&block_hash) {
+            return Ok(None);
+        }
+        Ok(snapshot.get_block_filter(&block_hash).map(Into::into))
+    }
+
     fn get_transaction(
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatus>> {
+    ) -> Result<Option<TransactionWithStatusResponse>> {
         let tx_hash = tx_hash.pack();
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
 
         if verbosity == 0 {
-            // legacy mode
-            //  When verbosity is 0 (deprecated): this is reserved for compatibility,
-            //  and will be removed in the following release.
-            //  It return null as the RPC response when the status is rejected or unknown,
-            //  mimicking the original behaviors.
-            self.get_transaction_verbosity0(tx_hash)
+            // when verbosity=0, it's response value is as same as verbosity=2, but it
+            // return a 0x-prefixed hex encoded molecule packed::Transaction` on `transaction` field
+            self.get_transaction_verbosity2(tx_hash).map(|op| {
+                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Hex))
+            })
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
-            self.get_transaction_verbosity1(tx_hash)
+            self.get_transaction_verbosity1(tx_hash).map(|op| {
+                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
+            })
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
-            self.get_transaction_verbosity2(tx_hash)
+            self.get_transaction_verbosity2(tx_hash).map(|op| {
+                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
+            })
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -1383,20 +1459,17 @@ impl ChainRpc for ChainRpcImpl {
             .map(|h| h.unpack()))
     }
 
-    fn get_tip_header(
-        &self,
-        verbosity: Option<Uint32>,
-    ) -> Result<ResponseFormat<HeaderView, Header>> {
+    fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>> {
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
         if verbosity == 1 {
-            Ok(ResponseFormat::Json(
+            Ok(ResponseFormat::json(
                 self.shared.snapshot().tip_header().clone().into(),
             ))
         } else if verbosity == 0 {
-            Ok(ResponseFormat::Hex(
-                self.shared.snapshot().tip_header().data(),
+            Ok(ResponseFormat::hex(
+                self.shared.snapshot().tip_header().data().as_bytes(),
             ))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
@@ -1622,7 +1695,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView, Block>>> {
+    ) -> Result<Option<ResponseFormat<BlockView>>> {
         let snapshot = self.shared.snapshot();
         let block_hash = block_hash.pack();
         if snapshot.is_main_chain(&block_hash) {
@@ -1636,11 +1709,11 @@ impl ChainRpc for ChainRpcImpl {
         if verbosity == 2 {
             Ok(snapshot
                 .get_block(&block_hash)
-                .map(|block| ResponseFormat::Json(block.into())))
+                .map(|block| ResponseFormat::json(block.into())))
         } else if verbosity == 0 {
             Ok(snapshot
                 .get_packed_block(&block_hash)
-                .map(ResponseFormat::Hex))
+                .map(|packed| ResponseFormat::hex(packed.as_bytes())))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -1667,35 +1740,6 @@ impl ChainRpc for ChainRpcImpl {
 }
 
 impl ChainRpcImpl {
-    fn get_transaction_verbosity0(
-        &self,
-        tx_hash: packed::Byte32,
-    ) -> Result<Option<TransactionWithStatus>> {
-        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
-            return Ok(Some(TransactionWithStatus::with_committed(
-                Some(tx),
-                block_hash.unpack(),
-            )));
-        }
-
-        let tx_pool = self.shared.tx_pool_controller();
-        let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(tx_hash);
-        if let Err(e) = fetch_tx_for_rpc {
-            error!("send fetch_tx_for_rpc request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-
-        let ret = fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
-            if proposed {
-                TransactionWithStatus::with_proposed(Some(tx))
-            } else {
-                TransactionWithStatus::with_pending(Some(tx))
-            }
-        });
-
-        Ok(ret)
-    }
-
     fn get_transaction_verbosity1(
         &self,
         tx_hash: packed::Byte32,

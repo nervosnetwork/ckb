@@ -12,8 +12,10 @@
 
 use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
-    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TYPE_ID_CODE_HASH,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TESTNET_ACTIVATION_THRESHOLD,
+    TYPE_ID_CODE_HASH,
 };
+use crate::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -46,6 +48,7 @@ pub use hardfork::HardForkConfig;
 pub mod consensus;
 mod error;
 mod hardfork;
+pub mod versionbits;
 
 #[cfg(test)]
 mod tests;
@@ -502,6 +505,40 @@ impl ChainSpec {
         .map_err(Into::into)
     }
 
+    fn softfork_deployments(&self) -> Option<HashMap<DeploymentPos, Deployment>> {
+        match self.name.as_str() {
+            mainnet::CHAIN_SPEC_NAME => None,
+            testnet::CHAIN_SPEC_NAME => {
+                let mut deployments = HashMap::new();
+                let light_client = Deployment {
+                    bit: 1,
+                    start: 5_346,                // 2022/11/01
+                    timeout: 5_616,              // 5_346 + 270
+                    min_activation_epoch: 5_676, // 2022/12/25
+                    period: 42,
+                    active_mode: ActiveMode::Normal,
+                    threshold: TESTNET_ACTIVATION_THRESHOLD,
+                };
+                deployments.insert(DeploymentPos::LightClient, light_client);
+                Some(deployments)
+            }
+            _ => {
+                let mut deployments = HashMap::new();
+                let light_client = Deployment {
+                    bit: 1,
+                    start: 0,
+                    timeout: 0,
+                    min_activation_epoch: 0,
+                    period: 10,
+                    active_mode: ActiveMode::Always,
+                    threshold: TESTNET_ACTIVATION_THRESHOLD,
+                };
+                deployments.insert(DeploymentPos::LightClient, light_client);
+                Some(deployments)
+            }
+        }
+    }
+
     /// Build consensus instance
     ///
     /// [Consensus](consensus/struct.Consensus.html)
@@ -517,7 +554,7 @@ impl ChainSpec {
         let genesis_block = self.build_genesis()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
+        let mut builder = ConsensusBuilder::new(genesis_block, genesis_epoch_ext)
             .id(self.name.clone())
             .cellbase_maturity(EpochNumberWithFraction::from_full_value(
                 self.params.cellbase_maturity(),
@@ -536,10 +573,13 @@ impl ChainSpec {
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
             .max_block_proposals_limit(self.params.max_block_proposals_limit())
             .orphan_rate_target(self.params.orphan_rate_target())
-            .hardfork_switch(hardfork_switch)
-            .build();
+            .hardfork_switch(hardfork_switch);
 
-        Ok(consensus)
+        if let Some(deployments) = self.softfork_deployments() {
+            builder = builder.softfork_deployments(deployments);
+        }
+
+        Ok(builder.build())
     }
 
     /// Build genesis block from chain spec

@@ -57,6 +57,8 @@ pub(crate) struct CKBAppConfig {
     alert_signature: Option<crate::NetworkAlertConfig>,
     #[serde(default)]
     notify: crate::NotifyConfig,
+    #[serde(default)]
+    indexer_v2: crate::IndexerConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -96,16 +98,18 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             chain,
             block_assembler,
             db,
-            indexer: _,
+            indexer,
             network,
             rpc,
             tx_pool,
             store,
             alert_signature,
             notify,
+            indexer_v2,
         } = input;
         #[cfg(not(feature = "with_sentry"))]
         let _ = sentry;
+        let _ = indexer;
         Self {
             bin_name: cli::BIN_NAME.to_owned(),
             root_dir: Default::default(),
@@ -126,6 +130,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             store: store.into(),
             alert_signature,
             notify,
+            indexer: indexer_v2,
         }
     }
 }
@@ -182,7 +187,6 @@ macro_rules! deprecate {
 impl CKBAppConfig {
     pub(crate) fn deprecated_fields(&self) -> Vec<DeprecatedField> {
         let mut v = Vec::new();
-        deprecate!(self, v, indexer, "0.40.0");
         deprecate!(self, v, store.cellbase_cache_size, "0.100.0");
         deprecate!(self, v, tx_pool.max_verify_cache_size, "0.100.0");
         deprecate!(self, v, tx_pool.max_conflict_cache_size, "0.100.0");

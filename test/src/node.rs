@@ -390,6 +390,13 @@ impl Node {
             .into()
     }
 
+    pub fn get_block_filter(&self, hash: Byte32) -> bytes::Bytes {
+        self.rpc_client()
+            .get_block_filter(hash)
+            .expect("block filter exists")
+            .into_bytes()
+    }
+
     /// The states of chain and txpool are updated asynchronously. Which means that the chain has
     /// updated to the newest tip but txpool not.
     /// get_tip_tx_pool_info wait to ensure the txpool update to the newest tip as well.

@@ -110,6 +110,8 @@ pub enum RPCError {
     PoolRejectedMalformedTransaction = -1108,
     /// (-1109): The transaction is expired from tx-pool after `expiry_hours`.
     TransactionExpired = -1109,
+    /// (-1200): The indexer error.
+    Indexer = -1200,
 }
 
 impl RPCError {

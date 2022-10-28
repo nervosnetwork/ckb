@@ -37,6 +37,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `get_block_by_number`](#method-get_block_by_number)
         * [Method `get_header`](#method-get_header)
         * [Method `get_header_by_number`](#method-get_header_by_number)
+        * [Method `get_block_filter`](#method-get_block_filter)
         * [Method `get_transaction`](#method-get_transaction)
         * [Method `get_block_hash`](#method-get_block_hash)
         * [Method `get_tip_header`](#method-get_tip_header)
@@ -53,6 +54,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
+    * [Module Indexer](#module-indexer)
+        * [Method `get_indexer_tip`](#method-get_indexer_tip)
+        * [Method `get_cells`](#method-get_cells)
+        * [Method `get_transactions`](#method-get_transactions)
+        * [Method `get_cells_capacity`](#method-get_cells_capacity)
     * [Module IntegrationTest](#module-integrationtest)
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
@@ -83,6 +89,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
+        * [Method `get_deployments_info`](#method-get_deployments_info)
     * [Module Subscription](#module-subscription)
         * [Method `subscribe`](#method-subscribe)
         * [Method `unsubscribe`](#method-unsubscribe)
@@ -113,7 +120,12 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `Cycle`](#type-cycle)
     * [Type `DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
     * [Type `DepType`](#type-deptype)
+    * [Type `DeploymentInfo`](#type-deploymentinfo)
+    * [Type `DeploymentPos`](#type-deploymentpos)
+    * [Type `DeploymentState`](#type-deploymentstate)
+    * [Type `DeploymentsInfo`](#type-deploymentsinfo)
     * [Type `DryRunResult`](#type-dryrunresult)
+    * [Type `Either`](#type-either)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
@@ -121,6 +133,15 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
+    * [Type `IndexerCell`](#type-indexercell)
+    * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
+    * [Type `IndexerOrder`](#type-indexerorder)
+    * [Type `IndexerRange`](#type-indexerrange)
+    * [Type `IndexerScriptType`](#type-indexerscripttype)
+    * [Type `IndexerSearchKey`](#type-indexersearchkey)
+    * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
+    * [Type `IndexerTip`](#type-indexertip)
+    * [Type `IndexerTx`](#type-indexertx)
     * [Type `JsonBytes`](#type-jsonbytes)
     * [Type `LocalNode`](#type-localnode)
     * [Type `LocalNodeProtocol`](#type-localnodeprotocol)
@@ -138,6 +159,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
+    * [Type `ResponseFormat`](#type-responseformat)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
     * [Type `SerializedBlock`](#type-serializedblock)
@@ -149,7 +171,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `TransactionProof`](#type-transactionproof)
     * [Type `TransactionTemplate`](#type-transactiontemplate)
     * [Type `TransactionView`](#type-transactionview)
-    * [Type `TransactionWithStatus`](#type-transactionwithstatus)
+    * [Type `TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
     * [Type `TxPoolEntries`](#type-txpoolentries)
     * [Type `TxPoolEntry`](#type-txpoolentry)
     * [Type `TxPoolIds`](#type-txpoolids)
@@ -183,7 +205,7 @@ Sends an alert.
 
 This RPC returns `null` on success.
 
-######### Errors
+###### Errors
 
 *   [`AlertFailedToVerifySignatures (-1000)`](#error-alertfailedtoverifysignatures) - Some signatures in the request are invalid.
 
@@ -191,7 +213,7 @@ This RPC returns `null` on success.
 
 *   `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -265,13 +287,13 @@ A cell is live if
 
 Returns the information about a block by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the block hash.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns a block or null. When the RPC returns a block, the block hash must equal to the parameter `block_hash`.
 
@@ -281,7 +303,7 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -381,13 +403,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
-######### Params
+###### Params
 
 *   `block_number` - the block number.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns the block when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
@@ -397,13 +419,13 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Errors
+###### Errors
 
 *   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
 
 *   [`DatabaseIsCorrupt (-202)`](#error-databaseiscorrupt) - The data read from database is dirty. Please report it as a bug.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -503,13 +525,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the information about a block header by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the block hash.
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 The RPC returns a header or null. When the RPC returns a header, the block hash must equal to the parameter `block_hash`.
 
@@ -519,7 +541,7 @@ When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block header serialized by molecule using schema `table Header`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -581,13 +603,13 @@ The response looks like below when `verbosity` is 0.
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block number.
 
-######### Params
+###### Params
 
 *   `block_number` - Number of a block
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 The RPC returns the block header when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
@@ -597,11 +619,11 @@ When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block header serialized by molecule using schema `table Header`.
 
-######### Errors
+###### Errors
 
 *   [`ChainIndexIsInconsistent (-201)`](#error-chainindexisinconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -655,35 +677,91 @@ The response looks like below when `verbosity` is 0.
 ```
 
 
+#### Method `get_block_filter`
+* `get_block_filter(block_hash)`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`JsonBytes`](#type-jsonbytes) `|` `null`
+
+Returns the block filter by block hash.
+
+###### Params
+
+*   `block_hash` - the block hash.
+
+###### Returns
+
+The block filter data
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_filter",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+
+The response looks like below when the block have block filter.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
+
+
 #### Method `get_transaction`
 * `get_transaction(tx_hash, verbosity)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`TransactionWithStatus`](#type-transactionwithstatus) `|` `null`
+* result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse) `|` `null`
 
 Returns the information about a transaction requested by transaction hash.
 
-######### Returns
+###### Returns
 
 This RPC returns `null` if the transaction is not committed in the [canonical chain](#canonical-chain) nor the transaction memory pool.
 
 If the transaction is in the chain, the block hash is also returned.
 
-######### Params
+###### Params
 
 *   `tx_hash` - Hash of a transaction
 
 *   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
 
-######### Returns
+###### Returns
 
-When verbosity is 0 (deprecated): this is reserved for compatibility, and will be removed in the following release. It return null as the RPC response when the status is rejected or unknown, mimicking the original behaviors.
+When verbosity=0, it’s response value is as same as verbosity=2, but it return a 0x-prefixed hex encoded molecule packed::Transaction on `transaction` field
 
 When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
 
 When verbosity is 2: if tx_status.status is pending, proposed, or committed, the RPC returns the transaction content as field transaction, otherwise the field is null.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -758,6 +836,25 @@ Response
 ```
 
 
+The response looks like below when `verbosity` is 0.
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "transaction": "0x.....",
+    "tx_status": {
+      "block_hash": null,
+      "status": "pending",
+      "reason": null
+    }
+  }
+}
+```
+
+
 #### Method `get_block_hash`
 * `get_block_hash(block_number)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
@@ -765,17 +862,17 @@ Response
 
 Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified `block_number`.
 
-######### Params
+###### Params
 
 *   `block_number` - Block number
 
-######### Returns
+###### Returns
 
 The RPC returns the block hash when `block_number` is less than or equal to the tip block number returned by [`get_tip_block_number`](#method-get_tip_block_number) and returns null otherwise.
 
 Because of [chain reorganization](#chain-reorganization), the PRC may return null or even different block hashes in different invocations with the same `block_number`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -813,17 +910,17 @@ Returns the header with the highest block number in the [canonical chain](#canon
 
 Because of [chain reorganization](#chain-reorganization), the block number returned can be less than previous invocations and different invocations may return different block headers with the same block number.
 
-######### Params
+###### Params
 
 *   `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
-######### Returns
+###### Returns
 
 When `verbosity` is 1, the RPC returns a JSON object as the `result`. See HeaderView for the schema.
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the header serialized by molecule using schema `table Header`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -883,7 +980,7 @@ The response looks like below when `verbosity` is 0.
 
 Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
 
-######### Returns
+###### Returns
 
 This RPC tells whether a cell is live or not.
 
@@ -891,13 +988,13 @@ If the cell is live, the RPC will return details about the cell. Otherwise, the 
 
 If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the result.
 
-######### Params
+###### Params
 
 *   `out_point` - Reference to the cell by transaction hash and output index.
 
 *   `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client does not need the data, it should set this to `false` to save bandwidth.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -955,7 +1052,7 @@ Returns the highest block number in the [canonical chain](#canonical-chain).
 
 Because of [chain reorganization](#chain-reorganization), the returned block number may be less than a value returned in the previous invocation.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -990,7 +1087,7 @@ Returns the epoch with the highest number in the [canonical chain](#canonical-ch
 
 Pay attention that like blocks with the specific block number may change because of [chain reorganization](#chain-reorganization), This RPC may return different epochs which have the same epoch number.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1029,17 +1126,17 @@ Response
 
 Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
 
-######### Params
+###### Params
 
 *   `epoch_number` - Epoch number
 
-######### Returns
+###### Returns
 
 The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch number returned by [`get_current_epoch`](#method-get_current_epoch) and returns null otherwise.
 
 Because of [chain reorganization](#chain-reorganization), for the same `epoch_number`, this RPC may return null or different epochs in different invocations.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1088,15 +1185,15 @@ In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rew
 
 Because of the delay, this RPC returns null if the block rewards are not finalized yet. For example, the economic state for block 89 is only available when the number returned by [`get_tip_block_number`](#method-get_tip_block_number) is greater than or equal to 100.
 
-######### Params
+###### Params
 
 *   `block_hash` - Specifies the block hash which rewards should be analyzed.
 
-######### Returns
+###### Returns
 
 If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and its rewards have been finalized, return the block rewards analysis for this block. A special case is that the return value for genesis block is null.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1146,13 +1243,13 @@ Response
 
 Returns a Merkle proof that transactions are included in a block.
 
-######### Params
+###### Params
 
 *   `tx_hashes` - Transaction hashes, all transactions must be in the same block
 
 *   `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1195,11 +1292,11 @@ Response
 
 Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
-######### Parameters
+###### Parameters
 
 *   `transaction_proof` - proof generated by [`get_transaction_proof`](#method-get_transaction_proof).
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1245,13 +1342,13 @@ Response
 
 Returns the information about a fork block by hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - the fork block hash.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
-######### Returns
+###### Returns
 
 The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to the parameter `block_hash`.
 
@@ -1261,7 +1358,7 @@ When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView`
 
 When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string encodes the block serialized by molecule using schema `table Block`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1359,11 +1456,11 @@ The response looks like below when `verbosity` is 0.
 
 Return various consensus parameters.
 
-######### Returns
+###### Returns
 
 If any hardfork feature has `epoch=null`, it means the feature will never be activated.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1438,17 +1535,17 @@ Response
 
 Returns the past median time by block hash.
 
-######### Params
+###### Params
 
 *   `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
 
-######### Returns
+###### Returns
 
 When the given block hash is not on the current canonical chain, this RPC returns null; otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
 
 Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1496,13 +1593,13 @@ This method will not check the transaction validity, but only run the lock scrip
 
 It is used to debug transaction scripts and query how many cycles the scripts consume.
 
-######### Errors
+###### Errors
 
 *   [`TransactionFailedToResolve (-301)`](#error-transactionfailedtoresolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 
 *   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - There is a script returns with an error.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1579,7 +1676,7 @@ Response
 
 Calculates the maximum withdrawal one can get, given a referenced DAO cell, and a withdrawing block hash.
 
-######### Params
+###### Params
 
 *   `out_point` - Reference to the DAO cell, the depositing transaction’s output.
 
@@ -1589,19 +1686,19 @@ option 1, the assumed reference block hash for withdrawing phase 1 transaction, 
 
 option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction’s output.
 
-######### Returns
+###### Returns
 
 The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
 
 In CKB, scripts cannot get the information about in which block the transaction is committed. A workaround is letting the transaction reference a block hash so the script knows that the transaction is committed at least after the reference block.
 
-######### Errors
+###### Errors
 
 *   [`DaoError (-5)`](#error-daoerror) - The given out point is not a valid cell for DAO computation.
 
 *   [`CKBInternalError (-1)`](#error-ckbinternalerror) - Mathematics overflow.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1634,6 +1731,951 @@ Response
 ```
 
 
+### Module Indexer
+
+RPC Module Indexer.
+
+#### Method `get_indexer_tip`
+* `get_indexer_tip()`
+* result: [`IndexerTip`](#type-indexertip) `|` `null`
+
+Returns the indexed tip
+
+###### Returns
+
+*   block_hash - indexed tip block hash
+
+*   block_number - indexed tip block number
+
+###### Examples
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_indexer_tip"
+}
+```
+
+
+Response
+
+
+```
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "block_hash": "0x4959d6e764a2edc6038dbf03d61ebcc99371115627b186fdcccb2161fbd26edc",
+    "block_number": "0x5b513e"
+  },
+  "id": 2
+}
+```
+
+
+#### Method `get_cells`
+* `get_cells(search_key, order, limit, after)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`Uint32`](#type-uint32)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: `IndexerPagination<` [`IndexerCell`](#type-indexercell) `>`
+
+Returns the live cells collection by the lock or type script.
+
+###### Params
+
+*   search_key:
+    *   script - Script, supports prefix search
+
+    *   scrip_type - enum, lock | type
+
+    *   filter - filter cells by following conditions, all conditions are optional
+        *   script: if search script type is lock, filter cells by type script prefix, and vice versa
+
+        *   script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+
+        *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+
+        *   output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+
+        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+
+
+    *   with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+
+
+*   order: enum, asc | desc
+
+*   limit: result size limit
+
+*   after_cursor: pagination parameter, optional
+
+###### Returns
+
+*   objects:
+    *   output: the fields of an output cell
+
+    *   output_data: the cell data
+
+    *   out_point: reference to a cell via transaction hash and output index
+
+    *   block_number: the number of the transaction committed in the block
+
+    *   tx_index: the position index of the transaction committed in the block
+
+
+*   last_cursor: pagination parameter
+
+###### Examples
+
+*   get cells by lock script
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+   {
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b0f8c0000000100000000",
+      "objects": [
+        {
+          "block_number": "0x5b0e6d",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581"
+          },
+          "output": {
+            "capacity": "0xe36dceec20",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48"
+          },
+          "output": {
+            "capacity": "0x174876e800",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+  }
+```
+
+
+*   get cells by lock script and filter by type script
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+                "hash_type": "type",
+                "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
+            },
+            "script_type": "lock",
+            "filter": {
+                "script": {
+                    "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
+                    "hash_type": "type",
+                    "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b"
+                }
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf870000000100000001",
+      "objects": [
+        {
+          "block_number": "0x2adf87",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x04ecbc2df39e3682326a3b23c1bd2465e07eae2379ac0cc713834a1f79753779"
+          },
+          "output": {
+            "capacity": "0x436d81500",
+            "lock": {
+              "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
+              "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+              "hash_type": "type"
+            },
+            "type": {
+              "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b",
+              "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
+              "hash_type": "type"
+            }
+          },
+          "output_data": "0x0040d20853d746000000000000000000",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
+
+
+*   get cells by lock script and filter empty type script by setting script_len_range to [0, 1), script_len is caculated by (code_hash + hash_type + args).len
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+                "hash_type": "type",
+                "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
+            },
+            "script_type": "lock",
+            "filter": {
+                "script_len_range": ["0x0", "0x1"]
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf830000000200000001",
+      "objects": [
+        {
+          "block_number": "0x2adf83",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x23ec897027c1d2a2b39e2446162bac182f18581be048cb3896ad695559b6839e"
+          },
+          "output": {
+            "capacity": "0x54b42b70b4",
+            "lock": {
+              "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
+              "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x2"
+        }
+      ]
+    },
+    "id": 2
+}
+```
+
+
+*   get cells by lock script and filter capacity range
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock",
+            "filter": {
+                "output_capacity_range": ["0x0", "0x174876e801"]
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df0000000100000001",
+      "objects": [
+        {
+          "block_number": "0x5b59df",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194"
+          },
+          "output": {
+            "capacity": "0xe815b81c0",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
+
+
+#### Method `get_transactions`
+* `get_transactions(search_key, order, limit, after)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`Uint32`](#type-uint32)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: `IndexerPagination<` [`IndexerTx`](#type-indexertx) `>`
+
+Returns the transactions collection by the lock or type script.
+
+*   search_key:
+    *   script - Script, supports prefix search when group_by_transaction is false
+
+    *   scrip_type - enum, lock | type
+
+    *   filter - filter cells by following conditions, all conditions are optional
+        *   script: if search script type is lock, filter cells by type script, and vice versa
+
+        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+
+
+    *   group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+
+
+*   order: enum, asc | desc
+
+*   limit: result size limit
+
+*   after_cursor: pagination parameter, optional
+
+###### Returns
+
+*   objects - enum, ungrouped TxWithCell | grouped TxWithCells
+    *   TxWithCell:
+        *   tx_hash: transaction hash,
+
+        *   block_number: the number of the transaction committed in the block
+
+        *   tx_index: the position index of the transaction committed in the block
+
+        *   io_type: enum, input | output
+
+        *   io_index: the position index of the cell in the transaction inputs or outputs
+
+
+    *   TxWithCells:
+        *   tx_hash: transaction hash,
+
+        *   block_number: the number of the transaction committed in the block
+
+        *   tx_index: the position index of the transaction committed in the block
+
+        *   cells: Array [[io_type, io_index]]
+
+
+
+*   last_cursor - pagination parameter
+
+###### Examples
+
+*   get transactions by lock script
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transactions",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
+      "objects": [
+        {
+          "block_number": "0x5b033a",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
+          "tx_index": "0x4"
+        },
+        {
+          "block_number": "0x5b0671",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0671",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e6d",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x1",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x2",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x1",
+          "io_type": "input",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
+
+
+*   get transactions by lock script and group by tx hash
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transactions",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock",
+            "group_by_transaction": true
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
+      "objects": [
+        {
+          "block_number": "0x5b033a",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
+          "tx_index": "0x4"
+        },
+        {
+          "block_number": "0x5b0671",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e6d",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "input",
+              "0x1"
+            ],
+            [
+              "output",
+              "0x1"
+            ],
+            [
+              "input",
+              "0x2"
+            ]
+          ],
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "input",
+              "0x1"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
+
+
+#### Method `get_cells_capacity`
+* `get_cells_capacity(search_key)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+* result: [`IndexerCellsCapacity`](#type-indexercellscapacity) `|` `null`
+
+Returns the live cells capacity by the lock or type script.
+
+###### Parameters
+
+*   search_key:
+    *   script - Script
+
+    *   scrip_type - enum, lock | type
+
+    *   filter - filter cells by following conditions, all conditions are optional
+        *   script: if search script type is lock, filter cells by type script prefix, and vice versa
+
+        *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+
+        *   output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+
+        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+
+
+
+###### Returns
+
+*   capacity - total capacity
+
+*   block_hash - indexed tip block hash
+
+*   block_number - indexed tip block number
+
+###### Examples
+
+Request
+
+
+```
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells_capacity",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        }
+    ]
+}
+```
+
+
+Response
+
+
+```
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "block_hash": "0xbc52444952dc5eb01a7826aaf6bb1b660db01797414e259e7a6e6d636de8fc7c",
+      "block_number": "0x5b727a",
+      "capacity": "0xf0e8e4b4a0"
+    },
+    "id": 2
+}
+```
+
+
 ### Module IntegrationTest
 
 RPC for Integration Test.
@@ -1646,7 +2688,7 @@ RPC for Integration Test.
 
 process block without any block verification.
 
-######### Params
+###### Params
 
 *
     `data` - block data(in binary).
@@ -1656,7 +2698,7 @@ process block without any block verification.
     `broadcast` - true to enable broadcast(relay) the block to other peers.
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1737,11 +2779,11 @@ Response
 
 Truncate chain to specified tip hash.
 
-######### Params
+###### Params
 
 *   `target_tip_hash` - specified header hash
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1778,7 +2820,7 @@ Generate block with block_assembler_config, process the block(with verification)
 
 and broadcast the block.
 
-######### Params
+###### Params
 
 *
     `block_assembler_script` - specified block assembler script
@@ -1788,7 +2830,7 @@ and broadcast the block.
     `block_assembler_message` - specified block assembler message
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1823,11 +2865,11 @@ Response
 
 Add transaction to tx-pool.
 
-######### Params
+###### Params
 
 *   `transaction` - specified transaction to add
 
-######### Examples
+###### Examples
 
 Request
 
@@ -1899,11 +2941,11 @@ Generate block with block template, attach calculated dao field to build new blo
 
 then process block and broadcast the block.
 
-######### Params
+###### Params
 
 *   `block_template` - specified transaction to add
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2010,11 +3052,11 @@ Response
 
 Return calculated dao field according to specified block template.
 
-######### Params
+###### Params
 
 *   `block_template` - specified block template
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2131,7 +3173,7 @@ Returns block template for miners.
 
 Miners can assemble the new block from the template. The RPC is designed to allow miners to remove transactions and adding new transactions to the block.
 
-######### Params
+###### Params
 
 *   `bytes_limit` - the max serialization size in bytes of the block. (**Optional:** the default is the consensus limit.)
 
@@ -2139,7 +3181,7 @@ Miners can assemble the new block from the template. The RPC is designed to allo
 
 *   `max_version` - the max block version. (**Optional:** the default is one configured in the current client version.)
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2197,7 +3239,7 @@ Response
         ],
         "version": "0x0",
         "witnesses": [
-          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+          "0x6a0000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac311000000000000002054455354206d657373616765"
         ]
       },
       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
@@ -2248,13 +3290,13 @@ Response
 
 Submit new block to the network.
 
-######### Params
+###### Params
 
 *   `work_id` - The same work ID returned from [`get_block_template`](#method-get_block_template).
 
 *   `block` - The assembled block from the block template and which PoW puzzle has been resolved.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2345,7 +3387,7 @@ Returns the local node information.
 
 The local node means the node itself which is serving the RPC.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2409,7 +3451,7 @@ Response
 
 Returns the connected peers’ information.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2559,7 +3601,7 @@ Response
 
 Returns all banned IPs/Subnets.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2599,7 +3641,7 @@ Response
 
 Clears all banned IPs/Subnets.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2637,7 +3679,7 @@ Response
 
 Inserts or deletes an IP/Subnet from the banned list
 
-######### Params
+###### Params
 
 *   `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:
     *   “192.168.0.2” bans a single IP
@@ -2653,7 +3695,7 @@ Inserts or deletes an IP/Subnet from the banned list
 
 *   `reason` - Ban reason, optional parameter.
 
-######### Errors
+###### Errors
 
 *   [`InvalidParams (-32602)`](#error-invalidparams)
     *   Expected `address` to be a valid IP address with an optional netmask.
@@ -2661,7 +3703,7 @@ Inserts or deletes an IP/Subnet from the banned list
     *   Expected `command` to be in the list [insert, delete].
 
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2700,7 +3742,7 @@ Response
 
 Returns chain synchronization state of this node.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2743,11 +3785,11 @@ Response
 
 Disable/enable all p2p network activity
 
-######### Params
+###### Params
 
 *   `state` - true to enable networking, false to disable
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2784,7 +3826,7 @@ Response
 
 Attempts to add a node to the peers list and try connecting to it.
 
-######### Params
+###### Params
 
 *   `peer_id` - The node id of the node.
 
@@ -2820,7 +3862,7 @@ In both of these examples,
 
 *   and `address` is `/ip4/192.168.2.100/tcp/8114`
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2857,13 +3899,13 @@ Response
 
 Attempts to remove a node from the peers list and try disconnecting from it.
 
-######### Params
+###### Params
 
 *   `peer_id` - The peer id of the node.
 
 This is the last part of a full P2P address. For example, in address “/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS”, the `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -2898,7 +3940,7 @@ Response
 
 Requests that a ping is sent to all connected peers, to measure ping time.
 
-######### Examples
+###### Examples
 
 Requests
 
@@ -2937,13 +3979,13 @@ RPC Module Pool for transaction memory pool.
 
 Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
-######### Params
+###### Params
 
 *   `transaction` - The transaction.
 
 *   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is “well_known_scripts_only”).
 
-######### Errors
+###### Errors
 
 *   [`PoolRejectedTransactionByOutputsValidator (-1102)`](#error-poolrejectedtransactionbyoutputsvalidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to “passthrough”.
 
@@ -2959,7 +4001,7 @@ Submits a new transaction into the transaction pool. If the transaction is alrea
 
 *   [`TransactionFailedToVerify (-302)`](#error-transactionfailedtoverify) - Failed to verify the transaction.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3034,15 +4076,15 @@ Response
 
 Removes a transaction and all transactions which depends on it from tx pool if it exists.
 
-######### Params
+###### Params
 
 *   `tx_hash` - Hash of a transaction.
 
-######### Returns
+###### Returns
 
 If the transaction exists, return true; otherwise, return false.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3077,7 +4119,7 @@ Response
 
 Returns the transaction pool information.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3120,7 +4162,7 @@ Response
 
 Removes all transactions from the transaction pool.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3154,11 +4196,11 @@ Response
 
 Returns all transaction ids in tx pool as a json array of string transaction ids.
 
-######### Params
+###### Params
 
 *   `verbose` - True for a json object, false for array of transaction ids, default=false
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3205,7 +4247,7 @@ Response
 
 Returns whether tx-pool service is started, ready for request.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3242,7 +4284,7 @@ RPC Module Stats for getting various statistic data.
 
 Returns statistics about the chain.
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3278,6 +4320,51 @@ Response
     "epoch": "0x7080018000001",
     "is_initial_block_download": true,
     "median_time": "0x5cd2b105"
+  }
+}
+```
+
+
+#### Method `get_deployments_info`
+* `get_deployments_info()`
+* result: [`DeploymentsInfo`](#type-deploymentsinfo)
+
+Returns statistics about the chain.
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_deployments_info",
+  "params": []
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "epoch": "0x1",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+       "deployments": {
+           "Testdummy": {
+               "bit": 1,
+               "min_activation_epoch": "0x0",
+               "start": "0x0",
+               "state": "Failed",
+               "timeout": "0x0"
+           }
+       }
   }
 }
 ```
@@ -3331,11 +4418,11 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
 
 Subscribes to a topic.
 
-######### Params
+###### Params
 
 *   `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
 
-######### Returns
+###### Returns
 
 This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed topics to the current RPC connection. The subscript ID is also attached as `params.subscription` in the push messages.
 
@@ -3354,33 +4441,33 @@ Example push message:
 ```
 
 
-######### Topics
+###### Topics
 
-######### `new_tip_header`
+###### `new_tip_header`
 
 Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
 
 The type of the `params.result` in the push message is [`HeaderView`](#type-headerview).
 
-######### `new_tip_block`
+###### `new_tip_block`
 
 Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
 
 The type of the `params.result` in the push message is [`BlockView`](#type-blockview).
 
-######### `new_transaction`
+###### `new_transaction`
 
 Subscribers will get notified when a new transaction is submitted to the pool.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
 
-######### `proposed_transaction`
+###### `proposed_transaction`
 
 Subscribers will get notified when an in-pool transaction is proposed by chain.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
 
-######### `rejected_transaction`
+###### `rejected_transaction`
 
 Subscribers will get notified when a pending transaction is rejected by tx-pool.
 
@@ -3392,7 +4479,7 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 *   the second item type is [`PoolTransactionReject`](#type-pooltransactionreject).
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3428,11 +4515,11 @@ Response
 
 Unsubscribes from a subscribed topic.
 
-######### Params
+###### Params
 
 *   `id` - Subscription ID
 
-######### Examples
+###### Examples
 
 Request
 
@@ -3606,6 +4693,10 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 ### Error `TransactionExpired`
 
 (-1109): The transaction is expired from tx-pool after `expiry_hours`.
+
+### Error `Indexer`
+
+(-1200): The indexer error.
 
 
 ## RPC Types
@@ -4237,6 +5328,63 @@ The dep cell type. Allowed values: “code” and “dep_group”.
 
 
 
+### Type `DeploymentInfo`
+
+An object containing various state info regarding deployments of consensus changes
+
+#### Fields
+
+`DeploymentInfo` is a JSON object with the following fields.
+
+*   `bit`: https://doc.rust-lang.org/1.61.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+
+*   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
+
+*   `timeout`: [`EpochNumber`](#type-epochnumber) - specifies an epoch at which the miner signaling ends. Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block’s bit state), the deployment is considered failed on all descendants of the block.
+
+*   `min_activation_epoch`: [`EpochNumber`](#type-epochnumber) - specifies the epoch at which the softfork is allowed to become active.
+
+*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+
+
+### Type `DeploymentPos`
+
+Deployment name
+
+`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
+
+*   Dummy
+*   light client protocol
+
+
+### Type `DeploymentState`
+
+The possible softfork deployment state
+
+`DeploymentState` is equivalent to `"defined" | "started" | "locked_in" | "active" | "failed"`.
+
+*   First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
+*   For epochs past the `start` epoch.
+*   For one epoch after the first epoch period with STARTED epochs of which at least `threshold` has the associated bit set in `version`.
+*   For all epochs after the LOCKED_IN epoch.
+*   For one epoch period past the `timeout_epoch`, if LOCKED_IN was not reached.
+
+
+### Type `DeploymentsInfo`
+
+Chain information.
+
+#### Fields
+
+`DeploymentsInfo` is a JSON object with the following fields.
+
+*   `hash`: [`H256`](#type-h256) - requested block hash
+
+*   `epoch`: [`EpochNumber`](#type-epochnumber) - requested block epoch
+
+*   `deployments`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}` - deployments info
+
+
 ### Type `DryRunResult`
 
 Response result of the RPC method `dry_run_transaction`.
@@ -4246,6 +5394,16 @@ Response result of the RPC method `dry_run_transaction`.
 `DryRunResult` is a JSON object with the following fields.
 
 *   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
+
+
+### Type `Either`
+
+The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
+
+`Either` is equivalent to `"left" | "right"`.
+
+*   A value of type `L`.
+*   A value of type `R`.
 
 
 ### Type `EpochNumber`
@@ -4431,6 +5589,168 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 *   `inner`: [`Header`](#type-header) - All the fields in `Header` are included in `HeaderView` in JSON.
 
 *   `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
+
+
+### Type `IndexerCell`
+
+Live cell
+
+#### Fields
+
+`IndexerCell` is a JSON object with the following fields.
+
+*   `output`: [`CellOutput`](#type-celloutput) - the fields of an output cell
+
+*   `output_data`: [`JsonBytes`](#type-jsonbytes) `|` `null` - the cell data
+
+*   `out_point`: [`OutPoint`](#type-outpoint) - reference to a cell via transaction hash and output index
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+*   `tx_index`: [`Uint32`](#type-uint32) - the position index of the transaction committed in the block
+
+
+### Type `IndexerCellsCapacity`
+
+Cells capacity
+
+#### Fields
+
+`IndexerCellsCapacity` is a JSON object with the following fields.
+
+*   `capacity`: [`Capacity`](#type-capacity) - total capacity
+
+*   `block_hash`: [`H256`](#type-h256) - indexed tip block hash
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - indexed tip block number
+
+
+### Type `IndexerOrder`
+
+Order Desc | Asc
+
+`IndexerOrder` is equivalent to `"desc" | "asc"`.
+
+*   Descending order
+*   Ascending order
+
+
+### Type `IndexerRange`
+
+A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+
+##### Examples
+
+
+|  JSON | range |
+| --- |--- |
+|  [“0x0”, “0x2”] | [0, 2) |
+|  [“0x0”, “0x174876e801”] | [0, 100000000001) |
+
+
+
+
+### Type `IndexerScriptType`
+
+ScriptType `Lock` | `Type`
+
+`IndexerScriptType` is equivalent to `"lock" | "type"`.
+
+*   Lock
+*   Type
+
+
+### Type `IndexerSearchKey`
+
+SearchKey represent indexer support params
+
+#### Fields
+
+`IndexerSearchKey` is a JSON object with the following fields.
+
+*   `script`: [`Script`](#type-script) - Script, supports prefix search
+
+*   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
+
+*   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
+
+*   `with_data`: `boolean` `|` `null` - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+
+*   `group_by_transaction`: `boolean` `|` `null` - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+
+
+### Type `IndexerSearchKeyFilter`
+
+IndexerSearchKeyFilter represent indexer params `filter`
+
+#### Fields
+
+`IndexerSearchKeyFilter` is a JSON object with the following fields.
+
+*   `script`: [`Script`](#type-script) `|` `null` - if search script type is lock, filter cells by type script prefix, and vice versa
+
+*   `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by script len range
+
+*   `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output data len range
+
+*   `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output capacity range
+
+*   `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by block number range
+
+
+### Type `IndexerTip`
+
+Indexer tip information
+
+#### Fields
+
+`IndexerTip` is a JSON object with the following fields.
+
+*   `block_hash`: [`H256`](#type-h256) - indexed tip block hash
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) - indexed tip block number
+
+
+### Type `IndexerTx`
+
+Indexer Transaction Object
+
+`IndexerTx` is equivalent to `"ungrouped" | "grouped"`.
+
+*   ###### Ungrouped format represent as `IndexerTxWithCell`
+
+    ####### Fields
+
+    `IndexerCellType` is equivalent to `"input" | "output"`.
+
+    `IndexerTxWithCell` is a JSON object with the following fields.
+
+    *   `tx_hash`: [`H256`](#type-h256) - transaction hash
+
+    *   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+    *   `tx_index`: [`Uint32`](#type-uint32) - the position index of the transaction committed in the block
+
+    *   `io_index`: [`Uint32`](#type-uint32) - the position index of the cell in the transaction inputs or outputs
+
+    *   `io_type`: [`IndexerCellType`](#type-indexercelltype) - io type
+
+*   ###### Grouped format represent as `IndexerTxWithCells`
+
+    ####### Fields
+
+    `IndexerCellType` is equivalent to `"input" | "output"`.
+
+    `IndexerTxWithCells` is a JSON object with the following fields.
+
+    *   `tx_hash`: [`H256`](#type-h256) - transaction hash
+
+    *   `block_number`: [`BlockNumber`](#type-blocknumber) - the number of the transaction committed in the block
+
+    *   `tx_index`: [`Uint32`](#type-uint32)- the position index of the transaction committed in the block
+
+    *   `cells`: Array <(IndexerCellType, Uint32)>
+
 
 
 ### Type `JsonBytes`
@@ -4880,6 +6200,21 @@ The information about an active running protocol.
 *   `version`: `string` - Active protocol version.
 
 
+### Type `ResponseFormat`
+
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+##### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat` is a JSON object with the following fields.
+
+*   `inner`: [`Either`](#type-either) - The inner value.
+
+
 ### Type `Script`
 
 Describes the lock script and type script for a cell.
@@ -5137,15 +6472,15 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 *   `hash`: [`H256`](#type-h256) - The transaction hash.
 
 
-### Type `TransactionWithStatus`
+### Type `TransactionWithStatusResponse`
 
 The JSON view of a transaction as well as its status.
 
 #### Fields
 
-`TransactionWithStatus` is a JSON object with the following fields.
+`TransactionWithStatusResponse` is a JSON object with the following fields.
 
-*   `transaction`: [`TransactionView`](#type-transactionview) `|` `null` - The transaction.
+*   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

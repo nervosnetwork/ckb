@@ -5,8 +5,9 @@ use ckb_network::bytes::Bytes;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochNumberWithFraction, HeaderView, TransactionView},
     packed::{
-        BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage, RelayTransaction,
-        RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders, SyncMessage,
+        BlockFilterMessage, BlockTransactions, Byte32, CompactBlock, GetBlocks, RelayMessage,
+        RelayTransaction, RelayTransactionHashes, RelayTransactions, SendBlock, SendHeaders,
+        SyncMessage,
     },
     prelude::*,
 };
@@ -330,9 +331,11 @@ pub fn find_available_port() -> u16 {
 }
 
 pub fn message_name(data: &Bytes) -> String {
-    if let Ok(message) = SyncMessage::from_slice(data) {
+    if let Ok(message) = SyncMessage::from_compatible_slice(data) {
         message.to_enum().item_name().to_string()
-    } else if let Ok(message) = RelayMessage::from_slice(data) {
+    } else if let Ok(message) = RelayMessage::from_compatible_slice(data) {
+        message.to_enum().item_name().to_string()
+    } else if let Ok(message) = BlockFilterMessage::from_compatible_slice(data) {
         message.to_enum().item_name().to_string()
     } else {
         panic!("unknown message item");

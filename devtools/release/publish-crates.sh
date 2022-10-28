@@ -10,7 +10,10 @@ RUST_VERSION="$(cat rust-toolchain)"
 retry_cargo_publish() {
   # Ignore dev dependencies
   rm -f Cargo.toml.bak
-  sed -i.bak -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' Cargo.toml
+  sed -i.bak \
+    -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' \
+    -e '/# dev-feature$/d' \
+    Cargo.toml
 
   local RETRIES=5
   local INTERVAL=2

@@ -60,6 +60,11 @@ impl Handle {
     {
         self.inner.spawn_blocking(f)
     }
+
+    /// Transform to inner tokio handler
+    pub fn into_inner(self) -> TokioHandle {
+        self.inner
+    }
 }
 
 /// Create new threaded_scheduler tokio Runtime, return `Runtime`

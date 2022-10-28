@@ -5,8 +5,8 @@ clean_threshold=40000
 available_space=$(df -m "$GITHUB_WORKSPACE" | tail -1 | awk '{print $4}')
 if [[ $is_self_runner == "self" ]]; then
   export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/../target"
-  export RUSTC_WRAPPER='sccache'
-  export SCCACHE_CACHE_SIZE='20G'
+  # export RUSTC_WRAPPER='sccache'
+  # export SCCACHE_CACHE_SIZE='20G'
   #clean space when disk full
   if [[ $available_space -lt $clean_threshold ]]; then
     echo "Run clean command"
@@ -83,7 +83,7 @@ case $GITHUB_WORKFLOW in
     export PKG_CONFIG_ALLOW_CROSS=1
     export CC=gcc
     export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-    cargo build --target=aarch64-unknown-linux-gnu
+    cargo build --target=aarch64-unknown-linux-gnu --features portable
     ;;
   ci_cargo_deny*)
     echo "ci_security_audit_licenses"
