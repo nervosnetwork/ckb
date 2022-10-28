@@ -423,12 +423,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 .verify_script_group(group, max_cycles - cycles)
                 .map_err(|e| {
                     #[cfg(feature = "logging")]
-                    info!(
-                        "Error validating script group {} of transaction {}: {}",
-                        _hash,
-                        self.hash(),
-                        e
-                    );
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     e.source(group)
                 })?;
 
@@ -487,6 +482,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     return Err(e.source(group).into());
                 }
             }
@@ -517,14 +514,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles = snap.current_cycles;
         let mut current_used = 0;
 
-        let current_group = self
-            .groups()
-            .nth(snap.current)
-            .map(|(_hash, group)| group)
-            .ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
-                    .unknown_source()
-            })?;
+        let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
+            ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+                .unknown_source()
+        })?;
 
         // continue snapshot current script
         match self.verify_group_with_chunk(current_group, limit_cycles, &snap.snap) {
@@ -542,6 +535,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
+                #[cfg(feature = "logging")]
+                logging::on_script_error(_hash, &self.hash(), &e);
                 return Err(e.source(current_group).into());
             }
         }
@@ -567,6 +562,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     return Err(e.source(group).into());
                 }
             }
@@ -603,14 +600,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut current_used = 0;
         let mut cycles = current_cycles;
 
-        let current_group = self
-            .groups()
-            .nth(current)
-            .map(|(_hash, group)| group)
-            .ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {:?}", current))
-                    .unknown_source()
-            })?;
+        let (_hash, current_group) = self.groups().nth(current).ok_or_else(|| {
+            ScriptError::VMInternalError(format!("snapshot group missing {:?}", current))
+                .unknown_source()
+        })?;
 
         if let Some(mut vm) = vm {
             vm.set_max_cycles(limit_cycles);
@@ -632,9 +625,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         return Ok(VerifyResult::Suspended(state));
                     }
                     error => {
-                        return Err(ScriptError::VMInternalError(format!("{:?}", error))
-                            .source(current_group)
-                            .into());
+                        let e = ScriptError::VMInternalError(format!("{:?}", error));
+                        #[cfg(feature = "logging")]
+                        logging::on_script_error(_hash, &self.hash(), &e);
+                        return Err(e.source(current_group).into());
                     }
                 },
             }
@@ -649,6 +643,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     return Err(e.source(current_group).into());
                 }
             }
@@ -674,6 +670,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     return Err(e.source(group).into());
                 }
             }
@@ -697,14 +695,10 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     pub fn complete(&self, snap: &TransactionSnapshot, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles = snap.current_cycles;
 
-        let current_group = self
-            .groups()
-            .nth(snap.current)
-            .map(|(_hash, group)| group)
-            .ok_or_else(|| {
-                ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
-                    .unknown_source()
-            })?;
+        let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
+            ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+                .unknown_source()
+        })?;
 
         if max_cycles < cycles {
             return Err(ScriptError::ExceededMaximumCycles(max_cycles)
@@ -724,6 +718,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     .into());
             }
             Err(e) => {
+                #[cfg(feature = "logging")]
+                logging::on_script_error(_hash, &self.hash(), &e);
                 return Err(e.source(current_group).into());
             }
         }
@@ -747,6 +743,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         .into());
                 }
                 Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
                     return Err(e.source(group).into());
                 }
             }
@@ -992,4 +990,16 @@ fn wrapping_cycles_sub(
 ) -> Result<Cycle, TransactionScriptError> {
     lhs.checked_sub(rhs)
         .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
+}
+
+#[cfg(feature = "logging")]
+mod logging {
+    use super::{info, Byte32, ScriptError};
+
+    pub fn on_script_error(group: &Byte32, tx: &Byte32, error: &ScriptError) {
+        info!(
+            "Error validating script group {} of transaction {}: {}",
+            group, tx, error
+        );
+    }
 }
