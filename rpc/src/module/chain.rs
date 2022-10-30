@@ -1,22 +1,28 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
-    HeaderView, JsonBytes, MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat,
-    ResponseFormatInnerType, Timestamp, TransactionProof, TransactionWithStatusResponse, Uint32,
+    EstimateCycles, HeaderView, JsonBytes, MerkleProof as JsonMerkleProof, OutPoint,
+    ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionProof,
+    TransactionWithStatusResponse, Uint32,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
-    core::{self, cell::CellProvider},
+    core::{
+        self,
+        cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+        error::OutPointError,
+    },
     packed,
     prelude::*,
     utilities::{merkle_root, MerkleProof, CBMT},
     H256,
 };
+use ckb_verification::ScriptVerifier;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -1270,6 +1276,85 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "get_block_median_time")]
     fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>>;
+
+    /// `estimate_cycles` run a transaction and return the execution consumed cycles.
+    ///
+    /// This method will not check the transaction validity, but only run the lock script
+    /// and type script and then return the execution cycles.
+    ///
+    /// It is used to estimate how many cycles the scripts consume.
+    ///
+    /// ## Errors
+    ///
+    /// * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+    /// * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "estimate_cycles",
+    ///   "params": [
+    ///     {
+    ///       "cell_deps": [
+    ///         {
+    ///           "dep_type": "code",
+    ///           "out_point": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "header_deps": [
+    ///         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+    ///       ],
+    ///       "inputs": [
+    ///         {
+    ///           "previous_output": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+    ///           },
+    ///           "since": "0x0"
+    ///         }
+    ///       ],
+    ///       "outputs": [
+    ///         {
+    ///           "capacity": "0x2540be400",
+    ///           "lock": {
+    ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    ///             "hash_type": "data",
+    ///             "args": "0x"
+    ///           },
+    ///           "type": null
+    ///         }
+    ///       ],
+    ///       "outputs_data": [
+    ///         "0x"
+    ///       ],
+    ///       "version": "0x0",
+    ///       "witnesses": []
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "cycles": "0x219"
+    ///   }
+    /// }
+    /// ```
+    #[rpc(name = "estimate_cycles")]
+    fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1737,6 +1822,11 @@ impl ChainRpc for ChainRpcImpl {
         );
         Ok(Some(median_time.into()))
     }
+
+    fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles> {
+        let tx: packed::Transaction = tx.into();
+        CyclesEstimator::new(&self.shared).run(tx)
+    }
 }
 
 impl ChainRpcImpl {
@@ -1792,5 +1882,65 @@ impl ChainRpcImpl {
         };
         let transaction_with_status = transaction_with_status.unwrap();
         Ok(Some(transaction_with_status))
+    }
+}
+
+// CyclesEstimator run given transaction, and return the result, including execution cycles.
+pub(crate) struct CyclesEstimator<'a> {
+    shared: &'a Shared,
+}
+
+impl<'a> CellProvider for CyclesEstimator<'a> {
+    fn cell(&self, out_point: &packed::OutPoint, eager_load: bool) -> CellStatus {
+        let snapshot = self.shared.snapshot();
+        snapshot
+            .get_cell(out_point)
+            .map(|mut cell_meta| {
+                if eager_load {
+                    if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
+                }
+                CellStatus::live_cell(cell_meta)
+            })  // treat as live cell, regardless of live or dead
+            .unwrap_or(CellStatus::Unknown)
+    }
+}
+
+impl<'a> HeaderChecker for CyclesEstimator<'a> {
+    fn check_valid(&self, block_hash: &packed::Byte32) -> std::result::Result<(), OutPointError> {
+        self.shared.snapshot().check_valid(block_hash)
+    }
+}
+
+impl<'a> CyclesEstimator<'a> {
+    pub(crate) fn new(shared: &'a Shared) -> Self {
+        Self { shared }
+    }
+
+    pub(crate) fn run(&self, tx: packed::Transaction) -> Result<EstimateCycles> {
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let consensus = snapshot.consensus();
+        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
+            Ok(resolved) => {
+                let max_cycles = consensus.max_block_cycles;
+                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
+                    .verify(max_cycles)
+                {
+                    Ok(cycles) => Ok(EstimateCycles {
+                        cycles: cycles.into(),
+                    }),
+                    Err(err) => Err(RPCError::custom_with_error(
+                        RPCError::TransactionFailedToVerify,
+                        err,
+                    )),
+                }
+            }
+            Err(err) => Err(RPCError::custom_with_error(
+                RPCError::TransactionFailedToResolve,
+                err,
+            )),
+        }
     }
 }
