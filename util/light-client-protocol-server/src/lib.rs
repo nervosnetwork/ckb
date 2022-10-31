@@ -122,7 +122,9 @@ impl LightClientProtocol {
         let tip_block = active_chain
             .get_block(&tip_hash)
             .expect("checked: tip block should be existed");
-        let parent_chain_root = {
+        let parent_chain_root = if tip_block.is_genesis() {
+            Default::default()
+        } else {
             let snapshot = self.shared.shared().snapshot();
             let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
             match mmr.get_root() {
