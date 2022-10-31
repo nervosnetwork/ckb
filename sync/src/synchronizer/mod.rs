@@ -11,11 +11,13 @@ pub(crate) use self::get_blocks_process::GetBlocksProcess;
 pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
-
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
+use crossbeam::queue::ArrayQueue;
+
+use futures::prelude::*;
 
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
@@ -30,15 +32,21 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_types::core::BlockView;
+use ckb_types::molecule::Number;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32},
     prelude::*,
 };
+
 use faketime::unix_time_as_millis;
+
+use crossbeam::sync::ShardedLock;
 use std::{
     collections::HashSet,
     sync::{atomic::Ordering, Arc},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -201,13 +209,47 @@ impl BlockFetchCMD {
     }
 }
 
+/// SendBlock msg related info
+pub struct SendBlockMsgInfo {
+    peer: PeerIndex,
+    item_name: String,
+    item_bytes_length: u64,
+    item_id: Number,
+}
+
 /// Sync protocol handle
-#[derive(Clone)]
 pub struct Synchronizer {
     pub(crate) chain: ChainController,
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
+
+    /// Only in IBD mode, downloaded blocks will be pushed to block_queue
+    /// The block_queue will be consumed by ProcessBlock thread
+    /// If IBD finished, and block_queue will be dropped when the queue is  empty
+    block_queue: Arc<ShardedLock<Option<ArrayQueue<(BlockView, SendBlockMsgInfo)>>>>,
+    /// Only in IBD mode, if no blocks in queue, the consumer thread will park(),
+    /// and be notified by this thread handle
+    block_queue_consumer_handle: Arc<ShardedLock<Option<thread::JoinHandle<()>>>>,
+    /// The channel Receiver is used for CKBProtocolHandler::poll()
+    /// If we got process_new_block's status from this receiver, give the status to post_process()
+    block_queue_consume_status_recv:
+        Option<futures::channel::mpsc::Receiver<(Status, SendBlockMsgInfo)>>,
+}
+
+impl Clone for Synchronizer {
+    fn clone(&self) -> Self {
+        Synchronizer {
+            chain: self.chain.clone(),
+            shared: self.shared.clone(),
+            fetch_channel: self.fetch_channel.clone(),
+            block_queue: self.block_queue.clone(),
+            block_queue_consumer_handle: self.block_queue_consumer_handle.clone(),
+
+            // we only need one Receiver for CKBProtocolHandler::poll
+            block_queue_consume_status_recv: None,
+        }
+    }
 }
 
 impl Synchronizer {
@@ -215,11 +257,106 @@ impl Synchronizer {
     ///
     /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
-        Synchronizer {
+        let (mut status_sender, status_recv) = futures::channel::mpsc::channel(512);
+
+        let mut sync = Synchronizer {
             chain,
             shared,
             fetch_channel: None,
+            block_queue: Arc::new(ShardedLock::new(None)),
+            block_queue_consumer_handle: Arc::new(ShardedLock::new(None)),
+
+            // only main Synchronizer instance hold status_recv, the clone hold None
+            block_queue_consume_status_recv: Some(status_recv),
+        };
+
+        let sync_clone = sync.clone();
+
+        // only create block queue and consumer thread in ibd mode
+        if sync_clone
+            .shared()
+            .active_chain()
+            .is_initial_block_download()
+        {
+            let _ = sync_clone
+                .block_queue
+                .write()
+                .unwrap()
+                .replace(ArrayQueue::new(512));
+
+            let thread_handle = thread::Builder::new()
+                .name("ProcessBlock".to_string())
+                .spawn(move || loop {
+                    if let Some(block_queue) = sync_clone.block_queue.read().unwrap().as_ref() {
+                        debug!(
+                            "block queue's len()/capacity() = {}/{}",
+                            block_queue.len(),
+                            block_queue.capacity()
+                        );
+
+                        while let Some((
+                            block,
+                            SendBlockMsgInfo {
+                                peer,
+                                item_name,
+                                item_bytes_length,
+                                item_id,
+                            },
+                        )) = block_queue.pop()
+                        {
+                            debug!(
+                                "get block from block_queue, height: {}",
+                                block.number() as u64
+                            );
+                            let hash = block.hash();
+                            let mut status = Status::ok();
+                            if let Err(err) = sync_clone.process_new_block(block) {
+                                if !crate::utils::is_internal_db_error(&err) {
+                                    error!("BlockAcceptCMD process_new_block error: {}", err);
+
+                                    status = StatusCode::BlockIsInvalid
+                                        .with_context(format!("{}, error: {}", hash, err,));
+
+                                    Self::metrics_block_process(
+                                        item_bytes_length,
+                                        item_id,
+                                        &status,
+                                    );
+
+                                    // Only report status when not ok
+                                    let _ = status_sender.try_send((
+                                        status,
+                                        SendBlockMsgInfo {
+                                            peer,
+                                            item_name,
+                                            item_bytes_length,
+                                            item_id,
+                                        },
+                                    ));
+                                }
+                            } else {
+                                Self::metrics_block_process(item_bytes_length, item_id, &status);
+                            }
+                        }
+                    } else {
+                        // block_queue was dropped, the thread exit
+                        return;
+                    }
+                    thread::sleep(IBD_BLOCK_FETCH_INTERVAL / 4);
+                })
+                .expect("block queue and consumer thread can't start");
+
+            let _ = sync
+                .block_queue_consumer_handle
+                .write()
+                .unwrap()
+                .replace(thread_handle);
+        } else {
+            // not in IBD mode, so drop the status receiver
+            let _ = sync.block_queue_consume_status_recv.take();
         }
+
+        sync
     }
 
     /// Get shared state
@@ -228,7 +365,7 @@ impl Synchronizer {
     }
 
     fn try_process<'r>(
-        &self,
+        &mut self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
@@ -256,25 +393,37 @@ impl Synchronizer {
     }
 
     fn process<'r>(
-        &self,
+        &mut self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'r>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
+        let item_id = message.item_id();
         let status = self.try_process(nc, peer, message);
+        Self::metrics_block_process(item_bytes, item_id, &status);
+        Self::post_block_process(nc, peer, item_name, status)
+    }
 
+    fn metrics_block_process(item_bytes_length: u64, item_id: Number, status: &Status) {
         metrics!(
             counter,
             "ckb.messages_bytes",
-            item_bytes,
+            item_bytes_length,
             "direction" => "in",
             "protocol_id" => SupportProtocols::Sync.protocol_id().value().to_string(),
-            "item_id" => message.item_id().to_string(),
+            "item_id" =>  item_id.to_string(),
             "status" => (status.code() as u16).to_string(),
         );
+    }
 
+    fn post_block_process(
+        nc: &dyn CKBProtocolContext,
+        peer: PeerIndex,
+        item_name: &str,
+        status: Status,
+    ) {
         if let Some(ban_time) = status.should_ban() {
             error!(
                 "receive {} from {}, ban {:?} for {}",
@@ -581,13 +730,13 @@ impl Synchronizer {
                 }
                 None => {
                     let p2p_control = raw.clone();
-                    let sync = self.clone();
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch((peers, ibd))).unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
+                    let sync = self.clone();
                     thread
                         .name("BlockDownload".to_string())
                         .spawn(move || {
@@ -749,6 +898,7 @@ impl CKBProtocolHandler for Synchronizer {
         _nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
     ) {
+        info!("SyncProtocol.disconnected peer={}", peer_index);
         let sync_state = self.shared().state();
         sync_state.disconnected(peer_index);
     }
@@ -794,5 +944,27 @@ impl CKBProtocolHandler for Synchronizer {
         } else if token == NO_PEER_CHECK_TOKEN {
             debug!("no peers connected");
         }
+    }
+
+    async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+        self.block_queue_consume_status_recv.as_ref()?;
+
+        if let Some((status, send_block_msg_info)) = self
+            .block_queue_consume_status_recv
+            .as_mut()
+            .unwrap()
+            .next()
+            .await
+        {
+            Self::post_block_process(
+                nc.as_ref(),
+                send_block_msg_info.peer,
+                &send_block_msg_info.item_name,
+                status,
+            );
+            return Some(());
+        }
+
+        None
     }
 }

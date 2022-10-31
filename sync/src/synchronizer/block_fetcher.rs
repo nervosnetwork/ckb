@@ -189,6 +189,19 @@ impl<'a> BlockFetcher<'a> {
                 inflight.total_inflight_count(),
                 *inflight
             )
+        } else {
+            debug!(
+                "[block fetch] fixed_last_common_header = {} \
+                best_known_header = {}, tip = {}, inflight_len = {}, \
+                inflight_state = {:?} \
+                fetch blocks count = {}",
+                last_common.number(),
+                best_known.number(),
+                tip,
+                inflight.total_inflight_count(),
+                *inflight,
+                fetch.len()
+            )
         }
 
         Some(
