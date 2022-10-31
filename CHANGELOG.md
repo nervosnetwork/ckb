@@ -2,6 +2,7 @@
 
 ### Features
 
+* #3672: Add rpc `estimate_cycles` (@zhangsoledad)
 * #3650: Bump ckb-vm to v0.22.0 (@mohanson)
 * #3664: Decrease max memory and increase speed, during chain root mmr migration (@yangby-cryptape)
 * #3665: Remove `block_filter_enable` option (@quake)
