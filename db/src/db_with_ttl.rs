@@ -35,6 +35,7 @@ impl DBWithTTL {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        opts.set_keep_log_file_num(10);
 
         let cf_descriptors: Vec<_> = cf_names
             .into_iter()
