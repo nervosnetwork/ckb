@@ -1,15 +1,16 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
-    EpochNumber, EpochView, EstimateCycles, HeaderView, JsonBytes, MerkleProof as JsonMerkleProof,
-    OutPoint, ResponseFormat, ResponseFormatInnerType, Timestamp, TransactionProof,
-    TransactionWithStatusResponse, Uint32,
+    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes,
+    MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, ResponseFormatInnerType, Timestamp,
+    Transaction, TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
+use ckb_tx_pool::get_transaction_virtual_bytes;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
     core::{
@@ -1365,6 +1366,48 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "estimate_cycles")]
     fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles>;
+
+    /// Returns the fee_rate statistics of confirmed blocks on the chain
+    ///
+    /// ## Params
+    ///
+    /// * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+    ///  If the number is even, automatically add one. If not specified, defaults to 21
+    ///
+    /// ## Returns
+    ///
+    /// When the given block hash is not on the current canonical chain, this RPC returns null;
+    /// otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
+    ///
+    /// Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_fee_rate_statics",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "mean":59.29387293275573,
+    ///     "median":5.288207297726071
+    ///    }
+    /// }
+    /// ```
+    #[rpc(name = "get_fee_rate_statics")]
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1811,6 +1854,75 @@ impl ChainRpc for ChainRpcImpl {
         let tx: packed::Transaction = tx.into();
         CyclesEstimator::new(&self.shared).run(tx)
     }
+
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
+        const DEFAULT_TARGET: u64 = 21;
+        const MIN_TARGET: u64 = 1;
+        const MAX_TARGET: u64 = 101;
+
+        fn is_even(n: u64) -> bool {
+            n & 1 == 0
+        }
+
+        fn mean(numbers: &[f64]) -> f64 {
+            let sum: f64 = numbers.iter().sum();
+            sum / numbers.len() as f64
+        }
+
+        fn median(numbers: &mut [f64]) -> f64 {
+            numbers.sort_unstable_by(|a, b| a.partial_cmp(b).expect("slice does not contain NaN"));
+            let mid = numbers.len() / 2;
+            if numbers.len() % 2 == 0 {
+                mean(&[numbers[mid - 1], numbers[mid]]) as f64
+            } else {
+                numbers[mid]
+            }
+        }
+
+        let mut target: u64 = target.map(Into::into).unwrap_or(DEFAULT_TARGET);
+        if is_even(target) {
+            target = std::cmp::min(MAX_TARGET, target.saturating_add(1));
+        }
+        let snapshot = self.shared.snapshot();
+        let tip_number = snapshot.tip_number();
+        let start = std::cmp::max(
+            MIN_TARGET,
+            tip_number.saturating_add(1).saturating_sub(target),
+        );
+
+        let mut fee_rates = Vec::new();
+        for number in start..=tip_number {
+            if let Some(block_ext) = snapshot
+                .get_block_hash(number)
+                .and_then(|hash| snapshot.get_block_ext(&hash))
+            {
+                if !block_ext.txs_fees.is_empty()
+                    && block_ext.cycles.is_some()
+                    && block_ext.txs_sizes.is_some()
+                {
+                    for (fee, cycles, size) in itertools::izip!(
+                        block_ext.txs_fees,
+                        block_ext.cycles.expect("checked"),
+                        block_ext.txs_sizes.expect("checked")
+                    ) {
+                        let vbytes = get_transaction_virtual_bytes(size as usize, cycles);
+                        if vbytes > 0 {
+                            fee_rates.push(fee.as_u64() as f64 / vbytes as f64);
+                        }
+                    }
+                }
+            }
+        }
+
+        if fee_rates.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(FeeRateStatics {
+                mean: mean(&fee_rates),
+                median: median(&mut fee_rates),
+            }))
+        }
+    }
 }
 
 impl ChainRpcImpl {
@@ -1897,7 +2009,7 @@ impl ChainRpcImpl {
         verbosity: Option<Uint32>,
         with_cycles: Option<bool>,
     ) -> Result<Option<BlockResponse>> {
-        if !snapshot.is_main_chain(&block_hash) {
+        if !snapshot.is_main_chain(block_hash) {
             return Ok(None);
         }
 
@@ -1911,11 +2023,11 @@ impl ChainRpcImpl {
         // TODO: verbosity level == 1, output block only contains tx_hash in JSON format
         let block_view = if verbosity == 2 {
             snapshot
-                .get_block(&block_hash)
+                .get_block(block_hash)
                 .map(|block| ResponseFormat::json(block.into()))
         } else if verbosity == 0 {
             snapshot
-                .get_packed_block(&block_hash)
+                .get_packed_block(block_hash)
                 .map(|packed| ResponseFormat::hex(packed.as_bytes()))
         } else {
             return Err(RPCError::invalid_params("invalid verbosity level"));

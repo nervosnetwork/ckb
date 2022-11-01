@@ -26,10 +26,10 @@ pub use self::block_template::{
 };
 pub use self::blockchain::{
     Block, BlockEconomicState, BlockIssuance, BlockResponse, BlockView, CellDep, CellInput,
-    CellOutput, Consensus, DepType, EpochView, HardForkFeature, Header, HeaderView, MerkleProof,
-    MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType, Status, Transaction,
-    TransactionProof, TransactionView, TransactionWithStatusResponse, TxStatus, UncleBlock,
-    UncleBlockView,
+    CellOutput, Consensus, DepType, EpochView, FeeRateStatics, HardForkFeature, Header, HeaderView,
+    MerkleProof, MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType, Status,
+    Transaction, TransactionProof, TransactionView, TransactionWithStatusResponse, TxStatus,
+    UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
