@@ -1376,10 +1376,7 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// When the given block hash is not on the current canonical chain, this RPC returns null;
-    /// otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
-    ///
-    /// Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
+    /// If the query has data records, it returns statistics, if not, it returns null.
     ///
     /// ## Examples
     ///
