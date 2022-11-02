@@ -111,7 +111,7 @@
 #![allow(deprecated)]
 
 mod alert;
-mod chain;
+pub(crate) mod chain;
 mod debug;
 mod experiment;
 mod indexer;

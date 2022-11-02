@@ -35,37 +35,47 @@ impl Migration for AddChainRootMMR {
         pbi.set_position(0);
         pbi.enable_steady_tick(5000);
 
-        let db_txn = chain_db.begin_transaction();
-        let mut mmr = ChainRootMMR::new(0, &db_txn);
+        let mut block_number = 0;
+        let mut mmr_size = 0;
 
-        for block_number in 0..=tip_number {
-            let block_hash = chain_db.get_block_hash(block_number).ok_or_else(|| {
-                let err = format!(
-                    "tip is {} but hash for block#{} is not found",
-                    tip_number, block_number
-                );
-                InternalErrorKind::Database.other(err)
-            })?;
-            let block_header = chain_db.get_block_header(&block_hash).ok_or_else(|| {
-                let err = format!(
-                    "tip is {} but hash for block#{} ({:#x}) is not found",
-                    tip_number, block_number, block_hash
-                );
-                InternalErrorKind::Database.other(err)
-            })?;
-            mmr.push(block_header.digest())
-                .map_err(|e| InternalErrorKind::MMR.other(e))?;
-            pbi.inc(1);
+        loop {
+            let db_txn = chain_db.begin_transaction();
+            let mut mmr = ChainRootMMR::new(mmr_size, &db_txn);
 
-            if block_number % 10000 == 0 {
-                let mmr_size = mmr.mmr_size();
-                mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
-                mmr = ChainRootMMR::new(mmr_size, &db_txn);
+            for _ in 0..10000 {
+                if block_number > tip_number {
+                    break;
+                }
+
+                let block_hash = chain_db.get_block_hash(block_number).ok_or_else(|| {
+                    let err = format!(
+                        "tip is {} but hash for block#{} is not found",
+                        tip_number, block_number
+                    );
+                    InternalErrorKind::Database.other(err)
+                })?;
+                let block_header = chain_db.get_block_header(&block_hash).ok_or_else(|| {
+                    let err = format!(
+                        "tip is {} but hash for block#{} ({:#x}) is not found",
+                        tip_number, block_number, block_hash
+                    );
+                    InternalErrorKind::Database.other(err)
+                })?;
+                mmr.push(block_header.digest())
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                pbi.inc(1);
+
+                block_number += 1;
+            }
+
+            mmr_size = mmr.mmr_size();
+            mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
+            db_txn.commit()?;
+
+            if block_number > tip_number {
+                break;
             }
         }
-
-        mmr.commit().map_err(|e| InternalErrorKind::MMR.other(e))?;
-        db_txn.commit()?;
 
         pbi.finish_with_message("done!");
 

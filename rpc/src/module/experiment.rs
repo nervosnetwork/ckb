@@ -1,23 +1,14 @@
 use crate::error::RPCError;
+use crate::module::chain::CyclesEstimator;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
-    Capacity, DaoWithdrawingCalculationKind, DryRunResult, OutPoint, Transaction,
+    Capacity, DaoWithdrawingCalculationKind, EstimateCycles, OutPoint, Transaction,
 };
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_types::{
-    core::{
-        self,
-        cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
-        error::OutPointError,
-    },
-    packed,
-    prelude::*,
-};
-use ckb_verification::ScriptVerifier;
+use ckb_types::{core, packed, prelude::*};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use std::collections::HashSet;
 
 /// RPC Module Experiment for experimenting methods.
 ///
@@ -102,8 +93,12 @@ pub trait ExperimentRpc {
     ///   }
     /// }
     /// ```
+    #[deprecated(
+        since = "0.105.1",
+        note = "Please use the RPC method [`estimate_cycles`](#tymethod.estimate_cycles) instead"
+    )]
     #[rpc(name = "dry_run_transaction")]
-    fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult>;
+    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;
 
     /// Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
     /// a withdrawing block hash.
@@ -172,9 +167,9 @@ pub(crate) struct ExperimentRpcImpl {
 }
 
 impl ExperimentRpc for ExperimentRpcImpl {
-    fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
+    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
         let tx: packed::Transaction = tx.into();
-        DryRunner::new(&self.shared).run(tx)
+        CyclesEstimator::new(&self.shared).run(tx)
     }
 
     fn calculate_dao_maximum_withdraw(
@@ -240,66 +235,6 @@ impl ExperimentRpc for ExperimentRpcImpl {
                     Err(err) => Err(RPCError::custom_with_error(RPCError::DaoError, err)),
                 }
             }
-        }
-    }
-}
-
-// DryRunner dry run given transaction, and return the result, including execution cycles.
-pub(crate) struct DryRunner<'a> {
-    shared: &'a Shared,
-}
-
-impl<'a> CellProvider for DryRunner<'a> {
-    fn cell(&self, out_point: &packed::OutPoint, eager_load: bool) -> CellStatus {
-        let snapshot = self.shared.snapshot();
-        snapshot
-            .get_cell(out_point)
-            .map(|mut cell_meta| {
-                if eager_load {
-                    if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
-                        cell_meta.mem_cell_data = Some(data);
-                        cell_meta.mem_cell_data_hash = Some(data_hash);
-                    }
-                }
-                CellStatus::live_cell(cell_meta)
-            })  // treat as live cell, regardless of live or dead
-            .unwrap_or(CellStatus::Unknown)
-    }
-}
-
-impl<'a> HeaderChecker for DryRunner<'a> {
-    fn check_valid(&self, block_hash: &packed::Byte32) -> std::result::Result<(), OutPointError> {
-        self.shared.snapshot().check_valid(block_hash)
-    }
-}
-
-impl<'a> DryRunner<'a> {
-    pub(crate) fn new(shared: &'a Shared) -> Self {
-        Self { shared }
-    }
-
-    pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
-        let snapshot: &Snapshot = &self.shared.snapshot();
-        let consensus = snapshot.consensus();
-        match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
-            Ok(resolved) => {
-                let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
-                    .verify(max_cycles)
-                {
-                    Ok(cycles) => Ok(DryRunResult {
-                        cycles: cycles.into(),
-                    }),
-                    Err(err) => Err(RPCError::custom_with_error(
-                        RPCError::TransactionFailedToVerify,
-                        err,
-                    )),
-                }
-            }
-            Err(err) => Err(RPCError::custom_with_error(
-                RPCError::TransactionFailedToResolve,
-                err,
-            )),
         }
     }
 }

@@ -33,12 +33,6 @@ use ckb_vm::{
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
 
-#[cfg(has_asm)]
-use ckb_vm::machine::asm::AsmMachine;
-
-#[cfg(not(has_asm))]
-use ckb_vm::TraceMachine;
-
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
@@ -903,12 +897,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
-
-        #[cfg(has_asm)]
-        let machine = AsmMachine::new(default_machine, None);
-        #[cfg(not(has_asm))]
-        let machine = TraceMachine::new(default_machine);
-
+        let machine = Machine::new(default_machine);
         Ok(machine)
     }
 

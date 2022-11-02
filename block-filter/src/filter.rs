@@ -1,5 +1,5 @@
 use ckb_async_runtime::tokio::{self, sync::oneshot, task::block_in_place};
-use ckb_logger::debug;
+use ckb_logger::{debug, warn};
 use ckb_shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
@@ -117,16 +117,19 @@ impl BlockFilter {
         for tx in transactions {
             if !tx.is_cellbase() {
                 for out_point in tx.input_pts_iter() {
-                    let input_cell = db
+                    if let Some(input_cell) = db
                         .get_transaction(&out_point.tx_hash())
-                        .expect("stored transaction")
-                        .0
-                        .outputs()
-                        .get(out_point.index().unpack())
-                        .expect("stored output");
-                    filter.add_element(input_cell.calc_lock_hash().as_slice());
-                    if let Some(type_script) = input_cell.type_().to_opt() {
-                        filter.add_element(type_script.calc_script_hash().as_slice());
+                        .and_then(|(tx, _)| tx.outputs().get(out_point.index().unpack()))
+                    {
+                        filter.add_element(input_cell.calc_lock_hash().as_slice());
+                        if let Some(type_script) = input_cell.type_().to_opt() {
+                            filter.add_element(type_script.calc_script_hash().as_slice());
+                        }
+                    } else {
+                        warn!(
+                            "Can't find input cell for out_point: {:#x}, should only happen in test, skip adding to filter",
+                            out_point
+                        );
                     }
                 }
             }
