@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
     EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes,
@@ -10,7 +11,6 @@ use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_traits::HeaderProvider;
-use ckb_tx_pool::get_transaction_virtual_bytes;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
     core::{
@@ -1856,72 +1856,8 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
-        const DEFAULT_TARGET: u64 = 21;
-        const MIN_TARGET: u64 = 1;
-        const MAX_TARGET: u64 = 101;
-
-        fn is_even(n: u64) -> bool {
-            n & 1 == 0
-        }
-
-        fn mean(numbers: &[f64]) -> f64 {
-            let sum: f64 = numbers.iter().sum();
-            sum / numbers.len() as f64
-        }
-
-        fn median(numbers: &mut [f64]) -> f64 {
-            numbers.sort_unstable_by(|a, b| a.partial_cmp(b).expect("slice does not contain NaN"));
-            let mid = numbers.len() / 2;
-            if numbers.len() % 2 == 0 {
-                mean(&[numbers[mid - 1], numbers[mid]]) as f64
-            } else {
-                numbers[mid]
-            }
-        }
-
-        let mut target: u64 = target.map(Into::into).unwrap_or(DEFAULT_TARGET);
-        if is_even(target) {
-            target = std::cmp::min(MAX_TARGET, target.saturating_add(1));
-        }
-        let snapshot = self.shared.snapshot();
-        let tip_number = snapshot.tip_number();
-        let start = std::cmp::max(
-            MIN_TARGET,
-            tip_number.saturating_add(1).saturating_sub(target),
-        );
-
-        let mut fee_rates = Vec::new();
-        for number in start..=tip_number {
-            if let Some(block_ext) = snapshot
-                .get_block_hash(number)
-                .and_then(|hash| snapshot.get_block_ext(&hash))
-            {
-                if !block_ext.txs_fees.is_empty()
-                    && block_ext.cycles.is_some()
-                    && block_ext.txs_sizes.is_some()
-                {
-                    for (fee, cycles, size) in itertools::izip!(
-                        block_ext.txs_fees,
-                        block_ext.cycles.expect("checked"),
-                        block_ext.txs_sizes.expect("checked")
-                    ) {
-                        let vbytes = get_transaction_virtual_bytes(size as usize, cycles);
-                        if vbytes > 0 {
-                            fee_rates.push(fee.as_u64() as f64 / vbytes as f64);
-                        }
-                    }
-                }
-            }
-        }
-
-        if fee_rates.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(FeeRateStatics {
-                mean: mean(&fee_rates),
-                median: median(&mut fee_rates),
-            }))
-        }
+        Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
+            .statistics(target.map(Into::into)))
     }
 }
 
