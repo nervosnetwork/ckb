@@ -5442,7 +5442,7 @@ An object containing various state info regarding deployments of consensus chang
 
 Deployment name
 
-`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
+`DeploymentPos` is equivalent to `"Testdummy" | "LightClient"`.
 
 *   Dummy
 *   light client protocol
@@ -5452,7 +5452,7 @@ Deployment name
 
 The possible softfork deployment state
 
-`DeploymentState` is equivalent to `"defined" | "started" | "locked_in" | "active" | "failed"`.
+`DeploymentState` is equivalent to `"Defined" | "Started" | "LockedIn" | "Active" | "Failed"`.
 
 *   First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
 *   For epochs past the `start` epoch.
