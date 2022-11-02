@@ -1347,7 +1347,7 @@ impl HardForkFeature {
 }
 
 /// The fee_rate statistics information, includes mean and median
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct FeeRateStatics {
     /// mean
     pub mean: f64,
