@@ -17,6 +17,7 @@ use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::{
     type_id::TYPE_ID_CYCLES,
     verify::{tests::utils::*, *},
+    ScriptError,
 };
 
 #[test]
@@ -254,7 +255,7 @@ fn check_vm_version() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+    assert_eq!(result.is_ok(), script_version == ScriptVersion::V1);
 }
 
 #[test]
@@ -289,9 +290,9 @@ fn check_vm_version_with_snapshot() {
     let max_cycles = Cycle::MAX;
 
     let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
-    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+    assert_eq!(result.is_ok(), script_version == ScriptVersion::V1);
 
-    if script_version < ScriptVersion::V1 {
+    if script_version != ScriptVersion::V1 {
         return;
     }
 
