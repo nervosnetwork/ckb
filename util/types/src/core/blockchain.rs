@@ -11,6 +11,8 @@ pub enum ScriptHashType {
     Type = 1,
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
+    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+    Data2 = 3,
 }
 
 impl Default for ScriptHashType {
@@ -27,6 +29,7 @@ impl TryFrom<u8> for ScriptHashType {
             0 => Ok(ScriptHashType::Data),
             1 => Ok(ScriptHashType::Type),
             2 => Ok(ScriptHashType::Data1),
+            3 => Ok(ScriptHashType::Data2),
             _ => Err(OtherError::new(format!("Invalid script hash type {v}"))),
         }
     }
@@ -43,7 +46,7 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 impl ScriptHashType {
     #[inline]
     pub(crate) fn verify_value(v: u8) -> bool {
-        v <= 2
+        v <= 3
     }
 }
 
@@ -54,6 +57,7 @@ impl Into<u8> for ScriptHashType {
             Self::Data => 0,
             Self::Type => 1,
             Self::Data1 => 2,
+            Self::Data2 => 3,
         }
     }
 }

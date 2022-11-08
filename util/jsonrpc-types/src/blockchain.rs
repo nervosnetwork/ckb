@@ -27,6 +27,8 @@ pub enum ScriptHashType {
     Type = 1,
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
+    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+    Data2 = 3,
 }
 
 impl Default for ScriptHashType {
@@ -41,6 +43,7 @@ impl From<ScriptHashType> for core::ScriptHashType {
             ScriptHashType::Data => core::ScriptHashType::Data,
             ScriptHashType::Type => core::ScriptHashType::Type,
             ScriptHashType::Data1 => core::ScriptHashType::Data1,
+            ScriptHashType::Data2 => core::ScriptHashType::Data2,
         }
     }
 }
@@ -51,6 +54,7 @@ impl From<core::ScriptHashType> for ScriptHashType {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
             core::ScriptHashType::Data1 => ScriptHashType::Data1,
+            core::ScriptHashType::Data2 => ScriptHashType::Data2,
         }
     }
 }
@@ -61,6 +65,7 @@ impl fmt::Display for ScriptHashType {
             Self::Data => write!(f, "data"),
             Self::Type => write!(f, "type"),
             Self::Data1 => write!(f, "data1"),
+            Self::Data2 => write!(f, "data2"),
         }
     }
 }

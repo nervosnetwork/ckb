@@ -1,6 +1,7 @@
 mod current_cycles;
 mod debugger;
 mod exec;
+mod get_memory_limit;
 mod load_cell;
 mod load_cell_data;
 mod load_header;
@@ -9,6 +10,8 @@ mod load_script;
 mod load_script_hash;
 mod load_tx;
 mod load_witness;
+mod set_content;
+mod spawn;
 mod utils;
 mod vm_version;
 
@@ -21,6 +24,7 @@ mod tests;
 pub use self::current_cycles::CurrentCycles;
 pub use self::debugger::Debugger;
 pub use self::exec::Exec;
+pub use self::get_memory_limit::GetMemoryLimit;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
@@ -29,6 +33,8 @@ pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
+pub use self::set_content::SetContent;
+pub use self::spawn::Spawn;
 pub use self::vm_version::VMVersion;
 
 #[cfg(test)]
@@ -45,6 +51,9 @@ pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
 pub const WRONG_FORMAT: u8 = 4;
+pub const SPAWN_EXCEEDED_MAX_CONTENT_LENGTH: u8 = 5;
+pub const SPAWN_WRONG_MEMORY_LIMIT: u8 = 6;
+pub const SPAWN_EXCEEDED_MAX_PEAK_MEMORY: u8 = 7;
 
 pub const VM_VERSION: u64 = 2041;
 pub const CURRENT_CYCLES: u64 = 2042;
@@ -62,9 +71,17 @@ pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
+pub const SPAWN: u64 = 2101;
+pub const GET_MEMORY_LIMIT: u64 = 2102;
+pub const SET_CONTENT: u64 = 2103;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;
+
+pub const SPAWN_MAX_MEMORY: u64 = 8;
+pub const SPAWN_MAX_PEAK_MEMORY: u64 = 64; // 64 * 0.5M = 32M
+pub const SPAWN_MEMORY_PAGE_SIZE: u64 = 512 * 1024; // 0.5M
+pub const SPAWN_MAX_CONTENT_LENGTH: u64 = 256 * 1024; // 256K
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
