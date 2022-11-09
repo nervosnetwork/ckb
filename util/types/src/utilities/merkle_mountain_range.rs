@@ -65,6 +65,11 @@ impl packed::Header {
 }
 
 impl packed::HeaderDigest {
+    fn is_default(&self) -> bool {
+        let default = Self::default();
+        self.as_slice() == default.as_slice()
+    }
+
     /// Verify the MMR header digest
     pub fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
@@ -216,19 +221,24 @@ impl VerifiableHeader {
 
     /// Checks if the current verifiable header is valid.
     pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
-        let has_chain_root =
-            !self.header().is_genesis() && self.header().epoch().number() >= mmr_activated_epoch;
+        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root {
-            let is_extension_beginning_with_chain_root_hash = self
-                .extension()
-                .map(|extension| {
-                    let actual_extension_data = extension.raw_data();
-                    let parent_chain_root_hash = self.parent_chain_root().calc_mmr_hash();
-                    actual_extension_data.starts_with(parent_chain_root_hash.as_slice())
-                })
-                .unwrap_or(false);
-            if !is_extension_beginning_with_chain_root_hash {
-                return false;
+            if self.header().is_genesis() {
+                if !self.parent_chain_root().is_default() {
+                    return false;
+                }
+            } else {
+                let is_extension_beginning_with_chain_root_hash = self
+                    .extension()
+                    .map(|extension| {
+                        let actual_extension_data = extension.raw_data();
+                        let parent_chain_root_hash = self.parent_chain_root().calc_mmr_hash();
+                        actual_extension_data.starts_with(parent_chain_root_hash.as_slice())
+                    })
+                    .unwrap_or(false);
+                if !is_extension_beginning_with_chain_root_hash {
+                    return false;
+                }
             }
         }
 
