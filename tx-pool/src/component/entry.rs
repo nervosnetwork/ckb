@@ -1,7 +1,10 @@
 use crate::component::container::AncestorsScoreSortKey;
-use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
+    core::{
+        cell::ResolvedTransaction,
+        tx_pool::{get_transaction_virtual_bytes, TxEntryInfo},
+        Capacity, Cycle, TransactionView,
+    },
     packed::{OutPoint, ProposalShortId},
 };
 use faketime::unix_time_as_millis;

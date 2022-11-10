@@ -13,7 +13,7 @@ pub mod service;
 mod util;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
-pub use component::{entry::TxEntry, get_transaction_virtual_bytes};
+pub use component::entry::TxEntry;
 pub use pool::TxPool;
 pub use process::PlugTarget;
 pub use service::{TxPoolController, TxPoolServiceBuilder};

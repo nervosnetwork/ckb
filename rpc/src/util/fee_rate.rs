@@ -1,8 +1,7 @@
 use ckb_jsonrpc_types::FeeRateStatics;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_tx_pool::get_transaction_virtual_bytes;
-use ckb_types::core::{BlockExt, BlockNumber};
+use ckb_types::core::{tx_pool::get_transaction_virtual_bytes, BlockExt, BlockNumber};
 
 const DEFAULT_TARGET: u64 = 21;
 const MIN_TARGET: u64 = 1;
