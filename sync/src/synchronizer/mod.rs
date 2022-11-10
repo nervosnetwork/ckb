@@ -217,6 +217,8 @@ pub struct SendBlockMsgInfo {
     item_id: Number,
 }
 
+type ShardedArrayQueue<T> = Arc<ShardedLock<Option<ArrayQueue<T>>>>;
+
 /// Sync protocol handle
 pub struct Synchronizer {
     pub(crate) chain: ChainController,
@@ -227,7 +229,7 @@ pub struct Synchronizer {
     /// Only in IBD mode, downloaded blocks will be pushed to block_queue
     /// The block_queue will be consumed by ProcessBlock thread
     /// If IBD finished, and block_queue will be dropped when the queue is  empty
-    block_queue: Arc<ShardedLock<Option<ArrayQueue<(BlockView, SendBlockMsgInfo)>>>>,
+    block_queue: ShardedArrayQueue<(BlockView, SendBlockMsgInfo)>,
     /// Only in IBD mode, if no blocks in queue, the consumer thread will park(),
     /// and be notified by this thread handle
     block_queue_consumer_handle: Arc<ShardedLock<Option<thread::JoinHandle<()>>>>,
@@ -241,10 +243,10 @@ impl Clone for Synchronizer {
     fn clone(&self) -> Self {
         Synchronizer {
             chain: self.chain.clone(),
-            shared: self.shared.clone(),
+            shared: Arc::clone(&self.shared),
             fetch_channel: self.fetch_channel.clone(),
-            block_queue: self.block_queue.clone(),
-            block_queue_consumer_handle: self.block_queue_consumer_handle.clone(),
+            block_queue: Arc::clone(&self.block_queue),
+            block_queue_consumer_handle: Arc::clone(&self.block_queue_consumer_handle),
 
             // we only need one Receiver for CKBProtocolHandler::poll
             block_queue_consume_status_recv: None,

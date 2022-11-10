@@ -576,12 +576,29 @@ fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
     }
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn test_sync_process() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    // make chain not in IBD mode
+    faketime::write_millis(&faketime_file, MAX_TIP_AGE / 2).expect("write millis");
+
     let consensus = Consensus::default();
     let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
     let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus));
     let num = 200;
+
+    assert!(!synchronizer1
+        .shared()
+        .active_chain()
+        .is_initial_block_download());
+
+    assert!(!synchronizer2
+        .shared()
+        .active_chain()
+        .is_initial_block_download());
 
     for i in 1..num {
         insert_block(&chain_controller1, &shared1, u128::from(i), i);
@@ -697,10 +714,14 @@ fn test_header_sync_timeout() {
     let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
     faketime::enable(&faketime_file);
 
+    faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
+
+    // In start_chain(), a new  Synchronizer instance will be inited
+    // And it will check is_initial_block_download here
+    // So we should write faketime before start_chain
     let (_, _, synchronizer) = start_chain(None);
 
     let network_context = mock_network_context(5);
-    faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
     assert!(synchronizer
         .shared
         .active_chain()
