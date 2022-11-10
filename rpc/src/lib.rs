@@ -3,6 +3,7 @@
 pub(crate) mod error;
 pub(crate) mod server;
 pub(crate) mod service_builder;
+pub(crate) mod util;
 
 pub mod module;
 

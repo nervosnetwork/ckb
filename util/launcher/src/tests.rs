@@ -78,6 +78,8 @@ fn test_mock_migration() {
         total_uncles_count: 0,
         verified: None,
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
 
     // insert_block_epoch_index

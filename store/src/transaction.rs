@@ -243,10 +243,11 @@ impl StoreTransaction {
         block_hash: &packed::Byte32,
         ext: &BlockExt,
     ) -> Result<(), Error> {
+        let packed_ext: packed::BlockExtV1 = ext.pack();
         self.insert_raw(
             COLUMN_BLOCK_EXT,
             block_hash.as_slice(),
-            ext.pack().as_slice(),
+            packed_ext.as_slice(),
         )
     }
 

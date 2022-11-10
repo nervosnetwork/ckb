@@ -520,6 +520,8 @@ impl From<Transaction> for packed::Transaction {
 pub struct TransactionWithStatusResponse {
     /// The transaction.
     pub transaction: Option<ResponseFormat<TransactionView>>,
+    /// The transaction consumed cycles.
+    pub cycles: Option<Cycle>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
@@ -534,12 +536,14 @@ impl TransactionWithStatusResponse {
                     .transaction
                     .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
                     .transaction
                     .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
         }
     }
@@ -908,6 +912,17 @@ pub struct Block {
     #[doc(hidden)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,
+}
+
+/// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockResponse {
+    /// The block structure
+    #[serde(flatten)]
+    pub block: ResponseFormat<BlockView>,
+    /// The block transactions consumed cycles.
+    #[serde(default)]
+    pub cycles: Option<Vec<Cycle>>,
 }
 
 /// The JSON view of a Block including header and body.
@@ -1329,4 +1344,13 @@ impl HardForkFeature {
             Self::new("0038", convert(switch.rfc_0038())),
         ]
     }
+}
+
+/// The fee_rate statistics information, includes mean and median
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct FeeRateStatics {
+    /// mean
+    pub mean: f64,
+    /// median
+    pub median: f64,
 }

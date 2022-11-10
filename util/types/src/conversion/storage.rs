@@ -59,18 +59,6 @@ impl<'r> Unpack<core::TransactionView> for packed::TransactionViewReader<'r> {
 }
 impl_conversion_for_entity_unpack!(core::TransactionView, TransactionView);
 
-impl Pack<packed::BlockExt> for core::BlockExt {
-    fn pack(&self) -> packed::BlockExt {
-        packed::BlockExt::new_builder()
-            .received_at(self.received_at.pack())
-            .total_difficulty(self.total_difficulty.pack())
-            .total_uncles_count(self.total_uncles_count.pack())
-            .verified(self.verified.pack())
-            .txs_fees((&self.txs_fees[..]).pack())
-            .build()
-    }
-}
-
 impl<'r> Unpack<core::BlockExt> for packed::BlockExtReader<'r> {
     fn unpack(&self) -> core::BlockExt {
         core::BlockExt {
@@ -79,10 +67,41 @@ impl<'r> Unpack<core::BlockExt> for packed::BlockExtReader<'r> {
             total_uncles_count: self.total_uncles_count().unpack(),
             verified: self.verified().unpack(),
             txs_fees: self.txs_fees().unpack(),
+            cycles: None,
+            txs_sizes: None,
         }
     }
 }
 impl_conversion_for_entity_unpack!(core::BlockExt, BlockExt);
+
+impl Pack<packed::BlockExtV1> for core::BlockExt {
+    fn pack(&self) -> packed::BlockExtV1 {
+        packed::BlockExtV1::new_builder()
+            .received_at(self.received_at.pack())
+            .total_difficulty(self.total_difficulty.pack())
+            .total_uncles_count(self.total_uncles_count.pack())
+            .verified(self.verified.pack())
+            .txs_fees((&self.txs_fees[..]).pack())
+            .cycles(self.cycles.pack())
+            .txs_sizes(self.txs_sizes.pack())
+            .build()
+    }
+}
+
+impl<'r> Unpack<core::BlockExt> for packed::BlockExtV1Reader<'r> {
+    fn unpack(&self) -> core::BlockExt {
+        core::BlockExt {
+            received_at: self.received_at().unpack(),
+            total_difficulty: self.total_difficulty().unpack(),
+            total_uncles_count: self.total_uncles_count().unpack(),
+            verified: self.verified().unpack(),
+            txs_fees: self.txs_fees().unpack(),
+            cycles: self.cycles().unpack(),
+            txs_sizes: self.txs_sizes().unpack(),
+        }
+    }
+}
+impl_conversion_for_entity_unpack!(core::BlockExt, BlockExtV1);
 
 impl Pack<packed::EpochExt> for core::EpochExt {
     fn pack(&self) -> packed::EpochExt {

@@ -1,9 +1,10 @@
 use crate::error::RPCError;
+use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockNumber, BlockView, CellWithStatus, Consensus, EpochNumber, EpochView,
-    EstimateCycles, HeaderView, JsonBytes, MerkleProof as JsonMerkleProof, OutPoint,
-    ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionProof,
-    TransactionWithStatusResponse, Uint32,
+    BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
+    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes,
+    MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, ResponseFormatInnerType, Timestamp,
+    Transaction, TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -57,6 +58,7 @@ pub trait ChainRpc {
     ///
     /// * `block_hash` - the block hash.
     /// * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+    /// * `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
     ///
     /// ## Returns
     ///
@@ -85,7 +87,9 @@ pub trait ChainRpc {
     ///   "jsonrpc": "2.0",
     ///   "method": "get_block",
     ///   "params": [
-    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///      null,
+    ///      true
     ///   ]
     /// }
     /// ```
@@ -146,7 +150,8 @@ pub trait ChainRpc {
     ///         ]
     ///       }
     ///     ],
-    ///     "uncles": []
+    ///     "uncles": [],
+    ///     "cycles": []
     ///   }
     /// }
     /// ```
@@ -165,7 +170,8 @@ pub trait ChainRpc {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView>>>;
+        with_cycles: Option<bool>,
+    ) -> Result<Option<BlockResponse>>;
 
     /// Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
     ///
@@ -173,6 +179,7 @@ pub trait ChainRpc {
     ///
     /// * `block_number` - the block number.
     /// * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+    /// * `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
     ///
     /// ## Returns
     ///
@@ -265,7 +272,8 @@ pub trait ChainRpc {
     ///         ]
     ///       }
     ///     ],
-    ///     "uncles": []
+    ///     "uncles": [],
+    ///     "cycles": null
     ///   }
     /// }
     /// ```
@@ -284,7 +292,8 @@ pub trait ChainRpc {
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView>>>;
+        with_cycles: Option<bool>,
+    ) -> Result<Option<BlockResponse>>;
 
     /// Returns the information about a block header by hash.
     ///
@@ -578,6 +587,7 @@ pub trait ChainRpc {
     ///       "version": "0x0",
     ///       "witnesses": []
     ///     },
+    ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",
@@ -596,6 +606,7 @@ pub trait ChainRpc {
     ///   "jsonrpc": "2.0",
     ///   "result": {
     ///     "transaction": "0x.....",
+    ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",
@@ -1355,6 +1366,45 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "estimate_cycles")]
     fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles>;
+
+    /// Returns the fee_rate statistics of confirmed blocks on the chain
+    ///
+    /// ## Params
+    ///
+    /// * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+    ///  If the number is even, automatically add one. If not specified, defaults to 21
+    ///
+    /// ## Returns
+    ///
+    /// If the query has data records, it returns statistics, if not, it returns null.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_fee_rate_statics",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "mean":59.29387293275573,
+    ///     "median":5.288207297726071
+    ///    }
+    /// }
+    /// ```
+    #[rpc(name = "get_fee_rate_statics")]
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -1370,65 +1420,39 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView>>> {
+        with_cycles: Option<bool>,
+    ) -> Result<Option<BlockResponse>> {
         let snapshot = self.shared.snapshot();
         let block_hash = block_hash.pack();
-        if !snapshot.is_main_chain(&block_hash) {
-            return Ok(None);
-        }
 
-        let verbosity = verbosity
-            .map(|v| v.value())
-            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
-        // TODO: verbosity level == 1, output block only contains tx_hash in JSON format
-        if verbosity == 2 {
-            Ok(snapshot
-                .get_block(&block_hash)
-                .map(|block| ResponseFormat::json(block.into())))
-        } else if verbosity == 0 {
-            Ok(snapshot
-                .get_packed_block(&block_hash)
-                .map(|packed| ResponseFormat::hex(packed.as_bytes())))
-        } else {
-            Err(RPCError::invalid_params("invalid verbosity level"))
-        }
+        self.get_block_by_hash(&snapshot, &block_hash, verbosity, with_cycles)
     }
 
     fn get_block_by_number(
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<ResponseFormat<BlockView>>> {
+        with_cycles: Option<bool>,
+    ) -> Result<Option<BlockResponse>> {
         let snapshot = self.shared.snapshot();
         let block_hash = match snapshot.get_block_hash(block_number.into()) {
             Some(block_hash) => block_hash,
             None => return Ok(None),
         };
 
-        let verbosity = verbosity
-            .map(|v| v.value())
-            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
-        // TODO: verbosity level == 1, output block only contains tx_hash in json format
-        let result = if verbosity == 2 {
-            snapshot
-                .get_block(&block_hash)
-                .map(|block| Some(ResponseFormat::json(block.into())))
-        } else if verbosity == 0 {
-            snapshot
-                .get_packed_block(&block_hash)
-                .map(|block| Some(ResponseFormat::hex(block.as_bytes())))
-        } else {
-            return Err(RPCError::invalid_params("invalid verbosity level"));
-        };
-
-        result.ok_or_else(|| {
+        let ret = self.get_block_by_hash(&snapshot, &block_hash, verbosity, with_cycles);
+        if ret == Ok(None) {
             let message = format!(
                 "Chain Index says block #{} is {:#x}, but that block is not in the database",
                 block_number, block_hash
             );
             error!("{}", message);
-            RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
-        })
+            return Err(RPCError::custom(
+                RPCError::ChainIndexIsInconsistent,
+                message,
+            ));
+        }
+        ret
     }
 
     fn get_header(
@@ -1827,6 +1851,11 @@ impl ChainRpc for ChainRpcImpl {
         let tx: packed::Transaction = tx.into();
         CyclesEstimator::new(&self.shared).run(tx)
     }
+
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
+        Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
+            .statistics(target.map(Into::into)))
+    }
 }
 
 impl ChainRpcImpl {
@@ -1834,10 +1863,20 @@ impl ChainRpcImpl {
         &self,
         tx_hash: packed::Byte32,
     ) -> Result<Option<TransactionWithStatus>> {
-        if let Some(tx_info) = self.shared.snapshot().get_transaction_info(&tx_hash) {
+        let snapshot = self.shared.snapshot();
+        if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
+            let cycles = snapshot
+                .get_block_ext(&tx_info.block_hash)
+                .and_then(|block_ext| {
+                    block_ext
+                        .cycles
+                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                });
+
             return Ok(Some(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_hash.unpack(),
+                cycles,
             )));
         }
 
@@ -1853,18 +1892,30 @@ impl ChainRpcImpl {
             error!("get_tx_status from db error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
-        let tx_status = tx_status.unwrap();
-        Ok(Some(TransactionWithStatus::status_only(tx_status)))
+        let (tx_status, cycles) = tx_status.unwrap();
+        Ok(Some(TransactionWithStatus::omit_transaction(
+            tx_status, cycles,
+        )))
     }
 
     fn get_transaction_verbosity2(
         &self,
         tx_hash: packed::Byte32,
     ) -> Result<Option<TransactionWithStatus>> {
-        if let Some((tx, block_hash)) = self.shared.snapshot().get_transaction(&tx_hash) {
+        let snapshot = self.shared.snapshot();
+        if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
+            let cycles = snapshot
+                .get_block_ext(&tx_info.block_hash)
+                .and_then(|block_ext| {
+                    block_ext
+                        .cycles
+                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                });
+
             return Ok(Some(TransactionWithStatus::with_committed(
                 Some(tx),
-                block_hash.unpack(),
+                tx_info.block_hash.unpack(),
+                cycles,
             )));
         }
 
@@ -1882,6 +1933,55 @@ impl ChainRpcImpl {
         };
         let transaction_with_status = transaction_with_status.unwrap();
         Ok(Some(transaction_with_status))
+    }
+
+    fn get_block_by_hash(
+        &self,
+        snapshot: &Snapshot,
+        block_hash: &packed::Byte32,
+        verbosity: Option<Uint32>,
+        with_cycles: Option<bool>,
+    ) -> Result<Option<BlockResponse>> {
+        if !snapshot.is_main_chain(block_hash) {
+            return Ok(None);
+        }
+
+        let verbosity = verbosity
+            .map(|v| v.value())
+            .unwrap_or(DEFAULT_BLOCK_VERBOSITY_LEVEL);
+
+        // default false
+        let with_cycles = with_cycles.unwrap_or(false);
+
+        // TODO: verbosity level == 1, output block only contains tx_hash in JSON format
+        let block_view = if verbosity == 2 {
+            snapshot
+                .get_block(block_hash)
+                .map(|block| ResponseFormat::json(block.into()))
+        } else if verbosity == 0 {
+            snapshot
+                .get_packed_block(block_hash)
+                .map(|packed| ResponseFormat::hex(packed.as_bytes()))
+        } else {
+            return Err(RPCError::invalid_params("invalid verbosity level"));
+        };
+
+        Ok(block_view.map(|block| {
+            if with_cycles {
+                let cycles = snapshot
+                    .get_block_ext(block_hash)
+                    .and_then(|ext| ext.cycles);
+                BlockResponse {
+                    block,
+                    cycles: cycles.map(|c| c.into_iter().map(Into::into).collect()),
+                }
+            } else {
+                BlockResponse {
+                    block,
+                    cycles: None,
+                }
+            }
+        }))
     }
 }
 

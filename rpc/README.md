@@ -52,6 +52,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
         * [Method `get_consensus`](#method-get_consensus)
         * [Method `get_block_median_time`](#method-get_block_median_time)
         * [Method `estimate_cycles`](#method-estimate_cycles)
+        * [Method `get_fee_rate_statics`](#method-get_fee_rate_statics)
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
@@ -105,6 +106,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
     * [Type `BlockIssuance`](#type-blockissuance)
     * [Type `BlockNumber`](#type-blocknumber)
+    * [Type `BlockResponse`](#type-blockresponse)
     * [Type `BlockTemplate`](#type-blocktemplate)
     * [Type `BlockView`](#type-blockview)
     * [Type `Byte32`](#type-byte32)
@@ -130,6 +132,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `EstimateCycles`](#type-estimatecycles)
+    * [Type `FeeRateStatics`](#type-feeratestatics)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
@@ -281,10 +284,11 @@ A cell is live if
 *   it is not found as an input in any transaction in the canonical chain.
 
 #### Method `get_block`
-* `get_block(block_hash, verbosity)`
+* `get_block(block_hash, verbosity, with_cycles)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`BlockView`](#type-blockview) `|` [`SerializedBlock`](#type-serializedblock) `|` `null`
+    * `with_cycles`: `boolean` `|` `null`
+* result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
 Returns the information about a block by hash.
 
@@ -293,6 +297,8 @@ Returns the information about a block by hash.
 *   `block_hash` - the block hash.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+
+*   `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
 
 ###### Returns
 
@@ -315,7 +321,9 @@ Request
   "jsonrpc": "2.0",
   "method": "get_block",
   "params": [
-    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+     null,
+     true
   ]
 }
 ```
@@ -378,7 +386,8 @@ Response
         ]
       }
     ],
-    "uncles": []
+    "uncles": [],
+    "cycles": []
   }
 }
 ```
@@ -397,10 +406,11 @@ The response looks like below when `verbosity` is 0.
 
 
 #### Method `get_block_by_number`
-* `get_block_by_number(block_number, verbosity)`
+* `get_block_by_number(block_number, verbosity, with_cycles)`
     * `block_number`: [`BlockNumber`](#type-blocknumber)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`BlockView`](#type-blockview) `|` [`SerializedBlock`](#type-serializedblock) `|` `null`
+    * `with_cycles`: `boolean` `|` `null`
+* result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
 Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
@@ -409,6 +419,8 @@ Returns the block in the [canonical chain](#canonical-chain) with the specific b
 *   `block_number` - the block number.
 
 *   `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+
+*   `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
 
 ###### Returns
 
@@ -500,7 +512,8 @@ Response
         ]
       }
     ],
-    "uncles": []
+    "uncles": [],
+    "cycles": null
   }
 }
 ```
@@ -827,6 +840,7 @@ Response
       "version": "0x0",
       "witnesses": []
     },
+    "cycles": "0x219",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -846,6 +860,7 @@ The response looks like below when `verbosity` is 0.
   "jsonrpc": "2.0",
   "result": {
     "transaction": "0x.....",
+    "cycles": "0x219",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -1657,6 +1672,51 @@ Response
   "result": {
     "cycles": "0x219"
   }
+}
+```
+
+
+#### Method `get_fee_rate_statics`
+* `get_fee_rate_statics(target)`
+    * `target`: [`Uint64`](#type-uint64) `|` `null`
+* result: [`FeeRateStatics`](#type-feeratestatics) `|` `null`
+
+Returns the fee_rate statistics of confirmed blocks on the chain
+
+###### Params
+
+*   `target` - Specify the number (1 - 101) of confirmed blocks to be counted. If the number is even, automatically add one. If not specified, defaults to 21
+
+###### Returns
+
+If the query has data records, it returns statistics, if not, it returns null.
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fee_rate_statics",
+  "params": []
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "mean":59.29387293275573,
+    "median":5.288207297726071
+   }
 }
 ```
 
@@ -4946,6 +5006,19 @@ Consecutive block number starting from 0.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
 
+### Type `BlockResponse`
+
+The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+
+#### Fields
+
+`BlockResponse` is a JSON object with the following fields.
+
+*   `block`: [`ResponseFormat`](#type-responseformat) - The block structure
+
+*   `cycles`: `Array<` [`Cycle`](#type-cycle) `>` `|` `null` - The block transactions consumed cycles.
+
+
 ### Type `BlockTemplate`
 
 A block template for miners.
@@ -5557,6 +5630,19 @@ Response result of the RPC method `estimate_cycles`.
 `EstimateCycles` is a JSON object with the following fields.
 
 *   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
+
+
+### Type `FeeRateStatics`
+
+The fee_rate statistics information, includes mean and median
+
+#### Fields
+
+`FeeRateStatics` is a JSON object with the following fields.
+
+*   `mean`: `64-bit floating point` - mean
+
+*   `median`: `64-bit floating point` - median
 
 
 ### Type `H256`
@@ -6572,6 +6658,8 @@ The JSON view of a transaction as well as its status.
 `TransactionWithStatusResponse` is a JSON object with the following fields.
 
 *   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
+
+*   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

@@ -22,7 +22,7 @@ use ckb_types::{
             ResolvedTransaction,
         },
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, Capacity, Cycle, HeaderView,
+        BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
     utilities::merkle_mountain_range::ChainRootMMR,
@@ -412,6 +412,8 @@ impl ChainService {
             total_uncles_count: parent_ext.total_uncles_count + block.data().uncles().len() as u64,
             verified: None,
             txs_fees: vec![],
+            cycles: None,
+            txs_sizes: None,
         };
 
         db_txn.insert_block_epoch_index(
@@ -755,8 +757,12 @@ impl ChainService {
                             };
                             match verified {
                                 Ok((cycles, cache_entries)) => {
-                                    let txs_fees =
-                                        cache_entries.iter().map(|entry| entry.fee).collect();
+                                    let txs_sizes = resolved
+                                        .iter()
+                                        .map(|rtx| {
+                                            rtx.transaction.data().serialized_size_in_block() as u64
+                                        })
+                                        .collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b)?;
                                     mmr.push(b.digest())
@@ -766,7 +772,8 @@ impl ChainService {
                                         txn,
                                         &b.header().hash(),
                                         ext.clone(),
-                                        Some(txs_fees),
+                                        Some(&cache_entries),
+                                        Some(txs_sizes),
                                     )?;
 
                                     if !switch.disable_script() && b.transactions().len() > 1 {
@@ -798,7 +805,7 @@ impl ChainService {
                 attach_block_cell(txn, b)?;
                 mmr.push(b.digest())
                     .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(txn, &b.header().hash(), ext.clone(), None)?;
+                self.insert_ok_ext(txn, &b.header().hash(), ext.clone(), None, None)?;
             }
         }
 
@@ -835,12 +842,19 @@ impl ChainService {
         txn: &StoreTransaction,
         hash: &Byte32,
         mut ext: BlockExt,
-        txs_fees: Option<Vec<Capacity>>,
+        cache_entries: Option<&[Completed]>,
+        txs_sizes: Option<Vec<u64>>,
     ) -> Result<(), Error> {
         ext.verified = Some(true);
-        if let Some(txs_fees) = txs_fees {
+        if let Some(entries) = cache_entries {
+            let (txs_fees, cycles) = entries
+                .iter()
+                .map(|entry| (entry.fee, entry.cycles))
+                .unzip();
             ext.txs_fees = txs_fees;
+            ext.cycles = Some(cycles);
         }
+        ext.txs_sizes = txs_sizes;
         txn.insert_block_ext(hash, &ext)
     }
 
