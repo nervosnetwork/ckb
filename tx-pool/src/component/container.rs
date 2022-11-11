@@ -249,12 +249,6 @@ impl SortedTxMap {
             if self.links.inner.contains_key(&id) {
                 parents.insert(id);
             }
-
-            // insert dep-ref map
-            self.deps
-                .entry(dep_pt)
-                .or_insert_with(HashSet::new)
-                .insert(short_id.clone());
         }
 
         let ancestors = calc_relation_ids(Cow::Borrowed(&parents), &self.links, Relation::Parents);
@@ -267,6 +261,15 @@ impl SortedTxMap {
 
         if entry.ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        for cell_dep in entry.transaction().cell_deps() {
+            let dep_pt = cell_dep.out_point();
+            // insert dep-ref map
+            self.deps
+                .entry(dep_pt)
+                .or_insert_with(HashSet::new)
+                .insert(short_id.clone());
         }
 
         for parent in &parents {
@@ -290,6 +293,11 @@ impl SortedTxMap {
 
     pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.entries.get(id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deps(&self) -> &HashMap<OutPoint, HashSet<ProposalShortId>> {
+        &self.deps
     }
 
     fn update_deps_for_remove(&mut self, entry: &TxEntry) {
