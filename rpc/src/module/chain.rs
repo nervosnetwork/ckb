@@ -87,9 +87,7 @@ pub trait ChainRpc {
     ///   "jsonrpc": "2.0",
     ///   "method": "get_block",
     ///   "params": [
-    ///     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-    ///      null,
-    ///      true
+    ///      "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
     ///   ]
     /// }
     /// ```
@@ -150,8 +148,7 @@ pub trait ChainRpc {
     ///         ]
     ///       }
     ///     ],
-    ///     "uncles": [],
-    ///     "cycles": []
+    ///     "uncles": []
     ///   }
     /// }
     /// ```
@@ -163,6 +160,19 @@ pub trait ChainRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0x..."
+    /// }
+    /// ```
+    ///
+    /// When specifying with_cycles, the response object will be different like below:
+    ///
+    /// ```text
+    /// {
+    ///     "id": 42,
+    ///     "jsonrpc": "2.0",
+    ///     "result": {
+    ///         "block": <Object> or "0x...",
+    ///         "cycles": []
+    ///     }
     /// }
     /// ```
     #[rpc(name = "get_block")]
@@ -272,8 +282,7 @@ pub trait ChainRpc {
     ///         ]
     ///       }
     ///     ],
-    ///     "uncles": [],
-    ///     "cycles": null
+    ///     "uncles": []
     ///   }
     /// }
     /// ```
@@ -285,6 +294,19 @@ pub trait ChainRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0x..."
+    /// }
+    /// ```
+    ///
+    /// When specifying with_cycles, the response object will be different like below:
+    ///
+    /// ```text
+    /// {
+    ///     "id": 42,
+    ///     "jsonrpc": "2.0",
+    ///     "result": {
+    ///         "block": <Object> or "0x...",
+    ///         "cycles": []
+    ///     }
     /// }
     /// ```
     #[rpc(name = "get_block_by_number")]
@@ -1971,15 +1993,13 @@ impl ChainRpcImpl {
                 let cycles = snapshot
                     .get_block_ext(block_hash)
                     .and_then(|ext| ext.cycles);
-                BlockResponse {
+
+                BlockResponse::with_cycles(
                     block,
-                    cycles: cycles.map(|c| c.into_iter().map(Into::into).collect()),
-                }
+                    cycles.map(|c| c.into_iter().map(Into::into).collect()),
+                )
             } else {
-                BlockResponse {
-                    block,
-                    cycles: None,
-                }
+                BlockResponse::regular(block)
             }
         }))
     }

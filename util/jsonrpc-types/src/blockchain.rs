@@ -916,9 +916,36 @@ pub struct Block {
 
 /// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct BlockResponse {
+#[serde(untagged)]
+pub enum BlockResponse {
+    /// The block response regular format
+    ///
+    /// [`BlockView`] | [\`SerializedBlock\`](#type-serializedblock) - The block structure
+    Regular(ResponseFormat<BlockView>),
+    /// The block with cycles response format
+    ///
+    /// A JSON object with the following fields:
+    /// * `block`: [`BlockView`] | [\`SerializedBlock\`](#type-serializedblock) - The block structure
+    /// * `cycles`: `Array<` [`Cycle`](#type-cycle) `>` `|` `null` - The block transactions consumed cycles.
+    WithCycles(BlockWithCyclesResponse),
+}
+
+impl BlockResponse {
+    /// Wrap regular block response
+    pub fn regular(block: ResponseFormat<BlockView>) -> Self {
+        BlockResponse::Regular(block)
+    }
+
+    /// Wrap with cycles block response
+    pub fn with_cycles(block: ResponseFormat<BlockView>, cycles: Option<Vec<Cycle>>) -> Self {
+        BlockResponse::WithCycles(BlockWithCyclesResponse { block, cycles })
+    }
+}
+
+/// BlockResponse with cycles format wrapper
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockWithCyclesResponse {
     /// The block structure
-    #[serde(flatten)]
     pub block: ResponseFormat<BlockView>,
     /// The block transactions consumed cycles.
     #[serde(default)]
