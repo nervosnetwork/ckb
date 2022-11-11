@@ -15,7 +15,7 @@ fun_run_os(){
       fi
   done < "runs_on.txt"
   echo "OS skip is "$os_skip
-  echo "::set-output name=os_skip::$os_skip"
+  echo "os_skip=$os_skip" >> $GITHUB_OUTPUT
 }
 
 fun_jobs(){
@@ -32,7 +32,7 @@ fun_jobs(){
     fi
   done < "job_run.txt"
   echo "JOB skip is" $job_skip
-  echo "::set-output name=job_skip::$job_skip"
+  echo "job_skip=$job_skip" >> $GITHUB_OUTPUT
 }
 
 fun_pasing_message(){
@@ -77,8 +77,8 @@ fun_pasing_message(){
   fi
   echo "linux_runner_label is "$linux_runner_label
   echo "windows_runner_label is "$windows_runner_label
-  echo "::set-output name=linux_runner_label::$linux_runner_label"
-  echo "::set-output name=windows_runner_label::$windows_runner_label"
+  echo "linux_runner_label=$linux_runner_label" >> $GITHUB_OUTPUT
+  echo "windows_runner_label=$windows_runner_label" >> $GITHUB_OUTPUT
 }
 
 if [[ $GITHUB_EVENT_NAME == "push" ]];then
@@ -101,11 +101,11 @@ if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
     job_run_list=" [ quick_checks,unit_tests,integration_tests,benchmarks,linters,wasm_build,cargo_deny,aarch64_build ] "
     fun_jobs "$job_run_list"
     if [[ "$GITHUB_REPOSITORY" == "nervosnetwork/ckb" ]];then
-      echo "::set-output name=linux_runner_label::self-hosted-ci-ubuntu-20.04"
-      echo "::set-output name=windows_runner_label::self-hosted-ci-windows-2019"
+      echo "linux_runner_label=self-hosted-ci-ubuntu-20.04" >> $GITHUB_OUTPUT
+      echo "windows_runner_label=self-hosted-ci-windows-2019" >> $GITHUB_OUTPUT
     else
-      echo "::set-output name=linux_runner_label::ubuntu-20.04"
-      echo "::set-output name=windows_runner_label::windows-2019"
+      echo "linux_runner_label=ubuntu-20.04" >> $GITHUB_OUTPUT
+      echo "windows_runner_label=windows-2019" >> $GITHUB_OUTPUT
     fi
   fi
 fi
