@@ -691,6 +691,7 @@ where
     }
 
     /// Return block hash by specified block_number
+    #[cfg(test)]
     pub(crate) fn get_block_hash(
         &self,
         block_number: BlockNumber,
