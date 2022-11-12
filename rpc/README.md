@@ -321,9 +321,7 @@ Request
   "jsonrpc": "2.0",
   "method": "get_block",
   "params": [
-    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     null,
-     true
+     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
   ]
 }
 ```
@@ -386,8 +384,7 @@ Response
         ]
       }
     ],
-    "uncles": [],
-    "cycles": []
+    "uncles": []
   }
 }
 ```
@@ -401,6 +398,21 @@ The response looks like below when `verbosity` is 0.
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x..."
+}
+```
+
+
+When specifying with_cycles, the response object will be different like below:
+
+
+```
+{
+    "id": 42,
+    "jsonrpc": "2.0",
+    "result": {
+        "block": <Object> or "0x...",
+        "cycles": []
+    }
 }
 ```
 
@@ -512,8 +524,7 @@ Response
         ]
       }
     ],
-    "uncles": [],
-    "cycles": null
+    "uncles": []
   }
 }
 ```
@@ -527,6 +538,21 @@ The response looks like below when `verbosity` is 0.
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x..."
+}
+```
+
+
+When specifying with_cycles, the response object will be different like below:
+
+
+```
+{
+    "id": 42,
+    "jsonrpc": "2.0",
+    "result": {
+        "block": <Object> or "0x...",
+        "cycles": []
+    }
 }
 ```
 
@@ -5010,13 +5036,20 @@ This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in 
 
 The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
 
-#### Fields
+`BlockResponse` is equivalent to `"regular" | "with_cycles"`.
 
-`BlockResponse` is a JSON object with the following fields.
+*   The block response regular format
 
-*   `block`: [`ResponseFormat`](#type-responseformat) - The block structure
+    [`BlockView`](#type-blockview) | [`SerializedBlock`](#type-serializedblock) - The block structure
 
-*   `cycles`: `Array<` [`Cycle`](#type-cycle) `>` `|` `null` - The block transactions consumed cycles.
+*   The block with cycles response format
+
+    A JSON object with the following fields:
+
+    *   `block`: [`BlockView`](#type-blockview) | [`SerializedBlock`](#type-serializedblock) - The block structure
+
+    *   `cycles`: `Array<` [`Cycle`](#type-cycle) `>` `|` `null` - The block transactions consumed cycles.
+
 
 
 ### Type `BlockTemplate`
