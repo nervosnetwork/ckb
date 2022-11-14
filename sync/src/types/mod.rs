@@ -1887,19 +1887,6 @@ impl SyncState {
             }
         }
     }
-
-    pub fn try_update_best_known_with_unknown_header_list(&self, pi: PeerIndex) {
-        // header list is an ordered list, sorted from highest to lowest,
-        // when header hash unknown, break loop is ok
-        while let Some(hash) = self.peers().take_unknown_last(pi) {
-            if let Some(header) = self.header_map.get(&hash) {
-                self.peers.may_set_best_known_header(pi, header);
-            } else {
-                self.peers.insert_unknown_header_hash(pi, hash);
-                break;
-            }
-        }
-    }
 }
 
 /** ActiveChain captures a point-in-time view of indexed chain of blocks. */
