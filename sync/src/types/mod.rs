@@ -2014,7 +2014,7 @@ impl ActiveChain {
                 step <<= 1;
             }
 
-            if index < step {
+            if index < step * 2 {
                 // Insert some low-height blocks in the locator
                 // to quickly start parallel ibd block downloads
                 // and it should not be too much
