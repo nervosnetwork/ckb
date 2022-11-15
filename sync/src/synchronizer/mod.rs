@@ -217,7 +217,7 @@ pub struct SendBlockMsgInfo {
     item_id: Number,
 }
 
-type ShardedArrayQueue<T> = Arc<ShardedLock<Option<ArrayQueue<T>>>>;
+type ShardedOption<T> = Arc<ShardedLock<Option<T>>>;
 
 /// Sync protocol handle
 pub struct Synchronizer {
@@ -229,10 +229,10 @@ pub struct Synchronizer {
     /// Only in IBD mode, downloaded blocks will be pushed to block_queue
     /// The block_queue will be consumed by ProcessBlock thread
     /// If IBD finished, and block_queue will be dropped when the queue is  empty
-    block_queue: ShardedArrayQueue<(BlockView, SendBlockMsgInfo)>,
+    block_queue: ShardedOption<ArrayQueue<(BlockView, SendBlockMsgInfo)>>,
     /// Only in IBD mode, if no blocks in queue, the consumer thread will park(),
     /// and be notified by this thread handle
-    block_queue_consumer_handle: Arc<ShardedLock<Option<thread::JoinHandle<()>>>>,
+    block_queue_consumer_handle: ShardedOption<thread::JoinHandle<()>>,
     /// The channel Receiver is used for CKBProtocolHandler::poll()
     /// If we got process_new_block's status from this receiver, give the status to post_process()
     block_queue_consume_status_recv:
@@ -283,13 +283,13 @@ impl Synchronizer {
             let _ = sync_clone
                 .block_queue
                 .write()
-                .unwrap()
+                .expect("Synchronizer wants to acquire write lock on block_queue to fill the block_queue, but it has poisoned")
                 .replace(ArrayQueue::new(512));
 
             let thread_handle = thread::Builder::new()
                 .name("ProcessBlock".to_string())
                 .spawn(move || loop {
-                    if let Some(block_queue) = sync_clone.block_queue.read().unwrap().as_ref() {
+                    if let Some(block_queue) = sync_clone.block_queue.read().expect("Synchronizer wants to acquire read lock on block_queue to consume the block_queue, but it has poisoned").as_ref() {
                         debug!(
                             "block queue's len()/capacity() = {}/{}",
                             block_queue.len(),
@@ -351,7 +351,7 @@ impl Synchronizer {
             let _ = sync
                 .block_queue_consumer_handle
                 .write()
-                .unwrap()
+                .expect("Synchronizer wants to acquire write lock on block_queue_consumer_handle to fill the thread_handle, but it has poisoned")
                 .replace(thread_handle);
         } else {
             // not in IBD mode, so drop the status receiver

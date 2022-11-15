@@ -38,7 +38,13 @@ impl<'a> BlockProcess<'a> {
             // determine should we drop the queue and consumer handle
 
             let mut queue_is_empty = false;
-            if let Some(queue) = self.synchronizer.block_queue.read().unwrap().as_ref() {
+            if let Some(queue) = self
+                .synchronizer
+                .block_queue
+                .read()
+                .expect("BlockProcess wants to acquire read lock on block_queue to check if block_queue is empty, but it has poisoned")
+                .as_ref()
+            {
                 if queue.is_empty() {
                     queue_is_empty = true;
                 }
@@ -46,13 +52,17 @@ impl<'a> BlockProcess<'a> {
 
             if queue_is_empty {
                 // drop block_queue and consumer handle
-                let _ = self.synchronizer.block_queue.write().unwrap().take();
-                let _ = self
+                let block_queue = self.synchronizer.block_queue.write().expect("BlockProcess wants to acquire write lock on block_queue to drop block_queue, but it has poisoned").take();
+                drop(block_queue);
+
+                let consumer_handle = self
                     .synchronizer
                     .block_queue_consumer_handle
                     .write()
-                    .unwrap()
+                    .expect("BlockProcess wants to acquire write lock on block_queue_consumer_handle to drop block_queue_consumer_handle , but it has poisoned")
                     .take();
+                drop(consumer_handle);
+
                 info!("both block queue and consumer handle are dropped");
             }
 
@@ -60,7 +70,7 @@ impl<'a> BlockProcess<'a> {
             return self.internal_process_block(block);
         }
 
-        match self.synchronizer.block_queue.read().unwrap().as_ref() {
+        match self.synchronizer.block_queue.read().expect("BlockProcess wants to acquire read lock on block_queue to push blocks to block_queue, but it has poisoned").as_ref() {
             Some(queue) => {
                 if state.new_block_received(&block) {
                     let msg_info = SendBlockMsgInfo {
