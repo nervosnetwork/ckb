@@ -55,6 +55,10 @@ impl Edges {
         self.outputs.insert(out_point, None);
     }
 
+    pub(crate) fn insert_consumed_output(&mut self, out_point: OutPoint, id: ProposalShortId) {
+        self.outputs.insert(out_point, Some(id));
+    }
+
     pub(crate) fn get_output_ref(&self, out_point: &OutPoint) -> Option<&Option<ProposalShortId>> {
         self.outputs.get(out_point)
     }
@@ -107,6 +111,9 @@ pub struct ProposedPool {
 
 impl CellProvider for ProposedPool {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
+        if self.edges.get_input_ref(out_point).is_some() {
+            return CellStatus::Dead;
+        }
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
@@ -119,15 +126,15 @@ impl CellProvider for ProposedPool {
                 return CellStatus::live_cell(cell_meta);
             }
         }
-        if self.edges.get_input_ref(out_point).is_some() {
-            return CellStatus::Dead;
-        }
         CellStatus::Unknown
     }
 }
 
 impl CellChecker for ProposedPool {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        if self.edges.get_input_ref(out_point).is_some() {
+            return Some(false);
+        }
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
@@ -135,9 +142,6 @@ impl CellChecker for ProposedPool {
             } else {
                 return Some(true);
             }
-        }
-        if self.edges.get_input_ref(out_point).is_some() {
-            return Some(false);
         }
         None
     }
@@ -265,9 +269,13 @@ impl ProposedPool {
                     self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
                 }
 
-                // record tx unconsumed output
+                // record tx output
                 for o in outputs {
-                    self.edges.insert_output(o);
+                    if let Some(id) = self.edges.get_input_ref(&o).cloned() {
+                        self.edges.insert_consumed_output(o, id);
+                    } else {
+                        self.edges.insert_output(o);
+                    }
                 }
 
                 // record header_deps
