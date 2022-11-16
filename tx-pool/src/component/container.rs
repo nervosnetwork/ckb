@@ -185,6 +185,12 @@ impl TxLinksMap {
             .map(|links| links.children.insert(child))
     }
 
+    fn add_parent(&mut self, short_id: &ProposalShortId, parent: ProposalShortId) -> Option<bool> {
+        self.inner
+            .get_mut(short_id)
+            .map(|links| links.parents.insert(parent))
+    }
+
     fn clear(&mut self) {
         self.inner.clear();
     }
@@ -193,10 +199,10 @@ impl TxLinksMap {
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
     entries: HashMap<ProposalShortId, TxEntry>,
-    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    pub(crate) sorted_index: BTreeSet<AncestorsScoreSortKey>,
     deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// A map track transaction ancestors and descendants
-    links: TxLinksMap,
+    pub(crate) links: TxLinksMap,
     max_ancestors_count: usize,
 }
 
@@ -219,6 +225,11 @@ impl SortedTxMap {
         self.entries.iter()
     }
 
+    // Usually when a new transaction is added to the pool, it has no in-pool
+    // children (because any such children would be an orphan).  So in add_entry(), we:
+    // - update a new entry's parents set to include all in-pool parents
+    // - update the new entry's parents to include the new tx as a child
+    // - update all ancestors of the transaction to include the new tx's size/fee
     pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<bool, Reject> {
         let short_id = entry.proposal_short_id();
 
@@ -285,6 +296,35 @@ impl SortedTxMap {
         self.sorted_index.insert(entry.as_sorted_key());
         self.entries.insert(short_id, entry);
         Ok(true)
+    }
+
+    // update_descendants_from_detached is used to update
+    // the descendants for a single transaction that has been added to the
+    // pool but may have child transactions in the pool, eg during a
+    // chain reorg.
+    pub fn update_descendants_from_detached(
+        &mut self,
+        id: &ProposalShortId,
+        children: HashSet<ProposalShortId>,
+    ) {
+        if let Some(entry) = self.entries.get(id).cloned() {
+            for child in &children {
+                self.links.add_parent(child, id.clone());
+            }
+            if let Some(links) = self.links.inner.get_mut(id) {
+                links.children.extend(children);
+            }
+
+            let descendants = self.calc_descendants(id);
+            for desc_id in &descendants {
+                if let Some(desc_entry) = self.entries.get_mut(desc_id) {
+                    let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
+                    debug_assert!(deleted, "pool inconsistent");
+                    desc_entry.add_entry_weight(&entry);
+                    self.sorted_index.insert(desc_entry.as_sorted_key());
+                }
+            }
+        }
     }
 
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
