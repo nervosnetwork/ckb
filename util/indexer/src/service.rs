@@ -184,8 +184,8 @@ impl IndexerService {
             let mut new_block_receiver = notify_controller
                 .subscribe_new_block(SUBSCRIBER_NAME.to_string())
                 .await;
-            let sleep = time::sleep(poll_service.poll_interval);
-            tokio::pin!(sleep);
+            let mut interval = time::interval(poll_service.poll_interval);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     Some(_) = new_block_receiver.recv() => {
@@ -196,7 +196,7 @@ impl IndexerService {
                             error!("ckb indexer syncing join error {:?}", e);
                         }
                     },
-                    _ = &mut sleep => {
+                    _ = interval.tick() => {
                         let service = poll_service.clone();
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync()
