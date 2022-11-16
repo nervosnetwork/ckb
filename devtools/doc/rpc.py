@@ -525,8 +525,11 @@ class EnumSchema(HTMLParser):
             if tag == 'h3':
                 attrs_dict = dict(attrs)
                 if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
-                    self.next_variant = camel_to_snake(
-                        attrs_dict['id'].split('.')[1])
+                    if self.name in ["DeploymentPos", "DeploymentState"]:
+                        self.next_variant = attrs_dict['id'].split('.')[1]
+                    else:
+                        self.next_variant = camel_to_snake(
+                            attrs_dict['id'].split('.')[1])
         elif self.variant_parser is None:
             if tag == 'div' and attrs == [("class", "docblock")]:
                 self.variant_parser = MarkdownParser(title_level=3)
