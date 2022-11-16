@@ -57,7 +57,7 @@ pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
 
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_secs(1);
-const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
+pub const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Copy, Clone)]
@@ -344,7 +344,7 @@ impl Synchronizer {
                         // block_queue was dropped, the thread exit
                         return;
                     }
-                    thread::sleep(IBD_BLOCK_FETCH_INTERVAL / 4);
+                    thread::sleep(IBD_BLOCK_FETCH_INTERVAL / 2);
                 })
                 .expect("block queue and consumer thread can't start");
 
@@ -359,6 +359,15 @@ impl Synchronizer {
         }
 
         sync
+    }
+
+    /// Check if block_queue is None
+    pub fn block_queue_is_none(&self) -> bool {
+        self.block_queue.read().expect("Synchronizer wants to acquire read lock on block_queue to check if the block_queue is None, but it has poisoned").is_none()
+    }
+    /// Check if block_queue_consumer_handle is None
+    pub fn block_queue_consumer_handle_is_none(&self) -> bool {
+        self.block_queue_consumer_handle.read().expect("Synchronizer wants to acquire read lock on block_queue_consumer_handle to check if the block_queue_consumer_handle is None, but it has poisoned").is_none()
     }
 
     /// Get shared state

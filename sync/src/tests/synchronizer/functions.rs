@@ -11,6 +11,7 @@ use ckb_network::{
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
+use ckb_types::packed::SyncMessageUnion::SendBlock;
 use ckb_types::{
     core::{
         cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder,
@@ -32,9 +33,11 @@ use std::{
     ops::Deref,
     pin::Pin,
     sync::{atomic::Ordering, Arc},
+    thread,
     time::Duration,
 };
 
+use crate::synchronizer::IBD_BLOCK_FETCH_INTERVAL;
 use crate::{
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
     types::{HeaderView, HeadersSyncController, IBDState, PeerState},
@@ -1259,4 +1262,68 @@ fn test_internal_db_error() {
         .accept_block(&synchronizer.chain, Arc::clone(&block));
 
     assert!(is_internal_db_error(&status.err().unwrap()));
+}
+
+#[test]
+fn test_block_queue_will_be_dropped_after_ibd_mode_end() {
+    // A newly started chain will enter IBD mode at beginning.
+    // and a block_queue will be initialized in Synchronizer.new().
+    // after IBD mode end, the block_queue will be dropped by BlockProcess.execute()
+
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    faketime::enable(&faketime_file);
+
+    // make chain not in IBD mode
+    faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis to faketime");
+
+    let consensus = Consensus::default();
+    let (_chain_controller, shared, synchronizer) = start_chain(Some(consensus.clone()));
+
+    // chain should be in IBD mode at the very beginning
+    assert!(synchronizer
+        .shared()
+        .active_chain()
+        .is_initial_block_download());
+
+    assert!(!synchronizer.block_queue_is_none());
+    assert!(!synchronizer.block_queue_consumer_handle_is_none());
+
+    faketime::write_millis(&faketime_file, MAX_TIP_AGE / 2).expect("write millis to faketime");
+
+    // chain should NOT be in IBD mode
+    assert!(!synchronizer
+        .shared()
+        .active_chain()
+        .is_initial_block_download());
+
+    {
+        // Let BlockProcess to process a block
+        let snapshot = shared.snapshot();
+        let parent = snapshot
+            .get_block_header(&snapshot.get_block_hash(0).unwrap())
+            .unwrap();
+        let epoch = snapshot
+            .consensus()
+            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .unwrap()
+            .epoch();
+
+        let block = gen_block(&shared, &parent, &epoch, 1);
+
+        assert_eq!(
+            BlockProcess::new(
+                packed::SendBlock::new_builder()
+                    .block(block.data())
+                    .build()
+                    .as_reader(),
+                &synchronizer,
+                PeerIndex::from(1),
+            )
+            .execute(),
+            Status::ok()
+        );
+    }
+
+    assert!(synchronizer.block_queue_is_none());
+    assert!(synchronizer.block_queue_consumer_handle_is_none());
 }
