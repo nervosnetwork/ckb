@@ -158,3 +158,23 @@ impl From<SupportProtocols> for MetaBuilder {
             })
     }
 }
+
+impl TryFrom<ProtocolId> for SupportProtocols {
+    type Error = ();
+    fn try_from(proto_id: ProtocolId) -> Result<Self, Self::Error> {
+        match proto_id.value() {
+            0 => Ok(SupportProtocols::Ping),
+            1 => Ok(SupportProtocols::Discovery),
+            2 => Ok(SupportProtocols::Identify),
+            3 => Ok(SupportProtocols::Feeler),
+            4 => Ok(SupportProtocols::DisconnectMessage),
+            100 => Ok(SupportProtocols::Sync),
+            101 => Ok(SupportProtocols::RelayV2),
+            102 => Ok(SupportProtocols::Time),
+            110 => Ok(SupportProtocols::Alert),
+            120 => Ok(SupportProtocols::LightClient),
+            121 => Ok(SupportProtocols::Filter),
+            _ => Err(()),
+        }
+    }
+}
