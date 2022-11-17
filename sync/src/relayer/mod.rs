@@ -854,8 +854,10 @@ impl CKBProtocolHandler for Relayer {
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
-        // If self is in the IBD state, don't trigger any relayer notify.
-        if self.shared.active_chain().is_initial_block_download() {
+        // If self is in the IBD state, don't trigger any relayer notify except SEARCH_ORPHAN_POOL.
+        if self.shared.active_chain().is_initial_block_download()
+            && token != SEARCH_ORPHAN_POOL_TOKEN
+        {
             return;
         }
 

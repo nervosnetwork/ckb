@@ -1264,6 +1264,7 @@ impl SyncShared {
                 block.header().hash()
             );
             self.state.insert_orphan_block((*block).clone());
+            self.try_search_orphan_pool(chain);
             return Ok(false);
         }
 
