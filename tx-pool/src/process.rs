@@ -752,7 +752,9 @@ impl TxPoolService {
                         verify_rtx(snapshot, &rtx, &tx_env, &verify_cache, max_cycles)
                     {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
-                        if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
+                        if let Err(e) =
+                            _submit_entry_from_detached(tx_pool, status, entry, &self.callbacks)
+                        {
                             error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
                         } else {
                             debug!("readd_detached_tx submit_entry {}", tx_hash);
@@ -858,6 +860,42 @@ fn _submit_entry(
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
                 debug!("submit_entry proposed {}", tx_hash);
+                callbacks.call_proposed(tx_pool, &entry, true);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn _submit_entry_from_detached(
+    tx_pool: &mut TxPool,
+    status: TxStatus,
+    entry: TxEntry,
+    callbacks: &Callbacks,
+) -> Result<(), Reject> {
+    let tx_hash = entry.transaction().hash();
+    match status {
+        TxStatus::Fresh => {
+            if tx_pool.add_pending(entry.clone()) {
+                debug!("_submit_entry_from_detached pending {}", tx_hash);
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
+        }
+        TxStatus::Gap => {
+            if tx_pool.add_gap(entry.clone()) {
+                debug!("_submit_entry_from_detached gap {}", tx_hash);
+                callbacks.call_pending(tx_pool, &entry);
+            } else {
+                return Err(Reject::Duplicated(tx_hash));
+            }
+        }
+        TxStatus::Proposed => {
+            if tx_pool.add_proposed_from_detached(entry.clone())? {
+                debug!("_submit_entry_from_detached proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
             } else {
                 return Err(Reject::Duplicated(tx_hash));

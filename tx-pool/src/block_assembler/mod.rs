@@ -572,9 +572,10 @@ impl BlockAssembler {
                     {
                         error!(
                             "resolve transactions when build block template, \
-                             tip_number: {}, tip_hash: {}, error: {:?}",
+                             tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
                             tip_header.number(),
                             tip_header.hash(),
+                            entry.transaction().hash(),
                             err
                         );
                         None
