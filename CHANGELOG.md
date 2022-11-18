@@ -1,3 +1,27 @@
+# [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0)
+
+### Features
+
+* #3669: Add RPC `estimate_cycles` (@zhangsoledad)
+* #3703: Tuning the locator algorithm (@driftluo)
+
+### Bug Fixes
+
+* #3675 **light-client:** Subtract overflow when try to get chain root for genesis block (@yangby-cryptape)
+* #3697 **light-client:** Do not skip the genesis block for last state proofs (@yangby-cryptape)
+* #3698 **tx-pool:** Potential leaks when MaximumAncestors occurs (@zhangsoledad)
+* #3706 **tx-pool:** Fix tx-pool potential inconsistent after reorg occurs (@zhangsoledad)
+* #3705 **indexer:** Indexer CPU usage (@zhangsoledad)
+* #3674: Fix logging feature break (@driftluo)
+* #3681: Set recent reject db log file limit to 10 (@driftluo)
+* #3699: Resolve a long reorg error (@quake)
+* #3702: Unknown list should get header from headermap and db (@driftluo)
+
+### Misc
+
+* #3684: Improve support for cycles access (@zhangsoledad)
+
+
 # [v0.105.1](https://github.com/nervosnetwork/ckb/compare/v0.105.0...v0.105.1) (2022-10-28)
 
 ### Features
