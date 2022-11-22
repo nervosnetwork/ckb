@@ -251,7 +251,11 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
             chain_controller.clone(),
             true,
         )
-        .enable_net(network_controller.clone(), sync_shared)
+        .enable_net(
+            network_controller.clone(),
+            sync_shared,
+            chain_controller.clone(),
+        )
         .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(

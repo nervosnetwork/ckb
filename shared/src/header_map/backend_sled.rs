@@ -1,5 +1,5 @@
 use super::KeyValueBackend;
-use crate::types::HeaderView;
+use crate::header_view::HeaderView;
 use ckb_types::{packed::Byte32, prelude::*};
 use sled::Db;
 use std::path;

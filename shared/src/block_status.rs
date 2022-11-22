@@ -1,6 +1,10 @@
+//! block_status for block_status_map
+//! BlockStatus for Sync protocol
+//! https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md#abstract
 use bitflags::bitflags;
 
 bitflags! {
+#[doc(hidden)]
     pub struct BlockStatus: u32 {
         const UNKNOWN                 =     0;
 

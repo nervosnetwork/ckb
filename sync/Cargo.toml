@@ -27,8 +27,6 @@ ckb-error = {path = "../error", version = "= 0.107.0-pre"}
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.107.0-pre" }
 sentry = { version = "0.26.0", optional = true }
 ckb-constant = { path = "../util/constant", version = "= 0.107.0-pre" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.107.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.107.0-pre" }
 ckb-hash = { path = "../util/hash", version = "= 0.107.0-pre" }
 tokio = { version = "1", features = ["sync"] }
 lru = "0.7.1"
@@ -36,10 +34,8 @@ futures = "0.3"
 governor = "0.3.1"
 tempfile = "3.0"
 faketime = "0.2.0"
-bitflags = "1.0"
 dashmap = "4.0"
 keyed_priority_queue = "0.3"
-sled = "0.34.7"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.107.0-pre" }

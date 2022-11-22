@@ -10,6 +10,7 @@ pub mod util;
 use derive_more::Display;
 pub use internal::{InternalError, InternalErrorKind, OtherError, SilentError};
 use prelude::*;
+pub use util::is_internal_db_error;
 
 /// A wrapper around a dynamic error type.
 #[derive(Clone)]

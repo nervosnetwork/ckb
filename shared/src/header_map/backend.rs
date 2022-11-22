@@ -1,8 +1,7 @@
 use std::path;
 
+use crate::header_view::HeaderView;
 use ckb_types::packed::Byte32;
-
-use crate::types::HeaderView;
 
 pub(crate) trait KeyValueBackend {
     fn new<P>(tmpdir: Option<P>) -> Self

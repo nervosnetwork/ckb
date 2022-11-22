@@ -1,4 +1,5 @@
-use crate::{synchronizer::Synchronizer, utils::is_internal_db_error, Status, StatusCode};
+use crate::{synchronizer::Synchronizer, Status, StatusCode};
+use ckb_error::util::is_internal_db_error;
 use ckb_logger::debug;
 use ckb_network::PeerIndex;
 use ckb_types::{packed, prelude::*};
@@ -29,10 +30,10 @@ impl<'a> BlockProcess<'a> {
             block.number(),
             block.hash(),
         );
-        let shared = self.synchronizer.shared();
-        let state = shared.state();
+        let shared = self.synchronizer.shared().shared();
+        let state = self.synchronizer.shared().state();
 
-        if state.new_block_received(&block) {
+        if state.new_block_received(shared, &block) {
             if let Err(err) = self.synchronizer.process_new_block(block.clone()) {
                 if !is_internal_db_error(&err) {
                     return StatusCode::BlockIsInvalid.with_context(format!(

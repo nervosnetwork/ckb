@@ -1,5 +1,7 @@
 //! Error-related macros
 
+use crate::{Error, ErrorKind, InternalError, InternalErrorKind};
+
 /// Compare two errors.
 ///
 /// NOTE: Used for testing only!
@@ -191,4 +193,26 @@ macro_rules! def_error_base_on_kind {
     ($error:ident, $error_kind:ty) => {
         def_error_base_on_kind!($error, $error_kind, "/// TODO(doc): @keroro520");
     };
+}
+
+/// return whether the error's kind is `InternalErrorKind::Database`
+///
+/// ### Panic
+///
+/// Panic if the error kind is `InternalErrorKind::DataCorrupted`.
+/// If the database is corrupted, panic is better than handle it silently.
+pub fn is_internal_db_error(error: &Error) -> bool {
+    if error.kind() == ErrorKind::Internal {
+        let error_kind = error
+            .downcast_ref::<InternalError>()
+            .expect("error kind checked")
+            .kind();
+        if error_kind == InternalErrorKind::DataCorrupted {
+            panic!("{}", error)
+        } else {
+            return error_kind == InternalErrorKind::Database
+                || error_kind == InternalErrorKind::System;
+        }
+    }
+    false
 }

@@ -26,7 +26,13 @@ ckb-async-runtime = { path = "../util/runtime", version = "= 0.107.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.107.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.107.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.107.0-pre" }
+ckb-util = { path = "../util", version = "= 0.107.0-pre" }
 faketime = "0.2.0"
+bitflags = "1.0"
+dashmap = "4.0"
+sled = "0.34.7"
+tempfile = "3.0"
+tokio = { version = "1", features = ["sync"] }
 
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable"]

@@ -1,10 +1,11 @@
-use crate::types::HeaderView;
-use crate::types::SHRINK_THRESHOLD;
+use crate::header_view::HeaderView;
 use ckb_types::packed::Byte32;
 use ckb_util::shrink_to_fit;
 use ckb_util::LinkedHashMap;
 use ckb_util::RwLock;
 use std::default;
+
+const HEADER_MAP_SHRINK_THRESHOLD: usize = 300;
 
 pub(crate) struct MemoryMap(RwLock<LinkedHashMap<Byte32, HeaderView>>);
 
@@ -37,7 +38,7 @@ impl MemoryMap {
     pub(crate) fn remove(&self, key: &Byte32) -> Option<HeaderView> {
         let mut guard = self.0.write();
         let ret = guard.remove(key);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        shrink_to_fit!(guard, HEADER_MAP_SHRINK_THRESHOLD);
         ret
     }
 
@@ -57,6 +58,6 @@ impl MemoryMap {
         for key in keys {
             guard.remove(&key);
         }
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        shrink_to_fit!(guard, HEADER_MAP_SHRINK_THRESHOLD);
     }
 }

@@ -203,6 +203,7 @@ impl Launcher {
             &self.args.config.bin_name,
             self.args.config.root_dir.as_path(),
             &self.args.config.db,
+            self.args.config.network.sync.clone(),
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
         )?;
@@ -213,6 +214,7 @@ impl Launcher {
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
             .block_assembler_config(block_assembler_config)
+            .header_map_tmp_dir(self.args.config.tmp_dir.clone())
             .build()?;
 
         // internal check migrate_version
@@ -274,10 +276,9 @@ impl Launcher {
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
     ) -> (NetworkController, RpcServer) {
-        let sync_shared = Arc::new(SyncShared::with_tmpdir(
+        let sync_shared = Arc::new(SyncShared::new(
             shared.clone(),
             self.args.config.network.sync.clone(),
-            self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
         let network_state = Arc::new(
@@ -396,7 +397,11 @@ impl Launcher {
                 chain_controller.clone(),
                 miner_enable,
             )
-            .enable_net(network_controller.clone(), sync_shared)
+            .enable_net(
+                network_controller.clone(),
+                sync_shared,
+                chain_controller.clone(),
+            )
             .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
             .enable_experiment(shared.clone())
             .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)

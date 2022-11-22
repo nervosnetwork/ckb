@@ -8,7 +8,7 @@ use ckb_util::{Mutex, MutexGuard};
 use ckb_types::packed::Byte32;
 
 use super::{KeyValueBackend, MemoryMap};
-use crate::types::HeaderView;
+use crate::header_view::HeaderView;
 
 pub(crate) struct HeaderMapKernel<Backend>
 where

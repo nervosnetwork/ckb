@@ -20,7 +20,6 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
-use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
@@ -32,6 +31,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
 };
+use ckb_shared::block_status::BlockStatus;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockView},
@@ -47,7 +47,6 @@ use std::time::{Duration, Instant};
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 pub const TX_HASHES_TOKEN: u64 = 2;
-pub const SEARCH_ORPHAN_POOL_TOKEN: u64 = 3;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
@@ -276,7 +275,7 @@ impl Relayer {
                 unix_time_as_millis()
             );
             let block_hash = boxed.hash();
-            self.shared().state().remove_header_view(&block_hash);
+            self.shared().shared().remove_header_view(&block_hash);
             let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(cb).build();
 
@@ -459,7 +458,7 @@ impl Relayer {
                     }
                 }
                 BlockStatus::BLOCK_RECEIVED => {
-                    if let Some(uncle) = self.shared.state().get_orphan_block(&uncle_hash) {
+                    if let Some(uncle) = self.chain.get_orphan_block(&uncle_hash) {
                         uncles.push(uncle.as_uncle().data());
                     } else {
                         debug_target!(
@@ -719,10 +718,6 @@ impl CKBProtocolHandler for Relayer {
         nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
             .await
             .expect("set_notify at init is ok");
-        // todo: remove when the asynchronous verification is completed
-        nc.set_notify(Duration::from_secs(5), SEARCH_ORPHAN_POOL_TOKEN)
-            .await
-            .expect("set_notify at init is ok");
     }
 
     async fn received(
@@ -867,14 +862,6 @@ impl CKBProtocolHandler for Relayer {
             }
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
-            SEARCH_ORPHAN_POOL_TOKEN => {
-                if !self.shared.state().orphan_pool().is_empty() {
-                    tokio::task::block_in_place(|| {
-                        self.shared.try_search_orphan_pool(&self.chain);
-                        self.shared.periodic_clean_orphan_pool();
-                    })
-                }
-            }
             _ => unreachable!(),
         }
         trace_target!(

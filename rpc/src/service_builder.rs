@@ -98,10 +98,12 @@ impl<'a> ServiceBuilder<'a> {
         mut self,
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
+        chain_controller: ChainController,
     ) -> Self {
         let rpc_methods = NetRpcImpl {
             network_controller,
             sync_shared,
+            chain_controller,
         }
         .to_delegate();
         if self.config.net_enable() {

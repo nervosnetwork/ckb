@@ -1,4 +1,6 @@
 //! TODO(doc): @quake
+use crate::block_status::BlockStatus;
+use crate::header_map::HeaderMap;
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
@@ -17,9 +19,11 @@ use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    H256, U256,
 };
+use ckb_util::{shrink_to_fit, RwLock};
 use ckb_verification::cache::TxVerificationCache;
+use dashmap::DashMap;
 use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
@@ -31,6 +35,9 @@ use std::time::Duration;
 const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
 const THRESHOLD_EPOCH: EpochNumber = 2;
 const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
+
+/// Shrink threshold for block_status_map
+pub const BLOCK_STATUS_MAP_SHRINK_THRESHOLD: usize = 300;
 
 /// An owned permission to close on a freezer thread
 pub struct FreezerClose {
@@ -48,6 +55,10 @@ impl Drop for FreezerClose {
 /// TODO(doc): @quake
 #[derive(Clone)]
 pub struct Shared {
+    pub(crate) header_map: HeaderMap,
+    pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
+    pub(crate) assume_valid_target: Arc<RwLock<Option<H256>>>,
+
     pub(crate) store: ChainDB,
     pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) notify_controller: NotifyController,
@@ -63,6 +74,9 @@ impl Shared {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: ChainDB,
+        header_map: HeaderMap,
+        block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
+        assume_valid_target: Arc<RwLock<Option<H256>>>,
         tx_pool_controller: TxPoolController,
         notify_controller: NotifyController,
         txs_verify_cache: Arc<TokioRwLock<TxVerificationCache>>,
@@ -73,6 +87,9 @@ impl Shared {
     ) -> Shared {
         Shared {
             store,
+            header_map,
+            block_status_map,
+            assume_valid_target,
             tx_pool_controller,
             notify_controller,
             txs_verify_cache,
@@ -322,6 +339,59 @@ impl Shared {
     /// TODO(doc): @quake
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
+    }
+
+    /// Return block_status_map
+    pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
+        &self.block_status_map
+    }
+
+    /// Return header map
+    pub fn header_map(&self) -> &HeaderMap {
+        &self.header_map
+    }
+
+    /// Insert block to block_status_map
+    pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
+        self.block_status_map().insert(block_hash, status);
+    }
+
+    /// Remove block status from block_status_map
+    pub fn remove_block_status(&self, hash: &Byte32) {
+        self.block_status_map().remove(hash);
+        shrink_to_fit!(self.block_status_map(), BLOCK_STATUS_MAP_SHRINK_THRESHOLD);
+    }
+
+    /// Remove header from header_map by block_hash
+    pub fn remove_header_view(&self, hash: &Byte32) {
+        self.header_map().remove(hash)
+    }
+
+    /// Get BlockStatus by block_hash
+    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
+        match self.block_status_map().get(block_hash) {
+            Some(status_ref) => *status_ref.value(),
+            None => {
+                if self.header_map().contains_key(block_hash) {
+                    BlockStatus::HEADER_VALID
+                } else {
+                    let verified = self
+                        .snapshot()
+                        .get_block_ext(block_hash)
+                        .map(|block_ext| block_ext.verified);
+                    match verified {
+                        None => BlockStatus::UNKNOWN,
+                        Some(None) => BlockStatus::BLOCK_STORED,
+                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                    }
+                }
+            }
+        }
+    }
+    /// Return assume_valid_target
+    pub fn assume_valid_target(&self) -> &RwLock<Option<H256>> {
+        self.assume_valid_target.as_ref()
     }
 
     /// Return async runtime handle
