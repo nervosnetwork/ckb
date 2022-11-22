@@ -151,7 +151,7 @@ fn test_add_entry_from_detached() {
         .unwrap()
         .is_empty());
 
-    assert!(pool.add_entry_from_detached(entry1).unwrap());
+    assert!(pool.add_entry(entry1).unwrap());
     for (idx, key) in pool.inner().sorted_index.iter().enumerate() {
         assert_eq!(key.id, expected[idx].0);
         assert_eq!(key.ancestors_size, expected[idx].1);
