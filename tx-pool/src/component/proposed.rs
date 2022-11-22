@@ -245,50 +245,6 @@ impl ProposedPool {
         None
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        let tx_short_id = entry.proposal_short_id();
-
-        if self.inner.contains_key(&tx_short_id) {
-            return Ok(false);
-        }
-
-        let inputs = entry.transaction().input_pts_iter();
-        let outputs = entry.transaction().output_pts();
-        let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
-        let header_deps = entry.transaction().header_deps();
-
-        self.inner.add_entry(entry).map(|inserted| {
-            if inserted {
-                // if input reference a in-pool output, connect it
-                // otherwise, record input for conflict check
-                for i in inputs {
-                    if let Some(id) = self.edges.get_mut_output(&i) {
-                        *id = Some(tx_short_id.clone());
-                    }
-                    self.edges.insert_input(i.to_owned(), tx_short_id.clone());
-                }
-
-                // record dep-txid
-                for d in related_dep_out_points {
-                    self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
-                }
-
-                // record tx unconsumed output
-                for o in outputs {
-                    self.edges.insert_output(o);
-                }
-
-                // record header_deps
-                if !header_deps.is_empty() {
-                    self.edges
-                        .header_deps
-                        .insert(tx_short_id, header_deps.into_iter().collect());
-                }
-            }
-            inserted
-        })
-    }
-
     // In the event of a reorg, the assumption that a newly added tx has no
     // in-pool children is false.  In particular, the pool is in an
     // inconsistent state while new transactions are being added, because there may
@@ -303,7 +259,7 @@ impl ProposedPool {
     // TxLinks may not be correct (and therefore functions like
     // calc_ancestors() and calc_descendants() that rely
     // on them to walk the pool are not generally safe to use).
-    pub(crate) fn add_entry_from_detached(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         let tx_short_id = entry.proposal_short_id();
 
         if self.inner.contains_key(&tx_short_id) {
@@ -352,8 +308,10 @@ impl ProposedPool {
                         .insert(tx_short_id.clone(), header_deps.into_iter().collect());
                 }
 
-                self.inner
-                    .update_descendants_from_detached(&tx_short_id, children);
+                if !children.is_empty() {
+                    self.inner
+                        .update_descendants_from_detached(&tx_short_id, children);
+                }
             }
             inserted
         })

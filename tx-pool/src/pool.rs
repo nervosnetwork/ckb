@@ -169,12 +169,6 @@ impl TxPool {
         self.proposed.add_entry(entry)
     }
 
-    /// Add detached transactions back to the proposed.
-    pub fn add_proposed_from_detached(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        trace!("add_proposed_from_detached {}", entry.transaction().hash());
-        self.proposed.add_entry_from_detached(entry)
-    }
-
     /// Returns true if the tx-pool contains a tx with specified id.
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.pending.contains_key(id) || self.gap.contains_key(id) || self.proposed.contains_key(id)
