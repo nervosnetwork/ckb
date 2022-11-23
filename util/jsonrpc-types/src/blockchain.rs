@@ -1243,6 +1243,17 @@ pub struct TransactionProof {
     pub proof: MerkleProof,
 }
 
+/// Merkle proof for transactions' witnesses in a block.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct WitnessesProof {
+    /// Block hash
+    pub block_hash: H256,
+    /// Merkle root of all transactions' witness hash
+    pub witnesses_root: H256,
+    /// Merkle proof of transactions' witnesses
+    pub witnesses_proof: MerkleProof,
+}
+
 /// Proof of CKB Merkle Tree.
 ///
 /// CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.

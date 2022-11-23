@@ -29,7 +29,7 @@ pub use self::blockchain::{
     CellDep, CellInput, CellOutput, Consensus, DepType, EpochView, FeeRateStatics, HardForkFeature,
     Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType,
     Status, Transaction, TransactionProof, TransactionView, TransactionWithStatusResponse,
-    TxStatus, UncleBlock, UncleBlockView,
+    TxStatus, UncleBlock, UncleBlockView, WitnessesProof,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
