@@ -1913,18 +1913,12 @@ impl ChainRpc for ChainRpcImpl {
                         merkle_proof
                             .root(&tx_hashes)
                             .and_then(|raw_witnesses_root| {
-                                if raw_witnesses_root
-                                    == merkle_root(&block.tx_witness_hashes().to_vec())
-                                {
-                                    CBMT::retrieve_leaves(&block.tx_hashes(), &merkle_proof)
-                                        .and_then(|tx_hashes| {
-                                            Some(
-                                                tx_hashes
-                                                    .iter()
-                                                    .map(|hash| hash.unpack())
-                                                    .collect(),
-                                            )
-                                        })
+                                if raw_witnesses_root == merkle_root(block.tx_witness_hashes()) {
+                                    CBMT::retrieve_leaves(block.tx_hashes(), &merkle_proof).map(
+                                        |tx_hashes| {
+                                            tx_hashes.iter().map(|hash| hash.unpack()).collect()
+                                        },
+                                    )
                                 } else {
                                     None
                                 }
