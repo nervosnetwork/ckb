@@ -28,7 +28,6 @@ use ckb_verification::ScriptVerifier;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
-use std::hash::Hash;
 
 /// RPC Module Chain for methods related to the canonical chain.
 ///
