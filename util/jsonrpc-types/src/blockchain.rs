@@ -4,6 +4,7 @@ use crate::{
     ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64, Version,
 };
 use ckb_types::core::tx_pool;
+use ckb_types::utilities::MerkleProof as RawMerkleProof;
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -1265,6 +1266,19 @@ pub struct MerkleProof {
     pub indices: Vec<Uint32>,
     /// Hashes of all siblings along the paths to root.
     pub lemmas: Vec<H256>,
+}
+
+impl From<RawMerkleProof> for MerkleProof {
+    fn from(proof: RawMerkleProof) -> Self {
+        MerkleProof {
+            indices: proof
+                .indices()
+                .iter()
+                .map(|index| (*index).into())
+                .collect(),
+            lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
+        }
+    }
 }
 
 /// Two protocol parameters `closest` and `farthest` define the closest

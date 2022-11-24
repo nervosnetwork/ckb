@@ -1,12 +1,10 @@
 use crate::error::RPCError;
-use crate::module::chain::GetProofType::{GetTransactionAndWitnessesProof, GetTransactionProof};
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
-    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes,
-    MerkleProof as JsonMerkleProof, OutPoint, ResponseFormat, ResponseFormatInnerType, Timestamp,
-    Transaction, TransactionAndWitnessProof, TransactionProof, TransactionWithStatusResponse,
-    Uint32, Uint64,
+    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes, OutPoint,
+    ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
+    TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
@@ -1539,11 +1537,6 @@ const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
 const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 
-pub enum GetProofType {
-    GetTransactionProof,
-    GetTransactionAndWitnessesProof,
-}
-
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
         &self,
@@ -1817,12 +1810,20 @@ impl ChainRpc for ChainRpcImpl {
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
     ) -> Result<TransactionProof> {
-        let (block, witnesses_root, proof, _) =
-            self.get_proof_common_0(tx_hashes, block_hash, GetTransactionProof)?;
+        let (block, leaf_indices) = self.get_proof_indices(tx_hashes, block_hash)?;
         Ok(TransactionProof {
-            block_hash: block,
-            witnesses_root,
-            proof: ChainRpcImpl::build_json_merkle_proof(proof),
+            block_hash: block.hash().unpack(),
+            witnesses_root: block.calc_witnesses_root().unpack(),
+            proof: CBMT::build_merkle_proof(
+                &block
+                    .transactions()
+                    .iter()
+                    .map(|tx| tx.hash())
+                    .collect::<Vec<_>>(),
+                &leaf_indices,
+            )
+            .expect("build proof with verified inputs should be OK")
+            .into(),
         })
     }
 
@@ -1874,13 +1875,22 @@ impl ChainRpc for ChainRpcImpl {
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
     ) -> Result<TransactionAndWitnessProof> {
-        let (block, _, proof, witness_proof) =
-            self.get_proof_common_0(tx_hashes, block_hash, GetTransactionAndWitnessesProof)?;
-        let witness_proof = witness_proof.expect("Witness proof should not be empty");
+        let (block, leaf_indices) = self.get_proof_indices(tx_hashes, block_hash)?;
         Ok(TransactionAndWitnessProof {
-            block_hash: block,
-            transactions_proof: ChainRpcImpl::build_json_merkle_proof(proof),
-            witnesses_proof: ChainRpcImpl::build_json_merkle_proof(witness_proof),
+            block_hash: block.hash().unpack(),
+            transactions_proof: CBMT::build_merkle_proof(
+                &block
+                    .transactions()
+                    .iter()
+                    .map(|tx| tx.hash())
+                    .collect::<Vec<_>>(),
+                &leaf_indices,
+            )
+            .expect("build proof with verified inputs should be OK")
+            .into(),
+            witnesses_proof: CBMT::build_merkle_proof(block.tx_witness_hashes(), &leaf_indices)
+                .expect("build proof with verified inputs should be OK")
+                .into(),
         })
     }
 
@@ -2137,12 +2147,11 @@ impl ChainRpcImpl {
         }))
     }
 
-    fn get_proof_common_0(
+    fn get_proof_indices(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
-        get_type: GetProofType,
-    ) -> Result<(H256, H256, MerkleProof, Option<MerkleProof>)> {
+    ) -> Result<(core::BlockView, Vec<u32>)> {
         if tx_hashes.is_empty() {
             return Err(RPCError::invalid_params("Empty transaction hashes"));
         }
@@ -2197,29 +2206,8 @@ impl ChainRpcImpl {
                 RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
             })
             .map(|block| {
-                let leaf_indices = tx_indices.into_iter().collect::<Vec<_>>();
-                let transaction_proof = CBMT::build_merkle_proof(&block.transactions().iter().map(|tx| tx.hash()).collect::<Vec<_>>(), &leaf_indices).expect("build proof with verified inputs should be OK");
-                match get_type {
-                    GetTransactionProof => {
-                        (block.hash().unpack(),block.calc_witnesses_root().unpack(),transaction_proof, None)
-                    },
-                    GetTransactionAndWitnessesProof => {
-                        let witness_proof = CBMT::build_merkle_proof(block.tx_witness_hashes(), &leaf_indices).expect("build proof with verified inputs should be OK");
-                        (block.hash().unpack(), H256::default(), transaction_proof, Some(witness_proof))
-                    }
-                }
+                (block, tx_indices.into_iter().collect::<Vec<_>>())
             })
-    }
-
-    fn build_json_merkle_proof(proof: MerkleProof) -> JsonMerkleProof {
-        JsonMerkleProof {
-            indices: proof
-                .indices()
-                .iter()
-                .map(|index| (*index).into())
-                .collect(),
-            lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
-        }
     }
 }
 
