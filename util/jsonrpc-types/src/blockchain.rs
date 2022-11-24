@@ -1245,11 +1245,11 @@ pub struct TransactionProof {
 
 /// Merkle proof for transactions' witnesses in a block.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct WitnessProof {
+pub struct TransactionAndWitnessProof {
     /// Block hash
     pub block_hash: H256,
-    /// Raw hash of transaction's root
-    pub raw_transactions_root: H256,
+    /// Merkle proof of all transactions' hash
+    pub transactions_proof: MerkleProof,
     /// Merkle proof of transactions' witnesses
     pub witnesses_proof: MerkleProof,
 }
