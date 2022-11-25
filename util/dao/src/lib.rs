@@ -74,17 +74,17 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
     /// Calculates the new dao field with specified [`EpochExt`].
     pub fn dao_field_with_current_epoch(
         &self,
-        rtxs: &[ResolvedTransaction],
+        rtxs: impl Iterator<Item = &'a ResolvedTransaction> + Clone,
         parent: &HeaderView,
         current_block_epoch: &EpochExt,
     ) -> Result<Byte32, DaoError> {
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
-            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+            rtxs.clone().try_fold(Capacity::zero(), |capacities, rtx| {
                 self.input_occupied_capacities(rtx)
                     .and_then(|c| capacities.safe_add(c))
             })?;
-        let added_occupied_capacities = self.added_occupied_capacities(rtxs)?;
+        let added_occupied_capacities = self.added_occupied_capacities(rtxs.clone())?;
         let withdrawed_interests = self.withdrawed_interests(rtxs)?;
 
         let (parent_ar, parent_c, parent_s, parent_u) = extract_dao_data(parent.dao());
@@ -143,7 +143,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .next_epoch_ext(parent, self.data_loader)
             .ok_or(DaoError::InvalidHeader)?
             .epoch();
-        self.dao_field_with_current_epoch(rtxs, parent, &current_block_epoch)
+        self.dao_field_with_current_epoch(rtxs.iter(), parent, &current_block_epoch)
     }
 
     /// Returns the total transactions fee of `rtx`.
@@ -155,20 +155,22 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .map_err(Into::into)
     }
 
-    fn added_occupied_capacities(&self, rtxs: &[ResolvedTransaction]) -> CapacityResult<Capacity> {
+    fn added_occupied_capacities(
+        &self,
+        mut rtxs: impl Iterator<Item = &'a ResolvedTransaction>,
+    ) -> CapacityResult<Capacity> {
         // Newly added occupied capacities from outputs
-        let added_occupied_capacities =
-            rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
-                rtx.transaction
-                    .outputs_with_data_iter()
-                    .enumerate()
-                    .try_fold(Capacity::zero(), |tx_capacities, (_, (output, data))| {
-                        Capacity::bytes(data.len())
-                            .and_then(|c| output.occupied_capacity(c))
-                            .and_then(|c| tx_capacities.safe_add(c))
-                    })
-                    .and_then(|c| capacities.safe_add(c))
-            })?;
+        let added_occupied_capacities = rtxs.try_fold(Capacity::zero(), |capacities, rtx| {
+            rtx.transaction
+                .outputs_with_data_iter()
+                .enumerate()
+                .try_fold(Capacity::zero(), |tx_capacities, (_, (output, data))| {
+                    Capacity::bytes(data.len())
+                        .and_then(|c| output.occupied_capacity(c))
+                        .and_then(|c| tx_capacities.safe_add(c))
+                })
+                .and_then(|c| capacities.safe_add(c))
+        })?;
 
         Ok(added_occupied_capacities)
     }
@@ -183,12 +185,15 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .map_err(Into::into)
     }
 
-    fn withdrawed_interests(&self, rtxs: &[ResolvedTransaction]) -> Result<Capacity, DaoError> {
-        let maximum_withdraws = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+    fn withdrawed_interests(
+        &self,
+        mut rtxs: impl Iterator<Item = &'a ResolvedTransaction> + Clone,
+    ) -> Result<Capacity, DaoError> {
+        let maximum_withdraws = rtxs.clone().try_fold(Capacity::zero(), |capacities, rtx| {
             self.transaction_maximum_withdraw(rtx)
                 .and_then(|c| capacities.safe_add(c).map_err(Into::into))
         })?;
-        let input_capacities = rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
+        let input_capacities = rtxs.try_fold(Capacity::zero(), |capacities, rtx| {
             let tx_input_capacities = rtx.resolved_inputs.iter().try_fold(
                 Capacity::zero(),
                 |tx_capacities, cell_meta| {
