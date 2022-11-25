@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::FeeRateStatics;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::{tx_pool::get_transaction_virtual_bytes, BlockExt, BlockNumber};
+use ckb_types::core::{tx_pool::get_transaction_weight, BlockExt, BlockNumber};
 
 const DEFAULT_TARGET: u64 = 21;
 const MIN_TARGET: u64 = 1;
@@ -86,9 +86,9 @@ where
                     block_ext.cycles.expect("checked"),
                     block_ext.txs_sizes.expect("checked")
                 ) {
-                    let vbytes = get_transaction_virtual_bytes(size as usize, cycles);
-                    if vbytes > 0 {
-                        fee_rates.push(fee.as_u64() as f64 / vbytes as f64);
+                    let weight = get_transaction_weight(size as usize, cycles);
+                    if weight > 0 {
+                        fee_rates.push(fee.as_u64() as f64 / weight as f64);
                     }
                 }
             }
