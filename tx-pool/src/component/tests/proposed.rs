@@ -388,8 +388,8 @@ fn test_sorted_by_ancestors_score_competitive() {
 
     let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
-    // calculating the vbytes for a package.
+    // Choose 5_000_839, so the weight is 853.0001094046, which will not lead to carry when
+    // calculating the weight for a package.
     let cycles = 5_000_839;
     let size = 200;
 

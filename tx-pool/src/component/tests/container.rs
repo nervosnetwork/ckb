@@ -14,7 +14,7 @@ use crate::component::{
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 
 #[test]
-fn test_min_fee_and_vbytes() {
+fn test_min_fee_and_weight() {
     let result = vec![
         (0, 0, 0, 0),
         (1, 0, 1, 0),
@@ -26,16 +26,16 @@ fn test_min_fee_and_vbytes() {
         (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
     ]
     .into_iter()
-    .map(|(fee, vbytes, ancestors_fee, ancestors_vbytes)| {
+    .map(|(fee, weight, ancestors_fee, ancestors_weight)| {
         let key = AncestorsScoreSortKey {
             fee: Capacity::shannons(fee),
-            vbytes,
+            weight,
             id: ProposalShortId::new([0u8; 10]),
             ancestors_fee: Capacity::shannons(ancestors_fee),
-            ancestors_vbytes,
+            ancestors_weight,
             ancestors_size: 0,
         };
-        key.min_fee_and_vbytes()
+        key.min_fee_and_weight()
     })
     .collect::<Vec<_>>();
     assert_eq!(
@@ -69,15 +69,15 @@ fn test_ancestors_sorted_key_order() {
     ]
     .into_iter()
     .enumerate()
-    .map(|(i, (fee, vbytes, ancestors_fee, ancestors_vbytes))| {
+    .map(|(i, (fee, weight, ancestors_fee, ancestors_weight))| {
         let mut id = [0u8; 10];
         id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
         AncestorsScoreSortKey {
             fee: Capacity::shannons(fee),
-            vbytes,
+            weight,
             id: ProposalShortId::new(id),
             ancestors_fee: Capacity::shannons(ancestors_fee),
-            ancestors_vbytes,
+            ancestors_weight,
             ancestors_size: 0,
         }
     })
