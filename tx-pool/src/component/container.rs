@@ -15,24 +15,24 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct AncestorsScoreSortKey {
     pub fee: Capacity,
-    pub vbytes: u64,
+    pub weight: u64,
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
-    pub ancestors_vbytes: u64,
+    pub ancestors_weight: u64,
     pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {
     /// compare tx fee rate with ancestors fee rate and return the min one
-    pub(crate) fn min_fee_and_vbytes(&self) -> (Capacity, u64) {
-        // avoid division a_fee/a_vbytes > b_fee/b_vbytes
-        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_vbytes);
-        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.vbytes);
+    pub(crate) fn min_fee_and_weight(&self) -> (Capacity, u64) {
+        // avoid division a_fee/a_weight > b_fee/b_weight
+        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_weight);
+        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.weight);
 
         if tx_weight < ancestors_weight {
-            (self.fee, self.vbytes)
+            (self.fee, self.weight)
         } else {
-            (self.ancestors_fee, self.ancestors_vbytes)
+            (self.ancestors_fee, self.ancestors_weight)
         }
     }
 }
@@ -45,17 +45,17 @@ impl PartialOrd for AncestorsScoreSortKey {
 
 impl Ord for AncestorsScoreSortKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        // avoid division a_fee/a_vbytes > b_fee/b_vbytes
-        let (fee, vbytes) = self.min_fee_and_vbytes();
-        let (other_fee, other_vbytes) = other.min_fee_and_vbytes();
-        let self_weight = u128::from(fee.as_u64()) * u128::from(other_vbytes);
-        let other_weight = u128::from(other_fee.as_u64()) * u128::from(vbytes);
+        // avoid division a_fee/a_weight > b_fee/b_weight
+        let (fee, weight) = self.min_fee_and_weight();
+        let (other_fee, other_weight) = other.min_fee_and_weight();
+        let self_weight = u128::from(fee.as_u64()) * u128::from(other_weight);
+        let other_weight = u128::from(other_fee.as_u64()) * u128::from(weight);
         if self_weight == other_weight {
-            // if fee rate weight is same, then compare with ancestor vbytes
-            if self.ancestors_vbytes == other.ancestors_vbytes {
+            // if fee rate weight is same, then compare with ancestor weight
+            if self.ancestors_weight == other.ancestors_weight {
                 self.id.raw_data().cmp(&other.id.raw_data())
             } else {
-                self.ancestors_vbytes.cmp(&other.ancestors_vbytes)
+                self.ancestors_weight.cmp(&other.ancestors_weight)
             }
         } else {
             self_weight.cmp(&other_weight)

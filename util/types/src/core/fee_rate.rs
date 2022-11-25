@@ -8,11 +8,11 @@ const KB: u64 = 1000;
 
 impl FeeRate {
     /// TODO(doc): @doitian
-    pub fn calculate(fee: Capacity, vbytes: usize) -> Self {
-        if vbytes == 0 {
+    pub fn calculate(fee: Capacity, weight: usize) -> Self {
+        if weight == 0 {
             return FeeRate::zero();
         }
-        FeeRate::from_u64(fee.as_u64().saturating_mul(KB) / (vbytes as u64))
+        FeeRate::from_u64(fee.as_u64().saturating_mul(KB) / (weight as u64))
     }
 
     /// TODO(doc): @doitian
