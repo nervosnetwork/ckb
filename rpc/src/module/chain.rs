@@ -1810,7 +1810,7 @@ impl ChainRpc for ChainRpcImpl {
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
     ) -> Result<TransactionProof> {
-        let (block, leaf_indices) = self.get_proof_indices(tx_hashes, block_hash)?;
+        let (block, leaf_indices) = self.get_tx_indices(tx_hashes, block_hash)?;
         Ok(TransactionProof {
             block_hash: block.hash().unpack(),
             witnesses_root: block.calc_witnesses_root().unpack(),
@@ -1875,7 +1875,7 @@ impl ChainRpc for ChainRpcImpl {
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
     ) -> Result<TransactionAndWitnessProof> {
-        let (block, leaf_indices) = self.get_proof_indices(tx_hashes, block_hash)?;
+        let (block, leaf_indices) = self.get_tx_indices(tx_hashes, block_hash)?;
         Ok(TransactionAndWitnessProof {
             block_hash: block.hash().unpack(),
             transactions_proof: CBMT::build_merkle_proof(
@@ -1934,35 +1934,35 @@ impl ChainRpc for ChainRpcImpl {
                         .collect(),
                 );
 
-                if let Some(witnesses_proof_root) =
-                    CBMT::retrieve_leaves(block.tx_witness_hashes(), &witnesses_merkle_proof)
-                        .and_then(|tx_hashes| witnesses_merkle_proof.root(&tx_hashes))
-                {
-                    CBMT::retrieve_leaves(block.tx_hashes(), &transactions_merkle_proof)
-                        .and_then(|tx_hashes| {
-                            transactions_merkle_proof.root(&tx_hashes).and_then(
-                                |raw_transactions_root| {
-                                    if block.transactions_root()
-                                        == merkle_root(&[
-                                            raw_transactions_root,
-                                            witnesses_proof_root,
-                                        ])
-                                    {
-                                        Some(tx_hashes.iter().map(|hash| hash.unpack()).collect())
-                                    } else {
-                                        None
-                                    }
-                                },
-                            )
-                        })
-                        .ok_or_else(|| {
-                            RPCError::invalid_params("Invalid transaction_and_witness proof")
-                        })
-                } else {
-                    Err(RPCError::invalid_params(
-                        "Invalid transaction_and_witness proof",
-                    ))
-                }
+                CBMT::retrieve_leaves(block.tx_witness_hashes(), &witnesses_merkle_proof)
+                    .and_then(|witnesses_hashes| witnesses_merkle_proof.root(&witnesses_hashes))
+                    .and_then(|witnesses_proof_root| {
+                        CBMT::retrieve_leaves(block.tx_hashes(), &transactions_merkle_proof)
+                            .and_then(|tx_hashes| {
+                                transactions_merkle_proof.root(&tx_hashes).and_then(
+                                    |raw_transactions_root| {
+                                        if block.transactions_root()
+                                            == merkle_root(&[
+                                                raw_transactions_root,
+                                                witnesses_proof_root,
+                                            ])
+                                        {
+                                            Some(
+                                                tx_hashes
+                                                    .iter()
+                                                    .map(|hash| hash.unpack())
+                                                    .collect(),
+                                            )
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                )
+                            })
+                    })
+                    .ok_or_else(|| {
+                        RPCError::invalid_params("Invalid transaction_and_witness proof")
+                    })
             })
     }
 
@@ -2147,7 +2147,7 @@ impl ChainRpcImpl {
         }))
     }
 
-    fn get_proof_indices(
+    fn get_tx_indices(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
