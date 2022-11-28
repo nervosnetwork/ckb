@@ -4,6 +4,7 @@ use crate::{
     ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64, Version,
 };
 use ckb_types::core::tx_pool;
+use ckb_types::utilities::MerkleProof as RawMerkleProof;
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -1243,6 +1244,17 @@ pub struct TransactionProof {
     pub proof: MerkleProof,
 }
 
+/// Merkle proof for transactions' witnesses in a block.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct TransactionAndWitnessProof {
+    /// Block hash
+    pub block_hash: H256,
+    /// Merkle proof of all transactions' hash
+    pub transactions_proof: MerkleProof,
+    /// Merkle proof of transactions' witnesses
+    pub witnesses_proof: MerkleProof,
+}
+
 /// Proof of CKB Merkle Tree.
 ///
 /// CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
@@ -1254,6 +1266,19 @@ pub struct MerkleProof {
     pub indices: Vec<Uint32>,
     /// Hashes of all siblings along the paths to root.
     pub lemmas: Vec<H256>,
+}
+
+impl From<RawMerkleProof> for MerkleProof {
+    fn from(proof: RawMerkleProof) -> Self {
+        MerkleProof {
+            indices: proof
+                .indices()
+                .iter()
+                .map(|index| (*index).into())
+                .collect(),
+            lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
+        }
+    }
 }
 
 /// Two protocol parameters `closest` and `farthest` define the closest
