@@ -23,10 +23,13 @@ use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
+const DEFAULT_LOG_KEEP_NUM: usize = 1;
+const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 
 /// Indexer service
 #[derive(Clone)]
@@ -51,7 +54,9 @@ impl IndexerService {
             None,
             "indexer".to_string(),
         );
-        let store = RocksdbStore::new(&config.store);
+
+        let store_opts = Self::indexer_store_options(config);
+        let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
             Some(Arc::new(RwLock::new(Pool::default())))
         } else {
@@ -64,7 +69,9 @@ impl IndexerService {
             COLUMN_BLOCK_HEADER,
             COLUMN_BLOCK_BODY,
         ];
+        let secondary_opts = Self::indexer_secondary_options(config);
         let secondary_db = SecondaryDB::open_cf(
+            &secondary_opts,
             &ckb_db_config.path,
             cf_names,
             config.secondary_path.to_string_lossy().to_string(),
@@ -213,6 +220,37 @@ impl IndexerService {
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
         let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
+    }
+
+    fn indexer_store_options(config: &IndexerConfig) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.set_keep_log_file_num(
+            config
+                .db_keep_log_file_num
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
+        );
+        opts.set_max_background_jobs(
+            config
+                .db_background_jobs
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_MAX_BACKGROUND_JOBS) as i32,
+        );
+        opts
+    }
+
+    fn indexer_secondary_options(config: &IndexerConfig) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+        opts.set_keep_log_file_num(
+            config
+                .db_keep_log_file_num
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
+        );
+        opts
     }
 }
 
@@ -903,7 +941,10 @@ mod tests {
 
     fn new_store(prefix: &str) -> RocksdbStore {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        RocksdbStore::new(tmp_dir.path().to_str().unwrap())
+        RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        )
         // Indexer::new(store, 10, 1)
     }
 
