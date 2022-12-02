@@ -107,18 +107,16 @@ impl SecondaryDB {
     }
 }
 
-impl<'a> ChainStore<'a> for SecondaryDB {
-    type Vector = DBPinnableSlice<'a>;
-
-    fn cache(&'a self) -> Option<&'a StoreCache> {
+impl ChainStore for SecondaryDB {
+    fn cache(&self) -> Option<&StoreCache> {
         None
     }
 
-    fn freezer(&'a self) -> Option<&'a Freezer> {
+    fn freezer(&self) -> Option<&Freezer> {
         None
     }
 
-    fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
         self.get_pinned(col, key)
             .expect("db operation should be ok")
     }
@@ -128,7 +126,7 @@ impl<'a> ChainStore<'a> for SecondaryDB {
     }
 
     // Only block header and block body loaded
-    fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {
+    fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
         let header = self.get_block_header(h)?;
         let body = self.get_block_body(h);
         let uncles = packed::UncleBlockVecView::default();

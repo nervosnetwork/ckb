@@ -184,18 +184,16 @@ impl Snapshot {
     }
 }
 
-impl<'a> ChainStore<'a> for Snapshot {
-    type Vector = DBPinnableSlice<'a>;
-
-    fn cache(&'a self) -> Option<&'a StoreCache> {
+impl ChainStore for Snapshot {
+    fn cache(&self) -> Option<&StoreCache> {
         self.store.cache()
     }
 
-    fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
         self.store.get(col, key)
     }
 
-    fn freezer(&'a self) -> Option<&'a Freezer> {
+    fn freezer(&self) -> Option<&Freezer> {
         self.store.freezer()
     }
 
@@ -207,7 +205,7 @@ impl<'a> ChainStore<'a> for Snapshot {
         Some(self.tip_header.clone())
     }
 
-    fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
+    fn get_current_epoch_ext(&self) -> Option<EpochExt> {
         Some(self.epoch_ext.clone())
     }
 }

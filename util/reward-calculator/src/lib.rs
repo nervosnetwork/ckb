@@ -35,7 +35,7 @@ pub struct RewardCalculator<'a, CS> {
     store: &'a CS,
 }
 
-impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
+impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
     /// Creates a new `RewardCalculator`.
     pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
         RewardCalculator { consensus, store }

@@ -9,14 +9,14 @@ use ckb_types::{
 
 /// TODO(doc): @quake
 pub struct DataLoaderWrapper<'a, T>(&'a T);
-impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
+impl<'a, T: ChainStore> DataLoaderWrapper<'a, T> {
     /// TODO(doc): @quake
     pub fn new(source: &'a T) -> Self {
         DataLoaderWrapper(source)
     }
 }
 
-impl<'a, T: ChainStore<'a>> CellDataProvider for DataLoaderWrapper<'a, T> {
+impl<'a, T: ChainStore> CellDataProvider for DataLoaderWrapper<'a, T> {
     fn get_cell_data(&self, out_point: &OutPoint) -> Option<Bytes> {
         self.0.get_cell_data(out_point).map(|(data, _)| data)
     }
@@ -26,13 +26,13 @@ impl<'a, T: ChainStore<'a>> CellDataProvider for DataLoaderWrapper<'a, T> {
     }
 }
 
-impl<'a, T: ChainStore<'a>> HeaderProvider for DataLoaderWrapper<'a, T> {
+impl<'a, T: ChainStore> HeaderProvider for DataLoaderWrapper<'a, T> {
     fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
         self.0.get_block_header(block_hash)
     }
 }
 
-impl<'a, T: ChainStore<'a>> EpochProvider for DataLoaderWrapper<'a, T> {
+impl<'a, T: ChainStore> EpochProvider for DataLoaderWrapper<'a, T> {
     fn get_epoch_ext(&self, header: &HeaderView) -> Option<EpochExt> {
         self.0
             .get_block_epoch_index(&header.hash())
