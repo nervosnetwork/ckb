@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// Indexer config options.
@@ -21,6 +22,12 @@ pub struct IndexerConfig {
     /// Customize cell filter
     #[serde(default)]
     pub cell_filter: Option<String>,
+    /// Maximum number of concurrent db background jobs (compactions and flushes)
+    #[serde(default)]
+    pub db_background_jobs: Option<NonZeroUsize>,
+    /// Maximal db info log files to be kept.
+    #[serde(default)]
+    pub db_keep_log_file_num: Option<NonZeroUsize>,
 }
 
 const fn default_poll_interval() -> u64 {
@@ -36,6 +43,8 @@ impl Default for IndexerConfig {
             secondary_path: PathBuf::new(),
             block_filter: None,
             cell_filter: None,
+            db_background_jobs: None,
+            db_keep_log_file_num: None,
         }
     }
 }
