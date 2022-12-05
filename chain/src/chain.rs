@@ -37,8 +37,8 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
-type TruncateRequest = Request<Byte32, Result<(), Error>>;
+pub type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
+pub type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// Controller to the chain service.
 ///

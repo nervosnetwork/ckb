@@ -3,7 +3,7 @@
 //! This crate is created to reduce the link time to build CKB.
 mod helper;
 mod setup_guard;
-mod subcommand;
+pub mod subcommand;
 
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;

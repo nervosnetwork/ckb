@@ -185,6 +185,10 @@ check-licenses: ## Use cargo-deny to check licenses for all dependencies.
 bench-test:
 	cd benches && cargo bench --features ${CKB_BENCH_FEATURES} -- --test
 
+.PHONY: bench_ibd_sync
+bench_ibd_sync:
+	cargo build --manifest-path benches/Cargo.toml --bin bench_ibd_sync
+
 ##@ Continuous Integration
 
 .PHONY: ci

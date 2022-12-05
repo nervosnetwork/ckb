@@ -1,6 +1,6 @@
-mod block_fetcher;
-mod block_process;
-mod get_blocks_process;
+pub mod block_fetcher;
+pub mod block_process;
+pub mod get_blocks_process;
 mod get_headers_process;
 mod headers_process;
 mod in_ibd_process;
