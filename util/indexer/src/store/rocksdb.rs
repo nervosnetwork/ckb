@@ -11,13 +11,20 @@ pub(crate) struct RocksdbStore {
 
 impl Store for RocksdbStore {
     type Batch = RocksdbBatch;
+    type Opts = Options;
 
-    fn new<P>(path: P) -> Self
+    fn new<P>(opts: &Options, path: P) -> Self
     where
         P: AsRef<Path>,
     {
-        let db = Arc::new(DB::open_default(path.as_ref()).expect("Failed to open rocksdb"));
+        let db = Arc::new(DB::open(opts, path.as_ref()).expect("Failed to open rocksdb"));
         Self { db }
+    }
+
+    fn default_options() -> Self::Opts {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, Error> {
@@ -95,7 +102,10 @@ mod tests {
             .prefix("put_and_get")
             .tempdir()
             .unwrap();
-        let store = RocksdbStore::new(tmp_dir.path().to_str().unwrap());
+        let store = RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        );
         let mut batch = store.batch().unwrap();
         batch.put(&[0, 0], &[0, 0, 0]).unwrap();
         batch.put(&[1, 1], &[1, 1, 1]).unwrap();
@@ -109,7 +119,10 @@ mod tests {
     #[test]
     fn exists() {
         let tmp_dir = tempfile::Builder::new().prefix("exists").tempdir().unwrap();
-        let store = RocksdbStore::new(tmp_dir.path().to_str().unwrap());
+        let store = RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        );
         assert!(!store.exists(&[0, 0]).unwrap());
 
         let mut batch = store.batch().unwrap();
@@ -122,7 +135,10 @@ mod tests {
     #[test]
     fn delete() {
         let tmp_dir = tempfile::Builder::new().prefix("delete").tempdir().unwrap();
-        let store = RocksdbStore::new(tmp_dir.path().to_str().unwrap());
+        let store = RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        );
         let mut batch = store.batch().unwrap();
         batch.put(&[0, 0], &[0, 0, 0]).unwrap();
         batch.commit().unwrap();
@@ -137,7 +153,10 @@ mod tests {
     #[test]
     fn iter() {
         let tmp_dir = tempfile::Builder::new().prefix("iter").tempdir().unwrap();
-        let store = RocksdbStore::new(tmp_dir.path().to_str().unwrap());
+        let store = RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        );
         let mut batch = store.batch().unwrap();
         batch.put(&[0, 0, 0], &[0, 0, 0]).unwrap();
         batch.put(&[0, 0, 1], &[0, 0, 1]).unwrap();
