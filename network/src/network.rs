@@ -672,13 +672,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
 
                 let iter = self.inbound_eviction();
 
+                let control = context.control().clone().into();
+
                 for peer in iter {
-                    if let Err(err) = async_disconnect_with_message(
-                        context.control(),
-                        peer,
-                        "bootnode random eviction",
-                    )
-                    .await
+                    if let Err(err) =
+                        disconnect_with_message(&control, peer, "bootnode random eviction")
                     {
                         debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
                     }
@@ -699,13 +697,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                                 "evict peer (disconnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.connected_addr,
                             );
-                            if let Err(err) = async_disconnect_with_message(
-                                context.control(),
+                            if let Err(err) = disconnect_with_message(
+                                &control,
                                 evicted_peer.session_id,
                                 "evict because accepted better peer",
-                            )
-                            .await
-                            {
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     evicted_peer.session_id, err
