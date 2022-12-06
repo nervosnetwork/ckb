@@ -2,7 +2,7 @@
 use crate::db::cf_handle;
 use crate::{internal_error, Result};
 use ckb_db_schema::Col;
-use rocksdb::ops::{DeleteCF, GetCF, PutCF};
+use rocksdb::ops::{DeleteCF, GetPinnedCF, PutCF};
 pub use rocksdb::{DBPinnableSlice, DBVector};
 use rocksdb::{
     OptimisticTransaction, OptimisticTransactionDB, OptimisticTransactionSnapshot, ReadOptions,
@@ -17,9 +17,9 @@ pub struct RocksDBTransaction {
 
 impl RocksDBTransaction {
     /// Return the bytes associated with the given key and given column.
-    pub fn get(&self, col: Col, key: &[u8]) -> Result<Option<DBVector>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.get_cf(cf, key).map_err(internal_error)
+        self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 
     /// Write the bytes into the given column with associated key.
@@ -86,8 +86,8 @@ pub struct RocksDBTransactionSnapshot<'a> {
 
 impl<'a> RocksDBTransactionSnapshot<'a> {
     /// Return the bytes associated with the given key and given column.
-    pub fn get(&self, col: Col, key: &[u8]) -> Result<Option<DBVector>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.get_cf(cf, key).map_err(internal_error)
+        self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 }

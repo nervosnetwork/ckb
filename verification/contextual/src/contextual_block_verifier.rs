@@ -42,7 +42,7 @@ pub struct VerifyContext<'a, CS> {
     pub(crate) consensus: &'a Consensus,
 }
 
-impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> VerifyContext<'a, CS> {
+impl<'a, CS: ChainStore + VersionbitsIndexer> VerifyContext<'a, CS> {
     /// Create new VerifyContext from `Store` and `Consensus`
     pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
         VerifyContext { store, consensus }
@@ -63,13 +63,13 @@ impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> VerifyContext<'a, CS> {
     }
 }
 
-impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
+impl<'a, CS: ChainStore> HeaderProvider for VerifyContext<'a, CS> {
     fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
         self.store.get_block_header(hash)
     }
 }
 
-impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
+impl<'a, CS: ChainStore> HeaderChecker for VerifyContext<'a, CS> {
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError> {
         if !self.store.is_main_chain(block_hash) {
             return Err(OutPointError::InvalidHeader(block_hash.clone()));
@@ -81,7 +81,7 @@ impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
     }
 }
 
-impl<'a, CS: ChainStore<'a>> ConsensusProvider for VerifyContext<'a, CS> {
+impl<'a, CS: ChainStore> ConsensusProvider for VerifyContext<'a, CS> {
     fn get_consensus(&self) -> &Consensus {
         self.consensus
     }
@@ -92,13 +92,13 @@ pub struct UncleVerifierContext<'a, 'b, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
 
-impl<'a, 'b, CS: ChainStore<'a>> UncleVerifierContext<'a, 'b, CS> {
+impl<'a, 'b, CS: ChainStore> UncleVerifierContext<'a, 'b, CS> {
     pub(crate) fn new(context: &'a VerifyContext<'a, CS>, epoch: &'b EpochExt) -> Self {
         UncleVerifierContext { epoch, context }
     }
 }
 
-impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, CS> {
+impl<'a, 'b, CS: ChainStore> UncleProvider for UncleVerifierContext<'a, 'b, CS> {
     fn double_inclusion(&self, hash: &Byte32) -> bool {
         self.context.store.get_block_number(hash).is_some() || self.context.store.is_uncle(hash)
     }
@@ -136,7 +136,7 @@ pub struct TwoPhaseCommitVerifier<'a, CS> {
     block: &'a BlockView,
 }
 
-impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> TwoPhaseCommitVerifier<'a, CS> {
+impl<'a, CS: ChainStore + VersionbitsIndexer> TwoPhaseCommitVerifier<'a, CS> {
     pub fn new(context: &'a VerifyContext<'a, CS>, block: &'a BlockView) -> Self {
         TwoPhaseCommitVerifier { context, block }
     }
@@ -218,7 +218,7 @@ pub struct RewardVerifier<'a, 'b, CS> {
     context: &'a VerifyContext<'a, CS>,
 }
 
-impl<'a, 'b, CS: ChainStore<'a> + VersionbitsIndexer> RewardVerifier<'a, 'b, CS> {
+impl<'a, 'b, CS: ChainStore + VersionbitsIndexer> RewardVerifier<'a, 'b, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         resolved: &'a [ResolvedTransaction],
@@ -280,7 +280,7 @@ struct DaoHeaderVerifier<'a, 'b, 'c, CS> {
     header: &'c HeaderView,
 }
 
-impl<'a, 'b, 'c, CS: ChainStore<'a> + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 'c, CS> {
+impl<'a, 'b, 'c, CS: ChainStore + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         resolved: &'a [ResolvedTransaction],
@@ -325,7 +325,7 @@ struct BlockTxsVerifier<'a, CS> {
     txs_verify_cache: &'a Arc<RwLock<TxVerificationCache>>,
 }
 
-impl<'a, CS: ChainStore<'a> + VersionbitsIndexer> BlockTxsVerifier<'a, CS> {
+impl<'a, CS: ChainStore + VersionbitsIndexer> BlockTxsVerifier<'a, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         header: HeaderView,
@@ -523,7 +523,7 @@ pub struct BlockExtensionVerifier<'a, 'b, CS, MS> {
     parent: &'b HeaderView,
 }
 
-impl<'a, 'b, CS: ChainStore<'a> + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
+impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
     BlockExtensionVerifier<'a, 'b, CS, MS>
 {
     pub fn new(
@@ -610,7 +610,7 @@ pub struct ContextualBlockVerifier<'a, CS, MS> {
     chain_root_mmr: &'a ChainRootMMR<MS>,
 }
 
-impl<'a, CS: ChainStore<'a> + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
+impl<'a, CS: ChainStore + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
     ContextualBlockVerifier<'a, CS, MS>
 {
     /// Create new ContextualBlockVerifier

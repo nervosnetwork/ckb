@@ -12,7 +12,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 thiserror = "1.0"
-rocksdb = { package = "ckb-rocksdb", version ="=0.18.3", features = ["snappy"], default-features = false }
+rocksdb = { package = "ckb-rocksdb", version ="=0.19.0", features = ["snappy"], default-features = false }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.107.0-pre" }
 ckb-types = { path = "../types", version = "= 0.107.0-pre" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.107.0-pre" }
