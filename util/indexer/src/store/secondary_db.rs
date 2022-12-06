@@ -42,16 +42,12 @@ pub(crate) struct SecondaryDB {
 
 impl SecondaryDB {
     /// Open a SecondaryDB
-    pub fn open_cf<P, I, N>(path: P, cf_names: I, secondary_path: String) -> Self
+    pub fn open_cf<P, I, N>(opts: &Options, path: P, cf_names: I, secondary_path: String) -> Self
     where
         P: AsRef<Path>,
         I: IntoIterator<Item = N>,
         N: Into<String>,
     {
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-
         let cf_descriptors: Vec<_> = cf_names
             .into_iter()
             .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
@@ -59,7 +55,7 @@ impl SecondaryDB {
 
         let descriptor = SecondaryOpenDescriptor::new(secondary_path);
         let inner = SecondaryRocksDB::open_cf_descriptors_with_descriptor(
-            &opts,
+            opts,
             path,
             cf_descriptors,
             descriptor,
