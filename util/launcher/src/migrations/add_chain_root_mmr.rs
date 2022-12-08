@@ -8,8 +8,7 @@ use std::sync::Arc;
 
 pub struct AddChainRootMMR;
 
-// TODO(light-client) update the version number of this db migration.
-const VERSION: &str = "20220214100000";
+const VERSION: &str = "20221208151540";
 
 impl Migration for AddChainRootMMR {
     fn migrate(
