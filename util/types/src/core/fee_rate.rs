@@ -1,23 +1,23 @@
 use crate::core::Capacity;
 
-/// shannons per kilobytes
+/// shannons per kilo-weight
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FeeRate(pub u64);
 
-const KB: u64 = 1000;
+const KW: u64 = 1000;
 
 impl FeeRate {
     /// TODO(doc): @doitian
-    pub fn calculate(fee: Capacity, weight: usize) -> Self {
+    pub fn calculate(fee: Capacity, weight: u64) -> Self {
         if weight == 0 {
             return FeeRate::zero();
         }
-        FeeRate::from_u64(fee.as_u64().saturating_mul(KB) / (weight as u64))
+        FeeRate::from_u64(fee.as_u64().saturating_mul(KW) / weight)
     }
 
     /// TODO(doc): @doitian
-    pub const fn from_u64(fee_per_kb: u64) -> Self {
-        FeeRate(fee_per_kb)
+    pub const fn from_u64(fee_per_kw: u64) -> Self {
+        FeeRate(fee_per_kw)
     }
 
     /// TODO(doc): @doitian
@@ -31,8 +31,8 @@ impl FeeRate {
     }
 
     /// TODO(doc): @doitian
-    pub fn fee(self, size: usize) -> Capacity {
-        let fee = self.0.saturating_mul(size as u64) / KB;
+    pub fn fee(self, weight: u64) -> Capacity {
+        let fee = self.0.saturating_mul(weight) / KW;
         Capacity::shannons(fee)
     }
 }

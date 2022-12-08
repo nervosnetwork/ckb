@@ -46,7 +46,10 @@ pub(crate) fn check_tx_fee(
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
         .transaction_fee(rtx)
         .map_err(|err| Reject::Malformed(format!("{}", err)))?;
-    let min_fee = tx_pool.config.min_fee_rate.fee(tx_size);
+    // Theoretically we cannot use size as weight directly to calculate fee_rate,
+    // here min fee rate is used as a cheap check,
+    // so we will use size to calculate fee_rate directly
+    let min_fee = tx_pool.config.min_fee_rate.fee(tx_size as u64);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
         let reject =

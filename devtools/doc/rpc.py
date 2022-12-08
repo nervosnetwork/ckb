@@ -256,8 +256,6 @@ class RPCVar():
                 self.ty = '`null`'
             if self.ty == RUST_DOC_PREFIX + '/std/primitive.bool.html':
                 self.ty = '`boolean`'
-            if self.ty == RUST_DOC_PREFIX + '/std/primitive.f64.html':
-                self.ty = '`64-bit floating point`'
             if self.ty == RUST_DOC_PREFIX + '/alloc/string/struct.String.html':
                 self.ty = '`string`'
             elif self.ty == RUST_DOC_PREFIX + '/core/option/enum.Option.html':
