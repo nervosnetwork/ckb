@@ -66,7 +66,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .unwrap();
         let data_loader = snapshot.as_data_provider();
         DaoCalculator::new(shared.consensus(), &data_loader)
-            .dao_field(&[resolved_cellbase], &parent.header())
+            .dao_field([resolved_cellbase].iter(), &parent.header())
             .unwrap()
     };
 

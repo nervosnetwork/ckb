@@ -613,7 +613,7 @@ impl BlockAssembler {
         let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase, 0, Capacity::zero(), 0);
         let entries_iter = iter::once(&dummy_cellbase_entry)
             .chain(checked_entries.iter())
-            .map(|entry| &entry.rtx);
+            .map(|entry| entry.rtx.as_ref());
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())

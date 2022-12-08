@@ -146,7 +146,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .unwrap();
             let data_loader = snapshot.as_data_provider();
             DaoCalculator::new(shared.consensus(), &data_loader)
-                .dao_field(&[resolved_cellbase], &block.header())
+                .dao_field([resolved_cellbase].iter(), &block.header())
                 .unwrap()
         };
 

@@ -75,7 +75,7 @@ fn check_dao_data_calculation() {
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
-        .dao_field(&[], &parent_header)
+        .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
     assert_eq!(
@@ -106,7 +106,7 @@ fn check_initial_dao_data_calculation() {
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(0));
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
-        .dao_field(&[], &parent_header)
+        .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
     assert_eq!(
@@ -139,7 +139,7 @@ fn check_first_epoch_block_dao_data_calculation() {
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(12340));
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
-        .dao_field(&[], &parent_header)
+        .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
     assert_eq!(
@@ -171,8 +171,8 @@ fn check_dao_data_calculation_overflows() {
         .build();
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
-    let result =
-        DaoCalculator::new(&consensus, &store.as_data_provider()).dao_field(&[], &parent_header);
+    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+        .dao_field([].iter(), &parent_header);
     assert!(result.unwrap_err().to_string().contains("Overflow"));
 }
 
@@ -217,7 +217,7 @@ fn check_dao_data_calculation_with_transactions() {
     };
 
     let result = DaoCalculator::new(&consensus, &store.as_data_provider())
-        .dao_field(&[rtx], &parent_header)
+        .dao_field([rtx].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
     assert_eq!(

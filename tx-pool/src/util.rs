@@ -3,6 +3,7 @@ use crate::pool::TxPool;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_snapshot::Snapshot;
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
 use ckb_verification::{
@@ -10,6 +11,7 @@ use ckb_verification::{
     ContextualTransactionVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
+use std::sync::Arc;
 use tokio::task::block_in_place;
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
@@ -76,34 +78,32 @@ pub(crate) fn non_contextual_verify(
 }
 
 pub(crate) fn verify_rtx(
-    snapshot: &Snapshot,
-    rtx: &ResolvedTransaction,
+    snapshot: Arc<Snapshot>,
+    rtx: Arc<ResolvedTransaction>,
     tx_env: &TxVerifyEnv,
     cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
 ) -> Result<Completed, Reject> {
     let consensus = snapshot.consensus();
+    let data_loader = snapshot.as_data_loader();
 
     if let Some(ref cached) = cache_entry {
         match cached {
             CacheEntry::Completed(completed) => {
-                TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot, tx_env)
+                TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
                     .verify()
                     .map(|_| *completed)
                     .map_err(Reject::Verification)
             }
-            CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
-                rtx,
-                consensus,
-                &snapshot.as_data_provider(),
-                tx_env,
-            )
-            .complete(max_tx_verify_cycles, false, &suspended.snap)
-            .map_err(Reject::Verification),
+            CacheEntry::Suspended(suspended) => {
+                ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+                    .complete(max_tx_verify_cycles, false, &suspended.snap)
+                    .map_err(Reject::Verification)
+            }
         }
     } else {
         block_in_place(|| {
-            ContextualTransactionVerifier::new(rtx, consensus, &snapshot.as_data_provider(), tx_env)
+            ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
                 .verify(max_tx_verify_cycles, false)
                 .map_err(Reject::Verification)
         })
@@ -111,12 +111,12 @@ pub(crate) fn verify_rtx(
 }
 
 pub(crate) fn time_relative_verify(
-    snapshot: &Snapshot,
-    rtx: &ResolvedTransaction,
+    snapshot: Arc<Snapshot>,
+    rtx: Arc<ResolvedTransaction>,
     tx_env: &TxVerifyEnv,
 ) -> Result<(), Reject> {
     let consensus = snapshot.consensus();
-    TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot, tx_env)
+    TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot.as_data_loader(), tx_env)
         .verify()
         .map_err(Reject::Verification)
 }

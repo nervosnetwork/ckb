@@ -586,5 +586,5 @@ pub fn dao_data(
     };
     let data_loader = store.store().as_data_provider();
     let calculator = DaoCalculator::new(consensus, &data_loader);
-    calculator.dao_field(&rtxs, parent).unwrap()
+    calculator.dao_field(rtxs.iter(), parent).unwrap()
 }

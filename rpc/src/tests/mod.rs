@@ -176,7 +176,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         let data_loader = shared.store().as_data_provider();
         DaoCalculator::new(shared.consensus(), &data_loader)
-            .dao_field(&[resolved_cellbase], parent)
+            .dao_field([resolved_cellbase].iter(), parent)
             .unwrap()
     };
     BlockBuilder::default()

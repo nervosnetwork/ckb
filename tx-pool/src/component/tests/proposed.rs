@@ -14,11 +14,12 @@ use ckb_types::{
     prelude::*,
 };
 use std::collections::HashSet;
+use std::sync::Arc;
 
 fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
     tx: TransactionView,
     get_cell_data: F,
-) -> ResolvedTransaction {
+) -> Arc<ResolvedTransaction> {
     let resolved_cell_deps = get_related_dep_out_points(&tx, get_cell_data)
         .expect("dummy resolve")
         .into_iter()
@@ -34,12 +35,12 @@ fn dummy_resolve<F: Fn(&OutPoint) -> Option<Bytes>>(
         })
         .collect();
 
-    ResolvedTransaction {
+    Arc::new(ResolvedTransaction {
         transaction: tx,
         resolved_cell_deps,
         resolved_inputs: vec![],
         resolved_dep_groups: vec![],
-    }
+    })
 }
 
 #[test]

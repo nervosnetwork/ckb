@@ -586,7 +586,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .collect::<Result<Vec<ResolvedTransaction>>>()?;
 
         Ok(DaoCalculator::new(consensus, &snapshot.as_data_provider())
-            .dao_field(&rtxs, &parent_header)
+            .dao_field(rtxs.iter(), &parent_header)
             .expect("dao calculation should be OK")
             .into())
     }

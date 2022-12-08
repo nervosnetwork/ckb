@@ -501,7 +501,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let data_loader = snapshot.as_data_provider();
     let calculator = DaoCalculator::new(snapshot.consensus(), &data_loader);
     calculator
-        .dao_field(&rtxs, parent)
+        .dao_field(rtxs.iter(), parent)
         .expect("calculator dao_field")
 }
 

@@ -135,7 +135,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
     /// [`extract_dao_data`]: ../ckb_dao_utils/fn.extract_dao_data.html
     pub fn dao_field(
         &self,
-        rtxs: &[ResolvedTransaction],
+        rtxs: impl Iterator<Item = &'a ResolvedTransaction> + Clone,
         parent: &HeaderView,
     ) -> Result<Byte32, DaoError> {
         let current_block_epoch = self
@@ -143,7 +143,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             .next_epoch_ext(parent, self.data_loader)
             .ok_or(DaoError::InvalidHeader)?
             .epoch();
-        self.dao_field_with_current_epoch(rtxs.iter(), parent, &current_block_epoch)
+        self.dao_field_with_current_epoch(rtxs, parent, &current_block_epoch)
     }
 
     /// Returns the total transactions fee of `rtx`.
