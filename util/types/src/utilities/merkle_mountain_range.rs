@@ -42,15 +42,9 @@ impl core::BlockView {
 impl core::HeaderView {
     /// Get the MMR header digest of the header
     pub fn digest(&self) -> packed::HeaderDigest {
-        self.data().digest()
-    }
-}
-
-impl packed::Header {
-    /// Get the MMR header digest of the header
-    pub fn digest(&self) -> packed::HeaderDigest {
-        let raw = self.raw();
+        let raw = self.data().raw();
         packed::HeaderDigest::new_builder()
+            .children_hash(self.hash())
             .total_difficulty(self.difficulty().pack())
             .start_number(raw.number())
             .end_number(raw.number())
