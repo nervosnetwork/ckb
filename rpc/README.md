@@ -1827,7 +1827,7 @@ Returns the fee_rate statistics of confirmed blocks on the chain
 
 ###### Returns
 
-If the query has data records, it returns statistics, if not, it returns null.
+If the query finds the corresponding historical data, the corresponding statistics are returned, containing the mean and median, in shannons per kilo-weight. If not, it returns null.
 
 ###### Examples
 
@@ -1852,8 +1852,8 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": {
-    "mean":59.29387293275573,
-    "median":5.288207297726071
+    "mean": "0xe79d",
+    "median": "0x14a8"
    }
 }
 ```
@@ -5779,15 +5779,15 @@ Response result of the RPC method `estimate_cycles`.
 
 ### Type `FeeRateStatics`
 
-The fee_rate statistics information, includes mean and median
+The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
 
 #### Fields
 
 `FeeRateStatics` is a JSON object with the following fields.
 
-*   `mean`: `64-bit floating point` - mean
+*   `mean`: [`Uint64`](#type-uint64) - mean
 
-*   `median`: `64-bit floating point` - median
+*   `median`: [`Uint64`](#type-uint64) - median
 
 
 ### Type `H256`

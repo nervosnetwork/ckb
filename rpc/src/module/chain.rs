@@ -1498,7 +1498,10 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// If the query has data records, it returns statistics, if not, it returns null.
+    /// If the query finds the corresponding historical data,
+    /// the corresponding statistics are returned,
+    /// containing the mean and median, in shannons per kilo-weight.
+    /// If not, it returns null.
     ///
     /// ## Examples
     ///
@@ -1520,8 +1523,8 @@ pub trait ChainRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
-    ///     "mean":59.29387293275573,
-    ///     "median":5.288207297726071
+    ///     "mean": "0xe79d",
+    ///     "median": "0x14a8"
     ///    }
     /// }
     /// ```
