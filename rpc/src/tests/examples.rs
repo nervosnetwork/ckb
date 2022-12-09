@@ -188,7 +188,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     ));
 
     let notify_controller =
-        NotifyService::new(Default::default()).start(shared.async_handle().clone());
+        NotifyService::new(Default::default(), shared.async_handle().clone()).start();
     let (alert_notifier, alert_verifier) = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
