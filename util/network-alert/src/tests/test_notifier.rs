@@ -31,13 +31,15 @@ fn new_notifier(version: &str) -> Notifier {
     }
 
     let notify_controller = RUNTIME_HANDLE.with(|runtime| {
-        NotifyService::new(Default::default()).start(
+        NotifyService::new(
+            Default::default(),
             runtime
                 .borrow()
                 .get_or_init(new_background_runtime)
                 .0
                 .clone(),
         )
+        .start()
     });
     Notifier::new(version.into(), notify_controller)
 }

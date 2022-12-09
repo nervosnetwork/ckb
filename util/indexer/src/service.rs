@@ -188,20 +188,21 @@ impl IndexerService {
         let poll_service = self.clone();
         self.async_handle.spawn(async move {
             let _initial_finished = initial_syncing.await;
-            let mut new_block_receiver = notify_controller
-                .subscribe_new_block(SUBSCRIBER_NAME.to_string())
+            let mut new_block_watcher = notify_controller
+                .watch_new_block(SUBSCRIBER_NAME.to_string())
                 .await;
             let mut interval = time::interval(poll_service.poll_interval);
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
-                    Some(_) = new_block_receiver.recv() => {
+                    Ok(_) = new_block_watcher.changed() => {
                         let service = poll_service.clone();
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync()
                         }).await {
                             error!("ckb indexer syncing join error {:?}", e);
                         }
+                        new_block_watcher.borrow_and_update();
                     },
                     _ = interval.tick() => {
                         let service = poll_service.clone();
