@@ -54,8 +54,8 @@ fn test_fee_rate_statics() {
     assert_eq!(
         statistics,
         Some(FeeRateStatics {
-            mean: 11.0,
-            median: 11.0
+            mean: 11_000.into(),
+            median: 11_000.into(),
         })
     );
 
@@ -63,8 +63,8 @@ fn test_fee_rate_statics() {
     assert_eq!(
         statistics,
         Some(FeeRateStatics {
-            mean: 17.0,
-            median: 17.0
+            mean: 17_000.into(),
+            median: 17_000.into()
         })
     );
 
@@ -72,8 +72,8 @@ fn test_fee_rate_statics() {
     assert_eq!(
         statistics,
         Some(FeeRateStatics {
-            mean: 11.0,
-            median: 11.0
+            mean: 11_000.into(),
+            median: 11_000.into(),
         })
     );
 
@@ -81,8 +81,8 @@ fn test_fee_rate_statics() {
     assert_eq!(
         statistics,
         Some(FeeRateStatics {
-            mean: 21.0,
-            median: 21.0
+            mean: 21_000.into(),
+            median: 21_000.into(),
         })
     );
 }

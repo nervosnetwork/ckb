@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::FeeRateStatics;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::{tx_pool::get_transaction_virtual_bytes, BlockExt, BlockNumber};
+use ckb_types::core::{tx_pool::get_transaction_weight, BlockExt, BlockNumber, FeeRate};
 
 const DEFAULT_TARGET: u64 = 21;
 const MIN_TARGET: u64 = 1;
@@ -11,16 +11,16 @@ fn is_even(n: u64) -> bool {
     n & 1 == 0
 }
 
-fn mean(numbers: &[f64]) -> f64 {
-    let sum: f64 = numbers.iter().sum();
-    sum / numbers.len() as f64
+fn mean(numbers: &[u64]) -> u64 {
+    let sum: u64 = numbers.iter().sum();
+    sum / numbers.len() as u64
 }
 
-fn median(numbers: &mut [f64]) -> f64 {
-    numbers.sort_unstable_by(|a, b| a.partial_cmp(b).expect("slice does not contain NaN"));
+fn median(numbers: &mut [u64]) -> u64 {
+    numbers.sort_unstable();
     let mid = numbers.len() / 2;
     if numbers.len() % 2 == 0 {
-        mean(&[numbers[mid - 1], numbers[mid]]) as f64
+        mean(&[numbers[mid - 1], numbers[mid]])
     } else {
         numbers[mid]
     }
@@ -30,9 +30,9 @@ pub(crate) trait FeeRateProvider {
     fn get_tip_number(&self) -> BlockNumber;
     fn get_block_ext_by_number(&self, number: BlockNumber) -> Option<BlockExt>;
 
-    fn collect<F>(&self, target: u64, f: F) -> Vec<f64>
+    fn collect<F>(&self, target: u64, f: F) -> Vec<u64>
     where
-        F: FnMut(Vec<f64>, BlockExt) -> Vec<f64>,
+        F: FnMut(Vec<u64>, BlockExt) -> Vec<u64>,
     {
         let tip_number = self.get_tip_number();
         let start = std::cmp::max(
@@ -86,9 +86,9 @@ where
                     block_ext.cycles.expect("checked"),
                     block_ext.txs_sizes.expect("checked")
                 ) {
-                    let vbytes = get_transaction_virtual_bytes(size as usize, cycles);
-                    if vbytes > 0 {
-                        fee_rates.push(fee.as_u64() as f64 / vbytes as f64);
+                    let weight = get_transaction_weight(size as usize, cycles);
+                    if weight > 0 {
+                        fee_rates.push(FeeRate::calculate(fee, weight).as_u64());
                     }
                 }
             }
@@ -99,8 +99,8 @@ where
             None
         } else {
             Some(FeeRateStatics {
-                mean: mean(&fee_rates),
-                median: median(&mut fee_rates),
+                mean: mean(&fee_rates).into(),
+                median: median(&mut fee_rates).into(),
             })
         }
     }

@@ -218,9 +218,24 @@ impl TransactionWithStatus {
 /// and MAX_BLOCK_BYTES is less than 1.
 pub const DEFAULT_BYTES_PER_CYCLES: f64 = 0.000_170_571_4_f64;
 
-/// Virtual bytes(aka vbytes) is a concept to unify the size and cycles of a transaction,
-/// tx_pool use vbytes to estimate transaction fee rate.
+/// vbytes has been deprecated, renamed to weight to prevent ambiguity
+#[deprecated(
+    since = "0.107.0",
+    note = "Please use the get_transaction_weight instead"
+)]
 pub fn get_transaction_virtual_bytes(tx_size: usize, cycles: u64) -> u64 {
+    std::cmp::max(
+        tx_size as u64,
+        (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
+    )
+}
+
+/// The miners select transactions to fill the limited block space which gives the highest fee.
+/// Because there are two different limits, serialized size and consumed cycles,
+/// the selection algorithm is a multi-dimensional knapsack problem.
+/// Introducing the transaction weight converts the multi-dimensional knapsack to a typical knapsack problem,
+/// which has a simple greedy algorithm.
+pub fn get_transaction_weight(tx_size: usize, cycles: u64) -> u64 {
     std::cmp::max(
         tx_size as u64,
         (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
