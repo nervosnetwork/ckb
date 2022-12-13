@@ -1,6 +1,6 @@
 [package]
 name = "ckb-hash"
-version = "0.106.0-rc3"
+version = "0.106.0-rc4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
