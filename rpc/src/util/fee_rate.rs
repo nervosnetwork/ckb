@@ -29,6 +29,7 @@ fn median(numbers: &mut [u64]) -> u64 {
 pub(crate) trait FeeRateProvider {
     fn get_tip_number(&self) -> BlockNumber;
     fn get_block_ext_by_number(&self, number: BlockNumber) -> Option<BlockExt>;
+    fn max_target(&self) -> u64;
 
     fn collect<F>(&self, target: u64, f: F) -> Vec<u64>
     where
@@ -55,6 +56,10 @@ impl FeeRateProvider for Snapshot {
         self.get_block_hash(number)
             .and_then(|hash| self.get_block_ext(&hash))
     }
+
+    fn max_target(&self) -> u64 {
+        MAX_TARGET
+    }
 }
 
 // FeeRateCollector collect fee_rate related information
@@ -73,8 +78,9 @@ where
     pub fn statistics(&self, target: Option<u64>) -> Option<FeeRateStatics> {
         let mut target = target.unwrap_or(DEFAULT_TARGET);
         if is_even(target) {
-            target = std::cmp::min(MAX_TARGET, target.saturating_add(1));
+            target = target.saturating_add(1);
         }
+        target = std::cmp::min(self.provider.max_target(), target);
 
         let mut fee_rates = self.provider.collect(target, |mut fee_rates, block_ext| {
             if !block_ext.txs_fees.is_empty()
