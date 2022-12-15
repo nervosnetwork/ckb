@@ -2,7 +2,6 @@ use crate::filter::BlockFilter;
 use crate::utils::send_message_to;
 use crate::{attempt, Status};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_store::ChainStore;
 use ckb_types::core::BlockNumber;
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
@@ -32,15 +31,15 @@ impl<'a> GetBlockFiltersProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        let snapshot = self.filter.shared.shared().snapshot();
+        let active_chain = self.filter.shared.active_chain();
         let start_number: BlockNumber = self.message.to_entity().start_number().unpack();
-        let tip_number: BlockNumber = snapshot.get_tip_header().expect("tip stored").number();
+        let tip_number: BlockNumber = active_chain.tip_number();
         if tip_number >= start_number {
             let mut block_hashes = Vec::new();
             let mut filters = Vec::new();
             for block_number in start_number..start_number + BATCH_SIZE {
-                if let Some(block_hash) = snapshot.get_block_hash(block_number) {
-                    if let Some(block_filter) = snapshot.get_block_filter(&block_hash) {
+                if let Some(block_hash) = active_chain.get_block_hash(block_number) {
+                    if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
                         block_hashes.push(block_hash);
                         filters.push(block_filter);
                     } else {
