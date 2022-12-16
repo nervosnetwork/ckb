@@ -1544,12 +1544,12 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>> {
-        let snapshot = self.shared.snapshot();
+        let store = self.shared.store();
         let block_hash = block_hash.pack();
-        if !snapshot.is_main_chain(&block_hash) {
+        if !store.is_main_chain(&block_hash) {
             return Ok(None);
         }
-        Ok(snapshot.get_block_filter(&block_hash).map(Into::into))
+        Ok(store.get_block_filter(&block_hash).map(Into::into))
     }
 
     fn get_transaction(

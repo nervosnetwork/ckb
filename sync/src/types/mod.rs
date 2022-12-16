@@ -1923,6 +1923,10 @@ impl ActiveChain {
         self.snapshot().get_block_ext(h)
     }
 
+    pub fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
+        self.store().get_block_filter(hash)
+    }
+
     pub fn shared(&self) -> &SyncShared {
         &self.shared
     }
