@@ -91,7 +91,6 @@ impl BlockFilter {
                 .expect("header stored");
             self.build_filter_data_for_block(&header);
         }
-        self.shared.refresh_snapshot();
     }
 
     fn build_filter_data_for_block(&self, header: &HeaderView) {
