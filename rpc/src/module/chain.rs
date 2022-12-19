@@ -643,7 +643,7 @@ pub trait ChainRpc {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatusResponse>>;
+    ) -> Result<TransactionWithStatusResponse>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
     /// `block_number`.
@@ -1656,7 +1656,7 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
-    ) -> Result<Option<TransactionWithStatusResponse>> {
+    ) -> Result<TransactionWithStatusResponse> {
         let tx_hash = tx_hash.pack();
         let verbosity = verbosity
             .map(|v| v.value())
@@ -1665,21 +1665,18 @@ impl ChainRpc for ChainRpcImpl {
         if verbosity == 0 {
             // when verbosity=0, it's response value is as same as verbosity=2, but it
             // return a 0x-prefixed hex encoded molecule packed::Transaction` on `transaction` field
-            self.get_transaction_verbosity2(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Hex))
-            })
+            self.get_transaction_verbosity2(tx_hash)
+                .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Hex))
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
-            self.get_transaction_verbosity1(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
-            })
+            self.get_transaction_verbosity1(tx_hash)
+                .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
-            self.get_transaction_verbosity2(tx_hash).map(|op| {
-                op.map(|tx| TransactionWithStatusResponse::from(tx, ResponseFormatInnerType::Json))
-            })
+            self.get_transaction_verbosity2(tx_hash)
+                .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
         }
@@ -2028,10 +2025,7 @@ impl ChainRpc for ChainRpcImpl {
 }
 
 impl ChainRpcImpl {
-    fn get_transaction_verbosity1(
-        &self,
-        tx_hash: packed::Byte32,
-    ) -> Result<Option<TransactionWithStatus>> {
+    fn get_transaction_verbosity1(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
             let cycles = snapshot
@@ -2042,11 +2036,11 @@ impl ChainRpcImpl {
                         .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
                 });
 
-            return Ok(Some(TransactionWithStatus::with_committed(
+            return Ok(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_hash.unpack(),
                 cycles,
-            )));
+            ));
         }
 
         let tx_pool = self.shared.tx_pool_controller();
@@ -2062,15 +2056,10 @@ impl ChainRpcImpl {
             return Err(RPCError::ckb_internal_error(e));
         };
         let (tx_status, cycles) = tx_status.unwrap();
-        Ok(Some(TransactionWithStatus::omit_transaction(
-            tx_status, cycles,
-        )))
+        Ok(TransactionWithStatus::omit_transaction(tx_status, cycles))
     }
 
-    fn get_transaction_verbosity2(
-        &self,
-        tx_hash: packed::Byte32,
-    ) -> Result<Option<TransactionWithStatus>> {
+    fn get_transaction_verbosity2(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
             let cycles = snapshot
@@ -2081,11 +2070,11 @@ impl ChainRpcImpl {
                         .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
                 });
 
-            return Ok(Some(TransactionWithStatus::with_committed(
+            return Ok(TransactionWithStatus::with_committed(
                 Some(tx),
                 tx_info.block_hash.unpack(),
                 cycles,
-            )));
+            ));
         }
 
         let tx_pool = self.shared.tx_pool_controller();
@@ -2101,7 +2090,7 @@ impl ChainRpcImpl {
             return Err(RPCError::ckb_internal_error(e));
         };
         let transaction_with_status = transaction_with_status.unwrap();
-        Ok(Some(transaction_with_status))
+        Ok(transaction_with_status)
     }
     fn get_block_by_hash(
         &self,

@@ -93,9 +93,7 @@ impl Spec for OrphanTxRejected {
         let ret = node0
             .rpc_client()
             .get_transaction_with_verbosity(child_hash, 2);
-        assert!(ret.is_some(), "reject should be recorded");
-        let ret2 = ret.unwrap();
-        assert!(ret2.transaction.is_none());
-        assert!(matches!(ret2.tx_status.status, Status::Rejected));
+        assert!(ret.transaction.is_none());
+        assert!(matches!(ret.tx_status.status, Status::Rejected));
     }
 }

@@ -514,7 +514,6 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             .node
             .rpc_client()
             .get_transaction(previous_output.tx_hash())
-            .unwrap()
             .transaction
             .unwrap()
             .inner
