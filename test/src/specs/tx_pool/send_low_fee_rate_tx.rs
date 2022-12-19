@@ -16,6 +16,7 @@ impl Spec for SendLowFeeRateTx {
             node0
                 .rpc_client()
                 .get_transaction(tx_hash_0.clone())
+                .transaction
                 .is_some()
         });
         assert!(ret, "send tx should success");
@@ -23,7 +24,6 @@ impl Spec for SendLowFeeRateTx {
             if let Either::Left(tx) = node0
                 .rpc_client()
                 .get_transaction(tx_hash_0.clone())
-                .unwrap()
                 .transaction
                 .unwrap()
                 .inner

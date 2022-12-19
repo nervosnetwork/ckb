@@ -780,7 +780,7 @@ The response looks like below when the block have block filter.
 * `get_transaction(tx_hash, verbosity)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse) `|` `null`
+* result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
 Returns the information about a transaction requested by transaction hash.
 

@@ -55,7 +55,7 @@ impl Spec for SendLargeCyclesTxInBlock {
             let ret = node0
                 .rpc_client()
                 .get_transaction_with_verbosity(tx.hash(), 1);
-            ret.is_some() && matches!(ret.unwrap().tx_status.status, Status::Pending)
+            matches!(ret.tx_status.status, Status::Pending)
         });
         assert!(result, "large cycles tx rejected by node0");
         node0.mine_until_transaction_confirm(&tx.hash());
@@ -117,7 +117,11 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(result, "node0 can't sync with node1");
 
         let result = wait_until(60, || {
-            node0.rpc_client().get_transaction(tx.hash()).is_some()
+            node0
+                .rpc_client()
+                .get_transaction(tx.hash())
+                .transaction
+                .is_some()
         });
         assert!(result, "Node0 should accept tx");
     }
@@ -159,7 +163,11 @@ impl Spec for NotifyLargeCyclesTx {
         info!("Node0 receive notify large cycles tx");
 
         let result = wait_until(60, || {
-            node0.rpc_client().get_transaction(tx.hash()).is_some()
+            node0
+                .rpc_client()
+                .get_transaction(tx.hash())
+                .transaction
+                .is_some()
         });
         assert!(result, "Node0 should accept tx");
     }
@@ -201,7 +209,11 @@ impl Spec for LoadProgramFailedTx {
         info!("Node0 receive notify large cycles tx");
 
         let result = wait_until(60, || {
-            node0.rpc_client().get_transaction(tx.hash()).is_some()
+            node0
+                .rpc_client()
+                .get_transaction(tx.hash())
+                .transaction
+                .is_some()
         });
         assert!(result, "Node0 should accept tx");
     }
