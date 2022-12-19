@@ -307,7 +307,7 @@ impl<'a, 'b, 'c, CS: ChainStore + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 
     pub fn verify(&self) -> Result<(), Error> {
         let dao = DaoCalculator::new(
             &self.context.consensus,
-            &self.context.store.as_data_provider(),
+            &self.context.store.borrow_as_data_loader(),
         )
         .dao_field(self.resolved.iter().map(AsRef::as_ref), self.parent)
         .map_err(|e| {
@@ -660,7 +660,7 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
         } else {
             self.context
                 .consensus
-                .next_epoch_ext(&parent, &self.context.store.as_data_provider())
+                .next_epoch_ext(&parent, &self.context.store.borrow_as_data_loader())
                 .ok_or_else(|| UnknownParentError {
                     parent_hash: parent.hash(),
                 })?

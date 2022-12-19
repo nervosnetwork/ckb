@@ -84,7 +84,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
         let snapshot = shared.snapshot();
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .next_epoch_ext(&parent, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = gen_block(&parent, random(), &epoch);
@@ -102,7 +102,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
         let snapshot = shared.snapshot();
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&parent, &snapshot.as_data_provider())
+            .next_epoch_ext(&parent, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = if i > 10 {
@@ -129,7 +129,7 @@ fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
     let snapshot = shared.snapshot();
     shared
         .consensus()
-        .next_epoch_ext(&chain[index].header(), &snapshot.as_data_provider())
+        .next_epoch_ext(&chain[index].header(), &snapshot.borrow_as_data_loader())
         .unwrap()
         .epoch()
 }

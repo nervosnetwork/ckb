@@ -401,7 +401,7 @@ impl ChainService {
         let next_block_epoch = self
             .shared
             .consensus()
-            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .next_epoch_ext(&parent_header, &txn_snapshot.borrow_as_data_loader())
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();

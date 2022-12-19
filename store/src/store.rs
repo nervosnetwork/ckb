@@ -32,8 +32,8 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
-    /// Return the provider trait default implementation
-    fn as_data_provider(&self) -> BorrowedDataLoaderWrapper<Self> {
+    /// Return the borrowed data loader wrapper
+    fn borrow_as_data_loader(&self) -> BorrowedDataLoaderWrapper<Self> {
         BorrowedDataLoaderWrapper::new(self)
     }
 

@@ -45,7 +45,7 @@ pub(crate) fn check_tx_fee(
     rtx: &ResolvedTransaction,
     tx_size: usize,
 ) -> Result<Capacity, Reject> {
-    let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.as_data_provider())
+    let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.borrow_as_data_loader())
         .transaction_fee(rtx)
         .map_err(|err| Reject::Malformed(format!("{err}")))?;
     // Theoretically we cannot use size as weight directly to calculate fee_rate,

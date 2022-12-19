@@ -109,7 +109,7 @@ impl BlockAssembler {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
+            .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
             .expect("tip header's epoch should be stored")
             .epoch();
         let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch);
@@ -237,7 +237,7 @@ impl BlockAssembler {
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.as_data_provider())
+            .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
             .expect("tip header's epoch should be stored")
             .epoch();
         let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch);
@@ -616,7 +616,7 @@ impl BlockAssembler {
             .map(|entry| entry.rtx.as_ref());
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, &snapshot.as_data_provider())
+        let dao = DaoCalculator::new(consensus, &snapshot.borrow_as_data_loader())
             .dao_field_with_current_epoch(entries_iter, tip_header, current_epoch)?;
 
         Ok((dao, checked_entries))

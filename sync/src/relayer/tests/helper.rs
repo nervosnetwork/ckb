@@ -50,7 +50,7 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
     let snapshot = shared.snapshot();
     let epoch = snapshot
         .consensus()
-        .next_epoch_ext(parent, &snapshot.as_data_provider())
+        .next_epoch_ext(parent, &snapshot.borrow_as_data_loader())
         .unwrap()
         .epoch();
     HeaderBuilder::default()

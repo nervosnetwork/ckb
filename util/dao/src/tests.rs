@@ -74,7 +74,7 @@ fn check_dao_data_calculation() {
         .build();
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
-    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+    let result = DaoCalculator::new(&consensus, &store.borrow_as_data_loader())
         .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
@@ -105,7 +105,7 @@ fn check_initial_dao_data_calculation() {
         .build();
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(0));
-    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+    let result = DaoCalculator::new(&consensus, &store.borrow_as_data_loader())
         .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
@@ -138,7 +138,7 @@ fn check_first_epoch_block_dao_data_calculation() {
         .build();
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, Some(12340));
-    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+    let result = DaoCalculator::new(&consensus, &store.borrow_as_data_loader())
         .dao_field([].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
@@ -171,7 +171,7 @@ fn check_dao_data_calculation_overflows() {
         .build();
 
     let (_tmp_dir, store, parent_header) = prepare_store(&parent_header, None);
-    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+    let result = DaoCalculator::new(&consensus, &store.borrow_as_data_loader())
         .dao_field([].iter(), &parent_header);
     assert!(result.unwrap_err().to_string().contains("Overflow"));
 }
@@ -216,7 +216,7 @@ fn check_dao_data_calculation_with_transactions() {
         resolved_dep_groups: vec![],
     };
 
-    let result = DaoCalculator::new(&consensus, &store.as_data_provider())
+    let result = DaoCalculator::new(&consensus, &store.borrow_as_data_loader())
         .dao_field([rtx].iter(), &parent_header)
         .unwrap();
     let dao_data = extract_dao_data(result);
@@ -281,7 +281,7 @@ fn check_withdraw_calculation() {
     txn.commit().unwrap();
 
     let consensus = Consensus::default();
-    let data_loader = store.as_data_provider();
+    let data_loader = store.borrow_as_data_loader();
     let calculator = DaoCalculator::new(&consensus, &data_loader);
     let result = calculator.calculate_maximum_withdraw(
         &output,
@@ -338,7 +338,7 @@ fn check_withdraw_calculation_overflows() {
     txn.commit().unwrap();
 
     let consensus = Consensus::default();
-    let data_loader = store.as_data_provider();
+    let data_loader = store.borrow_as_data_loader();
     let calculator = DaoCalculator::new(&consensus, &data_loader);
     let result = calculator.calculate_maximum_withdraw(
         &output,
