@@ -1890,13 +1890,17 @@ impl ChainRpcImpl {
     ) -> Result<Option<TransactionWithStatus>> {
         let snapshot = self.shared.snapshot();
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
-            let cycles = snapshot
-                .get_block_ext(&tx_info.block_hash)
-                .and_then(|block_ext| {
-                    block_ext
-                        .cycles
-                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
-                });
+            let cycles = if tx_info.is_cellbase() {
+                None
+            } else {
+                snapshot
+                    .get_block_ext(&tx_info.block_hash)
+                    .and_then(|block_ext| {
+                        block_ext
+                            .cycles
+                            .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                    })
+            };
 
             return Ok(Some(TransactionWithStatus::with_committed(
                 None,
@@ -1929,13 +1933,17 @@ impl ChainRpcImpl {
     ) -> Result<Option<TransactionWithStatus>> {
         let snapshot = self.shared.snapshot();
         if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
-            let cycles = snapshot
-                .get_block_ext(&tx_info.block_hash)
-                .and_then(|block_ext| {
-                    block_ext
-                        .cycles
-                        .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
-                });
+            let cycles = if tx_info.is_cellbase() {
+                None
+            } else {
+                snapshot
+                    .get_block_ext(&tx_info.block_hash)
+                    .and_then(|block_ext| {
+                        block_ext
+                            .cycles
+                            .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
+                    })
+            };
 
             return Ok(Some(TransactionWithStatus::with_committed(
                 Some(tx),
