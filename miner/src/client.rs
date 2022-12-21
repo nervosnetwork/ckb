@@ -204,6 +204,20 @@ impl Client {
         let client = self.clone();
         if let Some(addr) = self.config.listen {
             ckb_logger::info!("listen notify mode : {}", addr);
+            ckb_logger::info!(
+                r#"
+Please note that ckb-miner runs in notify mode,
+and you need to configure the corresponding information in the block assembler of the ckb,
+for example
+
+[block_assembler]
+...
+notify = ["http://{}"]
+
+Otherwise ckb-miner does not work properly and will behave as it stopped committing new valid blocks after a while
+"#,
+                addr
+            );
             self.handle.spawn(async move {
                 client.listen_block_template_notify(addr, stop_rx).await;
             });
