@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-spec"
-version = "0.106.0-rc5"
+version = "0.106.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,15 +11,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
-ckb-constant = { path = "../util/constant", version = "= 0.106.0-rc5" }
-ckb-types = { path = "../util/types", version = "= 0.106.0-rc5" }
-ckb-pow = { path = "../pow", version = "= 0.106.0-rc5" }
-ckb-resource = { path = "../resource", version = "= 0.106.0-rc5" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.106.0-rc5" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.106.0-rc5" }
-ckb-rational = { path = "../util/rational", version = "= 0.106.0-rc5" }
-ckb-crypto = { path = "../util/crypto", version = "= 0.106.0-rc5"}
-ckb-hash = { path = "../util/hash", version = "= 0.106.0-rc5"}
-ckb-error = { path = "../error", version = "= 0.106.0-rc5" }
-ckb-traits = { path = "../traits", version = "= 0.106.0-rc5" }
-ckb-util = { path = "../util", version = "= 0.106.0-rc5" }
+ckb-constant = { path = "../util/constant", version = "= 0.106.0" }
+ckb-types = { path = "../util/types", version = "= 0.106.0" }
+ckb-pow = { path = "../pow", version = "= 0.106.0" }
+ckb-resource = { path = "../resource", version = "= 0.106.0" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.106.0" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.106.0" }
+ckb-rational = { path = "../util/rational", version = "= 0.106.0" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.106.0"}
+ckb-hash = { path = "../util/hash", version = "= 0.106.0"}
+ckb-error = { path = "../error", version = "= 0.106.0" }
+ckb-traits = { path = "../traits", version = "= 0.106.0" }
+ckb-util = { path = "../util", version = "= 0.106.0" }
