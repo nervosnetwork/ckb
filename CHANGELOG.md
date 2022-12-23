@@ -1,4 +1,4 @@
-# [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0)
+# [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0) (2022-12-23)
 
 ### Features
 
