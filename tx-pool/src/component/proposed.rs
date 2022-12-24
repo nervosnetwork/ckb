@@ -55,12 +55,20 @@ impl Edges {
         self.outputs.insert(out_point, None);
     }
 
+    pub(crate) fn insert_consumed_output(&mut self, out_point: OutPoint, id: ProposalShortId) {
+        self.outputs.insert(out_point, Some(id));
+    }
+
     pub(crate) fn get_output_ref(&self, out_point: &OutPoint) -> Option<&Option<ProposalShortId>> {
         self.outputs.get(out_point)
     }
 
     pub(crate) fn get_input_ref(&self, out_point: &OutPoint) -> Option<&ProposalShortId> {
         self.inputs.get(out_point)
+    }
+
+    pub(crate) fn get_deps_ref(&self, out_point: &OutPoint) -> Option<&HashSet<ProposalShortId>> {
+        self.deps.get(out_point)
     }
 
     pub(crate) fn get_mut_output(
@@ -107,6 +115,9 @@ pub struct ProposedPool {
 
 impl CellProvider for ProposedPool {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
+        if self.edges.get_input_ref(out_point).is_some() {
+            return CellStatus::Dead;
+        }
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
@@ -119,15 +130,15 @@ impl CellProvider for ProposedPool {
                 return CellStatus::live_cell(cell_meta);
             }
         }
-        if self.edges.get_input_ref(out_point).is_some() {
-            return CellStatus::Dead;
-        }
         CellStatus::Unknown
     }
 }
 
 impl CellChecker for ProposedPool {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        if self.edges.get_input_ref(out_point).is_some() {
+            return Some(false);
+        }
         if let Some(x) = self.edges.get_output_ref(out_point) {
             // output consumed
             if x.is_some() {
@@ -135,9 +146,6 @@ impl CellChecker for ProposedPool {
             } else {
                 return Some(true);
             }
-        }
-        if self.edges.get_input_ref(out_point).is_some() {
-            return Some(false);
         }
         None
     }
@@ -237,6 +245,20 @@ impl ProposedPool {
         None
     }
 
+    // In the event of a reorg, the assumption that a newly added tx has no
+    // in-pool children is false.  In particular, the pool is in an
+    // inconsistent state while new transactions are being added, because there may
+    // be descendant transactions of a tx coming from a disconnected block that are
+    // unreachable from just looking at transactions in the pool (the linking
+    // transactions may also be in the disconnected block, waiting to be added).
+    // Because of this, there's not much benefit in trying to search for in-pool
+    // children in add_entry().  Instead, in the special case of transactions
+    // being added from a disconnected block, out-of-block descendants for all the
+    // in-block transactions by calling update_descendants_from_detached().  Note that
+    // until this is called, the pool state is not consistent, and in particular
+    // TxLinks may not be correct (and therefore functions like
+    // calc_ancestors() and calc_descendants() that rely
+    // on them to walk the pool are not generally safe to use).
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         let tx_short_id = entry.proposal_short_id();
 
@@ -251,6 +273,7 @@ impl ProposedPool {
 
         self.inner.add_entry(entry).map(|inserted| {
             if inserted {
+                let mut children = HashSet::new();
                 // if input reference a in-pool output, connect it
                 // otherwise, record input for conflict check
                 for i in inputs {
@@ -265,16 +288,29 @@ impl ProposedPool {
                     self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
                 }
 
-                // record tx unconsumed output
+                // record tx output
                 for o in outputs {
-                    self.edges.insert_output(o);
+                    if let Some(ids) = self.edges.get_deps_ref(&o).cloned() {
+                        children.extend(ids);
+                    }
+                    if let Some(id) = self.edges.get_input_ref(&o).cloned() {
+                        self.edges.insert_consumed_output(o, id.clone());
+                        children.insert(id);
+                    } else {
+                        self.edges.insert_output(o);
+                    }
                 }
 
                 // record header_deps
                 if !header_deps.is_empty() {
                     self.edges
                         .header_deps
-                        .insert(tx_short_id, header_deps.into_iter().collect());
+                        .insert(tx_short_id.clone(), header_deps.into_iter().collect());
+                }
+
+                if !children.is_empty() {
+                    self.inner
+                        .update_descendants_from_detached(&tx_short_id, children);
                 }
             }
             inserted

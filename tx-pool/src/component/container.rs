@@ -15,24 +15,24 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct AncestorsScoreSortKey {
     pub fee: Capacity,
-    pub vbytes: u64,
+    pub weight: u64,
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
-    pub ancestors_vbytes: u64,
+    pub ancestors_weight: u64,
     pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {
     /// compare tx fee rate with ancestors fee rate and return the min one
-    pub(crate) fn min_fee_and_vbytes(&self) -> (Capacity, u64) {
-        // avoid division a_fee/a_vbytes > b_fee/b_vbytes
-        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_vbytes);
-        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.vbytes);
+    pub(crate) fn min_fee_and_weight(&self) -> (Capacity, u64) {
+        // avoid division a_fee/a_weight > b_fee/b_weight
+        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_weight);
+        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.weight);
 
         if tx_weight < ancestors_weight {
-            (self.fee, self.vbytes)
+            (self.fee, self.weight)
         } else {
-            (self.ancestors_fee, self.ancestors_vbytes)
+            (self.ancestors_fee, self.ancestors_weight)
         }
     }
 }
@@ -45,17 +45,17 @@ impl PartialOrd for AncestorsScoreSortKey {
 
 impl Ord for AncestorsScoreSortKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        // avoid division a_fee/a_vbytes > b_fee/b_vbytes
-        let (fee, vbytes) = self.min_fee_and_vbytes();
-        let (other_fee, other_vbytes) = other.min_fee_and_vbytes();
-        let self_weight = u128::from(fee.as_u64()) * u128::from(other_vbytes);
-        let other_weight = u128::from(other_fee.as_u64()) * u128::from(vbytes);
+        // avoid division a_fee/a_weight > b_fee/b_weight
+        let (fee, weight) = self.min_fee_and_weight();
+        let (other_fee, other_weight) = other.min_fee_and_weight();
+        let self_weight = u128::from(fee.as_u64()) * u128::from(other_weight);
+        let other_weight = u128::from(other_fee.as_u64()) * u128::from(weight);
         if self_weight == other_weight {
-            // if fee rate weight is same, then compare with ancestor vbytes
-            if self.ancestors_vbytes == other.ancestors_vbytes {
+            // if fee rate weight is same, then compare with ancestor weight
+            if self.ancestors_weight == other.ancestors_weight {
                 self.id.raw_data().cmp(&other.id.raw_data())
             } else {
-                self.ancestors_vbytes.cmp(&other.ancestors_vbytes)
+                self.ancestors_weight.cmp(&other.ancestors_weight)
             }
         } else {
             self_weight.cmp(&other_weight)
@@ -185,6 +185,12 @@ impl TxLinksMap {
             .map(|links| links.children.insert(child))
     }
 
+    fn add_parent(&mut self, short_id: &ProposalShortId, parent: ProposalShortId) -> Option<bool> {
+        self.inner
+            .get_mut(short_id)
+            .map(|links| links.parents.insert(parent))
+    }
+
     fn clear(&mut self) {
         self.inner.clear();
     }
@@ -193,10 +199,10 @@ impl TxLinksMap {
 #[derive(Debug, Clone)]
 pub(crate) struct SortedTxMap {
     entries: HashMap<ProposalShortId, TxEntry>,
-    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    pub(crate) sorted_index: BTreeSet<AncestorsScoreSortKey>,
     deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// A map track transaction ancestors and descendants
-    links: TxLinksMap,
+    pub(crate) links: TxLinksMap,
     max_ancestors_count: usize,
 }
 
@@ -219,6 +225,11 @@ impl SortedTxMap {
         self.entries.iter()
     }
 
+    // Usually when a new transaction is added to the pool, it has no in-pool
+    // children (because any such children would be an orphan).  So in add_entry(), we:
+    // - update a new entry's parents set to include all in-pool parents
+    // - update the new entry's parents to include the new tx as a child
+    // - update all ancestors of the transaction to include the new tx's size/fee
     pub fn add_entry(&mut self, mut entry: TxEntry) -> Result<bool, Reject> {
         let short_id = entry.proposal_short_id();
 
@@ -249,12 +260,6 @@ impl SortedTxMap {
             if self.links.inner.contains_key(&id) {
                 parents.insert(id);
             }
-
-            // insert dep-ref map
-            self.deps
-                .entry(dep_pt)
-                .or_insert_with(HashSet::new)
-                .insert(short_id.clone());
         }
 
         let ancestors = calc_relation_ids(Cow::Borrowed(&parents), &self.links, Relation::Parents);
@@ -267,6 +272,15 @@ impl SortedTxMap {
 
         if entry.ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        for cell_dep in entry.transaction().cell_deps() {
+            let dep_pt = cell_dep.out_point();
+            // insert dep-ref map
+            self.deps
+                .entry(dep_pt)
+                .or_insert_with(HashSet::new)
+                .insert(short_id.clone());
         }
 
         for parent in &parents {
@@ -284,12 +298,46 @@ impl SortedTxMap {
         Ok(true)
     }
 
+    // update_descendants_from_detached is used to update
+    // the descendants for a single transaction that has been added to the
+    // pool but may have child transactions in the pool, eg during a
+    // chain reorg.
+    pub fn update_descendants_from_detached(
+        &mut self,
+        id: &ProposalShortId,
+        children: HashSet<ProposalShortId>,
+    ) {
+        if let Some(entry) = self.entries.get(id).cloned() {
+            for child in &children {
+                self.links.add_parent(child, id.clone());
+            }
+            if let Some(links) = self.links.inner.get_mut(id) {
+                links.children.extend(children);
+            }
+
+            let descendants = self.calc_descendants(id);
+            for desc_id in &descendants {
+                if let Some(desc_entry) = self.entries.get_mut(desc_id) {
+                    let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
+                    debug_assert!(deleted, "pool inconsistent");
+                    desc_entry.add_entry_weight(&entry);
+                    self.sorted_index.insert(desc_entry.as_sorted_key());
+                }
+            }
+        }
+    }
+
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.entries.contains_key(id)
     }
 
     pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.entries.get(id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deps(&self) -> &HashMap<OutPoint, HashSet<ProposalShortId>> {
+        &self.deps
     }
 
     fn update_deps_for_remove(&mut self, entry: &TxEntry) {

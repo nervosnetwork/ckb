@@ -27,6 +27,7 @@ use std::{cmp, collections::HashSet, fmt, sync::Arc};
 
 mod error;
 mod examples;
+mod fee_rate;
 mod module;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq, Default)]

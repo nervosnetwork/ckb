@@ -35,7 +35,7 @@ jobs:
       - name: Get Current Date
         id: date
         run: |
-          echo "::set-output name=date::$(date +'%Y-%m-%d')"
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
           echo "START_TIME=$(date +%Y-%m-%d' '%H:%M:%S.%6N)" >> $GITHUB_ENV
           echo "CKB_COMMIT_ID=$(git describe --dirty --always --match _EXCLUDE__ --abbrev=7)" >> $GITHUB_ENV
           echo "CKB_COMMIT_TIME=$(git log -1 --date=iso "--pretty=format:%cd" | cut -d ' ' -f 1,2)" >> $GITHUB_ENV

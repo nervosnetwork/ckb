@@ -23,10 +23,13 @@ use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
+const DEFAULT_LOG_KEEP_NUM: usize = 1;
+const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 
 /// Indexer service
 #[derive(Clone)]
@@ -51,7 +54,9 @@ impl IndexerService {
             None,
             "indexer".to_string(),
         );
-        let store = RocksdbStore::new(&config.store);
+
+        let store_opts = Self::indexer_store_options(config);
+        let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
             Some(Arc::new(RwLock::new(Pool::default())))
         } else {
@@ -64,7 +69,9 @@ impl IndexerService {
             COLUMN_BLOCK_HEADER,
             COLUMN_BLOCK_BODY,
         ];
+        let secondary_opts = Self::indexer_secondary_options(config);
         let secondary_db = SecondaryDB::open_cf(
+            &secondary_opts,
             &ckb_db_config.path,
             cf_names,
             config.secondary_path.to_string_lossy().to_string(),
@@ -150,27 +157,8 @@ impl IndexerService {
                             info!("append {}, {}", block.number(), block.hash());
                             indexer.append(&block).expect("append block should be OK");
                         } else {
-                            // Long fork detection
-                            let longest_fork_number = tip_number.saturating_sub(keep_num);
-                            match self.get_block_by_number(longest_fork_number) {
-                                Some(block) => {
-                                    let stored_block_hash = indexer
-                                        .get_block_hash(longest_fork_number)
-                                        .expect("get block hash should be OK")
-                                        .expect("stored block header");
-                                    if block.hash() != stored_block_hash {
-                                        error!("long fork detected, ckb-indexer stored block {} => {:#x}, ckb node returns block {} => {:#x}, please check if ckb-indexer is connected to the same network ckb node.", longest_fork_number, stored_block_hash, longest_fork_number, block.hash());
-                                        break;
-                                    } else {
-                                        info!("rollback {}, {}", tip_number, tip_hash);
-                                        indexer.rollback().expect("rollback block should be OK");
-                                    }
-                                }
-                                None => {
-                                    error!("long fork detected, ckb-indexer stored block {}, ckb node returns none, please check if ckb-indexer is connected to the same network ckb node.", longest_fork_number);
-                                    break;
-                                }
-                            }
+                            info!("rollback {}, {}", tip_number, tip_hash);
+                            indexer.rollback().expect("rollback block should be OK");
                         }
                     }
                     None => {
@@ -200,22 +188,23 @@ impl IndexerService {
         let poll_service = self.clone();
         self.async_handle.spawn(async move {
             let _initial_finished = initial_syncing.await;
-            let mut new_block_receiver = notify_controller
-                .subscribe_new_block(SUBSCRIBER_NAME.to_string())
+            let mut new_block_watcher = notify_controller
+                .watch_new_block(SUBSCRIBER_NAME.to_string())
                 .await;
-            let sleep = time::sleep(poll_service.poll_interval);
-            tokio::pin!(sleep);
+            let mut interval = time::interval(poll_service.poll_interval);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
-                    Some(_) = new_block_receiver.recv() => {
+                    Ok(_) = new_block_watcher.changed() => {
                         let service = poll_service.clone();
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync()
                         }).await {
                             error!("ckb indexer syncing join error {:?}", e);
                         }
+                        new_block_watcher.borrow_and_update();
                     },
-                    _ = &mut sleep => {
+                    _ = interval.tick() => {
                         let service = poll_service.clone();
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync()
@@ -232,6 +221,37 @@ impl IndexerService {
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
         let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
+    }
+
+    fn indexer_store_options(config: &IndexerConfig) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.set_keep_log_file_num(
+            config
+                .db_keep_log_file_num
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
+        );
+        opts.set_max_background_jobs(
+            config
+                .db_background_jobs
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_MAX_BACKGROUND_JOBS) as i32,
+        );
+        opts
+    }
+
+    fn indexer_secondary_options(config: &IndexerConfig) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+        opts.set_keep_log_file_num(
+            config
+                .db_keep_log_file_num
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
+        );
+        opts
     }
 }
 
@@ -284,6 +304,11 @@ impl IndexerHandle {
             order,
             after_cursor,
         )?;
+        let limit = limit.value() as usize;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+
         let filter_script_type = match search_key.script_type {
             IndexerScriptType::Lock => IndexerScriptType::Type,
             IndexerScriptType::Type => IndexerScriptType::Lock,
@@ -395,7 +420,7 @@ impl IndexerHandle {
                     tx_index: tx_index.into(),
                 })
             })
-            .take(limit.value() as usize)
+            .take(limit)
             .collect::<Vec<_>>();
 
         Ok(IndexerPagination::new(cells, JsonBytes::from_vec(last_key)))
@@ -417,6 +442,9 @@ impl IndexerHandle {
             after_cursor,
         )?;
         let limit = limit.value() as usize;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
+        }
 
         let (filter_script, filter_block_range) = if let Some(filter) = search_key.filter.as_ref() {
             if filter.script_len_range.is_some() {
@@ -914,7 +942,10 @@ mod tests {
 
     fn new_store(prefix: &str) -> RocksdbStore {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        RocksdbStore::new(tmp_dir.path().to_str().unwrap())
+        RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        )
         // Indexer::new(store, 10, 1)
     }
 

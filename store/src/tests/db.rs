@@ -58,6 +58,8 @@ fn save_and_get_block_ext() {
         total_uncles_count: block.data().uncles().len() as u64,
         verified: Some(true),
         txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
     };
 
     let hash = block.hash();

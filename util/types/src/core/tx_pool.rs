@@ -142,32 +142,41 @@ pub struct TxPoolEntryInfo {
 pub struct TransactionWithStatus {
     /// The transaction.
     pub transaction: Option<core::TransactionView>,
-    /// The Transaction status.
+    /// The transaction status.
     pub tx_status: TxStatus,
+    /// The transaction verification consumed cycles
+    pub cycles: Option<core::Cycle>,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_pending(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
         Self {
             tx_status: TxStatus::Pending,
             transaction: tx,
+            cycles: Some(cycles),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: Option<core::TransactionView>) -> Self {
+    pub fn with_proposed(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
         Self {
             tx_status: TxStatus::Proposed,
             transaction: tx,
+            cycles: Some(cycles),
         }
     }
 
     /// Build with committed status
-    pub fn with_committed(tx: Option<core::TransactionView>, hash: H256) -> Self {
+    pub fn with_committed(
+        tx: Option<core::TransactionView>,
+        hash: H256,
+        cycles: Option<core::Cycle>,
+    ) -> Self {
         Self {
             tx_status: TxStatus::Committed(hash),
             transaction: tx,
+            cycles,
         }
     }
 
@@ -176,6 +185,7 @@ impl TransactionWithStatus {
         Self {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
+            cycles: None,
         }
     }
 
@@ -184,14 +194,16 @@ impl TransactionWithStatus {
         Self {
             tx_status: TxStatus::Unknown,
             transaction: None,
+            cycles: None,
         }
     }
 
-    /// Build with status only
-    pub fn status_only(tx_status: TxStatus) -> Self {
+    /// Omit transaction
+    pub fn omit_transaction(tx_status: TxStatus, cycles: Option<core::Cycle>) -> Self {
         Self {
             tx_status,
             transaction: None,
+            cycles,
         }
     }
 
@@ -199,4 +211,33 @@ impl TransactionWithStatus {
     pub fn is_unknown(&self) -> bool {
         matches!(self.tx_status, TxStatus::Unknown)
     }
+}
+
+/// Equal to MAX_BLOCK_BYTES / MAX_BLOCK_CYCLES, see ckb-chain-spec.
+/// The precision is set so that the difference between MAX_BLOCK_CYCLES * DEFAULT_BYTES_PER_CYCLES
+/// and MAX_BLOCK_BYTES is less than 1.
+pub const DEFAULT_BYTES_PER_CYCLES: f64 = 0.000_170_571_4_f64;
+
+/// vbytes has been deprecated, renamed to weight to prevent ambiguity
+#[deprecated(
+    since = "0.107.0",
+    note = "Please use the get_transaction_weight instead"
+)]
+pub fn get_transaction_virtual_bytes(tx_size: usize, cycles: u64) -> u64 {
+    std::cmp::max(
+        tx_size as u64,
+        (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
+    )
+}
+
+/// The miners select transactions to fill the limited block space which gives the highest fee.
+/// Because there are two different limits, serialized size and consumed cycles,
+/// the selection algorithm is a multi-dimensional knapsack problem.
+/// Introducing the transaction weight converts the multi-dimensional knapsack to a typical knapsack problem,
+/// which has a simple greedy algorithm.
+pub fn get_transaction_weight(tx_size: usize, cycles: u64) -> u64 {
+    std::cmp::max(
+        tx_size as u64,
+        (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
+    )
 }

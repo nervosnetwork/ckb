@@ -1,5 +1,5 @@
 use crate::{
-    core::{BlockNumber, Capacity, CapacityResult, EpochNumber},
+    core::{BlockNumber, Capacity, CapacityResult, Cycle, EpochNumber},
     packed,
     prelude::*,
     U256,
@@ -23,6 +23,10 @@ pub struct BlockExt {
     pub verified: Option<bool>,
     /// TODO(doc): @quake
     pub txs_fees: Vec<Capacity>,
+    /// block txs consumed cycles
+    pub cycles: Option<Vec<Cycle>>,
+    /// block txs serialized sizes
+    pub txs_sizes: Option<Vec<u64>>,
 }
 
 /// TODO(doc): @quake

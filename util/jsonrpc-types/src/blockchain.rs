@@ -520,6 +520,8 @@ impl From<Transaction> for packed::Transaction {
 pub struct TransactionWithStatusResponse {
     /// The transaction.
     pub transaction: Option<ResponseFormat<TransactionView>>,
+    /// The transaction consumed cycles.
+    pub cycles: Option<Cycle>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
@@ -534,12 +536,14 @@ impl TransactionWithStatusResponse {
                     .transaction
                     .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
                     .transaction
                     .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
                 tx_status: t.tx_status.into(),
+                cycles: t.cycles.map(Into::into),
             },
         }
     }
@@ -908,6 +912,44 @@ pub struct Block {
     #[doc(hidden)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,
+}
+
+/// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(untagged)]
+pub enum BlockResponse {
+    /// The block response regular format
+    ///
+    /// [`BlockView`] | [\`SerializedBlock\`](#type-serializedblock) - The block structure
+    Regular(ResponseFormat<BlockView>),
+    /// The block with cycles response format
+    ///
+    /// A JSON object with the following fields:
+    /// * `block`: [`BlockView`] | [\`SerializedBlock\`](#type-serializedblock) - The block structure
+    /// * `cycles`: `Array<` [`Cycle`](#type-cycle) `>` `|` `null` - The block transactions consumed cycles.
+    WithCycles(BlockWithCyclesResponse),
+}
+
+impl BlockResponse {
+    /// Wrap regular block response
+    pub fn regular(block: ResponseFormat<BlockView>) -> Self {
+        BlockResponse::Regular(block)
+    }
+
+    /// Wrap with cycles block response
+    pub fn with_cycles(block: ResponseFormat<BlockView>, cycles: Option<Vec<Cycle>>) -> Self {
+        BlockResponse::WithCycles(BlockWithCyclesResponse { block, cycles })
+    }
+}
+
+/// BlockResponse with cycles format wrapper
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockWithCyclesResponse {
+    /// The block structure
+    pub block: ResponseFormat<BlockView>,
+    /// The block transactions consumed cycles.
+    #[serde(default)]
+    pub cycles: Option<Vec<Cycle>>,
 }
 
 /// The JSON view of a Block including header and body.
@@ -1329,4 +1371,13 @@ impl HardForkFeature {
             Self::new("0038", convert(switch.rfc_0038())),
         ]
     }
+}
+
+/// The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct FeeRateStatics {
+    /// mean
+    pub mean: Uint64,
+    /// median
+    pub median: Uint64,
 }

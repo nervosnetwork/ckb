@@ -23,6 +23,8 @@ option CellOutputOpt (CellOutput);
 vector HeaderVec <Header>;
 vector OutPointVec <OutPoint>;
 
+option Uint64VecOpt (Uint64Vec);
+
 /* Types for Light Client */
 
 struct HeaderDigest {
@@ -67,6 +69,16 @@ table BlockExt {
     received_at:        Uint64,
     txs_fees:           Uint64Vec,
     verified:           BoolOpt,
+}
+
+table BlockExtV1 {
+    total_difficulty:   Uint256,
+    total_uncles_count: Uint64,
+    received_at:        Uint64,
+    txs_fees:           Uint64Vec,
+    verified:           BoolOpt,
+    cycles:             Uint64VecOpt,
+    txs_sizes:          Uint64VecOpt,
 }
 
 struct EpochExt {

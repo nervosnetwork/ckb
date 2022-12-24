@@ -691,6 +691,7 @@ where
     }
 
     /// Return block hash by specified block_number
+    #[cfg(test)]
     pub(crate) fn get_block_hash(
         &self,
         block_number: BlockNumber,
@@ -1011,7 +1012,7 @@ mod tests {
 
     fn new_indexer<S: Store>(prefix: &str) -> Indexer<S> {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        let store = S::new(tmp_dir.path().to_str().unwrap());
+        let store = S::new(&S::default_options(), tmp_dir.path().to_str().unwrap());
         Indexer::new(store, KEEP_NUM, 1, None, CustomFilters::new(None, None))
     }
 
@@ -2004,7 +2005,7 @@ mod tests {
         cell_filter_str: Option<&str>,
     ) -> Indexer<S> {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
-        let store = S::new(tmp_dir.path().to_str().unwrap());
+        let store = S::new(&S::default_options(), tmp_dir.path().to_str().unwrap());
         Indexer::new(
             store,
             10,

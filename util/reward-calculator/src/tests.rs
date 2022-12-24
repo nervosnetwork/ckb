@@ -80,6 +80,8 @@ fn test_txs_fees() {
         total_uncles_count: block.data().uncles().len() as u64,
         verified: Some(true),
         txs_fees: ext_tx_fees,
+        cycles: None,
+        txs_sizes: None,
     };
 
     let txn = store.begin_transaction();
@@ -256,6 +258,8 @@ fn test_proposal_reward() {
         total_uncles_count: block_14.data().uncles().len() as u64,
         verified: Some(true),
         txs_fees: ext_tx_fees_14,
+        cycles: None,
+        txs_sizes: None,
     };
 
     // txs(p4)
@@ -267,6 +271,8 @@ fn test_proposal_reward() {
         total_uncles_count: block_15.data().uncles().len() as u64,
         verified: Some(true),
         txs_fees: ext_tx_fees_15,
+        cycles: None,
+        txs_sizes: None,
     };
 
     // txs(p5, p6)
@@ -278,6 +284,8 @@ fn test_proposal_reward() {
         total_uncles_count: block_18.data().uncles().len() as u64,
         verified: Some(true),
         txs_fees: ext_tx_fees_18,
+        cycles: None,
+        txs_sizes: None,
     };
 
     let txn = store.begin_transaction();

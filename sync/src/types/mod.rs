@@ -1887,19 +1887,6 @@ impl SyncState {
             }
         }
     }
-
-    pub fn try_update_best_known_with_unknown_header_list(&self, pi: PeerIndex) {
-        // header list is an ordered list, sorted from highest to lowest,
-        // when header hash unknown, break loop is ok
-        while let Some(hash) = self.peers().take_unknown_last(pi) {
-            if let Some(header) = self.header_map.get(&hash) {
-                self.peers.may_set_best_known_header(pi, header);
-            } else {
-                self.peers.insert_unknown_header_hash(pi, hash);
-                break;
-            }
-        }
-    }
 }
 
 /** ActiveChain captures a point-in-time view of indexed chain of blocks. */
@@ -1934,6 +1921,10 @@ impl ActiveChain {
 
     pub fn get_block_ext(&self, h: &packed::Byte32) -> Option<core::BlockExt> {
         self.snapshot().get_block_ext(h)
+    }
+
+    pub fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
+        self.store().get_block_filter(hash)
     }
 
     pub fn shared(&self) -> &SyncShared {
@@ -2014,7 +2005,7 @@ impl ActiveChain {
                 step <<= 1;
             }
 
-            if index < step {
+            if index < step * 2 {
                 // Insert some low-height blocks in the locator
                 // to quickly start parallel ibd block downloads
                 // and it should not be too much

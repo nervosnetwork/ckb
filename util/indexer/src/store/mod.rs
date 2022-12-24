@@ -15,10 +15,13 @@ pub(crate) enum IteratorDirection {
 
 pub(crate) trait Store {
     type Batch: Batch;
+    type Opts;
 
-    fn new<P>(path: P) -> Self
+    fn new<P>(opts: &Self::Opts, path: P) -> Self
     where
         P: AsRef<Path>;
+
+    fn default_options() -> Self::Opts;
 
     fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, Error>;
 

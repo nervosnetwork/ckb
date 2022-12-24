@@ -379,6 +379,15 @@ impl Synchronizer {
                 }
             }
 
+            // On ibd, node should only have one peer to sync headers, and it's state can control by
+            // headers_sync_controller.
+            //
+            // The header sync of other nodes does not matter in the ibd phase, and parallel synchronization
+            // can be enabled by unknown list, so there is no need to repeatedly download headers with
+            // multiple nodes at the same time.
+            if active_chain.is_initial_block_download() {
+                continue;
+            }
             if state.peer_flags.is_outbound {
                 let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {

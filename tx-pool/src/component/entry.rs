@@ -1,7 +1,10 @@
 use crate::component::container::AncestorsScoreSortKey;
-use crate::component::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, tx_pool::TxEntryInfo, Capacity, Cycle, TransactionView},
+    core::{
+        cell::ResolvedTransaction,
+        tx_pool::{get_transaction_weight, TxEntryInfo},
+        Capacity, Cycle, TransactionView,
+    },
     packed::{OutPoint, ProposalShortId},
 };
 use faketime::unix_time_as_millis;
@@ -126,16 +129,15 @@ impl TxEntry {
 
 impl From<&TxEntry> for AncestorsScoreSortKey {
     fn from(entry: &TxEntry) -> Self {
-        let vbytes = get_transaction_virtual_bytes(entry.size, entry.cycles);
-        let ancestors_vbytes =
-            get_transaction_virtual_bytes(entry.ancestors_size, entry.ancestors_cycles);
+        let weight = get_transaction_weight(entry.size, entry.cycles);
+        let ancestors_weight = get_transaction_weight(entry.ancestors_size, entry.ancestors_cycles);
         AncestorsScoreSortKey {
             fee: entry.fee,
-            vbytes,
+            weight,
             id: entry.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
             ancestors_size: entry.ancestors_size,
-            ancestors_vbytes,
+            ancestors_weight,
         }
     }
 }

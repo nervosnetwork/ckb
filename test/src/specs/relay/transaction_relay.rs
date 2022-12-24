@@ -28,9 +28,12 @@ impl Spec for TransactionRelayBasic {
         let hash = node1.submit_transaction(&transaction);
 
         let relayed = wait_until(10, || {
-            nodes
-                .iter()
-                .all(|node| node.rpc_client().get_transaction(hash.clone()).is_some())
+            nodes.iter().all(|node| {
+                node.rpc_client()
+                    .get_transaction(hash.clone())
+                    .map(|ret| ret.cycles == Some(537.into()))
+                    .unwrap_or(false)
+            })
         });
         assert!(
             relayed,

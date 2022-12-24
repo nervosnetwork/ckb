@@ -108,7 +108,10 @@ fn test_load_code() {
     let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
     assert!(ret.is_ok(), "ret {:?}", ret);
     let tx_status = tx_pool.get_tx_status(tx.hash());
-    assert_eq!(tx_status.unwrap().unwrap(), TxStatus::Pending);
+    assert_eq!(
+        tx_status.unwrap().unwrap(),
+        (TxStatus::Pending, Some(11174))
+    );
 }
 
 #[test]
@@ -177,7 +180,7 @@ fn test_load_code_with_snapshot() {
         let mut counter = 0;
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
-            if let Ok(Ok(status)) = tx_status {
+            if let Ok(Ok((status, _))) = tx_status {
                 if status == TxStatus::Pending {
                     break;
                 }
@@ -265,7 +268,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         let mut counter = 0;
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
-            if let Ok(Ok(status)) = tx_status {
+            if let Ok(Ok((status, _))) = tx_status {
                 if status == TxStatus::Pending {
                     break;
                 }

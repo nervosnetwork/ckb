@@ -406,7 +406,7 @@ impl SharedPackage {
 }
 
 fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
-    NotifyService::new(notify_config).start(handle)
+    NotifyService::new(notify_config, handle).start()
 }
 
 fn build_store(

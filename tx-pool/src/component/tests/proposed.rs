@@ -1,6 +1,6 @@
 use crate::component::tests::util::{
-    build_tx, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT, MOCK_CYCLES, MOCK_FEE,
-    MOCK_SIZE,
+    build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
+    MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
 use crate::component::{entry::TxEntry, proposed::ProposedPool};
 use ckb_types::{
@@ -72,6 +72,115 @@ fn test_add_entry() {
     pool.remove_committed_tx(&tx1);
     assert_eq!(pool.edges.outputs_len(), 1);
     assert_eq!(pool.edges.inputs_len(), 1);
+}
+
+#[test]
+fn test_add_entry_from_detached() {
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
+    let tx1_hash = tx1.hash();
+    let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+    let tx2_hash = tx2.hash();
+    let tx3 = build_tx_with_dep(vec![(&Byte32::zero(), 0)], vec![(&tx2_hash, 0)], 1);
+
+    let entry1 = TxEntry::new(dummy_resolve(tx1.clone(), |_| None), 1, MOCK_FEE, 1);
+    let entry2 = TxEntry::new(dummy_resolve(tx2, |_| None), 1, MOCK_FEE, 1);
+    let entry3 = TxEntry::new(dummy_resolve(tx3, |_| None), 1, MOCK_FEE, 1);
+
+    let id1 = entry1.proposal_short_id();
+    let id2 = entry2.proposal_short_id();
+    let id3 = entry3.proposal_short_id();
+
+    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    pool.add_entry(entry1.clone()).unwrap();
+    pool.add_entry(entry2.clone()).unwrap();
+    pool.add_entry(entry3).unwrap();
+
+    assert_eq!(pool.size(), 3);
+    assert_eq!(pool.edges.outputs_len(), 3);
+    assert_eq!(pool.edges.inputs_len(), 4);
+
+    assert_eq!(pool.inner().sorted_index.len(), 3);
+
+    let expected = vec![(id1.clone(), 1), (id2.clone(), 2), (id3.clone(), 3)];
+    for (idx, key) in pool.inner().sorted_index.iter().enumerate() {
+        assert_eq!(key.id, expected[idx].0);
+        assert_eq!(key.ancestors_size, expected[idx].1);
+    }
+
+    // check link
+    {
+        assert!(pool.inner().links.get_parents(&id1).unwrap().is_empty());
+        assert_eq!(
+            pool.inner().links.get_children(&id1).unwrap(),
+            &HashSet::from_iter(vec![id2.clone()].into_iter())
+        );
+
+        assert_eq!(
+            pool.inner().links.get_parents(&id2).unwrap(),
+            &HashSet::from_iter(vec![id1.clone()].into_iter())
+        );
+        assert_eq!(
+            pool.inner()
+                .links
+                .get_children(&entry2.proposal_short_id())
+                .unwrap(),
+            &HashSet::from_iter(vec![id3.clone()].into_iter())
+        );
+
+        assert_eq!(
+            pool.inner().links.get_parents(&id3).unwrap(),
+            &HashSet::from_iter(vec![id2.clone()].into_iter())
+        );
+        assert!(pool.inner().links.get_children(&id3).unwrap().is_empty());
+    }
+
+    pool.remove_committed_tx(&tx1);
+    assert_eq!(pool.edges.outputs_len(), 2);
+    assert_eq!(pool.edges.inputs_len(), 2);
+    assert_eq!(pool.inner().sorted_index.len(), 2);
+
+    let removed_expected = vec![(id2.clone(), 1), (id3.clone(), 2)];
+    for (idx, key) in pool.inner().sorted_index.iter().enumerate() {
+        assert_eq!(key.id, removed_expected[idx].0);
+        assert_eq!(key.ancestors_size, removed_expected[idx].1);
+    }
+    assert!(pool
+        .inner()
+        .links
+        .get_parents(&entry2.proposal_short_id())
+        .unwrap()
+        .is_empty());
+
+    assert!(pool.add_entry(entry1).unwrap());
+    for (idx, key) in pool.inner().sorted_index.iter().enumerate() {
+        assert_eq!(key.id, expected[idx].0);
+        assert_eq!(key.ancestors_size, expected[idx].1);
+    }
+    {
+        assert!(pool.inner().links.get_parents(&id1).unwrap().is_empty());
+        assert_eq!(
+            pool.inner().links.get_children(&id1).unwrap(),
+            &HashSet::from_iter(vec![id2.clone()].into_iter())
+        );
+
+        assert_eq!(
+            pool.inner().links.get_parents(&id2).unwrap(),
+            &HashSet::from_iter(vec![id1].into_iter())
+        );
+        assert_eq!(
+            pool.inner()
+                .links
+                .get_children(&entry2.proposal_short_id())
+                .unwrap(),
+            &HashSet::from_iter(vec![id3.clone()].into_iter())
+        );
+
+        assert_eq!(
+            pool.inner().links.get_parents(&id3).unwrap(),
+            &HashSet::from_iter(vec![id2].into_iter())
+        );
+        assert!(pool.inner().links.get_children(&id3).unwrap().is_empty());
+    }
 }
 
 #[test]
@@ -279,8 +388,8 @@ fn test_sorted_by_ancestors_score_competitive() {
 
     let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    // Choose 5_000_839, so the vbytes is 853.0001094046, which will not lead to carry when
-    // calculating the vbytes for a package.
+    // Choose 5_000_839, so the weight is 853.0001094046, which will not lead to carry when
+    // calculating the weight for a package.
     let cycles = 5_000_839;
     let size = 200;
 
@@ -549,6 +658,33 @@ fn test_max_ancestors() {
             .map(|children| children.is_empty()),
         Some(true)
     );
+    assert!(pool.inner().calc_descendants(&tx1_id).is_empty());
+
+    assert_eq!(pool.edges.inputs_len(), 1);
+    assert_eq!(pool.edges.outputs_len(), 1);
+}
+
+#[test]
+fn test_max_ancestors_with_dep() {
+    let mut pool = ProposedPool::new(1);
+    let tx1 = build_tx_with_dep(
+        vec![(&Byte32::zero(), 0)],
+        vec![(&h256!("0x1").pack(), 0)],
+        1,
+    );
+    let tx1_id = tx1.proposal_short_id();
+    let tx1_hash = tx1.hash();
+    let tx2 = build_tx_with_dep(vec![(&tx1_hash, 0)], vec![(&h256!("0x2").pack(), 0)], 1);
+    let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+
+    assert!(pool.add_entry(entry1).is_ok());
+    assert!(pool.add_entry(entry2).is_err());
+    assert_eq!(pool.inner().deps().len(), 1);
+    assert!(pool
+        .inner()
+        .deps()
+        .contains_key(&OutPoint::new(h256!("0x1").pack(), 0)));
     assert!(pool.inner().calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);

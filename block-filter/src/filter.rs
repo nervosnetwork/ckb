@@ -31,15 +31,14 @@ impl BlockFilter {
             async_handle.spawn_blocking(move || filter_data_builder.build_filter_data());
 
         async_handle.spawn(async move {
-            let mut new_block_receiver = notify_controller
-                .subscribe_new_block(NAME.to_string())
-                .await;
+            let mut new_block_watcher = notify_controller.watch_new_block(NAME.to_string()).await;
             let _build_filter_data_finished = build_filter_data.await;
 
             loop {
                 tokio::select! {
-                    Some(_) = new_block_receiver.recv() => {
+                    Ok(_) = new_block_watcher.changed() => {
                         block_in_place(|| self.build_filter_data());
+                        new_block_watcher.borrow_and_update();
                     }
                     _ = &mut stop_rx => break,
                     else => break,
@@ -92,7 +91,6 @@ impl BlockFilter {
                 .expect("header stored");
             self.build_filter_data_for_block(&header);
         }
-        self.shared.refresh_snapshot();
     }
 
     fn build_filter_data_for_block(&self, header: &HeaderView) {

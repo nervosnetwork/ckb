@@ -1,4 +1,4 @@
-use std::cmp::{max, min, Ordering};
+use std::cmp::{min, Ordering};
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -134,10 +134,6 @@ impl BlockSampler {
         let mut headers = Vec::new();
 
         for number in numbers {
-            // Genesis block doesn't has chain root.
-            if *number == 0 {
-                continue;
-            }
             if let Some(ancestor_header) = active_chain.get_ancestor(last_hash, *number) {
                 let position = leaf_index_to_pos(*number);
                 positions.push(position);
@@ -155,7 +151,9 @@ impl BlockSampler {
                 let uncles_hash = ancestor_block.calc_uncles_hash();
                 let extension = ancestor_block.extension();
 
-                let parent_chain_root = {
+                let parent_chain_root = if *number == 0 {
+                    Default::default()
+                } else {
                     let mmr = snapshot.chain_root_mmr(*number - 1);
                     match mmr.get_root() {
                         Ok(root) => root,
@@ -244,11 +242,7 @@ impl<'a> GetLastStateProofProcess<'a> {
         {
             Vec::new()
         } else {
-            // Genesis block doesn't has chain root.
-            let min_block_number = max(
-                1,
-                start_block_number - min(start_block_number, last_n_blocks),
-            );
+            let min_block_number = start_block_number - min(start_block_number, last_n_blocks);
             (min_block_number..start_block_number).collect()
         };
 

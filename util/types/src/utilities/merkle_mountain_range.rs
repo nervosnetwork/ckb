@@ -42,15 +42,9 @@ impl core::BlockView {
 impl core::HeaderView {
     /// Get the MMR header digest of the header
     pub fn digest(&self) -> packed::HeaderDigest {
-        self.data().digest()
-    }
-}
-
-impl packed::Header {
-    /// Get the MMR header digest of the header
-    pub fn digest(&self) -> packed::HeaderDigest {
-        let raw = self.raw();
+        let raw = self.data().raw();
         packed::HeaderDigest::new_builder()
+            .children_hash(self.hash())
             .total_difficulty(self.difficulty().pack())
             .start_number(raw.number())
             .end_number(raw.number())
@@ -65,6 +59,11 @@ impl packed::Header {
 }
 
 impl packed::HeaderDigest {
+    fn is_default(&self) -> bool {
+        let default = Self::default();
+        self.as_slice() == default.as_slice()
+    }
+
     /// Verify the MMR header digest
     pub fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
@@ -218,16 +217,22 @@ impl VerifiableHeader {
     pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
         let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
         if has_chain_root {
-            let is_extension_beginning_with_chain_root_hash = self
-                .extension()
-                .map(|extension| {
-                    let actual_extension_data = extension.raw_data();
-                    let parent_chain_root_hash = self.parent_chain_root().calc_mmr_hash();
-                    actual_extension_data.starts_with(parent_chain_root_hash.as_slice())
-                })
-                .unwrap_or(false);
-            if !is_extension_beginning_with_chain_root_hash {
-                return false;
+            if self.header().is_genesis() {
+                if !self.parent_chain_root().is_default() {
+                    return false;
+                }
+            } else {
+                let is_extension_beginning_with_chain_root_hash = self
+                    .extension()
+                    .map(|extension| {
+                        let actual_extension_data = extension.raw_data();
+                        let parent_chain_root_hash = self.parent_chain_root().calc_mmr_hash();
+                        actual_extension_data.starts_with(parent_chain_root_hash.as_slice())
+                    })
+                    .unwrap_or(false);
+                if !is_extension_beginning_with_chain_root_hash {
+                    return false;
+                }
             }
         }
 

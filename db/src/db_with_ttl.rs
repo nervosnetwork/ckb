@@ -8,6 +8,7 @@ use rocksdb::{
 use std::path::Path;
 
 const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
+const DB_LOG_KEEP_NUM: usize = 10;
 
 /// DB with ttl support wrapper
 ///
@@ -35,6 +36,7 @@ impl DBWithTTL {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        opts.set_keep_log_file_num(DB_LOG_KEEP_NUM);
 
         let cf_descriptors: Vec<_> = cf_names
             .into_iter()

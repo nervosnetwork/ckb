@@ -81,10 +81,19 @@ impl<'a> BlockFetcher<'a> {
         // Update `best_known_header` based on `unknown_header_list`. It must be involved before
         // our acquiring the newest `best_known_header`.
         if let IBDState::In = self.ibd {
-            self.synchronizer
-                .shared
-                .state()
-                .try_update_best_known_with_unknown_header_list(self.peer)
+            let state = self.synchronizer.shared.state();
+            // unknown list is an ordered list, sorted from highest to lowest,
+            // when header hash unknown, break loop is ok
+            while let Some(hash) = state.peers().take_unknown_last(self.peer) {
+                // Here we need to first try search from headermap, if not, fallback to search from the db.
+                // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
+                if let Some(header) = self.synchronizer.shared.get_header_view(&hash, None) {
+                    state.peers().may_set_best_known_header(self.peer, header);
+                } else {
+                    state.peers().insert_unknown_header_hash(self.peer, hash);
+                    break;
+                }
+            }
         }
 
         // This peer has nothing interesting.

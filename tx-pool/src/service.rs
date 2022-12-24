@@ -72,9 +72,7 @@ type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
-type FetchTxRPCResult = Option<(bool, TransactionView)>;
-
-type GetTxStatusResult = Result<TxStatus, AnyError>;
+type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 
@@ -97,7 +95,6 @@ pub(crate) enum Message {
     FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
-    FetchTxRPC(Request<Byte32, Option<(bool, TransactionView)>>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
@@ -299,21 +296,6 @@ impl TxPoolController {
         let request = Request::call(proposals, responder);
         self.sender
             .try_send(Message::FreshProposalsFilter(request))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e
-            })?;
-        block_in_place(|| response.recv())
-            .map_err(handle_recv_error)
-            .map_err(Into::into)
-    }
-
-    /// Return tx for rpc
-    pub fn fetch_tx_for_rpc(&self, hash: Byte32) -> Result<FetchTxRPCResult, AnyError> {
-        let (responder, response) = oneshot::channel();
-        let request = Request::call(hash, responder);
-        self.sender
-            .try_send(Message::FetchTxRPC(request))
             .map_err(|e| {
                 let (_m, e) = handle_try_send_error(e);
                 e
@@ -874,50 +856,29 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send fresh_proposals_filter failed {:?}", e);
             };
         }
-        Message::FetchTxRPC(Request {
-            responder,
-            arguments: hash,
-        }) => {
-            let id = ProposalShortId::from_tx_hash(&hash);
-            let tx_pool = service.tx_pool.read().await;
-            let tx = tx_pool
-                .proposed()
-                .get(&id)
-                .map(|entry| (true, entry.transaction()))
-                .or_else(|| {
-                    tx_pool
-                        .get_tx_from_pending_or_else_gap(&id)
-                        .map(|tx| (false, tx))
-                })
-                .map(|(proposed, tx)| (proposed, tx.clone()));
-            if let Err(e) = responder.send(tx) {
-                error!("responder send fetch_tx_for_rpc failed {:?}", e)
-            };
-        }
         Message::GetTxStatus(Request {
             responder,
             arguments: hash,
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
-
-            let ret = if tx_pool.proposed.contains_key(&id) {
-                Ok(TxStatus::Proposed)
-            } else if tx_pool.pending.contains_key(&id) || tx_pool.gap.contains_key(&id) {
-                Ok(TxStatus::Pending)
+            let ret = if let Some(entry) = tx_pool.proposed.get(&id) {
+                Ok((TxStatus::Proposed, Some(entry.cycles)))
+            } else if let Some(entry) = tx_pool.get_entry_from_pending_or_gap(&id) {
+                Ok((TxStatus::Pending, Some(entry.cycles)))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
                     if let Some(record) = recent_reject {
-                        Ok(TxStatus::Rejected(record))
+                        Ok((TxStatus::Rejected(record), None))
                     } else {
-                        Ok(TxStatus::Unknown)
+                        Ok((TxStatus::Unknown, None))
                     }
                 } else {
                     Err(recent_reject_result.unwrap_err())
                 }
             } else {
-                Ok(TxStatus::Unknown)
+                Ok((TxStatus::Unknown, None))
             };
 
             if let Err(e) = responder.send(ret) {
@@ -930,11 +891,16 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
-
-            let ret = if let Some(tx) = tx_pool.proposed.get_tx(&id) {
-                Ok(TransactionWithStatus::with_proposed(Some(tx.clone())))
-            } else if let Some(tx) = tx_pool.get_tx_from_pending_or_else_gap(&id) {
-                Ok(TransactionWithStatus::with_pending(Some(tx.clone())))
+            let ret = if let Some(entry) = tx_pool.proposed.get(&id) {
+                Ok(TransactionWithStatus::with_proposed(
+                    Some(entry.transaction().clone()),
+                    entry.cycles,
+                ))
+            } else if let Some(entry) = tx_pool.get_entry_from_pending_or_gap(&id) {
+                Ok(TransactionWithStatus::with_pending(
+                    Some(entry.transaction().clone()),
+                    entry.cycles,
+                ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {

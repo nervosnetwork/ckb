@@ -188,7 +188,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     ));
 
     let notify_controller =
-        NotifyService::new(Default::default()).start(shared.async_handle().clone());
+        NotifyService::new(Default::default(), shared.async_handle().clone()).start();
     let (alert_notifier, alert_verifier) = {
         let alert_relayer = AlertRelayer::new(
             "0.1.0".to_string(),
@@ -661,6 +661,7 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
             );
         }
         ("generate_block", 42) => return false,
+        ("get_fee_rate_statics", 42) => return false,
         ("generate_block_with_template", 42) => return false,
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,
