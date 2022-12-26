@@ -987,6 +987,18 @@ impl Consensus {
         versionbits.get_state(parent, cache, indexer)
     }
 
+    /// Returns the first epoch which the current state applies
+    pub fn versionbits_state_since_epoch<I: VersionbitsIndexer>(
+        &self,
+        pos: DeploymentPos,
+        parent: &HeaderView,
+        indexer: &I,
+    ) -> Option<EpochNumber> {
+        let cache = self.versionbits_caches.cache(&pos)?;
+        let versionbits = Versionbits::new(pos, self);
+        versionbits.get_state_since_epoch(parent, cache, indexer)
+    }
+
     /// If the CKB block chain specification is for an public chain.
     pub fn is_public_chain(&self) -> bool {
         matches!(

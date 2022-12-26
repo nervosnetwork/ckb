@@ -1,5 +1,5 @@
 use crate::{AlertMessage, EpochNumber, EpochNumberWithFraction, Timestamp};
-use ckb_types::{H256, U256};
+use ckb_types::{core::Ratio, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -55,8 +55,14 @@ pub struct DeploymentInfo {
     pub timeout: EpochNumber,
     /// specifies the epoch at which the softfork is allowed to become active.
     pub min_activation_epoch: EpochNumber,
+    /// the length in epochs of the signalling period
+    pub period: EpochNumber,
+    /// the ratio of blocks with the version bit set required to activate the feature
+    pub threshold: Ratio,
     /// With each epoch and softfork, we associate a deployment state. The possible states are
     pub state: DeploymentState,
+    /// The first epoch which the current state applies
+    pub since: EpochNumber,
 }
 
 /// Chain information.

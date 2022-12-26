@@ -20,7 +20,10 @@ impl From<Deployment> for DeploymentInfo {
             start: deployment.start.into(),
             timeout: deployment.timeout.into(),
             min_activation_epoch: deployment.min_activation_epoch.into(),
+            period: deployment.period.into(),
+            threshold: deployment.threshold,
             state: DeploymentState::Defined,
+            since: 0.into(),
         }
     }
 }

@@ -81,9 +81,15 @@ pub trait StatsRpc {
     ///            "Testdummy": {
     ///                "bit": 1,
     ///                "min_activation_epoch": "0x0",
+    ///                "period": "0xa",
+    ///                "since": "0x0",
     ///                "start": "0x0",
     ///                "state": "Failed",
-    ///                "timeout": "0x0"
+    ///                "timeout": "0x0",
+    ///                "threshold": {
+    ///                     "numer": 3,
+    ///                     "denom": 4
+    ///                 }
     ///            }
     ///        }
     ///   }
@@ -156,6 +162,13 @@ impl StatsRpc for StatsRpcImpl {
                     .map(|state| {
                         let mut info: DeploymentInfo = deployment.into();
                         info.state = state.into();
+                        if let Some(since) = self.shared.consensus().versionbits_state_since_epoch(
+                            pos,
+                            snapshot.tip_header(),
+                            snapshot.as_ref(),
+                        ) {
+                            info.since = since.into();
+                        }
                         (pos.into(), info)
                     })
             })
