@@ -9,7 +9,7 @@ use crate::versionbits::{
 use crate::TESTNET_ACTIVATION_THRESHOLD;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochExt, HeaderView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochExt, EpochNumber, HeaderView,
         TransactionBuilder, TransactionView, Version,
     },
     packed::{Byte32, Bytes, CellbaseWitness},
@@ -85,6 +85,11 @@ impl MockChain {
 
     fn get_state(&self, pos: DeploymentPos) -> Option<ThresholdState> {
         self.consensus.versionbits_state(pos, &self.tip, self)
+    }
+
+    fn get_state_since_epoch(&self, pos: DeploymentPos) -> Option<EpochNumber> {
+        self.consensus
+            .versionbits_state_since_epoch(pos, &self.tip, self)
     }
 
     fn advanced_next_epoch(&mut self) {
@@ -204,7 +209,7 @@ fn test_versionbits_active() {
     let mut deployments = HashMap::new();
     let test_dummy = Deployment {
         bit: 1,
-        start: 1,
+        start: 3,
         timeout: 11,
         min_activation_epoch: 11,
         period: 2,
@@ -223,31 +228,53 @@ fn test_versionbits_active() {
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Defined)
     );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(0)
+    );
 
     chain.advanced_next_epoch();
-    assert_eq!(chain.current_epoch_ext.number(), 1);
+    chain.advanced_next_epoch();
+    chain.advanced_next_epoch();
+    assert_eq!(chain.current_epoch_ext.number(), 3);
     assert_eq!(
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Started)
     );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(3)
+    );
 
     chain.advanced_next_epoch();
-    assert_eq!(chain.current_epoch_ext.number(), 2);
+    assert_eq!(chain.current_epoch_ext.number(), 4);
     assert_eq!(
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Started)
     );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(3)
+    );
 
-    for _ in 0..8 {
+    for _ in 0..6 {
         chain.advanced_next_epoch();
         assert_eq!(
             chain.get_state(DeploymentPos::Testdummy),
             Some(ThresholdState::LockedIn)
         );
+        assert_eq!(
+            chain.get_state_since_epoch(DeploymentPos::Testdummy),
+            Some(5)
+        );
     }
 
     chain.advanced_next_epoch();
     assert_eq!(chain.current_epoch_ext.number(), 11);
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(11)
+    );
     assert_eq!(
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Active)
@@ -255,6 +282,10 @@ fn test_versionbits_active() {
 
     chain.advanced_next_epoch();
     assert_eq!(chain.current_epoch_ext.number(), 12);
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(11)
+    );
     assert_eq!(
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Active)
@@ -281,7 +312,7 @@ fn test_versionbits_failed() {
     let mut deployments = HashMap::new();
     let test_dummy = Deployment {
         bit: 1,
-        start: 1,
+        start: 3,
         timeout: 11,
         min_activation_epoch: 11,
         period: 2,
@@ -300,12 +331,22 @@ fn test_versionbits_failed() {
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Defined)
     );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(0)
+    );
 
-    for _ in 0..10 {
+    chain.advanced_next_epoch_without_signal();
+    chain.advanced_next_epoch_without_signal();
+    for _ in 0..8 {
         chain.advanced_next_epoch_without_signal();
         assert_eq!(
             chain.get_state(DeploymentPos::Testdummy),
             Some(ThresholdState::Started)
+        );
+        assert_eq!(
+            chain.get_state_since_epoch(DeploymentPos::Testdummy),
+            Some(3)
         );
     }
 
@@ -315,11 +356,19 @@ fn test_versionbits_failed() {
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Failed)
     );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(11)
+    );
 
     chain.advanced_next_epoch_without_signal();
     assert_eq!(chain.current_epoch_ext.number(), 12);
     assert_eq!(
         chain.get_state(DeploymentPos::Testdummy),
         Some(ThresholdState::Failed)
+    );
+    assert_eq!(
+        chain.get_state_since_epoch(DeploymentPos::Testdummy),
+        Some(11)
     );
 }

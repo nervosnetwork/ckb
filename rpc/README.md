@@ -4654,9 +4654,15 @@ Response
            "Testdummy": {
                "bit": 1,
                "min_activation_epoch": "0x0",
+               "period": "0xa",
+               "since": "0x0",
                "start": "0x0",
                "state": "Failed",
-               "timeout": "0x0"
+               "timeout": "0x0",
+               "threshold": {
+                    "numer": 3,
+                    "denom": 4
+                }
            }
        }
   }
@@ -5660,7 +5666,11 @@ An object containing various state info regarding deployments of consensus chang
 
 *   `min_activation_epoch`: [`EpochNumber`](#type-epochnumber) - specifies the epoch at which the softfork is allowed to become active.
 
-*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+*   `period`: [`EpochNumber`](#type-epochnumber) - the length in epochs of the signalling period
+
+*   `threshold`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+
+*   `since`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
 
 
 ### Type `DeploymentPos`

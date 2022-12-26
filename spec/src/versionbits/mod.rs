@@ -273,6 +273,59 @@ pub trait VersionbitsConditionChecker {
 
         Some(state)
     }
+
+    /// Returns the first epoch which the state applies
+    fn get_state_since_epoch<I: VersionbitsIndexer>(
+        &self,
+        header: &HeaderView,
+        cache: &Cache,
+        indexer: &I,
+    ) -> Option<EpochNumber> {
+        let active_mode = self.active_mode();
+        let period = self.period();
+
+        if active_mode == ActiveMode::Always {
+            return Some(0);
+        }
+
+        if active_mode == ActiveMode::Never {
+            return Some(0);
+        }
+
+        let init_state = self.get_state(header, cache, indexer)?;
+        if init_state == ThresholdState::Defined {
+            return Some(0);
+        }
+
+        if init_state == ThresholdState::Started {
+            return Some(self.start());
+        }
+
+        let index = indexer.block_epoch_index(&header.hash())?;
+        let epoch_number = header.epoch().number();
+        let period_start = epoch_number.saturating_sub((epoch_number + 1) % period);
+
+        let mut epoch_ext = indexer.ancestor_epoch(&index, period_start)?;
+        let mut epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
+        let g_cache = cache.lock();
+
+        while let Some(prev_epoch_ext) =
+            indexer.ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))
+        {
+            epoch_ext = prev_epoch_ext;
+            epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
+
+            if let Some(state) = g_cache.get(&epoch_index) {
+                if state != &init_state {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Some(epoch_ext.number().saturating_add(period))
+    }
 }
 
 impl<'a> Versionbits<'a> {
