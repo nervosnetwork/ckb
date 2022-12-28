@@ -19,7 +19,7 @@ pub use tokio::runtime::Runtime;
 /// Handle to the runtime.
 #[derive(Debug, Clone)]
 pub struct Handle {
-    pub(crate) inner: TokioHandle,
+    pub inner: TokioHandle,
 }
 
 impl Handle {

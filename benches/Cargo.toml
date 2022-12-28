@@ -9,7 +9,52 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-
+ckb-app-config = { path = "../util/app-config", version = "= 0.107.0-pre" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.107.0-pre" }
+ckb-bin = { path = "../ckb-bin", version = "= 0.107.0-pre" }
+ckb-build-info = { path = "../util/build-info", version = "= 0.107.0-pre" }
+ckb-chain = { path = "../chain", version = "= 0.107.0-pre" }
+ckb-chain-spec = { path = "../spec", version = "= 0.107.0-pre" }
+ckb-channel = { path = "../util/channel", version = "= 0.107.0-pre" }
+ckb-constant = { path = "../util/constant", version = "= 0.107.0-pre" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.107.0-pre" }
+ckb-dao = { path = "../util/dao", version = "= 0.107.0-pre" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.107.0-pre" }
+ckb-error = { path = "../error", version = "= 0.107.0-pre" }
+ckb-hash = {path = "../util/hash", version = "= 0.107.0-pre"}
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.107.0-pre" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.107.0-pre" }
+ckb-logger-config = { path = "../util/logger-config", version = "= 0.107.0-pre" }
+ckb-logger = { path = "../util/logger", version = "= 0.107.0-pre" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.107.0-pre" }
+ckb-network-alert = { path = "../util/network-alert", version = "= 0.107.0-pre" }
+ckb-network = { path = "../network", version = "= 0.107.0-pre" }
+ckb-resource = { path = "../resource", version = "= 0.107.0-pre" }
+ckb-rpc = { path = "../rpc", version = "= 0.107.0-pre"}
+ckb-shared = { path = "../shared", version = "= 0.107.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.107.0-pre" }
+ckb-store = { path = "../store", version = "= 0.107.0-pre" }
+ckb-sync = { path = "../sync", version = "= 0.107.0-pre"}
+ckb-system-scripts = { version = "= 0.5.4" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.107.0-pre" }
+ckb-traits = { path = "../traits", version = "= 0.107.0-pre" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.107.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.107.0-pre" }
+ckb-verification = { path = "../verification", version = "= 0.107.0-pre" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.107.0-pre" }
+clap = { version = "=4.0.29",  features = ["derive"]}
+ctrlc = { version = "3.1", features = ["termination"] }
+faketime = "0.2.0"
+jsonrpc-core = "18.0"
+lazy_static = "1.3.0"
+once_cell = "1.16.0"
+rand = "0.7"
+rayon = "1.0"
+reqwest = { version = "0.11.4", features = ["blocking", "json"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+toml_edit = "0.15.0"
+tempfile = "3.0"
 
 [dev-dependencies]
 criterion = "0.4"
@@ -33,10 +78,14 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.107.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.107.0-pre" }
 ckb-network = { path = "../network", version = "= 0.107.0-pre" }
 ckb-launcher = { path = "../util/launcher", version = "= 0.107.0-pre" }
-tempfile = "3.0"
 
 [[bench]]
 name = "bench_main"
+harness = false
+
+[[bin]]
+name = "bench_ibd_sync"
+path = "src/bench_ibd_sync/main.rs"
 harness = false
 
 [features]

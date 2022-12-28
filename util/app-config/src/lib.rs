@@ -332,7 +332,7 @@ impl Setup {
 
     /// Loads the chain spec.
     #[cfg(feature = "with_sentry")]
-    fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
+    pub fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec();
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
@@ -347,7 +347,7 @@ impl Setup {
     }
 
     #[cfg(not(feature = "with_sentry"))]
-    fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
+    pub fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         self.config.chain_spec()
     }
 

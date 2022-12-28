@@ -9,7 +9,7 @@ use ckb_types::prelude::*;
 ///
 /// Equal to `nc.send_message`.
 #[must_use]
-pub(crate) fn send_message<Message: Entity>(
+pub fn send_message<Message: Entity>(
     protocol_id: ProtocolId,
     nc: &dyn CKBProtocolContext,
     peer_index: PeerIndex,

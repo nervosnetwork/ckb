@@ -175,7 +175,7 @@ impl HeadersSyncController {
         }
     }
 
-    pub(crate) fn from_header(better_tip_header: &core::HeaderView) -> Self {
+    pub fn from_header(better_tip_header: &core::HeaderView) -> Self {
         let started_ts = unix_time_as_millis();
         let started_tip_ts = better_tip_header.timestamp();
         Self {
@@ -1626,7 +1626,7 @@ impl SyncState {
         self.header_map.remove(hash);
     }
 
-    pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
+    pub fn suspend_sync(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
                 self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
@@ -1637,7 +1637,7 @@ impl SyncState {
         peer_state.suspend_sync(SUSPEND_SYNC_TIME);
     }
 
-    pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
+    pub fn tip_synced(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
                 self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
