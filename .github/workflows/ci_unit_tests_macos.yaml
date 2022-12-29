@@ -52,6 +52,8 @@ jobs:
     needs: prologue
     runs-on: macos-11
     steps:
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
     - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
