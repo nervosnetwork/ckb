@@ -414,9 +414,9 @@ dependencies = [
  "ckb-metrics-config",
  "ckb-pow",
  "ckb-resource",
+ "ckb-systemtime",
  "ckb-types",
  "clap 4.0.32",
- "faketime",
  "path-clean",
  "rand 0.7.3",
  "sentry",
@@ -549,13 +549,13 @@ dependencies = [
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
  "ckb-verification-contextual",
  "ckb-verification-traits",
- "faketime",
  "faux",
  "lazy_static",
  "tempfile",
@@ -808,11 +808,11 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
+ "ckb-systemtime",
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "faketime",
  "num_cpus",
  "once_cell",
  "tempfile",
@@ -848,10 +848,10 @@ dependencies = [
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-tx-pool",
  "ckb-types",
- "faketime",
  "tempfile",
  "tokio",
 ]
@@ -999,10 +999,10 @@ dependencies = [
  "ckb-metrics",
  "ckb-spawn",
  "ckb-stop-handler",
+ "ckb-systemtime",
  "ckb-types",
  "ckb-util",
  "criterion",
- "faketime",
  "faster-hex",
  "futures",
  "ipnetwork",
@@ -1038,9 +1038,9 @@ dependencies = [
  "ckb-network",
  "ckb-notify",
  "ckb-stop-handler",
+ "ckb-systemtime",
  "ckb-types",
  "ckb-util",
- "faketime",
  "lru",
  "once_cell",
  "semver",
@@ -1178,6 +1178,7 @@ dependencies = [
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-tx-pool",
@@ -1185,7 +1186,6 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
- "faketime",
  "itertools",
  "jsonrpc-core",
  "jsonrpc-derive",
@@ -1252,10 +1252,10 @@ dependencies = [
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
- "faketime",
 ]
 
 [[package]]
@@ -1329,6 +1329,7 @@ dependencies = [
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-tx-pool",
@@ -1337,7 +1338,6 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "dashmap",
- "faketime",
  "faux",
  "futures",
  "governor",
@@ -1365,6 +1365,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-systemtime"
+version = "0.107.0-pre"
+
+[[package]]
 name = "ckb-test-chain-utils"
 version = "0.107.0-pre"
 dependencies = [
@@ -1374,10 +1378,10 @@ dependencies = [
  "ckb-db-schema",
  "ckb-resource",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
- "faketime",
  "lazy_static",
  "tempfile",
 ]
@@ -1408,11 +1412,11 @@ dependencies = [
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-traits",
  "ckb-types",
  "ckb-util",
  "ckb-verification",
- "faketime",
  "hyper",
  "lru",
  "rand 0.8.5",
@@ -1465,12 +1469,12 @@ dependencies = [
  "ckb-pow",
  "ckb-resource",
  "ckb-script",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
  "ckb-verification-traits",
  "derive_more",
- "faketime",
  "lru",
 ]
 
@@ -1490,12 +1494,12 @@ dependencies = [
  "ckb-reward-calculator",
  "ckb-shared",
  "ckb-store",
+ "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-traits",
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "faketime",
  "rand 0.7.3",
  "rayon",
  "tokio",
@@ -2003,16 +2007,6 @@ name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
-
-[[package]]
-name = "faketime"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdcfc2bfe63c760bba09679ed6cb3a001d409c5195b4490dced0dc0aa800582b"
-dependencies = [
- "js-sys",
- "tempfile",
-]
 
 [[package]]
 name = "faster-hex"

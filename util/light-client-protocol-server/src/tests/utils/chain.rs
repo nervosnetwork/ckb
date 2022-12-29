@@ -12,6 +12,7 @@ use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::Shared;
 use ckb_sync::SyncShared;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_tx_pool::TxPoolController;
 use ckb_types::{
@@ -20,7 +21,6 @@ use ckb_types::{
     prelude::*,
     utilities::DIFF_TWO,
 };
-use faketime::unix_time_as_millis;
 
 use crate::{tests::prelude::*, LightClientProtocol};
 

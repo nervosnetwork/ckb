@@ -13,7 +13,7 @@ use std::{collections::HashSet, fs::create_dir_all};
 
 #[test]
 fn test_peer_store_persistent() {
-    let now_ms = faketime::unix_time_as_millis();
+    let now_ms = ckb_systemtime::unix_time_as_millis();
     let mut peer_store = PeerStore::default();
 
     // add addrs to addr manager
@@ -172,7 +172,7 @@ fn test_peer_store_dump_with_broken_tmp_file_should_be_ok() {
         addr_manager.add(AddrInfo::new(addr, 0, 60, 0));
     }
     let ban_list = peer_store.mut_ban_list();
-    let now_ms = faketime::unix_time_as_millis();
+    let now_ms = ckb_systemtime::unix_time_as_millis();
     ban_list.ban(BannedAddr {
         address: multiaddr_to_ip_network(&"/ip4/127.0.0.1/tcp/42".parse().unwrap()).unwrap(),
         ban_until: now_ms + 10_000,

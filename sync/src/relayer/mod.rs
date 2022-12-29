@@ -32,6 +32,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
 };
+use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockView},
@@ -39,7 +40,6 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::Mutex;
-use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

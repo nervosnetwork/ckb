@@ -25,6 +25,7 @@ members = [
     "util",
     "util/occupied-capacity/core",
     "util/channel",
+    "util/systemtime",
     "util/fixed-hash/core",
     "util/build-info",
     "util/logger",

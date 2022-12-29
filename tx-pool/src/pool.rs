@@ -297,7 +297,7 @@ impl TxPool {
     }
 
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let removed = self
             .pending
             .remove_entries_by_filter(|_id, tx_entry| now_ms > self.expiry + tx_entry.timestamp);

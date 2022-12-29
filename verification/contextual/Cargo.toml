@@ -11,7 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 ckb-types = { path = "../../util/types", version = "= 0.107.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.107.0-pre" }
-faketime = "0.2.0"
+ckb-systemtime = { path = "../../util/systemtime", version = "= 0.107.0-pre" }
 rayon = "1.0"
 ckb-traits = { path = "../../traits", version = "= 0.107.0-pre" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.107.0-pre" }
@@ -31,4 +31,5 @@ ckb-chain = { path = "../../chain", version = "= 0.107.0-pre" }
 ckb-shared = { path = "../../shared", version = "= 0.107.0-pre" }
 ckb-launcher = { path = "../../util/launcher", version = "= 0.107.0-pre" }
 ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.107.0-pre" }
+ckb-systemtime = { path = "../../util/systemtime", version = "= 0.107.0-pre", features = ["enable_faketime"]}
 rand = "0.7"

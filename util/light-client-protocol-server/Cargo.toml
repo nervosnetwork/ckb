@@ -16,6 +16,7 @@ ckb-logger = { path = "../logger", version = "= 0.107.0-pre" }
 ckb-types = { path = "../types", version = "= 0.107.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.107.0-pre" }
 ckb-merkle-mountain-range = "0.5.2"
+ckb-systemtime = {path = "../systemtime", version = "= 0.107.0-pre"}
 
 [dev-dependencies]
 ckb-chain = { path = "../../chain", version = "= 0.107.0-pre" }
@@ -27,5 +28,5 @@ ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.107.0-pre" }
 ckb-dao-utils = { path = "../dao/utils", version = "= 0.107.0-pre" }
 ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.107.0-pre" }
 tempfile = "3.0"
-faketime = "0.2"
+ckb-systemtime = {path = "../systemtime", version = "= 0.107.0-pre", features = ["enable_faketime"]}
 tokio = "1.20"

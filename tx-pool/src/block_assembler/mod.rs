@@ -20,6 +20,7 @@ use ckb_logger::{debug, error, trace};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
         cell::{OverlayCellChecker, TransactionsChecker},
@@ -32,7 +33,6 @@ use ckb_types::{
     },
     prelude::*,
 };
-use faketime::unix_time_as_millis;
 use hyper::{client::HttpConnector, Body, Client, Method, Request};
 use std::collections::HashSet;
 use std::sync::{

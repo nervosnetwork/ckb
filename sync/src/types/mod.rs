@@ -19,6 +19,7 @@ use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
+use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderProvider;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
@@ -30,7 +31,6 @@ use ckb_types::{
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification_traits::Switch;
 use dashmap::{self, DashMap};
-use faketime::unix_time_as_millis;
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
@@ -623,7 +623,7 @@ impl InflightBlocks {
     }
 
     pub fn mark_slow_block(&mut self, tip: BlockNumber) {
-        let now = faketime::unix_time_as_millis();
+        let now = ckb_systemtime::unix_time_as_millis();
         for key in self.inflight_states.keys() {
             if key.number > tip + 1 {
                 break;

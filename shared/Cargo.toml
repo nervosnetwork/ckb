@@ -26,7 +26,10 @@ ckb-async-runtime = { path = "../util/runtime", version = "= 0.107.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.107.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.107.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.107.0-pre" }
-faketime = "0.2.0"
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.107.0-pre" }
+
+[dev-dependencies]
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.107.0-pre", features = ["enable_faketime"] }
 
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable"]

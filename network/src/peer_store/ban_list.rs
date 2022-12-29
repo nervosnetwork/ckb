@@ -1,7 +1,7 @@
 //! Ban list
 use crate::peer_store::types::{ip_to_network, BannedAddr};
 use crate::peer_store::Multiaddr;
-use faketime::unix_time_as_millis;
+use ckb_systemtime::unix_time_as_millis;
 use ipnetwork::IpNetwork;
 use p2p::utils::multiaddr_to_socketaddr;
 use std::collections::HashMap;

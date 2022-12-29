@@ -40,7 +40,7 @@ impl PeerStore {
 
     /// this method will assume peer is connected, which implies address is "verified".
     pub fn add_connected_peer(&mut self, addr: Multiaddr, session_type: SessionType) {
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         match self
             .connected_peers
             .entry(extract_peer_id(&addr).expect("connected addr should have peer id"))
@@ -79,7 +79,7 @@ impl PeerStore {
         let score = self.score_config.default_score;
         self.addr_manager.add(AddrInfo::new(
             addr,
-            faketime::unix_time_as_millis(),
+            ckb_systemtime::unix_time_as_millis(),
             score,
             flags.bits(),
         ));
@@ -132,7 +132,7 @@ impl PeerStore {
         // 1. Not already connected
         // 2. Connected within 3 days
 
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let peers = &self.connected_peers;
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         // get addrs that can attempt.
@@ -159,7 +159,7 @@ impl PeerStore {
         // 2. Not already tried in a minute
         // 3. Not connected within 3 days
 
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         let peers = &self.connected_peers;
         self.addr_manager
@@ -177,7 +177,7 @@ impl PeerStore {
         // Get info:
         // 1. Already connected or Connected within 7 days
 
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TIMEOUT_MS);
         let peers = &self.connected_peers;
         // get success connected addrs.
@@ -201,7 +201,7 @@ impl PeerStore {
     }
 
     pub(crate) fn ban_network(&mut self, network: IpNetwork, timeout_ms: u64, ban_reason: String) {
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let ban_addr = BannedAddr {
             address: network,
             ban_until: now_ms + timeout_ms,
@@ -246,7 +246,7 @@ impl PeerStore {
         //  2.2. Sort according to the amount of data in the same network segment
         //  2.3. In the network segment with more than 4 peer, randomly evict 2 peer
 
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         let candidate_peers: Vec<_> = self
             .addr_manager
             .addrs_iter()

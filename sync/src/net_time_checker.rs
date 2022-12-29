@@ -117,7 +117,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
     ) {
         // send local time to inbound peers
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
-            let now = faketime::unix_time_as_millis();
+            let now = ckb_systemtime::unix_time_as_millis();
             let time = packed::Time::new_builder().timestamp(now.pack()).build();
             let _status = send_message_to(nc.as_ref(), peer_index, &time);
         }
@@ -152,7 +152,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
             }
         };
 
-        let now: u64 = faketime::unix_time_as_millis();
+        let now: u64 = ckb_systemtime::unix_time_as_millis();
         let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
         let mut net_time_checker = self.checker.write();
         debug!("new net time offset sample {}ms", offset);

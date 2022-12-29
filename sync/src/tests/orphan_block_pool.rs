@@ -1,7 +1,7 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
 use ckb_types::prelude::*;
-use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;

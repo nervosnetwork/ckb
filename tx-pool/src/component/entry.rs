@@ -1,4 +1,5 @@
 use crate::component::container::AncestorsScoreSortKey;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
         cell::ResolvedTransaction,
@@ -7,7 +8,6 @@ use ckb_types::{
     },
     packed::{OutPoint, ProposalShortId},
 };
-use faketime::unix_time_as_millis;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 

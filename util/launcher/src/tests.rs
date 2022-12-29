@@ -7,13 +7,13 @@ use ckb_db_schema::{
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
     META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{capacity_bytes, BlockBuilder, BlockExt, Capacity, TransactionBuilder},
     packed::{self, Bytes},
     prelude::*,
     utilities::DIFF_TWO,
 };
-use faketime::unix_time_as_millis;
 
 #[test]
 fn test_mock_migration() {
