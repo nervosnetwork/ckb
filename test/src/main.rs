@@ -570,7 +570,7 @@ fn print_panicked_logs(node_log_paths: &[PathBuf]) {
             from_ln + print_lns,
             node_log.display(),
         );
-        BufReader::new(File::open(&node_log).expect("failed to read node's log"))
+        BufReader::new(File::open(node_log).expect("failed to read node's log"))
             .lines()
             .skip(from_ln)
             .take(print_lns)

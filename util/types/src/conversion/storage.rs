@@ -81,7 +81,7 @@ impl Pack<packed::BlockExtV1> for core::BlockExt {
             .total_difficulty(self.total_difficulty.pack())
             .total_uncles_count(self.total_uncles_count.pack())
             .verified(self.verified.pack())
-            .txs_fees((&self.txs_fees[..]).pack())
+            .txs_fees((self.txs_fees[..]).pack())
             .cycles(self.cycles.pack())
             .txs_sizes(self.txs_sizes.pack())
             .build()

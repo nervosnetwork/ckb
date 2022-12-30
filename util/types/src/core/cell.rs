@@ -165,7 +165,7 @@ impl CellMeta {
 }
 
 /// TODO(doc): @quake
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Eq)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
     Live(CellMeta),

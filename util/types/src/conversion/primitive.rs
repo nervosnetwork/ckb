@@ -2,7 +2,7 @@ use crate::{bytes::Bytes, packed, prelude::*};
 
 impl Pack<packed::Bool> for bool {
     fn pack(&self) -> packed::Bool {
-        let b = if *self { 1u8 } else { 0 };
+        let b = u8::from(*self);
         packed::Bool::new_unchecked(Bytes::from(vec![b]))
     }
 }

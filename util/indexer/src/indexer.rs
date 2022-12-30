@@ -525,7 +525,7 @@ where
     pub(crate) fn rollback(&self) -> Result<(), Error> {
         let mut iter = self
             .store
-            .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
+            .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
         if let Some((block_number, block_hash, filtered, txs)) = iter.next().map(|(key, value)| {
             let filtered = key.len() == 42 && key[41] == 1;
             (
@@ -681,7 +681,7 @@ where
     pub(crate) fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
         let mut iter = self
             .store
-            .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
+            .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
         Ok(iter.next().map(|(key, _)| {
             (
                 BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key")),
@@ -891,7 +891,7 @@ where
     /// Print statistics
     #[allow(dead_code)]
     pub(crate) fn report(&self) -> Result<(), Error> {
-        let iter = self.store.iter(&[], IteratorDirection::Forward)?;
+        let iter = self.store.iter([], IteratorDirection::Forward)?;
         let mut statistics: HashMap<u8, (usize, usize, usize)> = HashMap::new();
         for (key, value) in iter {
             let s = statistics.entry(*key.first().unwrap()).or_default();
@@ -1095,7 +1095,7 @@ mod tests {
 
         // tip should be None and store should be empty;
         assert!(indexer.tip().unwrap().is_none());
-        let mut iter = indexer.store.iter(&[], IteratorDirection::Forward).unwrap();
+        let mut iter = indexer.store.iter([], IteratorDirection::Forward).unwrap();
         assert!(iter.next().is_none());
     }
 
@@ -1568,7 +1568,7 @@ mod tests {
         let key_prefix = [KeyPrefix::ConsumedOutPoint as u8];
         let stored_consumed_out_points = indexer
             .store
-            .iter(&key_prefix, IteratorDirection::Forward)
+            .iter(key_prefix, IteratorDirection::Forward)
             .unwrap()
             .take_while(|(key, _value)| key.starts_with(&key_prefix))
             .count();
@@ -1578,7 +1578,7 @@ mod tests {
         let key_prefix = [KeyPrefix::TxHash as u8];
         let stored_tx_hashes = indexer
             .store
-            .iter(&key_prefix, IteratorDirection::Forward)
+            .iter(key_prefix, IteratorDirection::Forward)
             .unwrap()
             .take_while(|(key, _value)| key.starts_with(&key_prefix))
             .count();
@@ -1738,7 +1738,7 @@ mod tests {
 
         // tip should be None and store should be empty;
         assert!(indexer.tip().unwrap().is_none());
-        let mut iter = indexer.store.iter(&[], IteratorDirection::Forward).unwrap();
+        let mut iter = indexer.store.iter([], IteratorDirection::Forward).unwrap();
         assert!(iter.next().is_none());
     }
 

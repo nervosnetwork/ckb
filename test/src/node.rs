@@ -584,9 +584,9 @@ impl Node {
     pub fn start(&mut self) {
         let mut child_process = Command::new(binary())
             .env("RUST_BACKTRACE", "full")
-            .args(&[
+            .args([
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 "run",
                 "--ba-advanced",
             ])
@@ -655,10 +655,10 @@ impl Node {
 
     pub fn export(&self, target: String) {
         Command::new(binary())
-            .args(&[
+            .args([
                 "export",
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 &target,
             ])
             .stdin(Stdio::null())
@@ -670,10 +670,10 @@ impl Node {
 
     pub fn import(&self, target: String) {
         Command::new(binary())
-            .args(&[
+            .args([
                 "import",
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 &target,
             ])
             .stdin(Stdio::null())

@@ -64,8 +64,8 @@ fn test_peer_store_persistent() {
 
     // dump and load
     let dir = tempfile::tempdir().unwrap();
-    peer_store.dump_to_dir(&dir.path()).unwrap();
-    let peer_store2 = PeerStore::load_from_dir_or_default(&dir.path());
+    peer_store.dump_to_dir(dir.path()).unwrap();
+    let peer_store2 = PeerStore::load_from_dir_or_default(dir.path());
 
     // check addr manager
     let addr_manager2 = peer_store2.addr_manager();

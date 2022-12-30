@@ -276,7 +276,7 @@ impl IndexerHandle {
     pub fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         let mut iter = self
             .store
-            .iter(&[KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
+            .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
             .expect("iter Header should be OK");
         Ok(iter.next().map(|(key, _)| IndexerTip {
             block_hash: packed::Byte32::from_slice(&key[9..41])

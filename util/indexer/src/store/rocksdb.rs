@@ -107,13 +107,13 @@ mod tests {
             tmp_dir.path().to_str().unwrap(),
         );
         let mut batch = store.batch().unwrap();
-        batch.put(&[0, 0], &[0, 0, 0]).unwrap();
-        batch.put(&[1, 1], &[1, 1, 1]).unwrap();
+        batch.put([0, 0], [0, 0, 0]).unwrap();
+        batch.put([1, 1], [1, 1, 1]).unwrap();
         batch.commit().unwrap();
 
-        assert_eq!(Some(vec![0, 0, 0]), store.get(&[0, 0]).unwrap());
-        assert_eq!(Some(vec![1, 1, 1]), store.get(&[1, 1]).unwrap());
-        assert_eq!(None, store.get(&[2, 2]).unwrap());
+        assert_eq!(Some(vec![0, 0, 0]), store.get([0, 0]).unwrap());
+        assert_eq!(Some(vec![1, 1, 1]), store.get([1, 1]).unwrap());
+        assert_eq!(None, store.get([2, 2]).unwrap());
     }
 
     #[test]
@@ -123,13 +123,13 @@ mod tests {
             &RocksdbStore::default_options(),
             tmp_dir.path().to_str().unwrap(),
         );
-        assert!(!store.exists(&[0, 0]).unwrap());
+        assert!(!store.exists([0, 0]).unwrap());
 
         let mut batch = store.batch().unwrap();
-        batch.put(&[0, 0], &[0, 0, 0]).unwrap();
+        batch.put([0, 0], [0, 0, 0]).unwrap();
         batch.commit().unwrap();
 
-        assert!(store.exists(&[0, 0]).unwrap());
+        assert!(store.exists([0, 0]).unwrap());
     }
 
     #[test]
@@ -140,14 +140,14 @@ mod tests {
             tmp_dir.path().to_str().unwrap(),
         );
         let mut batch = store.batch().unwrap();
-        batch.put(&[0, 0], &[0, 0, 0]).unwrap();
+        batch.put([0, 0], [0, 0, 0]).unwrap();
         batch.commit().unwrap();
-        assert_eq!(Some(vec![0, 0, 0]), store.get(&[0, 0]).unwrap());
+        assert_eq!(Some(vec![0, 0, 0]), store.get([0, 0]).unwrap());
 
         let mut batch = store.batch().unwrap();
-        batch.delete(&[0, 0]).unwrap();
+        batch.delete([0, 0]).unwrap();
         batch.commit().unwrap();
-        assert_eq!(None, store.get(&[0, 0]).unwrap());
+        assert_eq!(None, store.get([0, 0]).unwrap());
     }
 
     #[test]
@@ -158,16 +158,16 @@ mod tests {
             tmp_dir.path().to_str().unwrap(),
         );
         let mut batch = store.batch().unwrap();
-        batch.put(&[0, 0, 0], &[0, 0, 0]).unwrap();
-        batch.put(&[0, 0, 1], &[0, 0, 1]).unwrap();
-        batch.put(&[1, 0, 0], &[1, 0, 0]).unwrap();
-        batch.put(&[1, 0, 1], &[1, 0, 1]).unwrap();
-        batch.put(&[2, 0, 0, 1], &[2, 0, 0, 1]).unwrap();
-        batch.put(&[2, 0, 1, 1], &[2, 0, 1, 1]).unwrap();
-        batch.put(&[2, 0, 2, 1], &[2, 0, 2, 1]).unwrap();
+        batch.put([0, 0, 0], [0, 0, 0]).unwrap();
+        batch.put([0, 0, 1], [0, 0, 1]).unwrap();
+        batch.put([1, 0, 0], [1, 0, 0]).unwrap();
+        batch.put([1, 0, 1], [1, 0, 1]).unwrap();
+        batch.put([2, 0, 0, 1], [2, 0, 0, 1]).unwrap();
+        batch.put([2, 0, 1, 1], [2, 0, 1, 1]).unwrap();
+        batch.put([2, 0, 2, 1], [2, 0, 2, 1]).unwrap();
         batch.commit().unwrap();
 
-        let mut iter = store.iter(&[0, 0, 1], IteratorDirection::Forward).unwrap();
+        let mut iter = store.iter([0, 0, 1], IteratorDirection::Forward).unwrap();
         assert_eq!(
             Some((vec![0, 0, 1], vec![0, 0, 1])),
             iter.next().map(|i| (i.0.to_vec(), i.1.to_vec()))
@@ -177,7 +177,7 @@ mod tests {
             iter.next().map(|i| (i.0.to_vec(), i.1.to_vec()))
         );
 
-        let mut iter = store.iter(&[0, 0, 1], IteratorDirection::Reverse).unwrap();
+        let mut iter = store.iter([0, 0, 1], IteratorDirection::Reverse).unwrap();
         assert_eq!(
             Some((vec![0, 0, 1], vec![0, 0, 1])),
             iter.next().map(|i| (i.0.to_vec(), i.1.to_vec()))
@@ -188,7 +188,7 @@ mod tests {
         );
         assert!(iter.next().is_none());
 
-        let mut iter = store.iter(&[2, 0, 1], IteratorDirection::Reverse).unwrap();
+        let mut iter = store.iter([2, 0, 1], IteratorDirection::Reverse).unwrap();
         assert_eq!(
             Some((vec![2, 0, 0, 1], vec![2, 0, 0, 1])),
             iter.next().map(|i| (i.0.to_vec(), i.1.to_vec()))

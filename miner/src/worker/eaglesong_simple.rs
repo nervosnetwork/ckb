@@ -66,7 +66,7 @@ impl EaglesongSimple {
             let mut output_tmp = [0u8; 32];
             eaglesong(&input, &mut output_tmp);
             match self.extra_hash_function {
-                Some(ExtraHashFunction::Blake2b) => blake2b_256(&output_tmp),
+                Some(ExtraHashFunction::Blake2b) => blake2b_256(output_tmp),
                 None => output_tmp,
             }
         };

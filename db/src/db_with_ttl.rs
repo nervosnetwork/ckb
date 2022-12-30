@@ -61,7 +61,7 @@ impl DBWithTTL {
             .inner
             .cf_handle(col)
             .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
-        self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
+        self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 
     /// Insert a value into the database under the given key.

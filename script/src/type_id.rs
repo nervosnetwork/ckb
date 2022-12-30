@@ -59,7 +59,7 @@ impl<'a> TypeIdSystemScript<'a> {
             let first_output_index: u64 = self
                 .script_group
                 .output_indices
-                .get(0)
+                .first()
                 .map(|output_index| *output_index as u64)
                 .ok_or_else(|| self.validation_failure(ERROR_ARGS))?;
 

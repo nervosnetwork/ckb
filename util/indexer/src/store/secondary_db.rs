@@ -73,7 +73,7 @@ impl SecondaryDB {
             .inner
             .cf_handle(col)
             .ok_or_else(|| Error::DB(format!("column {} not found", col)))?;
-        self.inner.get_pinned_cf(cf, &key).map_err(Into::into)
+        self.inner.get_pinned_cf(cf, key).map_err(Into::into)
     }
 
     /// Make the secondary instance catch up with the primary by tailing and

@@ -36,7 +36,7 @@ pub struct Suspended {
 }
 
 /// Completed entry
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Completed {
     /// Cached tx cycles
     pub cycles: Cycle,

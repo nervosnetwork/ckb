@@ -15,7 +15,7 @@ impl PowEngine for EaglesongBlake2bPowEngine {
         let output = {
             let mut output_tmp = [0u8; 32];
             eaglesong(&input, &mut output_tmp);
-            blake2b_256(&output_tmp)
+            blake2b_256(output_tmp)
         };
 
         let (block_target, overflow) = compact_to_target(header.raw().compact_target().unpack());

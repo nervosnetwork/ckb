@@ -28,7 +28,7 @@ use std::fmt::{Debug, Display};
 ///
 /// Unless otherwise noted, all the errors return optional detailed information as `string` in the error
 /// object `data` field.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum RPCError {
     /// (-1): CKB internal errors are considered to never happen or only happen when the system
     /// resources are exhausted.
