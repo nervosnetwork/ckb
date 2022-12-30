@@ -41,7 +41,7 @@ pub struct TxPoolConfig {
 /// Block assembler config options.
 ///
 /// The block assembler section tells CKB how to claim the miner rewards.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct BlockAssemblerConfig {
     /// The miner lock script code hash.

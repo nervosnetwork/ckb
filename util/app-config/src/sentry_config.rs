@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SentryConfig {
     pub dsn: String,

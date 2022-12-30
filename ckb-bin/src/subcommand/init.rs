@@ -52,7 +52,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
         args.block_assembler_args = in_args
-            .trim()
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
@@ -180,7 +179,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             let mut encoded_content = String::new();
             io::stdin().read_to_string(&mut encoded_content)?;
             let spec_content = base64::decode_config(
-                &encoded_content.trim(),
+                encoded_content.trim(),
                 base64::STANDARD.decode_allow_trailing_bits(true),
             )
             .map_err(|err| {

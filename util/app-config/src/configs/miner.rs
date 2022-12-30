@@ -14,7 +14,7 @@ pub struct Config {
 }
 
 /// RPC client config options.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ClientConfig {
     /// CKB node RPC endpoint.
@@ -73,7 +73,7 @@ pub enum DummyConfig {
 }
 
 /// Eaglesong worker config options.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EaglesongSimpleConfig {
     /// Number of worker threads.
@@ -84,7 +84,7 @@ pub struct EaglesongSimpleConfig {
 }
 
 /// Specifies the hash function.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq)]
 pub enum ExtraHashFunction {
     /// Blake2b hash with CKB preferences.
     Blake2b,
