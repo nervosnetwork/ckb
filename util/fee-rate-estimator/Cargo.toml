@@ -1,0 +1,19 @@
+[package]
+name = "ckb-fee-rate-estimator"
+version = "0.107.0-pre"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+statrs = "0.16.0"
+ckb-types = { path = "../types", version = "= 0.107.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.107.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.107.0-pre" }
+ckb-util = { path = "..", version = "= 0.107.0-pre" }
+time = { version = "0.3.15", features = ["macros", "formatting"] }
+ckb-notify = { path = "../../notify", version = "= 0.107.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.107.0-pre" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.107.0-pre" }
+faketime = "0.2.0"
+thiserror = "1.0.22"

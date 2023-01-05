@@ -45,6 +45,7 @@ members = [
     "util/metrics",
     "util/metrics-service",
     "util/fixed-hash",
+    "util/fee-rate-estimator",
     "util/occupied-capacity",
     "util/crypto",
     "util/constant",
