@@ -10,7 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 /// Commands
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum Command {
     Shutdown,
 }

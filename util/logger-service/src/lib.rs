@@ -298,7 +298,7 @@ impl Logger {
         fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open(&file_path)
+            .open(file_path)
             .map_err(|err| {
                 format!(
                     "Cannot write to log file given: {:?} since {}",
@@ -512,7 +512,7 @@ fn setup_panic_logger() {
         let msg = match info.payload().downcast_ref::<&'static str>() {
             Some(s) => *s,
             None => match info.payload().downcast_ref::<String>() {
-                Some(s) => &*s,
+                Some(s) => s,
                 None => "Box<Any>",
             },
         };

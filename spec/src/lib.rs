@@ -969,7 +969,7 @@ impl SystemCell {
 
 fn secp_lock_arg(privkey: &Privkey) -> Bytes {
     let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned())
+    Bytes::from((blake2b_256(&pubkey_data)[0..20]).to_owned())
 }
 
 /// Shortcut for build genesis type_id script from specified output_index

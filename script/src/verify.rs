@@ -113,6 +113,8 @@ impl Binaries {
     }
 }
 
+type DebugPrinter = Box<dyn Fn(&Byte32, &str)>;
+
 /// This struct leverages CKB VM to verify transaction inputs.
 ///
 /// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
@@ -120,7 +122,7 @@ impl Binaries {
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
 
-    debug_printer: Box<dyn Fn(&Byte32, &str)>,
+    debug_printer: DebugPrinter,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction,

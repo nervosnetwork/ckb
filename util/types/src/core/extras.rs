@@ -11,7 +11,7 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 
 /// TODO(doc): @quake
-#[derive(Clone, PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Default, Debug, Eq)]
 pub struct BlockExt {
     /// TODO(doc): @quake
     pub received_at: u64,

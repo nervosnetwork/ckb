@@ -655,7 +655,7 @@ fn _test_load_header(
     machine.set_register(A4, source); //source: 4 header
     machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
-    let data_hash = blake2b_256(&data).pack();
+    let data_hash = blake2b_256(data).pack();
     let header = HeaderBuilder::default()
         .transactions_root(data_hash)
         .build();
@@ -768,7 +768,7 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
     machine.set_register(A5, field as u64);
     machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-    let data_hash: H256 = blake2b_256(&data).into();
+    let data_hash: H256 = blake2b_256(data).into();
     let epoch = EpochNumberWithFraction::new(1, 40, 1000);
     let header = HeaderBuilder::default()
         .transactions_root(data_hash.pack())

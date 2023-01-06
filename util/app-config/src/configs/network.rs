@@ -171,7 +171,7 @@ pub(crate) fn generate_random_key() -> [u8; 32] {
     loop {
         let mut key: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut key);
-        if secio::SecioKeyPair::secp256k1_raw_key(&key).is_ok() {
+        if secio::SecioKeyPair::secp256k1_raw_key(key).is_ok() {
             return key;
         }
     }

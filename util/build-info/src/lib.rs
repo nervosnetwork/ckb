@@ -105,7 +105,7 @@ impl std::fmt::Display for Version {
 /// [`commit_describe`]: struct.Version.html#structfield.commit_describe
 pub fn get_commit_describe() -> Option<String> {
     std::process::Command::new("git")
-        .args(&[
+        .args([
             "describe",
             "--dirty",
             "--always",
@@ -129,7 +129,7 @@ pub fn get_commit_describe() -> Option<String> {
 pub fn get_commit_date() -> Option<String> {
     std::process::Command::new("git")
         .env("TZ", "UTC")
-        .args(&["log", "-1", "--date=iso", "--pretty=format:%cd"])
+        .args(["log", "-1", "--date=iso", "--pretty=format:%cd"])
         .output()
         .ok()
         .filter(|output| output.status.success())

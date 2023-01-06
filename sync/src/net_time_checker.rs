@@ -60,7 +60,7 @@ impl NetTimeChecker {
             Some(offset) => offset,
             None => return Ok(()),
         };
-        if network_offset.abs() as u64 > self.tolerant_offset {
+        if network_offset.unsigned_abs() > self.tolerant_offset {
             return Err(network_offset);
         }
         Ok(())
