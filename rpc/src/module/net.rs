@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
@@ -534,6 +535,7 @@ pub trait NetRpc {
 pub(crate) struct NetRpcImpl {
     pub network_controller: NetworkController,
     pub sync_shared: Arc<SyncShared>,
+    pub chain_controller: ChainController,
 }
 
 impl NetRpc for NetRpcImpl {
@@ -720,7 +722,7 @@ impl NetRpc for NetRpcImpl {
             ibd: chain.is_initial_block_download(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
-            orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
+            orphan_blocks_count: (self.chain_controller.orphan_pool().len() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
             fast_time: fast_time.into(),

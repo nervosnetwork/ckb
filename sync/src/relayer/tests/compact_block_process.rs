@@ -1,8 +1,8 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocolContext};
 use crate::{Status, StatusCode};
 use ckb_network::{PeerIndex, SupportProtocols};
+use ckb_shared::block_status::BlockStatus;
 use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
@@ -51,7 +51,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -71,7 +71,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
@@ -91,7 +91,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
     }
 

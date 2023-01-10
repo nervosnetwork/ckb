@@ -552,6 +552,7 @@ dependencies = [
  "ckb-test-chain-utils",
  "ckb-tx-pool",
  "ckb-types",
+ "ckb-util",
  "ckb-verification",
  "ckb-verification-contextual",
  "ckb-verification-traits",
@@ -810,8 +811,10 @@ dependencies = [
  "ckb-sync",
  "ckb-tx-pool",
  "ckb-types",
+ "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
+ "dashmap",
  "faketime",
  "num_cpus",
  "once_cell",
@@ -1239,6 +1242,7 @@ name = "ckb-shared"
 version = "0.107.0-pre"
 dependencies = [
  "arc-swap",
+ "bitflags",
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-channel",
@@ -1254,8 +1258,13 @@ dependencies = [
  "ckb-store",
  "ckb-tx-pool",
  "ckb-types",
+ "ckb-util",
  "ckb-verification",
+ "dashmap",
  "faketime",
+ "sled",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1310,9 +1319,7 @@ dependencies = [
 name = "ckb-sync"
 version = "0.107.0-pre"
 dependencies = [
- "bitflags",
  "ckb-app-config",
- "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-channel",
@@ -1327,7 +1334,6 @@ dependencies = [
  "ckb-network",
  "ckb-reward-calculator",
  "ckb-shared",
- "ckb-stop-handler",
  "ckb-store",
  "ckb-test-chain-utils",
  "ckb-traits",
@@ -1346,7 +1352,6 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "sentry",
- "sled",
  "tempfile",
  "tokio",
 ]

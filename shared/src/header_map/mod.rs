@@ -1,4 +1,5 @@
-use crate::types::HeaderView;
+//! HeaderMap
+use crate::header_view::HeaderView;
 use ckb_async_runtime::Handle;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::packed::{self, Byte32};
@@ -18,6 +19,8 @@ pub(crate) use self::{
     memory::MemoryMap,
 };
 
+/// HeaderMap with StopHandler
+#[derive(Clone)]
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
     stop: StopHandler<()>,
@@ -35,7 +38,8 @@ const ITEM_BYTES_SIZE: usize = packed::HeaderView::TOTAL_SIZE + 32 * 3;
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
-    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
+    /// Initialize headerMap
+    pub fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -72,19 +76,23 @@ impl HeaderMap {
         }
     }
 
-    pub(crate) fn contains_key(&self, hash: &Byte32) -> bool {
+    /// Check if HeaderMap contains a block header
+    pub fn contains_key(&self, hash: &Byte32) -> bool {
         self.inner.contains_key(hash)
     }
 
-    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderView> {
+    /// Get block_header from HeaderMap by hash
+    pub fn get(&self, hash: &Byte32) -> Option<HeaderView> {
         self.inner.get(hash)
     }
 
-    pub(crate) fn insert(&self, view: HeaderView) -> Option<()> {
+    /// Insert a block_header
+    pub fn insert(&self, view: HeaderView) -> Option<()> {
         self.inner.insert(view)
     }
 
-    pub(crate) fn remove(&self, hash: &Byte32) {
+    /// Remove a block_header by hash
+    pub fn remove(&self, hash: &Byte32) {
         self.inner.remove(hash)
     }
 }

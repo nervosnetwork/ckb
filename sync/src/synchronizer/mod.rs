@@ -12,10 +12,10 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::send_message_to;
 use crate::{Status, StatusCode};
+use ckb_shared::header_view::HeaderView;
 
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
@@ -30,6 +30,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_shared::block_status::BlockStatus;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32},
@@ -105,8 +106,12 @@ impl BlockFetchCMD {
                         let state = self.sync.shared.state();
                         let best_known = state.shared_best_header_ref();
                         let number = best_known.number();
-                        let assume_valid_target: Byte32 = state
+                        let assume_valid_target: Byte32 = self
+                            .sync
+                            .shared()
+                            .shared()
                             .assume_valid_target()
+                            .read()
                             .as_ref()
                             .map(Pack::pack)
                             .expect("assume valid target must exist");
@@ -134,6 +139,7 @@ impl BlockFetchCMD {
         }
 
         let state = self.sync.shared.state();
+        let shared = self.sync.shared.shared();
 
         let min_work_reach = |flag: &mut CanStart| {
             if state.min_chain_work_ready() {
@@ -142,14 +148,15 @@ impl BlockFetchCMD {
         };
 
         let assume_valid_target_find = |flag: &mut CanStart| {
-            let mut assume_valid_target = state.assume_valid_target();
+            let mut drop_assume_valid_target = false;
+            let assume_valid_target = shared.assume_valid_target().read();
             if let Some(ref target) = *assume_valid_target {
-                match state.header_map().get(&target.pack()) {
+                match shared.header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
                         // Blocks that are no longer in the scope of ibd must be forced to verify
                         if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
-                            assume_valid_target.take();
+                            drop_assume_valid_target = true;
                         }
                     }
                     None => {
@@ -159,12 +166,16 @@ impl BlockFetchCMD {
                             < MAX_TIP_AGE
                         {
                             *flag = CanStart::Ready;
-                            assume_valid_target.take();
+                            drop_assume_valid_target = true;
                         }
                     }
                 }
             } else {
                 *flag = CanStart::Ready;
+            }
+
+            if drop_assume_valid_target {
+                shared.assume_valid_target().write().take();
             }
         };
 

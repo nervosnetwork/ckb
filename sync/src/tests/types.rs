@@ -7,7 +7,7 @@ use ckb_types::{
 use rand::{thread_rng, Rng};
 use std::collections::{BTreeMap, HashMap};
 
-use crate::types::HeaderView;
+use ckb_shared::header_view::HeaderView;
 
 const SKIPLIST_LENGTH: u64 = 10_000;
 
@@ -37,7 +37,7 @@ fn test_get_ancestor_use_skip_list() {
         if *number > 0 {
             let skip_view = header_map
                 .get(hash)
-                .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
+                .and_then(|view| header_map.get(view.skip_hash().unwrap()))
                 .unwrap();
             assert_eq!(
                 Some(skip_view.hash()).as_ref(),
@@ -45,7 +45,7 @@ fn test_get_ancestor_use_skip_list() {
             );
             assert!(skip_view.number() < *number);
         } else {
-            assert!(header_map[hash].skip_hash.is_none());
+            assert!(header_map[hash].skip_hash().is_none());
         }
     }
 

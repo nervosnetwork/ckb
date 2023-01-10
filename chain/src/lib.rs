@@ -7,5 +7,6 @@
 //! [`ChainController`]: chain/struct.ChainController.html
 
 pub mod chain;
+mod orphan_block_pool;
 #[cfg(test)]
 mod tests;

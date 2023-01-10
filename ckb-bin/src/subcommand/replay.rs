@@ -16,6 +16,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
         &args.config.bin_name,
         args.config.root_dir.as_path(),
         &args.config.db,
+        args.config.network.sync.clone(),
         None,
         async_handle.clone(),
     )?;
@@ -43,6 +44,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             &args.config.bin_name,
             args.config.root_dir.as_path(),
             &tmp_db_config,
+            args.config.network.sync,
             None,
             async_handle,
         )?;

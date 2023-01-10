@@ -31,6 +31,7 @@ impl Statics {
             &args.config.bin_name,
             args.config.root_dir.as_path(),
             &args.config.db,
+            args.config.network.sync,
             None,
             async_handle,
         )?;

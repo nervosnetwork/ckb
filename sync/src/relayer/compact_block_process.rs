@@ -1,4 +1,3 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::types::{ActiveChain, PendingCompactBlockMap};
@@ -9,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_shared::block_status::BlockStatus;
 use ckb_traits::HeaderProvider;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
@@ -238,7 +238,7 @@ fn contextual_check(
             .expect("parent block must exist");
         let header_view = {
             let total_difficulty = parent.total_difficulty() + compact_block_header.difficulty();
-            crate::types::HeaderView::new(compact_block_header.clone(), total_difficulty)
+            ckb_shared::header_view::HeaderView::new(compact_block_header.clone(), total_difficulty)
         };
 
         let state = shared.state().peers();
@@ -308,7 +308,7 @@ fn contextual_check(
             return Status::ignored();
         } else {
             shared
-                .state()
+                .shared()
                 .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
             return StatusCode::CompactBlockHasInvalidHeader
                 .with_context(format!("{} {}", block_hash, err));

@@ -37,9 +37,10 @@ use std::{
 
 use crate::{
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    types::{HeaderView, HeadersSyncController, IBDState, PeerState},
+    types::{HeadersSyncController, IBDState, PeerState},
     Status, StatusCode, SyncShared,
 };
+use ckb_shared::header_view::HeaderView;
 
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
     let mut builder = SharedBuilder::with_temp_db();
@@ -1204,7 +1205,7 @@ fn get_blocks_process() {
 
 #[test]
 fn test_internal_db_error() {
-    use crate::utils::is_internal_db_error;
+    use ckb_error::util::is_internal_db_error;
 
     let consensus = Consensus::default();
     let mut builder = SharedBuilder::with_temp_db();
@@ -1235,7 +1236,7 @@ fn test_internal_db_error() {
 
     let status = synchronizer
         .shared()
-        .accept_block(&synchronizer.chain, Arc::clone(&block));
+        .insert_new_block(&synchronizer.chain, Arc::clone(&block));
 
     assert!(is_internal_db_error(&status.err().unwrap()));
 }

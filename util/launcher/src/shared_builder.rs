@@ -3,8 +3,9 @@
 //! which can be used in order to configure the properties of a new shared.
 
 use crate::migrate::Migrate;
-use ckb_app_config::ExitCode;
-use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
+use ckb_app_config::{
+    BlockAssemblerConfig, DBConfig, ExitCode, NotifyConfig, StoreConfig, SyncConfig, TxPoolConfig,
+};
 use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
@@ -17,6 +18,7 @@ use ckb_logger::{error, info};
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
+use ckb_shared::header_map::HeaderMap;
 use ckb_shared::Shared;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::StopHandler;
@@ -28,7 +30,9 @@ use ckb_tx_pool::{
 };
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
+use ckb_util::RwLock;
 use ckb_verification::cache::init_cache;
+use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -41,6 +45,8 @@ pub struct SharedBuilder {
     db: RocksDB,
     ancient_path: Option<PathBuf>,
     consensus: Option<Consensus>,
+    sync_config: Option<SyncConfig>,
+    header_map_tmp_dir: Option<PathBuf>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
@@ -119,6 +125,7 @@ impl SharedBuilder {
         bin_name: &str,
         root_dir: &Path,
         db_config: &DBConfig,
+        sync_config: SyncConfig,
         ancient: Option<PathBuf>,
         async_handle: Handle,
     ) -> Result<SharedBuilder, ExitCode> {
@@ -128,6 +135,8 @@ impl SharedBuilder {
             db,
             ancient_path: ancient,
             consensus: None,
+            sync_config: Some(sync_config),
+            header_map_tmp_dir: None,
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
@@ -175,6 +184,8 @@ impl SharedBuilder {
             db,
             ancient_path: None,
             consensus: None,
+            sync_config: None,
+            header_map_tmp_dir: None,
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
@@ -219,6 +230,11 @@ impl SharedBuilder {
         self
     }
 
+    /// specifies header_map_tmp_dir
+    pub fn header_map_tmp_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.header_map_tmp_dir = dir;
+        self
+    }
     /// specifies the async_handle for the shared
     pub fn async_handle(mut self, async_handle: Handle) -> Self {
         self.async_handle = async_handle;
@@ -314,6 +330,8 @@ impl SharedBuilder {
             db,
             ancient_path,
             consensus,
+            sync_config,
+            header_map_tmp_dir,
             tx_pool_config,
             store_config,
             block_assembler_config,
@@ -321,6 +339,7 @@ impl SharedBuilder {
             async_handle,
         } = self;
 
+        let sync_config = sync_config.unwrap_or_default();
         let tx_pool_config = tx_pool_config.unwrap_or_default();
         let notify_config = notify_config.unwrap_or_default();
         let store_config = store_config.unwrap_or_default();
@@ -357,8 +376,22 @@ impl SharedBuilder {
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
 
         let ibd_finished = Arc::new(AtomicBool::new(false));
+
+        let header_map = HeaderMap::new(
+            header_map_tmp_dir,
+            sync_config.header_map.memory_limit.as_u64() as usize,
+            &async_handle,
+        );
+
+        let block_status_map = Arc::new(DashMap::new());
+
+        let assume_valid_target = Arc::new(RwLock::new(sync_config.assume_valid_target));
+
         let shared = Shared::new(
             store,
+            header_map,
+            block_status_map,
+            assume_valid_target,
             tx_pool_controller,
             notify_controller,
             txs_verify_cache,

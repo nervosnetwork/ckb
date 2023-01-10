@@ -8,6 +8,7 @@ pub fn export(args: ExportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         &args.config.bin_name,
         args.config.root_dir.as_path(),
         &args.config.db,
+        args.config.network.sync,
         None,
         async_handle,
     )?;

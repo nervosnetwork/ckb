@@ -2,20 +2,23 @@
 #![allow(missing_docs)]
 
 use ckb_channel::{self as channel, select, Sender};
+use ckb_error::util::is_internal_db_error;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::Level::Trace;
-use ckb_logger::{
-    self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
-};
+use ckb_logger::{self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
+use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
+use ckb_types::core::EpochNumber;
+use ckb_types::prelude::Unpack;
 use ckb_types::{
+    core,
     core::{
         cell::{
             resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider,
@@ -26,8 +29,9 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
     utilities::merkle_mountain_range::ChainRootMMR,
-    U256,
+    H256, U256,
 };
+use ckb_util::shrink_to_fit;
 use ckb_verification::cache::Completed;
 use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
@@ -36,6 +40,11 @@ use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
+
+use crate::orphan_block_pool::OrphanBlockPool;
+
+const ORPHAN_BLOCK_SIZE: usize = 1024;
+pub use ckb_shared::shared::BLOCK_STATUS_MAP_SHRINK_THRESHOLD;
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
@@ -48,6 +57,9 @@ type TruncateRequest = Request<Byte32, Result<(), Error>>;
 #[cfg_attr(feature = "mock", faux::create)]
 #[derive(Clone)]
 pub struct ChainController {
+    // Relayer need to get uncle block in orphan block pool
+    orphan_block_pool: Arc<OrphanBlockPool>,
+
     process_block_sender: Sender<ProcessBlockRequest>,
     truncate_sender: Sender<TruncateRequest>, // Used for testing only
     stop: Option<StopHandler<()>>,
@@ -62,40 +74,44 @@ impl Drop for ChainController {
 #[cfg_attr(feature = "mock", faux::methods)]
 impl ChainController {
     pub fn new(
+        orphan_block_pool: Arc<OrphanBlockPool>,
         process_block_sender: Sender<ProcessBlockRequest>,
         truncate_sender: Sender<TruncateRequest>,
         stop: StopHandler<()>,
     ) -> Self {
         ChainController {
+            orphan_block_pool,
             process_block_sender,
             truncate_sender,
             stop: Some(stop),
         }
     }
+
+    fn request_process_block(&self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
+        Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
+            Err(InternalErrorKind::System
+                .other("Chain service has gone")
+                .into())
+        })
+    }
+
     /// Inserts the block into database.
-    ///
-    /// Expects the block's header to be valid and already verified.
     ///
     /// If the block already exists, does nothing and false is returned.
     ///
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
     pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
-        self.internal_process_block(block, Switch::NONE)
+        self.request_process_block(block, Switch::NONE)
     }
 
-    /// Internal method insert block for test
-    ///
+    /// Internal method insert block only for test
     /// switch bit flags for particular verify, make easier to generating test data
     pub fn internal_process_block(
         &self,
         block: Arc<BlockView>,
         switch: Switch,
     ) -> Result<bool, Error> {
-        Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
-            Err(InternalErrorKind::System
-                .other("Chain service has gone")
-                .into())
-        })
+        self.request_process_block(block, switch)
     }
 
     /// Truncate chain to specified target
@@ -115,10 +131,23 @@ impl ChainController {
         }
     }
 
+    pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
+        self.orphan_pool().get_block(block_hash)
+    }
+
+    pub fn orphan_pool(&self) -> &OrphanBlockPool {
+        &self.orphan_block_pool
+    }
+
+    pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<Byte32> {
+        self.orphan_pool().clean_expired_blocks(epoch)
+    }
+
     /// Since a non-owning reference does not count towards ownership,
     /// it will not prevent the value stored in the allocation from being dropped
     pub fn non_owning_clone(&self) -> Self {
         ChainController {
+            orphan_block_pool: Arc::<OrphanBlockPool>::clone(&self.orphan_block_pool),
             stop: None,
             truncate_sender: self.truncate_sender.clone(),
             process_block_sender: self.process_block_sender.clone(),
@@ -203,14 +232,19 @@ impl GlobalIndex {
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
+
+    orphan_block_pool: Arc<OrphanBlockPool>,
 }
 
 impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
     pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
+        let orphan_block_pool = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
+
         ChainService {
             shared,
             proposal_table,
+            orphan_block_pool,
         }
     }
 
@@ -227,6 +261,8 @@ impl ChainService {
         }
         let tx_control = self.shared.tx_pool_controller().clone();
 
+        let orphan_block_pool_clone = Arc::clone(&self.orphan_block_pool);
+
         let thread = thread_builder
             .spawn(move || loop {
                 select! {
@@ -234,7 +270,7 @@ impl ChainService {
                         break;
                     },
                     recv(process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (block, verify) }) => {
+                        Ok(Request { responder, arguments: (block, verify)}) => {
                             let _ = tx_control.suspend_chunk_process();
                             let _ = responder.send(self.process_block(block, verify));
                             let _ = tx_control.continue_chunk_process();
@@ -264,7 +300,12 @@ impl ChainService {
             "chain".to_string(),
         );
 
-        ChainController::new(process_block_sender, truncate_sender, stop)
+        ChainController::new(
+            orphan_block_pool_clone,
+            process_block_sender,
+            truncate_sender,
+            stop,
+        )
     }
 
     fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
@@ -325,21 +366,156 @@ impl ChainService {
         Ok(())
     }
 
-    // visible pub just for test
-    #[doc(hidden)]
-    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let block_number = block.number();
-        let block_hash = block.hash();
+    /// Blocks are expected to be in order
+    pub(crate) fn accept_block(
+        &mut self,
+        block: Arc<core::BlockView>,
+        mut switch: Switch,
+    ) -> Result<bool, Error> {
+        {
+            // if ChainService doesn't reached assume_valid_target
+            // set switch to `Switch::DISABLE_SCRIPT`
+            // else drop assume_valid_target
 
-        debug!("begin processing block: {}-{}", block_number, block_hash);
-        if block_number < 1 {
-            warn!("receive 0 number block: 0-{}", block_hash);
+            let mut drop_assume_valid_target = false;
+            if let Some(target) = self.shared.assume_valid_target().read().as_ref() {
+                if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                    drop_assume_valid_target = true;
+                } else {
+                    switch = Switch::DISABLE_SCRIPT;
+                }
+            }
+
+            if drop_assume_valid_target {
+                self.shared.assume_valid_target().write().take();
+            }
         }
 
-        self.insert_block(block, switch).map(|ret| {
-            debug!("finish processing block");
-            ret
-        })
+        self.internal_accept_block(block, switch)
+    }
+
+    pub fn internal_accept_block(
+        &mut self,
+        block: Arc<core::BlockView>,
+        switch: Switch,
+    ) -> Result<bool, Error> {
+        let ret = self.insert_block(Arc::clone(&block), switch);
+        if let Err(ref error) = ret {
+            if !is_internal_db_error(error) {
+                error!("accept block {:?} {}", block, error);
+                self.shared
+                    .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+            }
+        } else {
+            // Clear the newly inserted block from block_status_map.
+            //
+            // We don't know whether the actual block status is BLOCK_VALID or BLOCK_INVALID.
+            // So we just simply remove the corresponding in-memory block status,
+            // and the next time `get_block_status` would acquire the real-time
+            // status via fetching block_ext from the database.
+            self.shared.remove_block_status(&block.as_ref().hash());
+            self.shared.remove_header_view(&block.as_ref().hash());
+        }
+
+        ret
+    }
+
+    fn is_stored(&self, block_hash: &Byte32) -> bool {
+        let status = self.shared.get_block_status(block_hash);
+        status.contains(BlockStatus::BLOCK_STORED)
+    }
+
+    /// Blocks are expected to be HEADER_VALID, but may be out of order.
+    pub fn process_block(
+        &mut self,
+        block: Arc<core::BlockView>,
+        switch: Switch,
+    ) -> Result<bool, Error> {
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !self.is_stored(&block.parent_hash()) {
+            debug!(
+                "insert new orphan block {} {}",
+                block.header().number(),
+                block.header().hash()
+            );
+            self.insert_orphan_block((*block).clone());
+            return Ok(false);
+        }
+
+        // Attempt to accept the given block if its parent already exist in database
+        let ret = self.accept_block(Arc::clone(&block), switch);
+        if ret.is_err() {
+            debug!("accept block {:?} {:?}", block, ret);
+            return ret;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        self.try_search_orphan_pool();
+
+        ret
+    }
+
+    pub fn orphan_pool(&self) -> &OrphanBlockPool {
+        &self.orphan_block_pool
+    }
+
+    /// Try to find blocks from the orphan block pool that may no longer be orphan
+    pub fn try_search_orphan_pool(&mut self) {
+        let leaders = self.orphan_pool().clone_leaders();
+        debug!("orphan pool leader parents hash len: {}", leaders.len());
+
+        for hash in leaders {
+            if self.orphan_pool().is_empty() {
+                break;
+            }
+            if self.is_stored(&hash) {
+                let descendants = self.remove_orphan_by_parent(&hash);
+                debug!(
+                    "try accepting {} descendant orphan blocks by exist parents hash",
+                    descendants.len()
+                );
+                for block in descendants {
+                    // If we can not find the block's parent in database, that means it was failed to accept
+                    // its parent, so we treat it as an invalid block as well.
+                    if !self.is_stored(&block.parent_hash()) {
+                        debug!(
+                            "parent-unknown orphan block, block: {}, {}, parent: {}",
+                            block.header().number(),
+                            block.header().hash(),
+                            block.header().parent_hash(),
+                        );
+                        continue;
+                    }
+
+                    let block = Arc::new(block);
+                    if let Err(err) = self.accept_block(Arc::clone(&block), Switch::NONE) {
+                        debug!(
+                            "accept descendant orphan block {} error {:?}",
+                            block.header().hash(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn insert_orphan_block(&self, block: core::BlockView) {
+        self.shared
+            .insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
+        self.orphan_block_pool.insert(block);
+    }
+    pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
+        let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
+        blocks.iter().for_each(|block| {
+            self.shared.remove_block_status(&block.hash());
+        });
+        shrink_to_fit!(
+            self.shared.block_status_map(),
+            BLOCK_STATUS_MAP_SHRINK_THRESHOLD
+        );
+        blocks
     }
 
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
@@ -405,6 +581,7 @@ impl ChainService {
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();
+        let epoch_number = epoch.number();
 
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
@@ -521,6 +698,13 @@ impl ChainService {
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
                     error!("notify new_uncle error {}", e);
                 }
+            }
+        }
+
+        if new_epoch && !self.orphan_pool().is_empty() {
+            let hashes = self.orphan_pool().clean_expired_blocks(epoch_number);
+            for hash in hashes {
+                self.shared.remove_header_view(&hash);
             }
         }
 
