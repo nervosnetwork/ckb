@@ -1,14 +1,10 @@
+use ckb_systemtime::unix_time;
 use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::{
     core::{tx_pool::Reject, BlockView},
     packed,
 };
-use faketime::unix_time;
 use std::time::Duration;
-
-// use ckb_jsonrpc_types as rpc;
-
-pub(crate) type FeeRate = u64;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Block {
@@ -83,7 +79,7 @@ impl Block {
 impl From<PoolTransactionEntry> for Transaction {
     fn from(entry: PoolTransactionEntry) -> Self {
         let hash: packed::Byte32 = entry.transaction.hash();
-        let cycles: u64 = entry.cycles.into();
+        let cycles: u64 = entry.cycles;
         let size: u64 = entry.size as u64;
         let fee: u64 = entry.fee.as_u64();
         let seen_dt = unix_time();
@@ -131,6 +127,9 @@ impl From<(PoolTransactionEntry, Reject)> for RejectedTransaction {
             Reject::Resolve(_) => (RejectedType::Invalid, format!("{}", reject)),
             Reject::Verification(_) => (RejectedType::Invalid, format!("{}", reject)),
             Reject::Expiry(_) => (RejectedType::Exceeded, format!("{}", reject)),
+            Reject::ExceededTransactionSizeLimit(..) => {
+                (RejectedType::Exceeded, format!("{}", reject))
+            }
         };
         Self {
             transaction: entry.into(),

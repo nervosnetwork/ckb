@@ -251,10 +251,8 @@ impl NotifyService {
                     if let Err(e) = subscriber.try_send(block) {
                         error!("notify new block try_send  error {}", e);
                     }
-                } else {
-                    if let Err(e) = subscriber.send(block).await {
-                        error!("notify new block error {}", e);
-                    }
+                } else if let Err(e) = subscriber.send(block).await {
+                    error!("notify new block error {}", e);
                 }
             });
         }

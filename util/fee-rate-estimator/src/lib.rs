@@ -1,3 +1,8 @@
+//! Weight-Units Flow Fee Estimator
+//!
+//! Ref: https://bitcoiner.live/?tab=info
+//!
+
 mod error;
 mod helper;
 mod statistics;

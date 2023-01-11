@@ -1,6 +1,6 @@
 use crate::{helper::PrettyDisplay, types};
+use ckb_systemtime::unix_time;
 use ckb_types::packed;
-use faketime::unix_time;
 use std::{collections::HashMap, time::Duration};
 
 struct Prediction<T>
@@ -24,12 +24,6 @@ where
 impl Validator<Duration> {
     pub(crate) fn target_minutes() -> &'static [u32] {
         &[5, 10, 30, 60, 60 * 2, 60 * 3, 60 * 6, 60 * 12, 60 * 24]
-    }
-}
-
-impl Validator<u64> {
-    pub(crate) fn target_blocks() -> &'static [u32] {
-        &[10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
     }
 }
 

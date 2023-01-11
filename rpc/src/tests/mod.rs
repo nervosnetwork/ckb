@@ -289,7 +289,7 @@ fn setup() -> RpcTestSuite {
     };
 
     let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
+        .enable_chain(shared.clone(), FeeRate::zero())
         .enable_pool(shared.clone(), vec![], vec![])
         .enable_miner(
             shared.clone(),

@@ -699,16 +699,15 @@ dependencies = [
 
 [[package]]
 name = "ckb-fee-rate-estimator"
-version = "0.107.0-pre"
+version = "0.109.0-pre"
 dependencies = [
  "ckb-async-runtime",
- "ckb-jsonrpc-types",
+ "ckb-channel",
  "ckb-logger",
  "ckb-notify",
  "ckb-stop-handler",
+ "ckb-systemtime",
  "ckb-types",
- "ckb-util",
- "faketime",
  "statrs",
  "thiserror",
  "time",
@@ -1206,6 +1205,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-fee-rate-estimator",
  "ckb-indexer",
  "ckb-jsonrpc-types",
  "ckb-launcher",

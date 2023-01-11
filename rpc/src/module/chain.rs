@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
+use ckb_fee_rate_estimator::FeeEstimatorController;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
     Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, OutPoint,
@@ -1534,10 +1535,52 @@ pub trait ChainRpc {
     /// ```
     #[rpc(name = "get_fee_rate_statics")]
     fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>>;
+
+    /// Estimates the approximate fee-rate per kilo-weight needed for a transaction
+    /// according to the  Weight-Units Flow Fee estimate algorithm,
+    /// if the statistics are insufficient will fallback to the mean of the last 21 blocks.
+    ///
+    /// ## Params
+    ///
+    /// * `probability` - set the confidence level [Optimistic (0.5)] [Standard (0.8)] [Cautious (0.9)],
+    /// should be within this range [0.000_001, 0.999_999]
+    ///
+    /// * `target_minutes` - expected time of transaction confirmation,
+    /// should be greater than or equal to 1
+    ///
+    /// ## Returns
+    ///
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "estimate_fee_rate",
+    ///   "params": [0.90,"0xa"]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0xe79d"
+    /// }
+    /// ```
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(&self, probability: f32, target_minutes: Uint32) -> Result<Uint64>;
 }
 
 pub(crate) struct ChainRpcImpl {
     pub shared: Shared,
+    pub min_fee_rate: Uint64,
+    pub fee_rate_estimator: FeeEstimatorController,
 }
 
 const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
@@ -2031,6 +2074,25 @@ impl ChainRpc for ChainRpcImpl {
     fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
+    }
+
+    fn estimate_fee_rate(&self, probability: f32, target_minutes: Uint32) -> Result<Uint64> {
+        let fallback = || {
+            FeeRateCollector::new(self.shared.snapshot().as_ref())
+                .statistics(None)
+                .map(|statistics| statistics.mean)
+                .unwrap_or(self.min_fee_rate)
+        };
+        self.fee_rate_estimator
+            .estimate(probability, target_minutes.into())
+            .map(|opt| opt.map(Into::into).unwrap_or_else(fallback))
+            .or_else(|e| {
+                if e.is_internal() {
+                    Ok(fallback())
+                } else {
+                    Err(RPCError::invalid_params(e.description()))
+                }
+            })
     }
 }
 

@@ -17,8 +17,8 @@ use ckb_sync::SyncShared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, Ratio, TransactionBuilder,
-        TransactionView,
+        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, FeeRate, Ratio,
+        TransactionBuilder, TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
@@ -243,7 +243,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     };
 
     let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
+        .enable_chain(shared.clone(), FeeRate::zero())
         .enable_pool(shared.clone(), vec![], vec![])
         .enable_miner(
             shared.clone(),
@@ -659,6 +659,7 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
         }
         ("generate_block", 42) => return false,
         ("get_fee_rate_statics", 42) => return false,
+        ("estimate_fee_rate", 42) => return false,
         ("generate_block_with_template", 42) => return false,
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,

@@ -374,7 +374,7 @@ impl Launcher {
 
         let rpc_config = self.adjust_rpc_config();
         let builder = ServiceBuilder::new(&rpc_config)
-            .enable_chain(shared.clone())
+            .enable_chain(shared.clone(), self.args.config.tx_pool.min_fee_rate)
             .enable_pool(
                 shared.clone(),
                 rpc_config

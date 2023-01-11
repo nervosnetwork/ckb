@@ -55,6 +55,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `get_block_median_time`](#method-get_block_median_time)
         * [Method `estimate_cycles`](#method-estimate_cycles)
         * [Method `get_fee_rate_statics`](#method-get_fee_rate_statics)
+        * [Method `estimate_fee_rate`](#method-estimate_fee_rate)
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
@@ -1860,6 +1861,53 @@ Response
     "mean": "0xe79d",
     "median": "0x14a8"
    }
+}
+```
+
+
+#### Method `estimate_fee_rate`
+* `estimate_fee_rate(probability, target_minutes)`
+    * `probability`: https://doc.rust-lang.org/1.61.0/std/primitive.f32.html
+    * `target_minutes`: [`Uint32`](#type-uint32)
+* result: [`Uint64`](#type-uint64)
+
+Estimates the approximate fee-rate per kilo-weight needed for a transaction according to the  Weight-Units Flow Fee estimate algorithm, if the statistics are insufficient will fallback to the mean of the last 21 blocks.
+
+###### Params
+
+*
+    `probability` - set the confidence level [Optimistic (0.5)] [Standard (0.8)] [Cautious (0.9)], should be within this range [0.000_001, 0.999_999]
+
+
+*
+    `target_minutes` - expected time of transaction confirmation, should be greater than or equal to 1
+
+
+###### Returns
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "estimate_fee_rate",
+  "params": [0.90,"0xa"]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xe79d"
 }
 ```
 

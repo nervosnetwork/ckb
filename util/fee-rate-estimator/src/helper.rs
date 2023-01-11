@@ -1,3 +1,5 @@
+//! FeeEstimator helper
+
 use std::{convert::TryInto, fmt, time::Duration};
 use time::{macros::format_description, OffsetDateTime};
 

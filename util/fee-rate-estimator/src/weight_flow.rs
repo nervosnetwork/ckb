@@ -8,22 +8,22 @@ use crate::{
 use ckb_async_runtime::{
     tokio::{
         self,
-        sync::{mpsc, oneshot, watch},
+        sync::{mpsc, watch},
     },
     Handle,
 };
+use ckb_channel::oneshot as sync_oneshot;
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
+use ckb_systemtime::unix_time;
 use ckb_types::{
     core::{tx_pool::get_transaction_weight, Capacity, FeeRate},
     packed::Byte32,
 };
-use ckb_util::RwLock;
-use faketime::unix_time;
 use statrs::distribution::{DiscreteCDF as _, Poisson};
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
-type EstimatorResult = Result<Option<u64>>;
+pub type EstimatorResult = Result<Option<u64>>;
 const SUBSCRIBER_NAME: &str = "FeeEstimator";
 const NAME: &str = "weight-flow";
 const FEE_RATE_UNIT: u64 = 1000;
@@ -56,7 +56,7 @@ pub struct FeeEstimator {
     boot_dt: Duration,
     txs: TxAddedQue,
     validator: Validator<Duration>,
-    statistics: Arc<RwLock<Statistics>>,
+    statistics: Statistics,
 }
 
 impl TxStatus {
@@ -154,7 +154,6 @@ impl FeeEstimator {
             let filter_blocks_dt = current_dt - historical_dur;
             let blocks_count = self
                 .statistics
-                .read()
                 .filter_blocks(|dt| dt >= filter_blocks_dt, |_, _| Some(()))
                 .len() as u32;
             if blocks_count == 0 {
@@ -179,7 +178,7 @@ impl FeeEstimator {
         if average_blocks == 0 {
             return None;
         }
-        let current_txs = self.statistics.read().filter_transactions(
+        let current_txs = self.statistics.filter_transactions(
             |_| true,
             |_, tx| {
                 let weight = get_transaction_weight(tx.size() as usize, tx.cycles());
@@ -403,12 +402,49 @@ mod tests {
     }
 }
 
+/// Controller to the FeeEstimator.
+///
+/// The Controller is can be freely cloned.
+#[derive(Clone)]
 pub struct FeeEstimatorController {
-    sender: mpsc::Sender<((f32, u32), oneshot::Sender<EstimatorResult>)>,
+    sender: mpsc::Sender<((f32, u32), sync_oneshot::Sender<EstimatorResult>)>,
     stop_handler: StopHandler<()>,
 }
 
+impl FeeEstimatorController {
+    /// Returns the estimate result based on the input parameters
+    /// probability should be within this range [0.000_001, 0.999_999]
+    /// target_minutes should be greater than or equal to 1
+    pub fn estimate(&self, probability: f32, target_minutes: u32) -> EstimatorResult {
+        let (sender, receiver) = sync_oneshot::channel();
+        if let Err(err) = self
+            .sender
+            .try_send(((probability, target_minutes), sender))
+        {
+            ckb_logger::warn!("failed to send a message {}", err);
+        }
+
+        receiver.recv().unwrap_or_else(|err| {
+            let msg = format!("internal error: broken channel since {}", err);
+            Err(Error::internal(msg))
+        })
+    }
+}
+
+impl Drop for FeeEstimatorController {
+    fn drop(&mut self) {
+        self.stop_handler.try_send(());
+    }
+}
+
+impl Default for FeeEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeeEstimator {
+    /// Construct new FeeEstimator
     pub fn new() -> FeeEstimator {
         let stats = Statistics::new(LIFETIME_MINUTES);
         Self {
@@ -421,13 +457,14 @@ impl FeeEstimator {
         }
     }
 
+    /// Start the FeeEstimator internal service and return the controller
     pub fn start(
         mut self,
         async_handle: &Handle,
         notify_controller: NotifyController,
     ) -> FeeEstimatorController {
         let (sender, mut receiver) =
-            mpsc::channel::<((f32, u32), oneshot::Sender<EstimatorResult>)>(100);
+            mpsc::channel::<((f32, u32), sync_oneshot::Sender<EstimatorResult>)>(100);
         let (stop_sender, mut stop) = watch::channel(WATCH_INIT);
         let stop_handler = StopHandler::new(
             SignalSender::Watch(stop_sender),
@@ -508,7 +545,7 @@ impl FeeEstimator {
             ));
         }
         if !self.can_estimate(target_minutes) {
-            return Err(Error::other("lack of empirical data"));
+            return Err(Error::internal("lack of empirical data"));
         }
         Ok(())
     }
@@ -558,6 +595,7 @@ impl FeeEstimator {
                 ckb_logger::trace!("new-tx: no suitable fee rate");
             }
         }
+        self.statistics.submit_transaction(tx);
     }
 
     fn commit_block(&mut self, block: &types::Block) {
@@ -565,6 +603,7 @@ impl FeeEstimator {
         self.validator.expire(current_dt);
         self.validator.confirm(block);
         self.validator.trace_score();
+        self.statistics.commit_block(block);
     }
 
     fn reject_transaction(&mut self, tx: &types::RejectedTransaction) {
@@ -572,5 +611,6 @@ impl FeeEstimator {
             self.txs.remove_transaction(&tx.hash());
         }
         self.validator.reject(tx);
+        self.statistics.reject_transaction(tx);
     }
 }

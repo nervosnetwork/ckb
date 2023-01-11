@@ -9,13 +9,14 @@ use crate::module::{
 use crate::IoHandler;
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
+use ckb_fee_rate_estimator::FeeEstimator;
 use ckb_indexer::IndexerService;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_types::packed::Script;
+use ckb_types::{core::FeeRate, packed::Script};
 use ckb_util::Mutex;
 use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
@@ -38,8 +39,15 @@ impl<'a> ServiceBuilder<'a> {
     }
 
     /// Mounts methods from module Chain if it is enabled in the config.
-    pub fn enable_chain(mut self, shared: Shared) -> Self {
-        let rpc_methods = ChainRpcImpl { shared }.to_delegate();
+    pub fn enable_chain(mut self, shared: Shared, min_fee_rate: FeeRate) -> Self {
+        let fee_rate_estimator =
+            FeeEstimator::new().start(shared.async_handle(), shared.notify_controller().clone());
+        let rpc_methods = ChainRpcImpl {
+            shared,
+            fee_rate_estimator,
+            min_fee_rate: min_fee_rate.as_u64().into(),
+        }
+        .to_delegate();
         if self.config.chain_enable() {
             self.add_methods(rpc_methods);
         } else {

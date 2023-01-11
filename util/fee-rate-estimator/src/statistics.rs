@@ -1,13 +1,12 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-    time::Duration,
-};
+//! FeeEstimator statistics
 
 use crate::helper::PrettyDisplay;
 use crate::types;
 use ckb_types::packed::Byte32;
-use ckb_util::RwLock;
+use std::{
+    collections::{HashMap, VecDeque},
+    time::Duration,
+};
 
 #[derive(Default)]
 struct BlockTable {
@@ -188,17 +187,12 @@ impl TransactionTable {
 }
 
 impl Statistics {
-    pub(crate) fn new(lifetime_minutes: u32) -> Arc<RwLock<Self>> {
+    pub(crate) fn new(lifetime_minutes: u32) -> Self {
         let lifetime_dur = Duration::from_secs(u64::from(lifetime_minutes) * 60);
-        let stats = Self {
+        Self {
             lifetime_dur,
             ..Default::default()
-        };
-        Arc::new(RwLock::new(stats))
-    }
-
-    pub(crate) fn current_number(&self) -> u64 {
-        self.current_number
+        }
     }
 
     pub(crate) fn submit_transaction(&mut self, tx: &types::Transaction) {
