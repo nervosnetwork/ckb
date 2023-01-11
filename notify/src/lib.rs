@@ -49,7 +49,7 @@ pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
 /// TODO(doc): @quake
-pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
+pub type NotifyRegister<S, M> = Sender<Request<S, Receiver<M>>>;
 
 /// watcher request type alias
 pub type NotifyWatcher<M> = Sender<Request<String, watch::Receiver<M>>>;
@@ -85,20 +85,22 @@ impl NotifyTimeout {
     }
 }
 
+type Name = String;
+
 /// TODO(doc): @quake
 #[derive(Clone)]
 pub struct NotifyController {
     stop: StopHandler<()>,
-    new_block_register: NotifyRegister<BlockView>,
+    new_block_register: NotifyRegister<(Name, bool), BlockView>,
     new_block_watcher: NotifyWatcher<Byte32>,
     new_block_notifier: Sender<BlockView>,
-    new_transaction_register: NotifyRegister<PoolTransactionEntry>,
+    new_transaction_register: NotifyRegister<Name, PoolTransactionEntry>,
     new_transaction_notifier: Sender<PoolTransactionEntry>,
-    proposed_transaction_register: NotifyRegister<PoolTransactionEntry>,
+    proposed_transaction_register: NotifyRegister<Name, PoolTransactionEntry>,
     proposed_transaction_notifier: Sender<PoolTransactionEntry>,
-    reject_transaction_register: NotifyRegister<(PoolTransactionEntry, Reject)>,
+    reject_transaction_register: NotifyRegister<Name, (PoolTransactionEntry, Reject)>,
     reject_transaction_notifier: Sender<(PoolTransactionEntry, Reject)>,
-    network_alert_register: NotifyRegister<Alert>,
+    network_alert_register: NotifyRegister<Name, Alert>,
     network_alert_notifier: Sender<Alert>,
     handle: Handle,
 }
@@ -112,12 +114,12 @@ impl Drop for NotifyController {
 /// TODO(doc): @quake
 pub struct NotifyService {
     config: NotifyConfig,
-    new_block_subscribers: HashMap<String, Sender<BlockView>>,
-    new_block_watchers: HashMap<String, watch::Sender<Byte32>>,
-    new_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
-    proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
-    reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
-    network_alert_subscribers: HashMap<String, Sender<Alert>>,
+    new_block_subscribers: HashMap<Name, (Sender<BlockView>, bool)>,
+    new_block_watchers: HashMap<Name, watch::Sender<Byte32>>,
+    new_transaction_subscribers: HashMap<Name, Sender<PoolTransactionEntry>>,
+    proposed_transaction_subscribers: HashMap<Name, Sender<PoolTransactionEntry>>,
+    reject_transaction_subscribers: HashMap<Name, Sender<(PoolTransactionEntry, Reject)>>,
+    network_alert_subscribers: HashMap<Name, Sender<Alert>>,
     timeout: NotifyTimeout,
     handle: Handle,
 }
@@ -224,14 +226,14 @@ impl NotifyService {
         let _ = responder.send(receiver);
     }
 
-    fn handle_register_new_block(&mut self, msg: Request<String, Receiver<BlockView>>) {
+    fn handle_register_new_block(&mut self, msg: Request<(String, bool), Receiver<BlockView>>) {
         let Request {
             responder,
-            arguments: name,
+            arguments: (name, lossy),
         } = msg;
         debug!("Register new_block {:?}", name);
         let (sender, receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
-        self.new_block_subscribers.insert(name, sender);
+        self.new_block_subscribers.insert(name, (sender, lossy));
         let _ = responder.send(receiver);
     }
 
@@ -239,12 +241,20 @@ impl NotifyService {
         trace!("event new block {:?}", block);
         let block_hash = block.hash();
         // notify all subscribers
-        for subscriber in self.new_block_subscribers.values() {
+        for (subscriber, lossy) in self.new_block_subscribers.values() {
             let block = block.clone();
             let subscriber = subscriber.clone();
+            let lossy = *lossy;
             self.handle.spawn(async move {
-                if let Err(e) = subscriber.send(block).await {
-                    error!("notify new block error {}", e);
+                if lossy {
+                    // Send no message rather than blocking if the buffer is full
+                    if let Err(e) = subscriber.try_send(block) {
+                        error!("notify new block try_send  error {}", e);
+                    }
+                } else {
+                    if let Err(e) = subscriber.send(block).await {
+                        error!("notify new block error {}", e);
+                    }
                 }
             });
         }
@@ -421,8 +431,12 @@ impl NotifyService {
 
 impl NotifyController {
     /// TODO(doc): @quake
-    pub async fn subscribe_new_block<S: ToString>(&self, name: S) -> Receiver<BlockView> {
-        Request::call(&self.new_block_register, name.to_string())
+    pub async fn subscribe_new_block<S: ToString>(
+        &self,
+        name: S,
+        lossy: bool,
+    ) -> Receiver<BlockView> {
+        Request::call(&self.new_block_register, (name.to_string(), lossy))
             .await
             .expect("Subscribe new block should be OK")
     }

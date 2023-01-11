@@ -275,8 +275,8 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 
 impl SubscriptionRpcImpl {
     pub fn new(notify_controller: NotifyController, handle: Handle) -> Self {
-        let mut new_block_receiver =
-            handle.block_on(notify_controller.subscribe_new_block(SUBSCRIBER_NAME.to_string()));
+        let mut new_block_receiver = handle
+            .block_on(notify_controller.subscribe_new_block(SUBSCRIBER_NAME.to_string(), true));
         let mut new_transaction_receiver = handle
             .block_on(notify_controller.subscribe_new_transaction(SUBSCRIBER_NAME.to_string()));
         let mut proposed_transaction_receiver = handle.block_on(

@@ -437,7 +437,7 @@ impl FeeEstimator {
 
         async_handle.spawn(async move {
             let mut new_block_receiver = notify_controller
-                .subscribe_new_block(SUBSCRIBER_NAME.to_string())
+                .subscribe_new_block(SUBSCRIBER_NAME.to_string(), true)
                 .await;
             let mut new_transaction_receiver = notify_controller
                 .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
