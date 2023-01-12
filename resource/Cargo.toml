@@ -1,6 +1,6 @@
 [package]
 name = "ckb-resource"
-version = "0.107.0-pre"
+version = "0.107.0-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -13,13 +13,13 @@ repository = "https://github.com/nervosnetwork/ckb"
 phf = "0.8.0"
 includedir = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
-ckb-types = { path = "../util/types", version = "= 0.107.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.107.0-rc1" }
 ckb-system-scripts = { version = "= 0.5.4" }
 
 [build-dependencies]
 includedir_codegen = "0.6.0"
 walkdir = "2.1.4"
-ckb-types = { path = "../util/types", version = "= 0.107.0-pre" }
+ckb-types = { path = "../util/types", version = "= 0.107.0-rc1" }
 ckb-system-scripts = { version = "= 0.5.4" }
 
 [dev-dependencies]
