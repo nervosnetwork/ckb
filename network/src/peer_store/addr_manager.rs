@@ -22,15 +22,8 @@ impl AddrManager {
                 .get(&addr_info.addr)
                 .map(|addr| addr.last_connected_at_ms)
             {
-                // replace exists addr if has later last_connected_at_ms
-                if addr_info.last_connected_at_ms > exists_last_connected_at_ms {
-                    if let Some(old) = self.remove(&addr_info.addr) {
-                        // init from `add_outbound_addr`
-                        if addr_info.flags == 0 {
-                            addr_info.flags = old.flags;
-                        }
-                    }
-                } else {
+                // Get time earlier than record time, return directly
+                if addr_info.last_connected_at_ms < exists_last_connected_at_ms {
                     return;
                 }
             }
