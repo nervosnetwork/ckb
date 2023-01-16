@@ -63,7 +63,7 @@ fn test_accept_block() {
                     (peer_index, (vec![1], vec![0])),
                     (other_peer_index, (vec![1], vec![])),
                 ]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }
@@ -126,7 +126,7 @@ fn test_unknown_request() {
             (
                 compact_block,
                 HashMap::from_iter(vec![(foo_peer_index, (vec![1], vec![]))]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }
@@ -191,7 +191,7 @@ fn test_invalid_transaction_root() {
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }
@@ -287,7 +287,7 @@ fn test_collision_and_send_missing_indexes() {
             (
                 compact_block,
                 vec![(peer_index, (vec![1], vec![]))].into_iter().collect(),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }
@@ -401,7 +401,7 @@ fn test_missing() {
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }

@@ -5,7 +5,7 @@ use ckb_jsonrpc_types::{
 };
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
-use faketime::unix_time_as_millis;
+use ckb_systemtime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;

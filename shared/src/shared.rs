@@ -12,6 +12,7 @@ use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainDB, ChainStore};
+use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
@@ -20,7 +21,6 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerificationCache;
-use faketime::unix_time_as_millis;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};

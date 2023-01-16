@@ -90,8 +90,8 @@ fn inflight_blocks_state() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn inflight_blocks_timeout() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
     let mut inflight_blocks = InflightBlocks::default();
     inflight_blocks.protect_num = 0;
 
@@ -103,7 +103,7 @@ fn inflight_blocks_timeout() {
     assert!(inflight_blocks.insert(2.into(), (5, h256!("0x5").pack()).into()));
     assert!(!inflight_blocks.insert(2.into(), (5, h256!("0x5").pack()).into()));
 
-    faketime::write_millis(&faketime_file, BLOCK_DOWNLOAD_TIMEOUT + 1).expect("write millis");
+    _faketime_guard.set_faketime(BLOCK_DOWNLOAD_TIMEOUT + 1);
 
     assert!(!inflight_blocks.insert(3.into(), (3, h256!("0x3").pack()).into()));
     assert!(!inflight_blocks.insert(3.into(), (2, h256!("0x2").pack()).into()));
@@ -143,8 +143,8 @@ fn inflight_blocks_timeout() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn inflight_trace_number_state() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let mut inflight_blocks = InflightBlocks::default();
     inflight_blocks.protect_num = 0;
@@ -180,7 +180,7 @@ fn inflight_trace_number_state() {
         ])
     );
 
-    faketime::write_millis(&faketime_file, 2000).expect("write millis");
+    _faketime_guard.set_faketime(2000);
 
     let list = inflight_blocks.prune(2);
     assert!(list.is_empty());

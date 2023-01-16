@@ -6,6 +6,7 @@ use crate::{
 };
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_types::{
     constants::BLOCK_VERSION,
@@ -13,7 +14,6 @@ use ckb_types::{
     packed::Header,
     prelude::*,
 };
-use faketime::unix_time_as_millis;
 
 use super::BuilderBaseOnBlockNumber;
 
@@ -42,8 +42,8 @@ pub fn test_version() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_timestamp() {
-    let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
     let parent_hash = fake_block_median_time_context.get_block_hash(99);
     let timestamp = unix_time_as_millis() + 1;
@@ -63,8 +63,8 @@ fn test_timestamp() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_timestamp_too_old() {
-    let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
     let parent_hash = fake_block_median_time_context.get_block_hash(99);
 
@@ -92,8 +92,8 @@ fn test_timestamp_too_old() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_timestamp_too_new() {
-    let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
     let parent_hash = fake_block_median_time_context.get_block_hash(99);
 

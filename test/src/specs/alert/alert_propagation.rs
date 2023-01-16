@@ -38,7 +38,7 @@ impl Spec for AlertPropagation {
         connect_all(nodes);
 
         let node0 = &nodes[0];
-        let notice_until = faketime::unix_time_as_millis() + 100_000;
+        let notice_until = ckb_systemtime::unix_time_as_millis() + 100_000;
 
         // create and relay alert
         let id1: u32 = 42;

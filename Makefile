@@ -19,13 +19,19 @@ GRCOV_EXCL_STOP  = ^\s*\)(;)?$$
 GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_)?assert(_eq|_ne|_error_eq))!\(.*\)(;)?$$
 
 ##@ Testing
+.PHONY: doc-test
+doc-test: ## Run doc tests
+	cargo test --all --doc
+
 .PHONY: test
-test: quick-test ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture --ignored
+test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
+	$(MAKE) doc-test
 
 .PHONY: quick-test
 quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
+	$(MAKE) doc-test
 
 .PHONY: cov-install-tools
 cov-install-tools:

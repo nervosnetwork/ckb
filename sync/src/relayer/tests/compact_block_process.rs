@@ -4,6 +4,7 @@ use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtoco
 use crate::{Status, StatusCode};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -11,7 +12,6 @@ use ckb_types::{
     core::{BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
 };
-use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -351,7 +351,7 @@ fn test_accept_block() {
             (
                 mock_compact_block_1,
                 HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
 
@@ -360,7 +360,7 @@ fn test_accept_block() {
             (
                 mock_compact_block_2,
                 HashMap::from_iter(vec![(1.into(), (vec![1], vec![0]))]),
-                faketime::unix_time_as_millis(),
+                ckb_systemtime::unix_time_as_millis(),
             ),
         );
     }

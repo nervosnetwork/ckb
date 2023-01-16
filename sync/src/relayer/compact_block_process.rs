@@ -9,6 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderProvider;
 use ckb_types::core::HeaderView;
 use ckb_types::packed::Byte32;
@@ -18,7 +19,6 @@ use ckb_util::shrink_to_fit;
 use ckb_util::MutexGuard;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
-use faketime::unix_time_as_millis;
 use std::collections::HashMap;
 use std::sync::Arc;
 

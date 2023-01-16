@@ -2,8 +2,8 @@ use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_pow::PowEngine;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed::Byte32;
-use faketime::unix_time_as_millis;
 use std::path::PathBuf;
 use std::sync::Arc;
 

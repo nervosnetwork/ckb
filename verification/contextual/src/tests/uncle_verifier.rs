@@ -59,8 +59,8 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
 }
 
 fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let mut consensus = Consensus::default();
     consensus.max_block_proposals_limit = 3;
@@ -72,7 +72,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     let mut chain1: Vec<BlockView> = Vec::new();
     let mut chain2: Vec<BlockView> = Vec::new();
 
-    faketime::write_millis(&faketime_file, 10).expect("write millis");
+    _faketime_guard.set_faketime(10);
 
     let genesis = shared
         .store()

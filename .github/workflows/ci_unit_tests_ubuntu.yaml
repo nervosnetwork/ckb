@@ -57,6 +57,8 @@ jobs:
         profile: minimal
         toolchain: 1.61.0
     - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
     - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then

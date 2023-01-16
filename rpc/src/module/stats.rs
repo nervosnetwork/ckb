@@ -121,7 +121,7 @@ impl StatsRpc for StatsRpcImpl {
         let difficulty = tip_header.difficulty();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let alerts: Vec<AlertMessage> = {
-            let now = faketime::unix_time_as_millis();
+            let now = ckb_systemtime::unix_time_as_millis();
             let mut notifier = self.alert_notifier.lock();
             notifier.clear_expired_alerts(now);
             notifier

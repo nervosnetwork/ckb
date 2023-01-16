@@ -18,7 +18,7 @@ ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.107.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.107.0-pre"}
 ckb-app-config = { path = "../app-config", version = "= 0.107.0-pre" }
 ckb-error = { path = "../../error", version = "= 0.107.0-pre" }
-faketime = "0.2.0"
+ckb-systemtime = { path = "../systemtime", version = "= 0.107.0-pre" }
 lru = "0.7.1"
 semver = "1.0"
 
@@ -27,3 +27,4 @@ ckb-crypto = { path = "../crypto", version = "= 0.107.0-pre" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.107.0-pre" }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.107.0-pre" }
 once_cell = "1.8.0"
+ckb-systemtime = {path = "../systemtime", version = "= 0.107.0-pre", features = ["enable_faketime"]}
