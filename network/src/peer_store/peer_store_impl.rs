@@ -91,7 +91,7 @@ impl PeerStore {
             return;
         }
         if let Some(info) = self.addr_manager.get_mut(&addr) {
-            info.last_connected_at_ms = ckb_systemtime::unix_time_as_millis()
+            info.last_connected_at_ms = faketime::unix_time_as_millis()
         }
     }
 
