@@ -46,7 +46,7 @@ pub trait AddressManager {
     fn misbehave(&mut self, session: &SessionContext, kind: &Misbehavior) -> MisbehaveResult;
     fn get_random(&mut self, n: usize, target: Flags) -> Vec<(Multiaddr, Flags)>;
     fn required_flags(&self) -> Flags;
-    fn node_flags(&self, id: SessionId) -> Flags;
+    fn node_flags(&self, id: SessionId) -> Option<Flags>;
 }
 
 // bitcoin: bloom.h, bloom.cpp => CRollingBloomFilter

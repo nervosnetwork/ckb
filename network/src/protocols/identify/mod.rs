@@ -374,19 +374,9 @@ impl Callback for IdentifyCallback {
             // Due to the filtering strategy of the peer store, if the node is
             // disconnected after a long connection is maintained for more than seven days,
             // it is possible that the node will be accidentally evicted, so it is necessary
-            // to reset the information of the node when disconnected.
-            let flags = self.network_state.with_peer_registry(|reg| {
-                if let Some(p) = reg.get_peer(context.session.id) {
-                    p.identify_info
-                        .as_ref()
-                        .map(|i| i.flags)
-                        .unwrap_or(Flags::COMPATIBILITY)
-                } else {
-                    Flags::COMPATIBILITY
-                }
-            });
+            // to reset the last_connected_time of the node when disconnected.
             self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                peer_store.update_outbound_addr_last_connected_ms(context.session.address.clone());
             });
         }
     }
