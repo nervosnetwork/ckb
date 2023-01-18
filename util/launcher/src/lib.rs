@@ -342,7 +342,7 @@ impl Launcher {
 
         let alert_signature_config = self.args.config.alert_signature.clone().unwrap_or_default();
         let alert_relayer = AlertRelayer::new(
-            self.version.to_string(),
+            self.version.short(),
             shared.notify_controller().clone(),
             alert_signature_config,
         );
