@@ -85,6 +85,16 @@ impl PeerStore {
         ));
     }
 
+    /// Update outbound peer last connected ms
+    pub fn update_outbound_addr_last_connected_ms(&mut self, addr: Multiaddr) {
+        if self.ban_list.is_addr_banned(&addr) {
+            return;
+        }
+        if let Some(info) = self.addr_manager.get_mut(&addr) {
+            info.last_connected_at_ms = faketime::unix_time_as_millis()
+        }
+    }
+
     /// Get address manager
     pub fn addr_manager(&self) -> &AddrManager {
         &self.addr_manager

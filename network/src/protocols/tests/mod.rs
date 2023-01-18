@@ -48,6 +48,12 @@ impl Node {
         self.control.dial(addr, protocol).unwrap();
     }
 
+    fn disconnect_all(&self) {
+        for id in self.connected_sessions() {
+            self.control.disconnect(id).unwrap();
+        }
+    }
+
     fn session_num(&self) -> usize {
         self.connected_sessions().len()
     }
@@ -679,4 +685,58 @@ fn test_bootnode_mode_inbound_eviction() {
 
     // Normal connection, 2 + 1
     wait_connect_state(&node1, 3);
+}
+
+#[test]
+fn test_dont_reset_peer_flags_on_disconnect() {
+    let node1 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::all(),
+    );
+    let node2 = net_service_start(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::all(),
+    );
+
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node1, 1);
+
+    let check_flags = |node: &Node| {
+        for info in node
+            .network_state
+            .peer_store
+            .lock()
+            .addr_manager()
+            .addrs_iter()
+        {
+            assert_eq!(info.flags, Flags::all().bits())
+        }
+    };
+
+    check_flags(&node1);
+    check_flags(&node2);
+    node1.disconnect_all();
+
+    check_flags(&node1);
+    check_flags(&node2);
+
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node1, 1);
+
+    check_flags(&node1);
+    check_flags(&node2);
 }
