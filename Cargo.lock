@@ -1041,9 +1041,11 @@ dependencies = [
  "ckb-systemtime",
  "ckb-types",
  "ckb-util",
+ "faster-hex",
  "lru",
  "once_cell",
  "semver",
+ "serde_json",
 ]
 
 [[package]]
