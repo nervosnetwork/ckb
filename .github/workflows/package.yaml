@@ -233,7 +233,8 @@ jobs:
       run: |
         devtools/windows/make prod
     - name: Download ckb-cli
-      run: curl -LO https://github.com/nervosnetwork/ckb-cli/releases/download/$($env:CKB_CLI_VERSION)/ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip
+      run: |
+        iwr -useb 'https://github.com/nervosnetwork/ckb-cli/releases/download/$($env:CKB_CLI_VERSION)/ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip' -outfile 'ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip'
     - name: Prepare archive
       run: |
         $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
