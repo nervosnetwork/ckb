@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.67.0.
 
 
 ## Table of Contents
@@ -1876,9 +1876,7 @@ The methods here may be removed or changed in future releases without prior noti
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
 
-👎 Deprecated since 0.105.1:
-Please use the RPC method [`estimate_cycles`](#method-estimate_cycles) instead
-
+👎Deprecated since 0.105.1: Please use the RPC method [`estimate_cycles`](#method-estimate_cycles) instead
 
 Dry run a transaction and return the execution cycles.
 
@@ -5283,22 +5281,7 @@ The JSON view of a Block including header and body.
 
 ### Type `Byte32`
 
-Fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
-
-##### Example
-
-
-```
-0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000
-```
-
-
-#### Fields
-
-`Byte32` is a JSON object with the following fields.
-
-*   `0`: https://doc.rust-lang.org/1.61.0/std/primitive.array.html - Creates Bytes from the array.
-
+The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `Capacity`
 
@@ -5662,7 +5645,7 @@ An object containing various state info regarding deployments of consensus chang
 
 `DeploymentInfo` is a JSON object with the following fields.
 
-*   `bit`: https://doc.rust-lang.org/1.61.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+*   `bit`: https://doc.rust-lang.org/1.67.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
 
 *   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
 
@@ -5809,18 +5792,7 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 
 ### Type `H256`
 
-The 32-byte fixed-length binary data.
-
-The name comes from the number of bits in the data.
-
-In JSONRPC, it is encoded as a 0x-prefixed hex string.
-
-#### Fields
-
-`H256` is a JSON object with the following fields.
-
-*   `0`: https://doc.rust-lang.org/1.61.0/std/primitive.array.html - Converts `Self` to a byte slice.
-
+The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `HardForkFeature`
 

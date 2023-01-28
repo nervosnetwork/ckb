@@ -121,7 +121,7 @@ impl RocksDB {
         let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
-        OptimisticTransactionDB::open_cf(&opts, path, &cf_options).map_or_else(
+        OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
             |err| {
                 let err_str = err.as_ref();
                 if err_str.starts_with("Invalid argument:")

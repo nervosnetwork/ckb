@@ -14,7 +14,7 @@ macro_rules! impl_serde {
                 dst[0] = b'0';
                 dst[1] = b'x';
                 faster_hex::hex_encode(bytes, &mut dst[2..])
-                    .map_err(|e| serde::ser::Error::custom(&format!("{}", e)))?;
+                    .map_err(|e| serde::ser::Error::custom(format!("{}", e)))?;
                 serializer.serialize_str(unsafe { ::std::str::from_utf8_unchecked(&dst) })
             }
         }

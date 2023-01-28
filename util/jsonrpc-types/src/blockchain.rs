@@ -214,7 +214,7 @@ impl From<packed::OutPoint> for OutPoint {
 impl From<OutPoint> for packed::OutPoint {
     fn from(json: OutPoint) -> Self {
         let OutPoint { tx_hash, index } = json;
-        let index = index.value() as u32;
+        let index = index.value();
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash.pack())
             .index(index.pack())

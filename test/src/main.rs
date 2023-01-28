@@ -466,8 +466,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
             "send_multisig_secp_tx_use_dep_group_type_hash",
             ScriptHashType::Type,
         )),
-        Box::new(CheckTypical2In2OutTx::default()),
-        Box::new(AlertPropagation::default()),
+        Box::<ckb_test::specs::CheckTypical2In2OutTx>::default(),
+        Box::<ckb_test::specs::AlertPropagation>::default(),
         // TODO These cases will fail occasionally because of some unknown
         // asynchronous issues.
         Box::new(IBDProcess),
@@ -615,7 +615,7 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
         return Ok(());
     };
 
-    let mut f = File::create(&path)?;
+    let mut f = File::create(path)?;
     for name in error_spec_names {
         writeln!(&mut f, "ckb-test failed on spec {}", name)?;
     }
@@ -633,8 +633,8 @@ fn print_results(mut test_results: Vec<TestResult>) {
         println!(
             "{:50} | {:10} | {:<10}",
             result.spec_name,
-            format_args!("{:?}", result.status),
-            format_args!("{} s", result.duration),
+            format!("{:?}", result.status),
+            format!("{} s", result.duration),
         );
     }
 }

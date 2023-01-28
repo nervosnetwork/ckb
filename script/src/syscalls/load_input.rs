@@ -108,7 +108,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
             self.load_full(machine, &input)?
         };
 
-        machine.add_cycles_no_checking(transferred_byte_cycles(len as u64))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(len))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

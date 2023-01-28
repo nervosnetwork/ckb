@@ -72,7 +72,7 @@ impl serde::Serialize for Byte32 {
         buffer[0] = b'0';
         buffer[1] = b'x';
         hex_encode(&self.0, &mut buffer[2..])
-            .map_err(|e| serde::ser::Error::custom(&format!("{}", e)))?;
+            .map_err(|e| serde::ser::Error::custom(format!("{}", e)))?;
         serializer.serialize_str(unsafe { ::std::str::from_utf8_unchecked(&buffer) })
     }
 }

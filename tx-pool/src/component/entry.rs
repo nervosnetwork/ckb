@@ -120,7 +120,7 @@ impl TxEntry {
             size: self.size as u64,
             fee: self.fee,
             ancestors_size: self.ancestors_size as u64,
-            ancestors_cycles: self.ancestors_cycles as u64,
+            ancestors_cycles: self.ancestors_cycles,
             ancestors_count: self.ancestors_count as u64,
             timestamp: self.timestamp,
         }

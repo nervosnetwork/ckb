@@ -858,7 +858,7 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
 
     prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(hash_len));
 
-    for (i, addr) in (addr..addr + hash_len as u64).enumerate() {
+    for (i, addr) in (addr..addr + hash_len).enumerate() {
         prop_assert_eq!(
             machine.memory_mut().load8(&addr),
             Ok(u64::from(hash.as_slice()[i]))
@@ -902,7 +902,7 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
 
     prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(tx_len));
 
-    for (i, addr) in (addr..addr + tx_len as u64).enumerate() {
+    for (i, addr) in (addr..addr + tx_len).enumerate() {
         prop_assert_eq!(
             machine.memory_mut().load8(&addr),
             Ok(u64::from(tx.as_slice()[i]))

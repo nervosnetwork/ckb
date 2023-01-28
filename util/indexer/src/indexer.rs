@@ -859,7 +859,7 @@ where
         out_point: &OutPoint,
     ) -> Result<Option<DetailedLiveCell>, Error> {
         let key_vec = Key::OutPoint(out_point).into_vec();
-        let (block_number, tx_index, cell_output, cell_data) = match self.store.get(&key_vec)? {
+        let (block_number, tx_index, cell_output, cell_data) = match self.store.get(key_vec)? {
             Some(stored_cell) => Value::parse_cell_value(&stored_cell),
             None => return Ok(None),
         };
