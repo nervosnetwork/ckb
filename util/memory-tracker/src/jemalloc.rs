@@ -9,10 +9,10 @@ use std::{ffi, mem, ptr};
 ///
 /// [Jemallocator]: https://docs.rs/jemallocator/*/jemallocator/index.html
 pub fn jemalloc_profiling_dump(filename: &str) -> Result<(), String> {
-    let mut filename0 = format!("{}\0", filename);
+    let mut filename0 = format!("{filename}\0");
     let opt_name = "prof.dump";
     let opt_c_name = ffi::CString::new(opt_name).unwrap();
-    info!("jemalloc profiling dump: {}", filename);
+    info!("jemalloc profiling dump: {filename}");
     unsafe {
         jemalloc_sys::mallctl(
             opt_c_name.as_ptr(),

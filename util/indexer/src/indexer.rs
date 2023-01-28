@@ -899,7 +899,7 @@ where
             s.1 += key.len();
             s.2 += value.len();
         }
-        println!("{:?}", statistics);
+        println!("{statistics:?}");
         Ok(())
     }
 }
@@ -985,7 +985,7 @@ impl CustomFilters {
                     .unwrap();
                 let mut scope = Scope::new();
                 scope.push("output", parsed_output);
-                scope.push("output_data", format!("{:#x}", output_data));
+                scope.push("output_data", format!("{output_data:#x}"));
                 self.engine
                     .eval_ast_with_scope(&mut scope, cell_filter)
                     .expect("eval cell_filter should be ok")

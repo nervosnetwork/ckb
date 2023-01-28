@@ -34,8 +34,7 @@ impl Spec for BootstrapCellbase {
         (1..=node.get_tip_block_number()).for_each(|number| {
             assert!(
                 is_bootstrap_cellbase(number),
-                "The {} block's cellbase should be bootstrap_cellbase",
-                number
+                "The {number} block's cellbase should be bootstrap_cellbase"
             );
         });
 

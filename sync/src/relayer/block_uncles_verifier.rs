@@ -27,7 +27,7 @@ impl BlockUnclesVerifier {
             let hash = uncle.hash();
             if hash != expected_id {
                 return StatusCode::BlockUnclesAreUnmatchedWithPendingCompactBlock
-                    .with_context(format!("Expected({}) != actual({})", expected_id, hash,));
+                    .with_context(format!("Expected({expected_id}) != actual({hash})"));
             }
         }
 

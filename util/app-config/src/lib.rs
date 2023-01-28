@@ -428,7 +428,7 @@ fn is_daemon(subcommand_name: &str) -> bool {
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
     spec.build_consensus().map_err(|err| {
-        eprintln!("chainspec error: {}", err);
+        eprintln!("chainspec error: {err}");
         ExitCode::Config
     })
 }

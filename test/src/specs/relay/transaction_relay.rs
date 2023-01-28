@@ -156,8 +156,7 @@ impl Spec for RelayInvalidTransaction {
         assert_eq!(
             banned_addrs.len(),
             1,
-            "Net should be banned: {:?}",
-            banned_addrs
+            "Net should be banned: {banned_addrs:?}"
         );
     }
 }

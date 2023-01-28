@@ -32,7 +32,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
         return Err(ExitCode::Failure);
     }
     let tmp_db_dir = tempfile::tempdir_in(args.tmp_target).map_err(|err| {
-        eprintln!("replay error: {:?}", err);
+        eprintln!("replay error: {err:?}");
         ExitCode::Failure
     })?;
     {
@@ -59,7 +59,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
         }
     }
     tmp_db_dir.close().map_err(|err| {
-        eprintln!("replay error: {:?}", err);
+        eprintln!("replay error: {err:?}");
         ExitCode::Failure
     })?;
 
@@ -73,7 +73,7 @@ fn profile(shared: Shared, mut chain: ChainService, from: Option<u64>, to: Optio
         .map(|v| std::cmp::min(v, tip_number))
         .unwrap_or(tip_number);
     process_range_block(&shared, &mut chain, 1..from);
-    println!("start profiling, re-process blocks {}..{}:", from, to);
+    println!("start profiling, re-process blocks {from}..{to}:");
     let now = std::time::Instant::now();
     let tx_count = process_range_block(&shared, &mut chain, from..=to);
     let duration = std::time::Instant::now().saturating_duration_since(now);

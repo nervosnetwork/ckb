@@ -48,7 +48,7 @@ struct CellMemoryDb {
 impl CellProvider for CellMemoryDb {
     fn cell(&self, o: &OutPoint, _eager_load: bool) -> CellStatus {
         match self.cells.get(o) {
-            Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
+            Some(Some(cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
             Some(&None) => CellStatus::Dead,
             None => CellStatus::Unknown,
         }

@@ -82,8 +82,7 @@ impl Spec for GetBlockFilterCheckPoints {
                         assert_eq!(
                             &expected_hash,
                             hashes[i as usize].as_slice(),
-                            "block number: {}",
-                            number,
+                            "block number: {number}"
                         );
                     }
                     info!("block_filter_hashes matched");
@@ -175,8 +174,7 @@ impl Spec for GetBlockFilterHashes {
                         assert_eq!(
                             &expected_hash,
                             hashes[i as usize].as_slice(),
-                            "block number: {}",
-                            number,
+                            "block number: {number}"
                         );
                     }
                     info!("block_filter_hashes matched");
@@ -253,13 +251,11 @@ impl Spec for GetBlockFilters {
                         assert_eq!(
                             header.hash(),
                             block_hashes[i as usize],
-                            "block hash not match, block number: {}",
-                            number,
+                            "block hash not match, block number: {number}"
                         );
                         assert_eq!(
                             block_filter, filters[i as usize],
-                            "block filter not match, block number: {}",
-                            number,
+                            "block filter not match, block number: {number}"
                         );
                     }
                     info!("block hashes/filters matched");
@@ -290,7 +286,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
         net.connect(&node);
         let filters_count = 123;
         let start_number: u64 = total - filters_count + 1;
-        info!("start_number: {}", start_number);
+        info!("start_number: {start_number}");
         let request = {
             let content = packed::GetBlockFilters::new_builder()
                 .start_number(start_number.pack())
@@ -339,13 +335,11 @@ impl Spec for GetBlockFiltersNotReachBatch {
                         assert_eq!(
                             header.hash(),
                             block_hashes[i as usize],
-                            "block hash not match, block number: {}",
-                            number,
+                            "block hash not match, block number: {number}"
                         );
                         assert_eq!(
                             block_filter, filters[i as usize],
-                            "block filter not match, block number: {}",
-                            number,
+                            "block filter not match, block number: {number}"
                         );
                     }
                     info!("block hashes/filters matched");

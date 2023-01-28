@@ -280,7 +280,7 @@ impl TryFrom<TransactionState<'_>> for TransactionSnapshot {
                 (
                     Some((
                         make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                            ScriptError::VMInternalError(format!("{:?}", e)).unknown_source()
+                            ScriptError::VMInternalError(format!("{e:?}")).unknown_source()
                         })?,
                         vm_cycles,
                     )),

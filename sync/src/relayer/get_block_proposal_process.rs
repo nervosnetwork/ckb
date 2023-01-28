@@ -39,8 +39,7 @@ impl<'a> GetBlockProposalProcess<'a> {
                 * (shared.consensus().max_uncles_num() as u64);
             if message_len as u64 > limit {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
-                    "GetBlockProposal proposals count({}) > consensus max_block_proposals_limit({})",
-                    message_len, limit,
+                    "GetBlockProposal proposals count({message_len}) > consensus max_block_proposals_limit({limit})"
                 ));
             }
         }

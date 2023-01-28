@@ -825,8 +825,7 @@ fn build_query_options(
     let args_len = script.args().len();
     if args_len > MAX_PREFIX_SEARCH_SIZE {
         return Err(Error::invalid_params(format!(
-            "search_key.script.args len should be less than {}",
-            MAX_PREFIX_SEARCH_SIZE
+            "search_key.script.args len should be less than {MAX_PREFIX_SEARCH_SIZE}"
         )));
     }
     prefix.extend_from_slice(extract_raw_data(&script).as_slice());
@@ -880,8 +879,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
             let script: packed::Script = script.into();
             if script.args().len() > MAX_PREFIX_SEARCH_SIZE {
                 return Err(Error::invalid_params(format!(
-                    "search_key.filter.script.args len should be less than {}",
-                    MAX_PREFIX_SEARCH_SIZE
+                    "search_key.filter.script.args len should be less than {MAX_PREFIX_SEARCH_SIZE}"
                 )));
             }
             let mut prefix = Vec::new();

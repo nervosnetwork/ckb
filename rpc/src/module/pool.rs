@@ -526,7 +526,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
             .try_for_each(|(index, output)| {
                 self.validate_lock_script(&output)
                     .and(self.validate_type_script(&output))
-                    .map_err(|err| format!("output index: {}, error: {:?}", index, err))
+                    .map_err(|err| format!("output index: {index}, error: {err:?}"))
             })
     }
 

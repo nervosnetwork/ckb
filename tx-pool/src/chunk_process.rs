@@ -342,7 +342,7 @@ fn exceeded_maximum_cycles_error<DL: CellDataProvider + HeaderProvider>(
         .nth(current)
         .map(|(_hash, group)| ScriptError::ExceededMaximumCycles(max_cycles).source(group))
         .unwrap_or_else(|| {
-            ScriptError::VMInternalError(format!("suspended state group missing {:?}", current))
+            ScriptError::VMInternalError(format!("suspended state group missing {current:?}"))
                 .unknown_source()
         })
         .into()

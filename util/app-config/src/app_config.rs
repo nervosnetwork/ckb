@@ -207,7 +207,7 @@ impl AppConfig {
             AppConfig::Miner(config) => &config.chain.spec,
         };
         ChainSpec::load_from(spec_resource).map_err(|err| {
-            eprintln!("{}", err);
+            eprintln!("{err}");
             ExitCode::Config
         })
     }

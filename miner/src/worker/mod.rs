@@ -102,7 +102,7 @@ pub fn start_worker(
             {
                 let worker_txs = (0..config.threads)
                     .map(|i| {
-                        let worker_name = format!("EaglesongSimple-Worker-{}", i);
+                        let worker_name = format!("EaglesongSimple-Worker-{i}");
                         let nonce_range = partition_nonce(i as u128, config.threads as u128);
                         // `100` is the len of progress bar, we can use any dummy value here,
                         // since we only show the spinner in console.

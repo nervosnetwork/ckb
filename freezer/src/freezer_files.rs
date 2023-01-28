@@ -85,12 +85,12 @@ impl IndexEntry {
         let file_id = u32::from_le_bytes(
             raw_file_id
                 .try_into()
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode file_id {}", e)))?,
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode file_id {e}")))?,
         );
         let offset = u64::from_le_bytes(
             raw_offset
                 .try_into()
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode offset {}", e)))?,
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode offset {e}")))?,
         );
         Ok(IndexEntry { offset, file_id })
     }
@@ -117,10 +117,7 @@ impl FreezerFiles {
         if expected != number {
             return Err(IoError::new(
                 IoErrorKind::Other,
-                format!(
-                    "appending unexpected block expected {} have {}",
-                    expected, number
-                ),
+                format!("appending unexpected block expected {expected} have {number}"),
             ));
         }
 
@@ -131,7 +128,7 @@ impl FreezerFiles {
         if self.enable_compression {
             compressed_data = SnappyEncoder::new()
                 .compress_vec(data)
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("compress error {}", e)))?;
+                .map_err(|e| IoError::new(IoErrorKind::Other, format!("compress error {e}")))?;
             data = &compressed_data;
         };
 
@@ -200,8 +197,7 @@ impl FreezerFiles {
                     IoError::new(
                         IoErrorKind::Other,
                         format!(
-                            "decompress file-id-{} offset-{} size-{}: error {}",
-                            file_id, start_offset, size, e
+                            "decompress file-id-{file_id} offset-{start_offset} size-{size}: error {e}"
                         ),
                     )
                 })?;
@@ -421,7 +417,7 @@ impl FreezerFilesBuilder {
         let (mut index, mut index_size) = self.open_index()?;
 
         let mut buffer = [0; INDEX_ENTRY_SIZE as usize];
-        index.seek(SeekFrom::Start(0))?;
+        index.rewind()?;
         index.read_exact(&mut buffer)?;
         let tail_index = IndexEntry::decode(&buffer)?;
         let tail_id = tail_index.file_id;
@@ -539,6 +535,6 @@ pub(crate) mod helper {
 
     #[inline]
     pub(crate) fn file_name(file_id: FileId) -> String {
-        format!("blk{:06}", file_id)
+        format!("blk{file_id:06}")
     }
 }

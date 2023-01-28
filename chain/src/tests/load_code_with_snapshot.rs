@@ -106,7 +106,7 @@ fn test_load_code() {
 
     let tx_pool = shared.tx_pool_controller();
     let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-    assert!(ret.is_ok(), "ret {:?}", ret);
+    assert!(ret.is_ok(), "ret {ret:?}");
     let tx_status = tx_pool.get_tx_status(tx.hash());
     assert_eq!(
         tx_status.unwrap().unwrap(),
@@ -173,7 +173,7 @@ fn test_load_code_with_snapshot() {
 
         let tx_pool = shared.tx_pool_controller();
         let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-        assert!(ret.is_ok(), "ret {:?}", ret);
+        assert!(ret.is_ok(), "ret {ret:?}");
 
         let mut counter = 0;
         loop {
@@ -259,7 +259,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
 
         let tx_pool = shared.tx_pool_controller();
         let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-        assert!(ret.is_ok(), "ret {:?}", ret);
+        assert!(ret.is_ok(), "ret {ret:?}");
 
         let mut counter = 0;
         loop {

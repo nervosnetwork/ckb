@@ -62,7 +62,7 @@ impl MockNetworkContext {
     pub(crate) fn not_banned(&self, target: PeerIndex) -> bool {
         self.has_banned(target)
             .map(|(_, reason)| {
-                eprintln!("banned reason is {}", reason);
+                eprintln!("banned reason is {reason}");
                 false
             })
             .unwrap_or(true)

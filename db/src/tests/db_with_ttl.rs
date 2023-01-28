@@ -8,7 +8,7 @@ fn test_open_db_with_ttl() {
         .unwrap();
 
     let db = DBWithTTL::open_cf(&tmp_dir, vec!["1"], 100);
-    assert!(db.is_ok(), "{:?}", db);
+    assert!(db.is_ok(), "{db:?}");
     let mut db = db.unwrap();
 
     for i in 0..1000u64 {

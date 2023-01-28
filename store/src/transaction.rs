@@ -423,7 +423,7 @@ impl MMRStore<packed::HeaderDigest> for &StoreTransaction {
         for (offset, elem) in elems.iter().enumerate() {
             let pos: u64 = pos + (offset as u64);
             self.insert_header_digest(pos, elem).map_err(|err| {
-                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
+                MMRError::StoreError(format!("Failed to append to MMR, DB error {err}"))
             })?;
         }
         Ok(())

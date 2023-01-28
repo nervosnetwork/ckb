@@ -387,16 +387,13 @@ impl DAOVerifier {
             if i == 0 || i + finalization_delay_length > self.tip_number {
                 assert!(
                     reward.is_none(),
-                    "assert block_reward_{}. Non finalized block should has not economic state. actual: {:?}",
-                    i,
-                    reward,
+                    "assert block_reward_{i}. Non finalized block should has not economic state. actual: {reward:?}",
                 );
             } else {
                 assert_eq!(
                     Some(self.p(i)),
                     reward.as_ref().map(|reward| reward.issuance.primary.as_u64()),
-                    "assert block_reward_{}",
-                    i,
+                    "assert block_reward_{i}"
                 );
             }
         });

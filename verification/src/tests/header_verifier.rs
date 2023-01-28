@@ -151,7 +151,7 @@ fn test_epoch() {
                 .epoch(epoch_malformed.pack())
                 .build();
             let result = EpochVerifier::new(&parent, &malformed).verify();
-            assert!(result.is_err(), "input: {:#}", epoch_malformed);
+            assert!(result.is_err(), "input: {epoch_malformed:#}");
             assert_error_eq!(
                 result.unwrap_err(),
                 EpochError::Malformed {
@@ -200,12 +200,7 @@ fn test_epoch() {
             let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
 
             let result = EpochVerifier::new(&parent, &current).verify();
-            assert!(
-                result.is_err(),
-                "current: {:#}, parent: {:#}",
-                current,
-                parent
-            );
+            assert!(result.is_err(), "current: {current:#}, parent: {parent:#}");
             assert_error_eq!(
                 result.unwrap_err(),
                 EpochError::NonContinuous {
@@ -238,12 +233,7 @@ fn test_epoch() {
             let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
 
             let result = EpochVerifier::new(&parent, &current).verify();
-            assert!(
-                result.is_ok(),
-                "current: {:#}, parent: {:#}",
-                current,
-                parent
-            );
+            assert!(result.is_ok(), "current: {current:#}, parent: {parent:#}");
         }
     }
 }

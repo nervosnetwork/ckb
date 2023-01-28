@@ -561,7 +561,7 @@ fn is_hex(hex: &str) -> Result<String, String> {
             match byte {
                 b'A'..=b'F' | b'a'..=b'f' | b'0'..=b'9' => continue,
                 invalid_char => {
-                    return Err(format!("Hex has invalid char: {}", invalid_char));
+                    return Err(format!("Hex has invalid char: {invalid_char}"));
                 }
             }
         }

@@ -184,16 +184,13 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
         .send_transaction_result(transaction.data().into());
     assert!(
         result.is_err(),
-        "expect error \"{}\" but got \"Ok(())\"",
-        message,
+        "expect error \"{message}\" but got \"Ok(())\""
     );
-    let error = result.expect_err(&format!("transaction is invalid since {}", message));
+    let error = result.expect_err(&format!("transaction is invalid since {message}"));
     let error_string = error.to_string();
     assert!(
         error_string.contains(message),
-        "expect error \"{}\" but got \"{}\"",
-        message,
-        error_string,
+        "expect error \"{message}\" but got \"{error_string}\""
     );
 }
 

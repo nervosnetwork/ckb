@@ -121,8 +121,7 @@ impl<'a, DL: HeaderProvider + 'a> LoadHeader<'a, DL> {
             HeaderField::EpochStartBlockNumber => {
                 header.number().checked_sub(epoch.index()).ok_or_else(|| {
                     VMError::Unexpected(format!(
-                        "Unexpected header epoch number index overflow {}",
-                        epoch,
+                        "Unexpected header epoch number index overflow {epoch}"
                     ))
                 })?
             }

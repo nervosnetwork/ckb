@@ -44,8 +44,7 @@ impl ReadOnlyDB {
                     Err(internal_error("DB corrupted"))
                 } else {
                     Err(internal_error(format!(
-                        "failed to open the database: {}",
-                        err
+                        "failed to open the database: {err}"
                     )))
                 }
             },
@@ -69,7 +68,7 @@ impl ReadOnlyDB {
         let cf = self
             .inner
             .cf_handle(col)
-            .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
         self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 }

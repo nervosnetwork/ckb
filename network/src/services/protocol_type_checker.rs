@@ -96,9 +96,9 @@ impl ProtocolTypeCheckerService {
                     if let Err(err) = disconnect_with_message(
                         &self.p2p_control,
                         *session_id,
-                        &format!("open protocols error: {}", err),
+                        &format!("open protocols error: {err}"),
                     ) {
-                        debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
+                        debug!("Disconnect failed {session_id:?}, error: {err:?}");
                     }
                 }
             }

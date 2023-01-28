@@ -36,7 +36,7 @@ fn load_spec_by_name(name: &str) -> ChainSpec {
         Resource::bundled("specs/mainnet.toml".to_string())
     } else {
         let base_name = &name[4..];
-        Resource::bundled(format!("specs/{}.toml", base_name))
+        Resource::bundled(format!("specs/{base_name}.toml"))
     };
 
     ChainSpec::load_from(&res).expect("load spec by name")
@@ -57,9 +57,9 @@ fn test_bundled_specs() {
 
     for (name, spec_hashes) in spec_hashes.iter() {
         let spec = load_spec_by_name(name);
-        assert_eq!(name, &spec.name, "{}", bundled_spec_err);
+        assert_eq!(name, &spec.name, "{bundled_spec_err}");
         if let Some(genesis_hash) = &spec.genesis.hash {
-            assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
+            assert_eq!(genesis_hash, &spec_hashes.genesis, "{bundled_spec_err}");
         }
 
         let consensus = spec.build_consensus();
@@ -91,9 +91,9 @@ fn test_bundled_specs() {
                 .type_()
                 .to_opt()
                 .map(|script| script.calc_script_hash().unpack());
-            assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
-            assert_eq!(cell.data_hash, data_hash, "{}", bundled_spec_err);
-            assert_eq!(cell.type_hash, type_hash, "{}", bundled_spec_err);
+            assert_eq!(index_minus_one + 1, cell.index, "{bundled_spec_err}");
+            assert_eq!(cell.data_hash, data_hash, "{bundled_spec_err}");
+            assert_eq!(cell.type_hash, type_hash, "{bundled_spec_err}");
             system_cells.insert(cell.index, cell.path.as_str());
         }
 
@@ -123,8 +123,7 @@ fn test_bundled_specs() {
         assert_eq!(
             dep_group_tx.outputs_data().len(),
             spec_hashes.dep_groups.len(),
-            "{}",
-            bundled_spec_err
+            "{bundled_spec_err}"
         );
 
         for (i, output_data) in dep_group_tx.outputs_data().into_iter().enumerate() {
@@ -132,7 +131,7 @@ fn test_bundled_specs() {
 
             // check the tx hashes of dep groups in spec file
             let tx_hash = dep_group.tx_hash.pack();
-            assert_eq!(tx_hash, dep_group_tx.hash(), "{}", bundled_spec_err);
+            assert_eq!(tx_hash, dep_group_tx.hash(), "{bundled_spec_err}");
 
             let out_point_vec = packed::OutPointVec::from_slice(&output_data.raw_data()).unwrap();
 
@@ -140,23 +139,21 @@ fn test_bundled_specs() {
             assert_eq!(
                 out_point_vec.len(),
                 dep_group.included_cells.len(),
-                "{}",
-                bundled_spec_err
+                "{bundled_spec_err}"
             );
 
             for (j, out_point) in out_point_vec.into_iter().enumerate() {
                 let dep_path = &dep_group.included_cells[j];
 
                 // dep groups out_point should point to cellbase
-                assert_eq!(cellbase.hash(), out_point.tx_hash(), "{}", bundled_spec_err);
+                assert_eq!(cellbase.hash(), out_point.tx_hash(), "{bundled_spec_err}");
 
                 let index_in_cellbase: usize = out_point.index().unpack();
 
                 // check index for included cells in dep groups
                 assert_eq!(
                     system_cells[&index_in_cellbase], dep_path,
-                    "{}",
-                    bundled_spec_err
+                    "{bundled_spec_err}"
                 );
             }
         }

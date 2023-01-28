@@ -155,7 +155,7 @@ impl MockChain {
             .controller()
             .process_block(Arc::new(block))
             .expect("process block");
-        assert!(is_ok, "failed to process block {}", block_number);
+        assert!(is_ok, "failed to process block {block_number}");
         while self
             .tx_pool()
             .get_tx_pool_info()

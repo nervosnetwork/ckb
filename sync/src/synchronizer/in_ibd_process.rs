@@ -35,8 +35,7 @@ impl<'a> InIBDProcess<'a> {
                 if state.peer_flags.is_whitelist {
                     self.synchronizer.shared().state().suspend_sync(state);
                 } else if let Err(err) = self.nc.disconnect(self.peer, "outbound in ibd") {
-                    return StatusCode::Network
-                        .with_context(format!("Disconnect error: {:?}", err));
+                    return StatusCode::Network.with_context(format!("Disconnect error: {err:?}"));
                 }
             } else {
                 self.synchronizer.shared().state().suspend_sync(state);

@@ -48,15 +48,13 @@ impl Migration for AddChainRootMMR {
 
                 let block_hash = chain_db.get_block_hash(block_number).ok_or_else(|| {
                     let err = format!(
-                        "tip is {} but hash for block#{} is not found",
-                        tip_number, block_number
+                        "tip is {tip_number} but hash for block#{block_number} is not found"
                     );
                     InternalErrorKind::Database.other(err)
                 })?;
                 let block_header = chain_db.get_block_header(&block_hash).ok_or_else(|| {
                     let err = format!(
-                        "tip is {} but hash for block#{} ({:#x}) is not found",
-                        tip_number, block_number, block_hash
+                        "tip is {tip_number} but hash for block#{block_number} ({block_hash:#x}) is not found"
                     );
                     InternalErrorKind::Database.other(err)
                 })?;

@@ -24,7 +24,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     Import::new(chain_controller, args.source)
         .execute()
         .map_err(|err| {
-            eprintln!("Import error: {:?}", err);
+            eprintln!("Import error: {err:?}");
             ExitCode::Failure
         })
 }

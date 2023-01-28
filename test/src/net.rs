@@ -37,7 +37,7 @@ impl Net {
         let p2p_port = find_available_port();
         let working_dir = temp_path(spec_name, "net");
 
-        let p2p_listen = format!("/ip4/127.0.0.1/tcp/{}", p2p_port).parse().unwrap();
+        let p2p_listen = format!("/ip4/127.0.0.1/tcp/{p2p_port}").parse().unwrap();
         let network_state = Arc::new(
             NetworkState::from_config(NetworkConfig {
                 listen_addresses: vec![p2p_listen],

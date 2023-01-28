@@ -125,7 +125,7 @@ fn test_reconstruct_transactions_and_uncles() {
         &[],
         &[],
     );
-    assert_eq!(ret, ReconstructionResult::Block(block), "{:?}", ret,);
+    assert_eq!(ret, ReconstructionResult::Block(block), "{ret:?}");
 }
 
 #[test]

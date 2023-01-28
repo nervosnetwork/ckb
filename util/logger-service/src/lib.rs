@@ -104,7 +104,7 @@ impl Logger {
     fn new(env_opt: Option<&str>, config: Config) -> Logger {
         for name in config.extra.keys() {
             if let Err(err) = Self::check_extra_logger_name(name) {
-                eprintln!("Error: {}", err);
+                eprintln!("Error: {err}");
                 process::exit(1);
             }
         }
@@ -127,7 +127,7 @@ impl Logger {
             let file = if log_to_file {
                 match Self::open_log_file(&file_path) {
                     Err(err) => {
-                        eprintln!("Error: {}", err);
+                        eprintln!("Error: {err}");
                         process::exit(1);
                     }
                     Ok(file) => Some(file),
@@ -180,7 +180,7 @@ impl Logger {
                 })
                 .collect::<Result<HashMap<_, _>, _>>();
             if let Err(err) = extra_files_res {
-                eprintln!("Error: {}", err);
+                eprintln!("Error: {err}");
                 process::exit(1);
             }
             extra_files_res.unwrap()
@@ -213,7 +213,7 @@ impl Logger {
                                     } else {
                                         removed_color.as_str()
                                     };
-                                    println!("{}", output);
+                                    println!("{output}");
                                 }
                                 if main_logger.to_file {
                                     if let Some(mut file) = main_logger.file.as_ref() {
@@ -336,7 +336,7 @@ impl Logger {
             .and_then(|sender| {
                 sender
                     .send(message)
-                    .map_err(|err| format!("failed to send message to logger service: {}", err))
+                    .map_err(|err| format!("failed to send message to logger service: {err}"))
                     .map(|_| ())
             })
     }

@@ -58,8 +58,8 @@ where
         let mut values = Vec::new();
         for (cf_name, cf) in self.get_cfs() {
             let value_col: PropertyValue<u64> = self
-                .property_int_value_cf(cf, &format!("rocksdb.{}", key))
-                .map_err(|err| format!("{}", err))
+                .property_int_value_cf(cf, &format!("rocksdb.{key}"))
+                .map_err(|err| format!("{err}"))
                 .into();
             metrics!(gauge, "ckb-sys.mem.rocksdb", value_col.as_i64(), "type" => key.to_owned(), "cf" => cf_name.to_owned());
             values.push(value_col);

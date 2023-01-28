@@ -43,7 +43,7 @@ impl DebugRpc for DebugRpcImpl {
             .duration_since(time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let filename = format!("ckb-jeprof.{}.heap", timestamp);
+        let filename = format!("ckb-jeprof.{timestamp}.heap");
         match ckb_memory_tracker::jemalloc_profiling_dump(&filename) {
             Ok(()) => Ok(filename),
             Err(err) => Err(Error {

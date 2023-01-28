@@ -34,7 +34,7 @@ pub fn prompt(msg: &str) -> String {
     let mut stdout = stdout.lock();
     let stdin = stdin();
 
-    write!(stdout, "{}", msg).unwrap();
+    write!(stdout, "{msg}").unwrap();
     stdout.flush().unwrap();
 
     let mut input = String::new();

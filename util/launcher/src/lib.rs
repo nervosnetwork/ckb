@@ -79,8 +79,7 @@ impl Launcher {
                             .get()
                             .map_err(|err| {
                                 eprintln!(
-                                    "Load specs/cells/secp256k1_blake160_sighash_all error: {:?}",
-                                    err
+                                    "Load specs/cells/secp256k1_blake160_sighash_all error: {err:?}"
                                 );
                                 ExitCode::Failure
                             })?;
@@ -185,7 +184,7 @@ impl Launcher {
         GenesisVerifier::new()
             .verify(shared.consensus())
             .map_err(|err| {
-                eprintln!("genesis error: {}", err);
+                eprintln!("genesis error: {err}");
                 ExitCode::Config
             })
     }

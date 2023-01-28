@@ -266,7 +266,7 @@ impl ServiceProtocol for PingHandler {
                     }
                 }
             }
-            _ => panic!("unknown token {}", token),
+            _ => panic!("unknown token {token}"),
         }
     }
 

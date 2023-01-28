@@ -61,7 +61,7 @@ impl SetupGuard {
         let metrics_config = setup.config.metrics().to_owned();
         let metrics_guard =
             ckb_metrics_service::init(metrics_config, async_handle).map_err(|err| {
-                eprintln!("Config Error: {:?}", err);
+                eprintln!("Config Error: {err:?}");
                 ExitCode::Config
             })?;
 
@@ -89,7 +89,7 @@ impl SetupGuard {
         let metrics_config = setup.config.metrics().to_owned();
         let metrics_guard =
             ckb_metrics_service::init(metrics_config, async_handle).map_err(|err| {
-                eprintln!("Config Error: {:?}", err);
+                eprintln!("Config Error: {err:?}");
                 ExitCode::Config
             })?;
 

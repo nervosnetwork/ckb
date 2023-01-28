@@ -76,7 +76,7 @@ pub enum Resource {
 impl fmt::Display for Resource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Resource::Bundled { bundled } => write!(f, "Bundled({})", bundled),
+            Resource::Bundled { bundled } => write!(f, "Bundled({bundled})"),
             Resource::FileSystem { file } => write!(f, "FileSystem({})", file.display()),
         }
     }
@@ -206,11 +206,7 @@ impl Resource {
     ///
     /// These bundled files can be customized for different chains using spec branches.
     /// See [Template](struct.Template.html).
-    pub fn export<'a, P: AsRef<Path>>(
-        &self,
-        context: &TemplateContext<'a>,
-        root_dir: P,
-    ) -> Result<()> {
+    pub fn export<P: AsRef<Path>>(&self, context: &TemplateContext<'_>, root_dir: P) -> Result<()> {
         let key = match self {
             Resource::Bundled { bundled } => bundled,
             _ => return Ok(()),

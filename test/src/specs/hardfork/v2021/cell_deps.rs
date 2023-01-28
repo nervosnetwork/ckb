@@ -251,7 +251,7 @@ impl NewScript {
         let hash_type = match vm_version {
             0 => core::ScriptHashType::Data,
             1 => core::ScriptHashType::Data1,
-            _ => panic!("unknown vm_version [{}]", vm_version),
+            _ => panic!("unknown vm_version [{vm_version}]"),
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())

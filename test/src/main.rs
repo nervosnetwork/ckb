@@ -57,7 +57,7 @@ fn main() {
         .value_of("log-file")
         .map(PathBuf::from_str)
         .transpose()
-        .unwrap_or_else(|err| panic!("failed to parse the log file path since {}", err));
+        .unwrap_or_else(|err| panic!("failed to parse the log file path since {err}"));
     let fail_fast = !matches.is_present("no-fail-fast");
     let report = !matches.is_present("no-report");
     let clean_tmp = !matches.is_present("keep-tmp-data");
@@ -96,7 +96,7 @@ fn main() {
             logger_config.log_to_file = false;
         }
         ckb_logger_service::init(None, logger_config)
-            .unwrap_or_else(|err| panic!("failed to init the logger service since {}", err))
+            .unwrap_or_else(|err| panic!("failed to init the logger service since {err}"))
     };
 
     if matches.is_present("list-specs") {
@@ -341,7 +341,7 @@ fn filter_specs(
 
     for name in spec_names_to_run.iter() {
         if !all_specs.iter().any(|spec| spec.name() == *name) {
-            eprintln!("Unknown spec {}", name);
+            eprintln!("Unknown spec {name}");
             std::process::exit(1);
         }
     }
@@ -542,7 +542,7 @@ fn list_specs() {
     let mut names: Vec<_> = all_specs.iter().map(|spec| spec.name()).collect();
     names.sort_unstable();
     for spec_name in names {
-        println!("{}", spec_name);
+        println!("{spec_name}");
     }
 }
 
@@ -576,7 +576,7 @@ fn print_panicked_logs(node_log_paths: &[PathBuf]) {
             .take(print_lns)
             .for_each(|line| {
                 if let Ok(line) = line {
-                    println!("{}", line);
+                    println!("{line}");
                 }
             });
     }
@@ -603,7 +603,7 @@ fn tail_node_logs(node_log_paths: &[PathBuf]) {
             node_log.display()
         );
         for log in content.lines().skip(skip) {
-            println!("{}", log);
+            println!("{log}");
         }
     }
 }
@@ -617,7 +617,7 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
 
     let mut f = File::create(path)?;
     for name in error_spec_names {
-        writeln!(&mut f, "ckb-test failed on spec {}", name)?;
+        writeln!(&mut f, "ckb-test failed on spec {name}")?;
     }
 
     Ok(())

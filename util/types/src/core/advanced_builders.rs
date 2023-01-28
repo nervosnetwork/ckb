@@ -282,10 +282,8 @@ impl HeaderBuilder {
         debug_assert!(
             Unpack::<core::BlockNumber>::unpack(&number) == 0
                 || Unpack::<core::EpochNumberWithFraction>::unpack(&epoch).is_well_formed(),
-            "[HeaderBuilder] epoch {:x} should be well formed, \
-            unless it's in the genesis block (number: {:x})",
-            epoch,
-            number
+            "[HeaderBuilder] epoch {epoch:x} should be well formed, \
+            unless it's in the genesis block (number: {number:x})"
         );
         let raw = packed::RawHeader::new_builder()
             .version(version)

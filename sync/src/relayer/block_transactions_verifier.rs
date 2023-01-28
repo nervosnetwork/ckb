@@ -34,8 +34,7 @@ impl BlockTransactionsVerifier {
             if expected_short_id != short_id {
                 return StatusCode::BlockTransactionsShortIdsAreUnmatchedWithPendingCompactBlock
                     .with_context(format!(
-                        "Expected({}) != actual({})",
-                        expected_short_id, short_id,
+                        "Expected({expected_short_id}) != actual({short_id})",
                     ));
             }
         }

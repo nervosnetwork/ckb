@@ -185,7 +185,7 @@ pub fn always_success_cellbase(
 fn load_spec_by_name(name: &str) -> ChainSpec {
     // remove "ckb_" prefix
     let base_name = &name[4..];
-    let res = Resource::bundled(format!("specs/{}.toml", base_name));
+    let res = Resource::bundled(format!("specs/{base_name}.toml"));
     ChainSpec::load_from(&res).expect("load spec by name")
 }
 

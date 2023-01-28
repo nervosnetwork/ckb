@@ -138,7 +138,7 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
             .kvs
             .iter()
             .fold(s.replace("\\n", "\n"), |s, (key, value)| s
-                .replace(format!("{{{}}}", key).as_str(), value))
+                .replace(format!("{{{key}}}").as_str(), value))
     )
 }
 
@@ -156,10 +156,10 @@ impl Template {
     ///
     /// This method returns `std::io::Error` when it fails to write the chunks to the underlying
     /// writer.
-    pub fn render_to<'c, W: io::Write>(
+    pub fn render_to<W: io::Write>(
         &self,
         w: &mut W,
-        context: &TemplateContext<'c>,
+        context: &TemplateContext<'_>,
     ) -> io::Result<()> {
         let spec_branch = format!("# {} => ", context.spec);
 
@@ -171,7 +171,7 @@ impl Template {
                     if line.ends_with(START_MARKER) {
                         state = TemplateState::MatchBranch(line);
                     } else {
-                        writeln!(w, "{}", line)?;
+                        writeln!(w, "{line}")?;
                     }
                 }
                 TemplateState::MatchBranch(start_line) => {
@@ -215,7 +215,7 @@ impl Template {
     ///
     /// This method returns `std::io::Error` when it fails to write the chunks to the underlying
     /// writer or it failed to convert the result text to UTF-8.
-    pub fn render<'c>(&self, context: &TemplateContext<'c>) -> io::Result<String> {
+    pub fn render(&self, context: &TemplateContext<'_>) -> io::Result<String> {
         let mut out = Vec::new();
         self.render_to(&mut out, context)?;
         String::from_utf8(out)
