@@ -1,6 +1,6 @@
 [package]
 name = "ckb-constant"
-version = "0.107.0-rc2"
+version = "0.107.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
