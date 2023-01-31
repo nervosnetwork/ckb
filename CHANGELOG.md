@@ -1,3 +1,30 @@
+# [v0.107.0](https://github.com/nervosnetwork/ckb/compare/v0.106.0...v0.107.0) (2023-01-30)
+
+### Features
+
+* #3724: Adding RPC: `get_transaction_and_witness_proof` & `verify_transaction_and_witness_proof` (@code-monad)
+* #3735: Indexer db simple configuration (@zhangsoledad)
+
+### Bug Fixes
+
+* #3713: Check in-pool chidren for all newly added tx (@zhangsoledad)
+* #3727: Blocktemplate dao potential inconsistent with transactions (@zhangsoledad)
+* #3738: Resolve disconnection problems (@driftluo)
+* #3746: Get_fee_rate_statics compatibility (@zhangsoledad)
+* #3750: Notify message blocking (@zhangsoledad)
+* #3757: Fee_rate statistics target limit (@zhangsoledad)
+* #3763 **rpc:** Return the cycles of the first non-cellbase transaction as cellbase's cycles (@yangby-cryptape)
+* #3769: Disable ckb-miner notify mode by default (@zhangsoledad)
+* #3773: Fix comment typos (@StrayLittlePunk)
+* #3794: Fix missing information in ckb version (@doitian)
+* #3804: Fix identify unregister (@driftluo)
+* #3803: P2p alerts are not filterred in block chain info (@doitian)
+
+### Improvements
+
+* #3733: Eliminate chainstore lifecycle (@zhangsoledad)
+* #3798: add testnet bootnodes (@doitian)
+
 # [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0) (2022-12-23)
 
 ### Features
