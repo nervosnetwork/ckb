@@ -29,10 +29,7 @@ impl Spec for TransactionRelayBasic {
 
         let relayed = wait_until(10, || {
             nodes.iter().all(|node| {
-                node.rpc_client()
-                    .get_transaction(hash.clone())
-                    .map(|ret| ret.cycles == Some(537.into()))
-                    .unwrap_or(false)
+                node.rpc_client().get_transaction(hash.clone()).cycles == Some(537.into())
             })
         });
         assert!(
@@ -59,9 +56,12 @@ impl Spec for TransactionRelayMultiple {
 
         let relayed = wait_until(20, || {
             nodes.iter().all(|node| {
-                transactions
-                    .iter()
-                    .all(|tx| node.rpc_client().get_transaction(tx.hash()).is_some())
+                transactions.iter().all(|tx| {
+                    node.rpc_client()
+                        .get_transaction(tx.hash())
+                        .transaction
+                        .is_some()
+                })
             })
         });
         assert!(relayed, "all transactions should be relayed");
@@ -198,6 +198,7 @@ impl Spec for TransactionRelayEmptyPeers {
             node1
                 .rpc_client()
                 .get_transaction(transaction.hash())
+                .transaction
                 .is_some()
         });
         assert!(relayed, "Transaction should be relayed to node1");

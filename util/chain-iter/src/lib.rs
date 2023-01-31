@@ -4,13 +4,13 @@ use ckb_types::{core::BlockNumber, core::BlockView};
 
 /// TODO(doc): @quake
 // An iterator over the entries of a `Chain`.
-pub struct ChainIterator<'a, S: ChainStore<'a>> {
+pub struct ChainIterator<'a, S: ChainStore> {
     store: &'a S,
     current: Option<BlockView>,
     tip: BlockNumber,
 }
 
-impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
+impl<'a, S: ChainStore> ChainIterator<'a, S> {
     /// TODO(doc): @quake
     pub fn new(store: &'a S) -> Self {
         let current = store.get_block_hash(0).and_then(|h| store.get_block(&h));
@@ -35,7 +35,7 @@ impl<'a, S: ChainStore<'a>> ChainIterator<'a, S> {
     }
 }
 
-impl<'a, S: ChainStore<'a>> Iterator for ChainIterator<'a, S> {
+impl<'a, S: ChainStore> Iterator for ChainIterator<'a, S> {
     type Item = BlockView;
 
     fn next(&mut self) -> Option<Self::Item> {

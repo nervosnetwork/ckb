@@ -3,38 +3,28 @@ use ckb_jsonrpc_types::Status;
 use ckb_types::core::{BlockView, EpochNumberWithFraction, HeaderView, TransactionView};
 
 pub fn is_transaction_pending(node: &Node, transaction: &TransactionView) -> bool {
-    node.rpc_client()
-        .get_transaction(transaction.hash())
-        .map(|ret| ret.tx_status.status == Status::Pending && ret.cycles.is_some())
-        .unwrap_or(false)
+    let ret = node.rpc_client().get_transaction(transaction.hash());
+    ret.tx_status.status == Status::Pending && ret.cycles.is_some()
 }
 
 pub fn is_transaction_proposed(node: &Node, transaction: &TransactionView) -> bool {
-    node.rpc_client()
-        .get_transaction(transaction.hash())
-        .map(|ret| ret.tx_status.status == Status::Proposed && ret.cycles.is_some())
-        .unwrap_or(false)
+    let ret = node.rpc_client().get_transaction(transaction.hash());
+    ret.tx_status.status == Status::Proposed && ret.cycles.is_some()
 }
 
 pub fn is_transaction_committed(node: &Node, transaction: &TransactionView) -> bool {
-    node.rpc_client()
-        .get_transaction(transaction.hash())
-        .map(|ret| ret.tx_status.status == Status::Committed && ret.cycles.is_some())
-        .unwrap_or(false)
+    let ret = node.rpc_client().get_transaction(transaction.hash());
+    ret.tx_status.status == Status::Committed && ret.cycles.is_some()
 }
 
 pub fn is_transaction_rejected(node: &Node, transaction: &TransactionView) -> bool {
-    node.rpc_client()
-        .get_transaction(transaction.hash())
-        .map(|txstatus| txstatus.tx_status.status == Status::Rejected)
-        .unwrap_or(false)
+    let ret = node.rpc_client().get_transaction(transaction.hash());
+    ret.tx_status.status == Status::Rejected
 }
 
 pub fn is_transaction_unknown(node: &Node, transaction: &TransactionView) -> bool {
-    node.rpc_client()
-        .get_transaction(transaction.hash())
-        .map(|txstatus| txstatus.tx_status.is_unknown())
-        .unwrap_or(true)
+    let ret = node.rpc_client().get_transaction(transaction.hash());
+    ret.tx_status.is_unknown()
 }
 
 pub fn assert_epoch_should_be(node: &Node, number: u64, index: u64, length: u64) {

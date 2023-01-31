@@ -54,7 +54,7 @@ block_on_submit = true
 poll_interval = 1000
 
 # enable listen notify mode
-listen = "127.0.0.1:8888"
+# listen = "127.0.0.1:8888"
 
 [[miner.workers]]
 worker_type = "EaglesongSimple" # {{

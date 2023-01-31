@@ -1,8 +1,9 @@
 //! notifier module
-use ckb_logger::debug;
+use ckb_logger::{debug, error};
 use ckb_notify::NotifyController;
 use ckb_types::{packed::Alert, prelude::*};
 use lru::LruCache;
+use semver::Version;
 use std::collections::HashMap;
 
 const CANCEL_FILTER_SIZE: usize = 128;
@@ -15,25 +16,35 @@ pub struct Notifier {
     received_alerts: HashMap<u32, Alert>,
     /// alerts that self node should notice
     noticed_alerts: Vec<Alert>,
-    client_version: String,
+    client_version: Option<Version>,
     notify_controller: NotifyController,
 }
 
 impl Notifier {
     /// Init
     pub fn new(client_version: String, notify_controller: NotifyController) -> Self {
+        let parsed_client_version = match Version::parse(&client_version) {
+            Ok(version) => Some(version),
+            Err(err) => {
+                error!(
+                    "Invalid version {} for alert notifier: {}",
+                    client_version, err
+                );
+                None
+            }
+        };
+
         Notifier {
             cancel_filter: LruCache::new(CANCEL_FILTER_SIZE),
             received_alerts: Default::default(),
             noticed_alerts: Vec::new(),
-            client_version,
+            client_version: parsed_client_version,
             notify_controller,
         }
     }
 
     fn is_version_effective(&self, alert: &Alert) -> bool {
-        use semver::Version;
-        if let Ok(client_version) = Version::parse(&self.client_version) {
+        if let Some(client_version) = &self.client_version {
             let test_min_ver_failed = alert
                 .as_reader()
                 .raw()
@@ -42,7 +53,12 @@ impl Notifier {
                 .and_then(|v| {
                     v.as_utf8()
                         .ok()
-                        .and_then(|v| Version::parse(v).map(|min_v| client_version < min_v).ok())
+                        .and_then(|v| {
+                            Version::parse(v)
+                                .as_ref()
+                                .map(|min_v| client_version < min_v)
+                                .ok()
+                        })
                         .or(Some(true))
                 })
                 .unwrap_or(false);
@@ -57,7 +73,12 @@ impl Notifier {
                 .and_then(|v| {
                     v.as_utf8()
                         .ok()
-                        .and_then(|v| Version::parse(v).map(|max_v| client_version > max_v).ok())
+                        .and_then(|v| {
+                            Version::parse(v)
+                                .as_ref()
+                                .map(|max_v| client_version > max_v)
+                                .ok()
+                        })
                         .or(Some(true))
                 })
                 .unwrap_or(false);

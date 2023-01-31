@@ -129,8 +129,10 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                                 // add client listen address to manager
                                 if let RemoteAddress::Listen(ref addr) = state.remote_addr {
                                     let flags = self.addr_mgr.node_flags(session.id);
-                                    self.addr_mgr
-                                        .add_new_addr(session.id, (addr.clone(), flags));
+                                    self.addr_mgr.add_new_addr(
+                                        session.id,
+                                        (addr.clone(), flags.unwrap_or(Flags::COMPATIBILITY)),
+                                    );
                                 }
                             }
                             if version >= state::REUSE_PORT_VERSION {
@@ -232,7 +234,9 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                 .check_timer(now, ANNOUNCE_INTERVAL)
                 .filter(|addr| self.addr_mgr.is_valid_addr(addr))
             {
-                announce_list.push((addr.clone(), self.addr_mgr.node_flags(*id)));
+                if let Some(flags) = self.addr_mgr.node_flags(*id) {
+                    announce_list.push((addr.clone(), flags));
+                }
             }
         }
 
@@ -384,16 +388,10 @@ impl AddressManager for DiscoveryAddressManager {
         self.network_state.required_flags
     }
 
-    fn node_flags(&self, id: SessionId) -> Flags {
+    fn node_flags(&self, id: SessionId) -> Option<Flags> {
         self.network_state.with_peer_registry(|reg| {
-            if let Some(peer) = reg.get_peer(id) {
-                peer.identify_info
-                    .as_ref()
-                    .map(|a| a.flags)
-                    .unwrap_or(Flags::COMPATIBILITY)
-            } else {
-                Flags::COMPATIBILITY
-            }
+            reg.get_peer(id)
+                .and_then(|peer| peer.identify_info.as_ref().map(|a| a.flags))
         })
     }
 }

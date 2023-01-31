@@ -210,14 +210,19 @@ impl<'a> DAOUser<'a> {
         utxo.iter()
             .map(|txo| {
                 let tx_hash = txo.out_point().tx_hash();
-                let header = self
+                let block_hash = self
                     .node
                     .rpc_client()
                     .get_transaction(tx_hash)
-                    .and_then(|tx| tx.tx_status.block_hash)
-                    .and_then(|block_hash| self.node.rpc_client().get_header(block_hash.pack()))
-                    .map(Into::into)
-                    .expect("get_deposit_header");
+                    .tx_status
+                    .block_hash
+                    .expect("get utxo transaction block hash");
+                let header = self
+                    .node
+                    .rpc_client()
+                    .get_header(block_hash.pack())
+                    .expect("get utxo transaction block header")
+                    .into();
                 (txo, header)
             })
             .collect()
@@ -230,11 +235,13 @@ impl<'a> DAOUser<'a> {
             let deposit_hash = node
                 .rpc_client()
                 .get_transaction(tx_hash)
-                .unwrap()
                 .tx_status
                 .block_hash
-                .unwrap();
-            let deposit_header = node.rpc_client().get_header(deposit_hash.pack()).unwrap();
+                .expect("get deposit transaction block hash");
+            let deposit_header = node
+                .rpc_client()
+                .get_header(deposit_hash.pack())
+                .expect("get deposit transaction block header");
             EpochNumberWithFraction::from_full_value(deposit_header.inner.epoch.value())
         };
         EpochNumberWithFraction::new(
