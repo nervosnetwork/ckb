@@ -172,6 +172,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `ScriptHashType`](#type-scripthashtype)
     * [Type `SerializedBlock`](#type-serializedblock)
     * [Type `SerializedHeader`](#type-serializedheader)
+    * [Type `SoftFork`](#type-softfork)
     * [Type `Status`](#type-status)
     * [Type `SyncState`](#type-syncstate)
     * [Type `Timestamp`](#type-timestamp)
@@ -1676,6 +1677,22 @@ Response
         "secondary_epoch_reward": "0x37d0c8e28542",
         "secp256k1_blake160_multisig_all_type_hash": null,
         "secp256k1_blake160_sighash_all_type_hash": null,
+        "softforks": {
+            "Testdummy": {
+                "status": "Rfc0043",
+                "rfc0043": {
+                    "bit": 1,
+                    "min_activation_epoch": "0x0",
+                    "period": "0xa",
+                    "start": "0x0",
+                    "threshold": {
+                        "denom": 4,
+                        "numer": 3
+                    },
+                    "timeout": "0x0"
+                }
+            }
+        },
         "tx_proposal_window": {
             "closest": "0x2",
             "farthest": "0xa"
@@ -5615,6 +5632,8 @@ Consensus defines various parameters that influence chain consensus
 
 *   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
 
+*   `softforks`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`SoftFork`](#type-softfork) `}` - Softforks
+
 
 ### Type `Cycle`
 
@@ -5668,9 +5687,19 @@ An object containing various state info regarding deployments of consensus chang
 
 *   `period`: [`EpochNumber`](#type-epochnumber) - the length in epochs of the signalling period
 
-*   `threshold`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+*   `threshold`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
 
-*   `since`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
+*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are:
+
+    *   `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
+
+    *   `STARTED` for all blocks reach or past the start_epoch.
+
+    *   `LOCKED_IN` for one period after the first period with STARTED blocks of which at least threshold has the associated bit set in version.
+
+    *   `ACTIVE` for all blocks after the LOCKED_IN period.
+
+    *   `FAILED` for all blocks after the timeout_epoch, if LOCKED_IN was not reached.
 
 
 ### Type `DeploymentPos`
@@ -6605,6 +6634,16 @@ This is a 0x-prefix hex string. It is the block serialized by molecule using the
 ### Type `SerializedHeader`
 
 This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.
+
+### Type `SoftFork`
+
+SoftFork information
+
+`SoftFork` is equivalent to `"buried" | "rfc0043"`.
+
+*   the activation epoch is hard-coded into the client implementation
+*   the activation is controlled by rfc0043 signaling
+
 
 ### Type `Status`
 

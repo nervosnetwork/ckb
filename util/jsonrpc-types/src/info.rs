@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Deployment name
-#[derive(Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Hash, Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum DeploymentPos {
     /// Dummy
     Testdummy,
@@ -59,10 +59,15 @@ pub struct DeploymentInfo {
     pub period: EpochNumber,
     /// the ratio of blocks with the version bit set required to activate the feature
     pub threshold: Ratio,
-    /// With each epoch and softfork, we associate a deployment state. The possible states are
-    pub state: DeploymentState,
     /// The first epoch which the current state applies
     pub since: EpochNumber,
+    /// With each epoch and softfork, we associate a deployment state. The possible states are:
+    /// * `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
+    /// * `STARTED` for all blocks reach or past the start_epoch.
+    /// * `LOCKED_IN` for one period after the first period with STARTED blocks of which at least threshold has the associated bit set in version.
+    /// * `ACTIVE` for all blocks after the LOCKED_IN period.
+    /// * `FAILED` for all blocks after the timeout_epoch, if LOCKED_IN was not reached.
+    pub state: DeploymentState,
 }
 
 /// Chain information.

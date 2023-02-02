@@ -281,16 +281,10 @@ pub trait VersionbitsConditionChecker {
         cache: &Cache,
         indexer: &I,
     ) -> Option<EpochNumber> {
-        let active_mode = self.active_mode();
+        if matches!(self.active_mode(), ActiveMode::Always | ActiveMode::Never) {
+            return Some(0);
+        }
         let period = self.period();
-
-        if active_mode == ActiveMode::Always {
-            return Some(0);
-        }
-
-        if active_mode == ActiveMode::Never {
-            return Some(0);
-        }
 
         let init_state = self.get_state(header, cache, indexer)?;
         if init_state == ThresholdState::Defined {
