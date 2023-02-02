@@ -1039,6 +1039,13 @@ impl NextBlockEpoch {
 
 impl From<Consensus> for ckb_jsonrpc_types::Consensus {
     fn from(consensus: Consensus) -> Self {
+        let mut softforks = HashMap::new();
+        for (pos, deployment) in consensus.deployments {
+            softforks.insert(
+                pos.into(),
+                ckb_jsonrpc_types::SoftFork::new_rfc0043(deployment.into()),
+            );
+        }
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
@@ -1077,6 +1084,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
             hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
                 &consensus.hardfork_switch,
             ),
+            softforks,
         }
     }
 }

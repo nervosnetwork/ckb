@@ -1358,6 +1358,22 @@ pub trait ChainRpc {
     ///         "secondary_epoch_reward": "0x37d0c8e28542",
     ///         "secp256k1_blake160_multisig_all_type_hash": null,
     ///         "secp256k1_blake160_sighash_all_type_hash": null,
+    ///         "softforks": {
+    ///             "Testdummy": {
+    ///                 "status": "Rfc0043",
+    ///                 "rfc0043": {
+    ///                     "bit": 1,
+    ///                     "min_activation_epoch": "0x0",
+    ///                     "period": "0xa",
+    ///                     "start": "0x0",
+    ///                     "threshold": {
+    ///                         "denom": 4,
+    ///                         "numer": 3
+    ///                     },
+    ///                     "timeout": "0x0"
+    ///                 }
+    ///             }
+    ///         },
     ///         "tx_proposal_window": {
     ///             "closest": "0x2",
     ///             "farthest": "0xa"

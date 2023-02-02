@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Deployment name
-#[derive(Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Hash, Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum DeploymentPos {
     /// Dummy
     Testdummy,
