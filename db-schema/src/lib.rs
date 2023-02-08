@@ -3,7 +3,7 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 18;
+pub const COLUMNS: u32 = 19;
 /// Column store chain index
 pub const COLUMN_INDEX: Col = "0";
 /// Column store block's header
@@ -42,6 +42,8 @@ pub const COLUMN_BLOCK_EXTENSION: Col = "15";
 pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
 /// Column store filter data for client-side filtering
 pub const COLUMN_BLOCK_FILTER: Col = "17";
+/// Column store filter data hash for client-side filtering
+pub const COLUMN_BLOCK_FILTER_HASH: Col = "18";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
 pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";

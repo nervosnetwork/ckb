@@ -5,7 +5,7 @@ use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::{BlockTemplate, TxPoolInfo};
+use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
@@ -390,11 +390,10 @@ impl Node {
             .into()
     }
 
-    pub fn get_block_filter(&self, hash: Byte32) -> bytes::Bytes {
+    pub fn get_block_filter(&self, hash: Byte32) -> BlockFilter {
         self.rpc_client()
             .get_block_filter(hash)
             .expect("block filter exists")
-            .into_bytes()
     }
 
     /// The states of chain and txpool are updated asynchronously. Which means that the chain has

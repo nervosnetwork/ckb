@@ -106,6 +106,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
+    * [Type `BlockFilter`](#type-blockfilter)
     * [Type `BlockIssuance`](#type-blockissuance)
     * [Type `BlockNumber`](#type-blocknumber)
     * [Type `BlockResponse`](#type-blockresponse)
@@ -723,7 +724,7 @@ The response looks like below when `verbosity` is 0.
 #### Method `get_block_filter`
 * `get_block_filter(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
-* result: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`BlockFilter`](#type-blockfilter) `|` `null`
 
 Returns the block filter by block hash.
 
@@ -771,7 +772,10 @@ The response looks like below when the block have block filter.
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x..."
+  "result": {
+   "data": "0x...",
+   "hash": "0x..."
+  }
 }
 ```
 
@@ -5123,6 +5127,19 @@ It includes the rewards details and when it is finalized.
 *   `txs_fee`: [`Capacity`](#type-capacity) - The total fees of all transactions committed in the block.
 
 *   `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
+
+
+### Type `BlockFilter`
+
+Block filter data and hash.
+
+#### Fields
+
+`BlockFilter` is a JSON object with the following fields.
+
+*   `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
+
+*   `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
 
 
 ### Type `BlockIssuance`

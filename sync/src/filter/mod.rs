@@ -8,7 +8,6 @@ use get_block_filter_hashes_process::GetBlockFilterHashesProcess;
 use get_block_filters_process::GetBlockFiltersProcess;
 
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
-use ckb_hash::blake2b_256;
 use ckb_logger::{debug_target, error_target, info_target, warn_target};
 use ckb_metrics::metrics;
 use ckb_network::{
@@ -180,8 +179,4 @@ impl CKBProtocolHandler for BlockFilter {
             peer_index
         );
     }
-}
-
-fn block_filter_hash(block_filter: packed::Bytes) -> packed::Byte32 {
-    blake2b_256(block_filter.raw_data()).pack()
 }
