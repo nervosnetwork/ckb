@@ -811,6 +811,7 @@ dependencies = [
  "ckb-systemtime",
  "ckb-tx-pool",
  "ckb-types",
+ "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
  "num_cpus",
@@ -1458,6 +1459,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "regex",
+ "tempfile",
 ]
 
 [[package]]

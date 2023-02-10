@@ -28,12 +28,14 @@ use ckb_tx_pool::{
 };
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
+use ckb_util::long_live_tmp_dir;
 use ckb_verification::cache::init_cache;
+use once_cell::sync::OnceCell;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 /// Shared builder for construct new shared.
@@ -138,38 +140,24 @@ impl SharedBuilder {
 
     /// Generates the SharedBuilder with temp db
     pub fn with_temp_db() -> Self {
-        use once_cell::{sync, unsync};
-        use std::{
-            borrow::Borrow,
-            sync::atomic::{AtomicUsize, Ordering},
-        };
+        use once_cell::unsync;
+        use std::borrow::Borrow;
 
         // once #[thread_local] is stable
         // #[thread_local]
         // static RUNTIME_HANDLE: unsync::OnceCell<...
 
         thread_local! {
-            static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
             // NOTICE：we can't put the runtime directly into thread_local here,
             // on windows the runtime in thread_local will get stuck when dropping
             static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
         }
-
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-        let db = {
-            let db_id = DB_COUNT.fetch_add(1, Ordering::SeqCst);
-            let db_base_dir = TMP_DIR.with(|tmp_dir| {
-                tmp_dir
-                    .borrow()
-                    .get_or_try_init(TempDir::new)
-                    .unwrap()
-                    .path()
-                    .to_path_buf()
-            });
-            let db_dir = db_base_dir.join(format!("db_{}", db_id));
-            RocksDB::open_in(db_dir, COLUMNS)
-        };
+        let db_id = DB_COUNT.fetch_add(1, AtomicOrdering::SeqCst);
+        let db_tmp_dir = long_live_tmp_dir().path().join(format!("db_{}", db_id));
+
+        let db = RocksDB::open_in(db_tmp_dir, COLUMNS);
 
         RUNTIME_HANDLE.with(|runtime| SharedBuilder {
             db,
