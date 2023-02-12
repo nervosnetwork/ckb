@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
-    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes, OutPoint,
+    BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
+    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, OutPoint,
     ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
     TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
@@ -517,11 +517,14 @@ pub trait ChainRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x..."
+    ///   "result": {
+    ///    "data": "0x...",
+    ///    "hash": "0x..."
+    ///   }
     /// }
     /// ```
     #[rpc(name = "get_block_filter")]
-    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>>;
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>>;
 
     /// Returns the information about a transaction requested by transaction hash.
     ///
@@ -1643,13 +1646,21 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
-    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>> {
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
         let store = self.shared.store();
         let block_hash = block_hash.pack();
         if !store.is_main_chain(&block_hash) {
             return Ok(None);
         }
-        Ok(store.get_block_filter(&block_hash).map(Into::into))
+        Ok(store.get_block_filter(&block_hash).map(|data| {
+            let hash = store
+                .get_block_filter_hash(&block_hash)
+                .expect("stored filter hash");
+            BlockFilter {
+                data: data.into(),
+                hash: hash.into(),
+            }
+        }))
     }
 
     fn get_transaction(

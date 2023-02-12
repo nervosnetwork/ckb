@@ -6,10 +6,10 @@ use ckb_db::{
 };
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -503,6 +503,12 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
         self.get(COLUMN_BLOCK_FILTER, hash.as_slice())
             .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity())
+    }
+
+    /// Gets block filter hash by block hash
+    fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
+        self.get(COLUMN_BLOCK_FILTER_HASH, hash.as_slice())
+            .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
     /// TODO(doc): @quake

@@ -1927,6 +1927,10 @@ impl ActiveChain {
         self.store().get_block_filter(hash)
     }
 
+    pub fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
+        self.store().get_block_filter_hash(hash)
+    }
+
     pub fn shared(&self) -> &SyncShared {
         &self.shared
     }

@@ -1,4 +1,4 @@
-use crate::filter::{block_filter_hash, BlockFilter};
+use crate::filter::BlockFilter;
 use crate::utils::send_message_to;
 use crate::{attempt, Status};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -42,12 +42,11 @@ impl<'a> GetBlockFilterCheckPointsProcess<'a> {
             for block_number in (start_number..start_number + BATCH_SIZE * CHECK_POINT_INTERVAL)
                 .step_by(CHECK_POINT_INTERVAL as usize)
             {
-                if let Some(block_hash) = active_chain.get_block_hash(block_number) {
-                    if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
-                        block_filter_hashes.push(block_filter_hash(block_filter));
-                    } else {
-                        break;
-                    }
+                if let Some(block_filter_hash) = active_chain
+                    .get_block_hash(block_number)
+                    .and_then(|block_hash| active_chain.get_block_filter_hash(&block_hash))
+                {
+                    block_filter_hashes.push(block_filter_hash);
                 } else {
                     break;
                 }

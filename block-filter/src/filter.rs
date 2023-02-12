@@ -3,7 +3,7 @@ use ckb_logger::{debug, warn};
 use ckb_shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
-use ckb_types::{core::HeaderView, prelude::*};
+use ckb_types::{core::HeaderView, packed::Byte32, prelude::*};
 use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
 
 const NAME: &str = "BlockFilter";
@@ -100,13 +100,19 @@ impl BlockFilter {
             header.hash()
         );
         let db = self.shared.store();
-        if db.get_block_filter(&header.hash()).is_some() {
+        if db.get_block_filter_hash(&header.hash()).is_some() {
             debug!(
                 "Filter data for block {:#x} already exist, skip build",
                 header.hash()
             );
             return;
         }
+        let parent_block_filter_hash = if header.is_genesis() {
+            Byte32::zero()
+        } else {
+            db.get_block_filter_hash(&header.parent_hash())
+                .expect("parent block filter data stored")
+        };
         let mut filter_writer = std::io::Cursor::new(Vec::new());
         let mut filter = build_gcs_filter(&mut filter_writer);
         let transactions = db.get_block_body(&header.hash());
@@ -144,7 +150,11 @@ impl BlockFilter {
         let filter_data = filter_writer.into_inner();
         let db_transaction = db.begin_transaction();
         db_transaction
-            .insert_block_filter(&header.hash(), &filter_data.pack())
+            .insert_block_filter(
+                &header.hash(),
+                &filter_data.pack(),
+                &parent_block_filter_hash,
+            )
             .expect("insert_block_filter should be ok");
         db_transaction.commit().expect("commit should be ok");
         debug!("Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);

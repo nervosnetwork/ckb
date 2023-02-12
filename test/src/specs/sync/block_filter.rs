@@ -62,8 +62,23 @@ impl Spec for GetBlockFilterCheckPoints {
                     for i in 0..=points_num {
                         let number = i * CHECK_POINT_INTERVAL;
                         let header = node.get_header_by_number(number);
-                        let block_filter = node.get_block_filter(header.hash());
-                        let expected_hash = blake2b_256(block_filter.as_ref());
+                        let block_filter: packed::Bytes =
+                            node.get_block_filter(header.hash()).data.into();
+                        let expected_hash = if i == 0 {
+                            blake2b_256(
+                                &[&[0u8; 32], block_filter.calc_raw_data_hash().as_slice()]
+                                    .concat(),
+                            )
+                        } else {
+                            let parent_block_filter = node.get_block_filter(header.parent_hash());
+                            blake2b_256(
+                                &[
+                                    parent_block_filter.hash.0.as_slice(),
+                                    block_filter.calc_raw_data_hash().as_slice(),
+                                ]
+                                .concat(),
+                            )
+                        };
                         assert_eq!(
                             &expected_hash,
                             hashes[i as usize].as_slice(),
@@ -120,8 +135,16 @@ impl Spec for GetBlockFilterHashes {
                     let parent_block_filter_hash = reader.parent_block_filter_hash().to_entity();
                     {
                         let header = node.get_header_by_number(start_number - 1);
-                        let block_filter = node.get_block_filter(header.hash());
-                        let expected_parent_hash = blake2b_256(block_filter.as_ref());
+                        let block_filter: packed::Bytes =
+                            node.get_block_filter(header.hash()).data.into();
+                        let parent_block_filter = node.get_block_filter(header.parent_hash());
+                        let expected_parent_hash = blake2b_256(
+                            &[
+                                parent_block_filter.hash.0.as_slice(),
+                                block_filter.calc_raw_data_hash().as_slice(),
+                            ]
+                            .concat(),
+                        );
                         assert_eq!(&expected_parent_hash, parent_block_filter_hash.as_slice());
                     }
                     info!("parent_block_filter_hash matched");
@@ -139,8 +162,16 @@ impl Spec for GetBlockFilterHashes {
                     for i in 0..HASHES_BATCH_SIZE {
                         let number = start_number + i;
                         let header = node.get_header_by_number(number);
-                        let block_filter = node.get_block_filter(header.hash());
-                        let expected_hash = blake2b_256(block_filter.as_ref());
+                        let block_filter: packed::Bytes =
+                            node.get_block_filter(header.hash()).data.into();
+                        let parent_block_filter = node.get_block_filter(header.parent_hash());
+                        let expected_hash = blake2b_256(
+                            &[
+                                parent_block_filter.hash.0.as_slice(),
+                                block_filter.calc_raw_data_hash().as_slice(),
+                            ]
+                            .concat(),
+                        );
                         assert_eq!(
                             &expected_hash,
                             hashes[i as usize].as_slice(),
@@ -218,7 +249,7 @@ impl Spec for GetBlockFilters {
                     for i in 0..FILTERS_BATCH_SIZE {
                         let number = start_number + i;
                         let header = node.get_header_by_number(number);
-                        let block_filter = node.get_block_filter(header.hash());
+                        let block_filter = node.get_block_filter(header.hash()).data.into_bytes();
                         assert_eq!(
                             header.hash(),
                             block_hashes[i as usize],
@@ -304,7 +335,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
                     for i in 0..filters_count {
                         let number = start_number + i;
                         let header = node.get_header_by_number(number);
-                        let block_filter = node.get_block_filter(header.hash());
+                        let block_filter = node.get_block_filter(header.hash()).data.into_bytes();
                         assert_eq!(
                             header.hash(),
                             block_hashes[i as usize],

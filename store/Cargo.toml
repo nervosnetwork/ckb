@@ -19,6 +19,7 @@ ckb-error = { path = "../error", version = "= 0.108.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.108.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.108.0-pre" }
 ckb-freezer = { path = "../freezer", version = "= 0.108.0-pre" }
+ckb-hash = { path = "../util/hash", version = "= 0.108.0-pre" }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
