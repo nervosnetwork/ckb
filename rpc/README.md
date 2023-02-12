@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.67.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
 
 
 ## Table of Contents
@@ -5645,7 +5645,7 @@ An object containing various state info regarding deployments of consensus chang
 
 `DeploymentInfo` is a JSON object with the following fields.
 
-*   `bit`: https://doc.rust-lang.org/1.67.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+*   `bit`: https://doc.rust-lang.org/1.67.1/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
 
 *   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
 

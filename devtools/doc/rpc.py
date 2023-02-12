@@ -38,7 +38,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.67.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
 
 """
 
@@ -46,7 +46,7 @@ PENDING_TYPES = set()
 
 TYMETHOD_DOT = 'tymethod.'
 HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
-RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.67.0'
+RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.67.1'
 
 NAME_PREFIX_SELF = '(&self, '
 
@@ -242,7 +242,7 @@ class RPCVar():
         if tag != 'a' or ('title' in attrs_dict and attrs_dict['title'] == 'goto source code'):
             return
         # 1.61.0 new source link style
-        # 1.67.0 rightside
+        # 1.67.1 rightside
         if tag == 'a' and (('class', 'srclink rightside') in attrs):
             return
 
