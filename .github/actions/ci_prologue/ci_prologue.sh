@@ -81,6 +81,7 @@ fun_pasing_message(){
   echo "windows_runner_label=$windows_runner_label" >> $GITHUB_OUTPUT
 }
 
+MESSAGE=
 if [[ $GITHUB_EVENT_NAME == "push" ]];then
   MESSAGE="$COMMIT_MESSAGE"
   fun_pasing_message "$MESSAGE"
