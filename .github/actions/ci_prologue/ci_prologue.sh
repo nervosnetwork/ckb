@@ -81,9 +81,13 @@ fun_pasing_message(){
   echo "windows_runner_label=$windows_runner_label" >> $GITHUB_OUTPUT
 }
 
-MESSAGE=
 if [[ $GITHUB_EVENT_NAME == "push" ]];then
   MESSAGE="$COMMIT_MESSAGE"
+  fun_pasing_message "$MESSAGE"
+fi
+if [[ $GITHUB_EVENT_NAME == "merge_group" ]];then
+  # Do not customize running settings for merge queue
+  MESSAGE=
   fun_pasing_message "$MESSAGE"
 fi
 if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
