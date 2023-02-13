@@ -44,7 +44,7 @@ jobs:
         PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
         GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-        GITHUB_REPOSITORY: ${{ github.repositoty }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_unit_tests_ubuntu:
     name: ci_unit_tests_ubuntu
