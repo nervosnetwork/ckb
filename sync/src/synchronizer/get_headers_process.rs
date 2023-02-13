@@ -45,8 +45,7 @@ impl<'a> GetHeadersProcess<'a> {
         let locator_size = block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
-                "Locator count({}) > MAX_LOCATOR_SIZE({})",
-                locator_size, MAX_LOCATOR_SIZE,
+                "Locator count({locator_size}) > MAX_LOCATOR_SIZE({MAX_LOCATOR_SIZE})"
             ));
         }
 
@@ -89,7 +88,7 @@ impl<'a> GetHeadersProcess<'a> {
             attempt!(send_message_to(self.nc, self.peer, &message));
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
-                .with_context(format!("{:#x?}", block_locator_hashes,));
+                .with_context(format!("{block_locator_hashes:#x?}"));
         }
         Status::ok()
     }

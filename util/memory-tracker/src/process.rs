@@ -179,7 +179,7 @@ impl FromStr for Memory {
 fn get_current_process_memory() -> Result<Memory, io::Error> {
     static PID: once_cell::sync::OnceCell<libc::pid_t> = once_cell::sync::OnceCell::new();
     let pid = PID.get_or_init(|| unsafe { libc::getpid() });
-    let content = fs::read_to_string(format!("/proc/{}/statm", pid))?;
+    let content = fs::read_to_string(format!("/proc/{pid}/statm"))?;
 
     Memory::from_str(&content)
 }

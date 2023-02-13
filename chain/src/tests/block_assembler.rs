@@ -395,8 +395,7 @@ fn check_txs(entities: &[TxEntry], expect_txs: Vec<&TransactionView>, format_arg
             .map(|entry| entry.transaction().hash())
             .collect::<Vec<_>>(),
         expect_txs.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
-        "{}",
-        format_arg
+        "{format_arg}"
     );
 }
 

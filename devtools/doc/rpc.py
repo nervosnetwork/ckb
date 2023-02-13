@@ -38,7 +38,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
 
 """
 
@@ -46,7 +46,7 @@ PENDING_TYPES = set()
 
 TYMETHOD_DOT = 'tymethod.'
 HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
-RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.61.0'
+RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.67.1'
 
 NAME_PREFIX_SELF = '(&self, '
 
@@ -242,7 +242,8 @@ class RPCVar():
         if tag != 'a' or ('title' in attrs_dict and attrs_dict['title'] == 'goto source code'):
             return
         # 1.61.0 new source link style
-        if tag == 'a' and (('class', 'srclink') in attrs):
+        # 1.67.1 rightside
+        if tag == 'a' and (('class', 'srclink rightside') in attrs):
             return
 
 
@@ -428,7 +429,7 @@ class RPCModule(HTMLParser):
             if self.doc_parser is None and tag == 'div' and attrs == [("class", "docblock")]:
                 self.active_parser = self.doc_parser = MarkdownParser(
                     title_level=3)
-            elif tag == 'div' and ('class', 'method has-srclink') in attrs:
+            elif tag == 'section' and ('class', 'method has-srclink') in attrs:
                 id = dict(attrs)['id']
                 if id.startswith(TYMETHOD_DOT):
                     self.active_parser = RPCMethod(id[len(TYMETHOD_DOT):])
@@ -470,9 +471,9 @@ class RPCErrorParser(HTMLParser):
         elif not self.module_doc.completed():
             self.module_doc.handle_starttag(tag, attrs)
         elif self.next_variant is None:
-            if tag == 'h3':
+            if tag == 'section':
                 attrs_dict = dict(attrs)
-                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant') in attrs:
                     self.next_variant = attrs_dict['id'].split('.')[1]
         elif self.variant_parser is None:
             if tag == 'div' and attrs == [("class", "docblock")]:
@@ -520,9 +521,9 @@ class EnumSchema(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if self.next_variant is None:
-            if tag == 'h3':
+            if tag == 'section':
                 attrs_dict = dict(attrs)
-                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant small-section-header') in attrs:
+                if 'id' in attrs_dict and attrs_dict['id'].startswith('variant.') and ('class', 'variant') in attrs:
                     if self.name in ["DeploymentPos", "DeploymentState"]:
                         self.next_variant = attrs_dict['id'].split('.')[1]
                     else:
@@ -720,6 +721,10 @@ class RPCDoc(object):
             DummyRPCType(
                 "U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
             DummyRPCType(
+                "H256", "The 256-bit binary data encoded as a 0x-prefixed hex string in JSON."),
+            DummyRPCType(
+                "Byte32", "The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON."),
+            DummyRPCType(
                 "RationalU256", """The ratio which numerator and denominator are both 256-bit unsigned integers.
 
 #### Example
@@ -783,7 +788,7 @@ class RPCDoc(object):
             return self.collect_type(path)
 
         name = path.split('.')[1]
-        if name not in ['U256', 'RationalU256']:
+        if name not in ['U256', 'RationalU256', 'H256', 'Byte32']:
             parser = RPCType(name, path)
             parser.feed(content)
 

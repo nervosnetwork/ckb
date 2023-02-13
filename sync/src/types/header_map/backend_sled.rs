@@ -49,7 +49,7 @@ impl KeyValueBackend for SledBackend {
     fn get(&self, key: &Byte32) -> Option<HeaderView> {
         self.db
             .get(key.as_slice())
-            .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {}", err))
+            .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {err}"))
             .map(|slice| HeaderView::from_slice_should_be_ok(slice.as_ref()))
     }
 

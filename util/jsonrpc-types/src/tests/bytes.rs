@@ -22,24 +22,21 @@ fn test_de_error() {
         let num_pattern = "[1-9][0-9]*";
         match kind {
             ErrorKind::InvalidValue => format!(
-                "invalid value: string \"{}\", \
-                     expected a 0x-prefixed hex string at line {} column {}",
-                input, num_pattern, num_pattern
+                "invalid value: string \"{input}\", \
+                     expected a 0x-prefixed hex string at line {num_pattern} column {num_pattern}"
             ),
             ErrorKind::InvalidLength => format!(
-                "invalid length {}, \
-                     expected even length at line {} column {}",
-                num_pattern, num_pattern, num_pattern
+                "invalid length {num_pattern}, \
+                     expected even length at line {num_pattern} column {num_pattern}"
             ),
-            ErrorKind::InvalidCharacter => format!(
-                "Invalid character at line {} column {}",
-                num_pattern, num_pattern
-            ),
+            ErrorKind::InvalidCharacter => {
+                format!("Invalid character at line {num_pattern} column {num_pattern}")
+            }
         }
     }
 
     fn test_de_error_for(kind: ErrorKind, input: &str) {
-        let full_string = format!(r#"{{"bytes": "{}"}}"#, input);
+        let full_string = format!(r#"{{"bytes": "{input}"}}"#);
         let full_error_pattern = format_error_pattern(kind, input);
         let error = serde_json::from_str::<Test>(&full_string)
             .unwrap_err()
@@ -47,10 +44,7 @@ fn test_de_error() {
         let re = Regex::new(&full_error_pattern).unwrap();
         assert!(
             re.is_match(&error),
-            "kind = {:?}, input = {}, error = {}",
-            kind,
-            input,
-            error
+            "kind = {kind:?}, input = {input}, error = {error}"
         );
     }
 

@@ -46,14 +46,12 @@ impl Spec for UncleInheritFromForkBlock {
             .submit_block("0".to_owned(), block.data().into());
         assert!(
             ret.is_err(),
-            "Submit block with uncle inherited from a fork-block should be failed, but got {:?}",
-            ret
+            "Submit block with uncle inherited from a fork-block should be failed, but got {ret:?}"
         );
         let err = ret.unwrap_err();
         assert!(
             err.to_string().contains("DescendantLimit"),
-            "The result should contain 'DescendantLimit', but got {:?}",
-            err
+            "The result should contain 'DescendantLimit', but got {err:?}"
         );
 
         until_no_uncles_left(target_node);
@@ -121,14 +119,12 @@ impl Spec for UncleInheritFromForkUncle {
             .submit_block("0".to_owned(), block.data().into());
         assert!(
             ret.is_err(),
-            "Submit block with uncle inherited from a fork-uncle should be failed, but got {:?}",
-            ret
+            "Submit block with uncle inherited from a fork-uncle should be failed, but got {ret:?}"
         );
         let err = ret.unwrap_err();
         assert!(
             err.to_string().contains("DescendantLimit"),
-            "The result should contain 'DescendantLimit', but got {:?}",
-            err
+            "The result should contain 'DescendantLimit', but got {err:?}"
         );
 
         until_no_uncles_left(target_node);

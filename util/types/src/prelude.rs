@@ -27,7 +27,7 @@ impl<T> ShouldBeOk<T> for Option<T> {
 // Use for verify
 impl<T> ShouldBeOk<T> for molecule::error::VerificationResult<T> {
     fn should_be_ok(self) -> T {
-        self.unwrap_or_else(|err| panic!("verify slice should be ok, but {}", err))
+        self.unwrap_or_else(|err| panic!("verify slice should be ok, but {err}"))
     }
 }
 

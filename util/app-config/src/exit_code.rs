@@ -23,28 +23,28 @@ impl ExitCode {
 
 impl From<io::Error> for ExitCode {
     fn from(err: io::Error) -> ExitCode {
-        eprintln!("IO Error: {:?}", err);
+        eprintln!("IO Error: {err:?}");
         ExitCode::IO
     }
 }
 
 impl From<toml::de::Error> for ExitCode {
     fn from(err: toml::de::Error) -> ExitCode {
-        eprintln!("Config Error: {:?}", err);
+        eprintln!("Config Error: {err:?}");
         ExitCode::Config
     }
 }
 
 impl From<ckb_logger::SetLoggerError> for ExitCode {
     fn from(err: ckb_logger::SetLoggerError) -> ExitCode {
-        eprintln!("Config Error: {:?}", err);
+        eprintln!("Config Error: {err:?}");
         ExitCode::Config
     }
 }
 
 impl From<clap::Error> for ExitCode {
     fn from(err: clap::Error) -> ExitCode {
-        eprintln!("Args Error: {:?}", err);
+        eprintln!("Args Error: {err:?}");
         ExitCode::Cli
     }
 }

@@ -23,10 +23,8 @@ const LOG_TIMESTAMP_REGEX: &str =
     r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}([.]\d{1,3}) [+-]\d{2}:\d{2}";
 
 pub fn has_line_in_log_file(log_file: &Path, log_level: Level, content_pattern: &str) -> bool {
-    let full_line_pattern = format!(
-        r"^{} [^\s]+ {} [^\s]+  {}$",
-        LOG_TIMESTAMP_REGEX, log_level, content_pattern
-    );
+    let full_line_pattern =
+        format!(r"^{LOG_TIMESTAMP_REGEX} [^\s]+ {log_level} [^\s]+  {content_pattern}$",);
     let regex = regex::Regex::new(&full_line_pattern).unwrap();
     let file = OpenOptions::new().read(true).open(log_file).unwrap();
     for line in BufReader::new(file).lines() {
@@ -119,7 +117,7 @@ pub fn update_extra_logger(config: &mut Config, name: &str, filter: &str) {
 }
 
 pub fn extra_logger_file(log_dir: &Path, logger_name: &str) -> PathBuf {
-    log_dir.join(format!("{}.log", logger_name))
+    log_dir.join(format!("{logger_name}.log"))
 }
 
 pub fn apply_new_config() {
@@ -129,14 +127,14 @@ pub fn apply_new_config() {
 
 pub fn test_log_to_file(enabled: bool) {
     let (config, _tmp_dir) = config_in_tempdir(|config| {
-        let file_name = format!("test_log_to_file_{}.log", enabled);
+        let file_name = format!("test_log_to_file_{enabled}.log");
         config.file = Path::new(&file_name).to_path_buf();
         config.log_to_file = enabled;
     });
     let log_file = config.log_dir.join(config.file.as_path());
-    let line_content = format!("test log_to_file = {}", enabled);
+    let line_content = format!("test log_to_file = {enabled}");
     do_tests(config, || {
-        ckb_logger::error!("{}", line_content);
+        ckb_logger::error!("{line_content}");
     });
 
     test_if_log_file_exists(&log_file, enabled);

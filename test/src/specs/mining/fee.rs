@@ -151,8 +151,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
             assert_eq!(
                 max_block_proposals_limit as usize,
                 block.union_proposal_ids_iter().count(),
-                "block should contain {} blocks in proposal zone",
-                max_block_proposals_limit,
+                "block should contain {max_block_proposals_limit} blocks in proposal zone"
             );
         });
         node.mine(2 * FINALIZATION_DELAY_LENGTH);

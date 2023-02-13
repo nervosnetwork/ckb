@@ -41,7 +41,7 @@ pub trait Spec: Send {
 
     fn before_run(&self) -> Vec<Node> {
         let mut nodes = (0..self.setup().num_nodes)
-            .map(|i| Node::new(self.name(), &format!("node{}", i)))
+            .map(|i| Node::new(self.name(), &format!("node{i}")))
             .collect::<Vec<_>>();
         nodes
             .iter_mut()

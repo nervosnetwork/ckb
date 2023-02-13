@@ -19,17 +19,13 @@ fn assert_contain(includes: Vec<BlockStatus>, target: BlockStatus) {
     includes.iter().for_each(|status| {
         assert!(
             status.contains(target),
-            "{:?} should contains {:?}",
-            status,
-            target
+            "{status:?} should contains {target:?}"
         )
     });
     excludes.into_iter().for_each(|status| {
         assert!(
             !status.contains(target),
-            "{:?} should not contains {:?}",
-            status,
-            target
+            "{status:?} should not contains {target:?}"
         )
     });
 }

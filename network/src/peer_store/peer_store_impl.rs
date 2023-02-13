@@ -114,7 +114,7 @@ impl PeerStore {
                 self.ban_addr(
                     addr,
                     self.score_config.ban_timeout_ms,
-                    format!("report behaviour {:?}", behaviour),
+                    format!("report behaviour {behaviour:?}"),
                 );
                 return ReportResult::Banned;
             }

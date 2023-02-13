@@ -51,8 +51,7 @@ impl Spec for ChainContainsInvalidBlock {
                 .rpc_client()
                 .get_block(invalid_hash.clone())
                 .is_some()),
-            "good_node should not synchronize invalid block {} from bad_node",
-            invalid_number,
+            "good_node should not synchronize invalid block {invalid_number} from bad_node"
         );
 
         // good_node mine the next block

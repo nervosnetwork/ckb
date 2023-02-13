@@ -311,7 +311,7 @@ fn contextual_check(
                 .state()
                 .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
             return StatusCode::CompactBlockHasInvalidHeader
-                .with_context(format!("{} {}", block_hash, err));
+                .with_context(format!("{block_hash} {err}"));
         }
     }
 

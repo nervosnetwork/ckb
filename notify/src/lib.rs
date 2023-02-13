@@ -260,16 +260,16 @@ impl NotifyService {
         if let Some(script) = self.config.new_block_notify_script.clone() {
             let script_timeout = self.timeout.script;
             self.handle.spawn(async move {
-                let args = [format!("{:#x}", block_hash)];
+                let args = [format!("{block_hash:#x}")];
                 match timeout(script_timeout, Command::new(&script).args(&args).status()).await {
                     Ok(ret) => match ret {
-                        Ok(status) => debug!("the new_block_notify script exited with: {}", status),
+                        Ok(status) => debug!("the new_block_notify script exited with: {status}"),
                         Err(e) => error!(
                             "failed to run new_block_notify_script: {} {:?}, error: {}",
                             script, args[0], e
                         ),
                     },
-                    Err(_) => ckb_logger::warn!("new_block_notify_script {} timed out", script),
+                    Err(_) => ckb_logger::warn!("new_block_notify_script {script} timed out"),
                 }
             });
         }

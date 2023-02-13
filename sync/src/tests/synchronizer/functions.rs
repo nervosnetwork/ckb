@@ -1036,8 +1036,8 @@ fn test_fix_last_common_header() {
     //  M1 -> M2 -> M3 -> M4 -> M5 -> M6 (chain M)
     //              \
     //                \-> F4 -> F5 -> F6 -> F7 (chain F)
-    let m_ = |number| format!("M{}", number);
-    let f_ = |number| format!("F{}", number);
+    let m_ = |number| format!("M{number}");
+    let f_ = |number| format!("F{number}");
     let mut graph = HashMap::new();
     let mut graph_exts = HashMap::new();
 
@@ -1153,8 +1153,7 @@ fn test_fix_last_common_header() {
             });
         assert_eq!(
             expected, actual,
-            "Case: {}, last_common: {:?}, best_known: {:?}, expected: {:?}, actual: {:?}",
-            case, last_common, best_known, expected, actual,
+            "Case: {case}, last_common: {last_common:?}, best_known: {best_known:?}, expected: {expected:?}, actual: {actual:?}"
         );
     }
 }

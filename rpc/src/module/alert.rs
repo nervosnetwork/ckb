@@ -97,8 +97,7 @@ impl AlertRpc for AlertRpcImpl {
         let notice_until: u64 = alert.raw().notice_until().unpack();
         if notice_until < now_ms {
             return Err(RPCError::invalid_params(format!(
-                "Expected `params[0].notice_until` in the future (> {}), got {}",
-                now_ms, notice_until
+                "Expected `params[0].notice_until` in the future (> {now_ms}), got {notice_until}",
             )));
         }
 

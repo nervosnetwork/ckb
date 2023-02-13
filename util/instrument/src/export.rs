@@ -40,7 +40,7 @@ impl Export {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(&self.target.join(self.file_name()))?;
+            .open(self.target.join(self.file_name()))?;
         let mut writer = io::BufWriter::new(f);
         let snapshot = self.shared.snapshot();
 
@@ -60,7 +60,7 @@ impl Export {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(&self.target.join(self.file_name()))?;
+            .open(self.target.join(self.file_name()))?;
 
         let mut writer = io::BufWriter::new(f);
         let snapshot = self.shared.snapshot();

@@ -223,7 +223,7 @@ impl TxPoolService {
         if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
             if reject.is_malformed_tx() {
                 if let Some(remote) = remote {
-                    self.ban_malformed(remote.1, format!("reject {}", reject));
+                    self.ban_malformed(remote.1, format!("reject {reject}"));
                 }
             }
             return Err(reject);
@@ -351,7 +351,7 @@ impl TxPoolService {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
-                            self.ban_malformed(peer, format!("reject {}", reject));
+                            self.ban_malformed(peer, format!("reject {reject}"));
                         }
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
                             self.put_recent_reject(&tx_hash, reject).await;
@@ -462,7 +462,7 @@ impl TxPoolService {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
 
                                 if reject.is_malformed_tx() {
-                                    self.ban_malformed(orphan.peer, format!("reject {}", reject));
+                                    self.ban_malformed(orphan.peer, format!("reject {reject}"));
                                 }
                                 if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
                                 {

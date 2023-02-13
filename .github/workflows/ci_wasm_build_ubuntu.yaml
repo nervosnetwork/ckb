@@ -57,7 +57,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: 1.61.0
+        toolchain: 1.67.1
     - run: sudo apt-get update && sudo apt-get install -y pkg-config clang
     - uses: actions/checkout@v3
     - name: ci_wasm_build_ubuntu

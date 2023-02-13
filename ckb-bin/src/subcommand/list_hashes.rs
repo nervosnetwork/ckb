@@ -121,7 +121,7 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
         }
 
         for env in AVAILABLE_SPECS {
-            let spec = ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", env)))
+            let spec = ChainSpec::load_from(&Resource::bundled(format!("specs/{env}.toml")))
                 .map_err(to_config_error)?;
             let spec_name = spec.name.clone();
             let spec_hashes: SpecHashes = spec.try_into()?;
@@ -162,6 +162,6 @@ pub fn list_hashes(root_dir: PathBuf, matches: &ArgMatches) -> Result<(), ExitCo
 }
 
 fn to_config_error(err: Box<dyn std::error::Error>) -> ExitCode {
-    eprintln!("ERROR: {}", err);
+    eprintln!("ERROR: {err}");
     ExitCode::Config
 }

@@ -27,7 +27,7 @@ impl TryFrom<u8> for ScriptHashType {
             0 => Ok(ScriptHashType::Data),
             1 => Ok(ScriptHashType::Type),
             2 => Ok(ScriptHashType::Data1),
-            _ => Err(OtherError::new(format!("Invalid script hash type {}", v))),
+            _ => Err(OtherError::new(format!("Invalid script hash type {v}"))),
         }
     }
 }
@@ -87,7 +87,7 @@ impl TryFrom<packed::Byte> for DepType {
         match Into::<u8>::into(v) {
             0 => Ok(DepType::Code),
             1 => Ok(DepType::DepGroup),
-            _ => Err(OtherError::new(format!("Invalid dep type {}", v))),
+            _ => Err(OtherError::new(format!("Invalid dep type {v}"))),
         }
     }
 }

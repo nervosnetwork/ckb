@@ -72,10 +72,7 @@ impl Node {
             let tip_header: HeaderView = self.rpc_client().get_tip_header().into();
             let tip_epoch = tip_header.epoch();
             if tip_epoch > target_epoch {
-                panic!(
-                    "expect mine until epoch {} but already be epoch {}",
-                    target_epoch, tip_epoch
-                );
+                panic!("expect mine until epoch {target_epoch} but already be epoch {tip_epoch}");
             }
             tip_epoch == target_epoch
         });

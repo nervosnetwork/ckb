@@ -30,7 +30,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     .expect("SYSTEM_CELL cache init once");
 
     rayon::ThreadPoolBuilder::new()
-        .thread_name(|i| format!("RayonGlobal-{}", i))
+        .thread_name(|i| format!("RayonGlobal-{i}"))
         .build_global()
         .expect("Init the global thread pool for rayon failed");
 
@@ -65,7 +65,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     info!("Finishing work, please wait...");
     shared.tx_pool_controller().save_pool().map_err(|err| {
-        eprintln!("TxPool Error: {}", err);
+        eprintln!("TxPool Error: {err}");
         ExitCode::Failure
     })?;
 

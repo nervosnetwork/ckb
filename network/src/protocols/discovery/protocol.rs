@@ -176,8 +176,7 @@ impl std::fmt::Display for DiscoveryMessage {
             DiscoveryMessage::GetNodes { version, count, .. } => {
                 write!(
                     f,
-                    "DiscoveryMessage::GetNodes(version:{}, count:{})",
-                    version, count
+                    "DiscoveryMessage::GetNodes(version:{version}, count:{count})"
                 )?;
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {

@@ -50,7 +50,7 @@ fn test_signing_alert_using_dummy_keypair() {
         "alert:\n{}",
         serde_json::to_string_pretty(&alert_json).unwrap()
     );
-    println!("raw hash: 0x{:x}", hash);
+    println!("raw hash: 0x{hash:x}");
     println!("signature: 0x{:x}", signature.raw_data());
     assert!(verifier.verify_signatures(&alert).is_ok());
 }

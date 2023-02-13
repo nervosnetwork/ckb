@@ -133,9 +133,7 @@ impl Migrations {
             };
             db = m.migrate(db, Arc::new(pb))?;
             db.put_default(MIGRATION_VERSION_KEY, m.version())
-                .map_err(|err| {
-                    internal_error(format!("failed to migrate the database: {}", err))
-                })?;
+                .map_err(|err| internal_error(format!("failed to migrate the database: {err}")))?;
         }
         mpb.join_and_clear().expect("MultiProgress join");
         Ok(db)
@@ -145,7 +143,7 @@ impl Migrations {
         let raw = db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .map_err(|err| {
-                internal_error(format!("failed to get the version of database: {}", err))
+                internal_error(format!("failed to get the version of database: {err}"))
             })?;
 
         Ok(raw.map(|version_bytes| {
@@ -161,7 +159,7 @@ impl Migrations {
                 info!("Init database version {}", m.version());
                 db.put_default(MIGRATION_VERSION_KEY, m.version())
                     .map_err(|err| {
-                        internal_error(format!("failed to migrate the database: {}", err))
+                        internal_error(format!("failed to migrate the database: {err}"))
                     })?;
             }
         }

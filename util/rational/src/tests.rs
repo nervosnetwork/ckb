@@ -50,7 +50,7 @@ impl ::std::fmt::Debug for U256LeBytes {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "0x")?;
         for i in self.inner.iter().rev() {
-            write!(f, "{:02x}", i)?;
+            write!(f, "{i:02x}")?;
         }
         write!(f, "")
     }

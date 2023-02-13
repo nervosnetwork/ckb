@@ -101,7 +101,7 @@ impl Spec for SendSecpTxUseDepGroup {
             .pubkey()
             .expect("Get pubkey failed")
             .serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        let lock_arg = Bytes::from(blake2b_256(pubkey_data)[0..20].to_vec());
         let hash_type = self.hash_type;
         let block_assembler = new_block_assembler_config(lock_arg, hash_type);
         config.block_assembler = Some(block_assembler);
@@ -124,7 +124,7 @@ impl CheckTypical2In2OutTx {
         let mut generator = Generator::non_crypto_safe_prng(seed);
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        let lock_arg = Bytes::from(blake2b_256(pubkey_data)[0..20].to_vec());
         CheckTypical2In2OutTx { privkey, lock_arg }
     }
 }

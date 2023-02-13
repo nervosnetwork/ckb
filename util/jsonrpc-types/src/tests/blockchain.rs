@@ -135,8 +135,7 @@ fn test_script_serialization() {
         let result: Result<Script, _> = serde_json::from_str(malformed);
         assert!(
             result.is_err(),
-            "should reject malformed json: [{}]",
-            malformed
+            "should reject malformed json: [{malformed}]"
         )
     }
 }

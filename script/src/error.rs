@@ -67,9 +67,9 @@ impl TransactionScriptErrorSource {
 impl fmt::Display for TransactionScriptErrorSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TransactionScriptErrorSource::Inputs(n, field) => write!(f, "Inputs[{}].{}", n, field),
+            TransactionScriptErrorSource::Inputs(n, field) => write!(f, "Inputs[{n}].{field}"),
             TransactionScriptErrorSource::Outputs(n, field) => {
-                write!(f, "Outputs[{}].{}", n, field)
+                write!(f, "Outputs[{n}].{field}")
             }
             TransactionScriptErrorSource::Unknown => write!(f, "Unknown"),
         }

@@ -681,8 +681,7 @@ impl NetRpc for NetRpcImpl {
     ) -> Result<()> {
         let ip_network = address.parse().map_err(|_| {
             RPCError::invalid_params(format!(
-                "Expected `params[0]` to be a valid IP address, got {}",
-                address
+                "Expected `params[0]` to be a valid IP address, got {address}"
             ))
         })?;
 
@@ -705,8 +704,7 @@ impl NetRpc for NetRpcImpl {
                 Ok(())
             }
             _ => Err(RPCError::invalid_params(format!(
-                "Expected `params[1]` to be in the list [insert, delete], got {}",
-                address,
+                "Expected `params[1]` to be in the list [insert, delete], got {address}"
             ))),
         }
     }
@@ -740,7 +738,7 @@ impl NetRpc for NetRpcImpl {
         if let Ok(multiaddr) = address.parse::<Multiaddr>() {
             if extract_peer_id(&multiaddr).is_some() {
                 self.network_controller.add_node(multiaddr)
-            } else if let Ok(addr) = format!("{}/p2p/{}", address, peer_id).parse() {
+            } else if let Ok(addr) = format!("{address}/p2p/{peer_id}").parse() {
                 self.network_controller.add_node(addr)
             }
         }

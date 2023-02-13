@@ -35,11 +35,11 @@ impl RocksDBTransaction {
     }
 
     /// Read a key and make the read value a precondition for transaction commit.
-    pub fn get_for_update<'a>(
+    pub fn get_for_update(
         &self,
         col: Col,
         key: &[u8],
-        snapshot: &RocksDBTransactionSnapshot<'a>,
+        snapshot: &RocksDBTransactionSnapshot<'_>,
     ) -> Result<Option<DBVector>> {
         let cf = cf_handle(&self.db, col)?;
         let mut opts = ReadOptions::default();

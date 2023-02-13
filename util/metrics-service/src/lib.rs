@@ -49,14 +49,14 @@ fn run_exporter(exporter: Exporter, handle: &Handle) -> Result<(), String> {
         Target::Prometheus { listen_address } => {
             let addr = listen_address
                 .parse::<SocketAddr>()
-                .map_err(|err| format!("failed to parse listen_address because {}", err))?;
+                .map_err(|err| format!("failed to parse listen_address because {err}"))?;
             // TODO Not allow to configure the prometheus exporter, since the API is not stable.
             // If anyone who want to customize the configurations, update the follow code.
             // Ref: https://docs.rs/opentelemetry-prometheus/*/opentelemetry_prometheus/struct.ExporterBuilder.html
             let exporter = {
                 let exporter = opentelemetry_prometheus::exporter()
                     .try_init()
-                    .map_err(|err| format!("failed to init prometheus exporter because {}", err))?;
+                    .map_err(|err| format!("failed to init prometheus exporter because {err}"))?;
                 Arc::new(exporter)
             };
             let make_svc = make_service_fn(move |_conn| {

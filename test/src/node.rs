@@ -79,9 +79,9 @@ impl Node {
         node.modify_app_config(|app_config| {
             let rpc_port = find_available_port();
             let p2p_port = find_available_port();
-            app_config.rpc.listen_address = format!("127.0.0.1:{}", rpc_port);
+            app_config.rpc.listen_address = format!("127.0.0.1:{rpc_port}");
             app_config.network.listen_addresses =
-                vec![format!("/ip4/127.0.0.1/tcp/{}", p2p_port).parse().unwrap()];
+                vec![format!("/ip4/127.0.0.1/tcp/{p2p_port}").parse().unwrap()];
         });
 
         node
@@ -130,7 +130,7 @@ impl Node {
 
         let p2p_listen = app_config.network.listen_addresses[0].to_string();
         let rpc_address = app_config.rpc.listen_address;
-        let rpc_client = RpcClient::new(&format!("http://{}/", rpc_address));
+        let rpc_client = RpcClient::new(&format!("http://{rpc_address}/"));
         let consensus = {
             // Ensure the data path is available because chain_spec.build_consensus() needs to access the
             // system-cell data.
@@ -412,8 +412,7 @@ impl Node {
             recent = tx_pool_info;
         }
         panic!(
-            "timeout to get_tip_tx_pool_info, tip_header={:?}, tx_pool_info: {:?}",
-            tip_header, recent
+            "timeout to get_tip_tx_pool_info, tip_header={tip_header:?}, tx_pool_info: {recent:?}"
         );
     }
 
@@ -719,7 +718,7 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
         tip_headers.len() == 1
     });
     if !synced {
-        panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
+        panic!("timeout to wait for sync, tip_headers: {tip_headers:?}");
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();

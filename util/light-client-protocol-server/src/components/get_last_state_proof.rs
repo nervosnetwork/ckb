@@ -91,8 +91,7 @@ pub(crate) trait FindBlocksViaDifficulties {
                 current_difficulty = diff;
             } else {
                 let errmsg = format!(
-                    "the difficulty ({:#x}) is not in the block range [{}, {})",
-                    difficulty, start_block_number, end_block_number,
+                    "the difficulty ({difficulty:#x}) is not in the block range [{start_block_number}, {end_block_number})"
                 );
                 return Err(errmsg);
             }
@@ -159,8 +158,7 @@ impl BlockSampler {
                         Ok(root) => root,
                         Err(err) => {
                             let errmsg = format!(
-                                "failed to generate a root for block#{} since {:?}",
-                                number, err
+                                "failed to generate a root for block#{number} since {err:?}"
                             );
                             return Err(errmsg);
                         }
@@ -176,7 +174,7 @@ impl BlockSampler {
 
                 headers.push(header);
             } else {
-                let errmsg = format!("failed to find ancestor header ({})", number);
+                let errmsg = format!("failed to find ancestor header ({number})");
                 return Err(errmsg);
             }
         }
@@ -273,16 +271,14 @@ impl<'a> GetLastStateProofProcess<'a> {
                     {
                         if total_difficulty >= *start_difficulty {
                             let errmsg = format!(
-                                "the start difficulty is {:#x} too less than \
-                                the previous block #{} of the start block",
-                                start_difficulty, previous_block_number
+                                "the start difficulty is {start_difficulty:#x} too less than \
+                                the previous block #{previous_block_number} of the start block"
                             );
                             return StatusCode::InvalidRequest.with_context(errmsg);
                         }
                     } else {
                         let errmsg = format!(
-                            "the total difficulty for block#{} is not found",
-                            previous_block_number
+                            "the total difficulty for block#{previous_block_number} is not found"
                         );
                         return StatusCode::InternalError.with_context(errmsg);
                     };
@@ -290,68 +286,67 @@ impl<'a> GetLastStateProofProcess<'a> {
             }
         }
 
-        let (sampled_numbers, last_n_numbers) =
-            if last_block_number - start_block_number <= last_n_blocks {
-                // There is not enough blocks, so we take all of them; so there is no sampled blocks.
-                let sampled_numbers = Vec::new();
-                let last_n_numbers = (start_block_number..last_block_number)
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                (sampled_numbers, last_n_numbers)
+        let (sampled_numbers, last_n_numbers) = if last_block_number - start_block_number
+            <= last_n_blocks
+        {
+            // There is not enough blocks, so we take all of them; so there is no sampled blocks.
+            let sampled_numbers = Vec::new();
+            let last_n_numbers = (start_block_number..last_block_number)
+                .into_iter()
+                .collect::<Vec<_>>();
+            (sampled_numbers, last_n_numbers)
+        } else {
+            let mut difficulty_boundary_block_number = if let Some((num, _)) = sampler
+                .get_first_block_total_difficulty_is_not_less_than(
+                    start_block_number,
+                    last_block_number,
+                    &difficulty_boundary,
+                ) {
+                num
             } else {
-                let mut difficulty_boundary_block_number = if let Some((num, _)) = sampler
-                    .get_first_block_total_difficulty_is_not_less_than(
-                        start_block_number,
-                        last_block_number,
-                        &difficulty_boundary,
-                    ) {
-                    num
+                let errmsg = format!(
+                        "the difficulty boundary ({difficulty_boundary:#x}) is not in the block range [{start_block_number}, {last_block_number})"
+                    );
+                return StatusCode::InvaildDifficultyBoundary.with_context(errmsg);
+            };
+
+            if last_block_number - difficulty_boundary_block_number < last_n_blocks {
+                // There is not enough blocks after the difficulty boundary, so we take more.
+                difficulty_boundary_block_number = last_block_number - last_n_blocks;
+            }
+
+            let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            if difficulty_boundary_block_number > 0 {
+                if let Some(total_difficulty) =
+                    sampler.get_block_total_difficulty(difficulty_boundary_block_number - 1)
+                {
+                    difficulties = difficulties
+                        .into_iter()
+                        .take_while(|d| *d <= total_difficulty)
+                        .collect();
                 } else {
                     let errmsg = format!(
-                        "the difficulty boundary ({:#x}) is not in the block range [{}, {})",
-                        difficulty_boundary, start_block_number, last_block_number,
-                    );
-                    return StatusCode::InvaildDifficultyBoundary.with_context(errmsg);
-                };
-
-                if last_block_number - difficulty_boundary_block_number < last_n_blocks {
-                    // There is not enough blocks after the difficulty boundary, so we take more.
-                    difficulty_boundary_block_number = last_block_number - last_n_blocks;
-                }
-
-                let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
-                    .into_iter()
-                    .collect::<Vec<_>>();
-
-                if difficulty_boundary_block_number > 0 {
-                    if let Some(total_difficulty) =
-                        sampler.get_block_total_difficulty(difficulty_boundary_block_number - 1)
-                    {
-                        difficulties = difficulties
-                            .into_iter()
-                            .take_while(|d| *d <= total_difficulty)
-                            .collect();
-                    } else {
-                        let errmsg = format!(
-                            "the total difficulty for block#{} is not found",
-                            difficulty_boundary_block_number
+                            "the total difficulty for block#{difficulty_boundary_block_number} is not found"
                         );
+                    return StatusCode::InternalError.with_context(errmsg);
+                };
+                match sampler.get_block_numbers_via_difficulties(
+                    start_block_number,
+                    difficulty_boundary_block_number,
+                    &difficulties,
+                ) {
+                    Ok(sampled_numbers) => (sampled_numbers, last_n_numbers),
+                    Err(errmsg) => {
                         return StatusCode::InternalError.with_context(errmsg);
-                    };
-                    match sampler.get_block_numbers_via_difficulties(
-                        start_block_number,
-                        difficulty_boundary_block_number,
-                        &difficulties,
-                    ) {
-                        Ok(sampled_numbers) => (sampled_numbers, last_n_numbers),
-                        Err(errmsg) => {
-                            return StatusCode::InternalError.with_context(errmsg);
-                        }
                     }
-                } else {
-                    (Vec::new(), last_n_numbers)
                 }
-            };
+            } else {
+                (Vec::new(), last_n_numbers)
+            }
+        };
 
         let block_numbers = reorg_last_n_numbers
             .into_iter()

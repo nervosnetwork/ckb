@@ -50,7 +50,7 @@ impl DBWithTTL {
             cf_descriptors,
             descriptor,
         )
-        .map_err(|err| internal_error(format!("failed to open database: {}", err)))?;
+        .map_err(|err| internal_error(format!("failed to open database: {err}")))?;
         Ok(DBWithTTL { inner })
     }
 
@@ -60,7 +60,7 @@ impl DBWithTTL {
         let cf = self
             .inner
             .cf_handle(col)
-            .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
         self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 
@@ -73,7 +73,7 @@ impl DBWithTTL {
         let cf = self
             .inner
             .cf_handle(col)
-            .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
     }
 
@@ -96,7 +96,7 @@ impl DBWithTTL {
         let cf = self
             .inner
             .cf_handle(col)
-            .ok_or_else(|| internal_error(format!("column {} not found", col)))?;
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
         self.inner
             .property_int_value_cf(cf, PROPERTY_NUM_KEYS)
             .map_err(internal_error)

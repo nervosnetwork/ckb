@@ -146,7 +146,7 @@ fn test_peer_store_dump_with_broken_tmp_file_should_be_ok() {
         let tmp_addr_file_path = dir.path().join("tmp/addr_manager.db");
         let mut file = File::create(tmp_addr_file_path).unwrap();
         let truncated_json = r#"[{"peer_id":"QmZDfQQPzQmPXW8DjoCw9QVLJU85rnSxgH3j3u4j19hq4o","ip_port":{"ip":"127.0.0.1","port":438},"addr":"/ip4/127.0.0.1/tcp/438","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":438},{"peer_id":"Qmb34eHAHK4BgSCNQ5KV3Jc6iqh3FBRWEzkT6M4Yztoac6","ip_port":{"ip":"127.0.0.1","port":46},"addr":"/ip4/127.0.0.1/tcp/46","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":46},{"peer_id":"QmeKJZ2AgE3tbP5hjeKeoLGArApQDcgXenKJ3w5eG48esg","ip_port":{"ip":"127.0.0.1","port":538},"addr":"/ip4/127.0.0.1/tcp/538","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":538},{"peer_id":"QmVshsmSHSjk84tcac1wdncMN4hcSXpM5LSQvYkjig3YYS","ip_port":{"ip":"127.0.0.1","port":773},"addr":"/ip4/127.0.0.1/tcp/773","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":773},{"peer_id":"QmbPjmp1rQ1M4G533YPs6CvB5aP6suH92qnhJ6eA1QJJC7","ip_port":{"ip":"127.0.0.1","port":156},"addr":"/ip4/127.0.0.1/tcp/156","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":156},{"peer_id":"Qmf3xG6wJuhXP1QQQMtwAzvz5oCsMtLkyZAJEVe9oW6hae","ip_port":{"ip":"127.0.0.1","port":217},"addr":"/ip4/127.0.0.1/tcp/217","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":217},{"peer_id":"QmdAkE4i1V7ikhnKenYMQ21955q58i9b7XnUcKVRs9TEtP","ip_port":{"ip":"127.0.0.1","port":594},"addr":"/ip4/127.0.0.1/tcp/594","score":60,"last_connected_at_ms":0,"last_tried_at_ms":0,"attempts_count":0,"random_id_pos":594},{"peer_id":"QmawsN1dHNMMx1sDWXdp2r8H8rXanu"#;
-        writeln!(file, "{}", truncated_json).unwrap();
+        writeln!(file, "{truncated_json}").unwrap();
         file.sync_all().unwrap();
     }
     // write a truncated json with 3 ban records to tmp file
@@ -154,7 +154,7 @@ fn test_peer_store_dump_with_broken_tmp_file_should_be_ok() {
         let tmp_ban_file_path = dir.path().join("tmp/ban_list.db");
         let mut file = File::create(tmp_ban_file_path).unwrap();
         let truncated_json = r#"[{"address":"192.168.0.2/32","ban_until":31061427677740,"ban_reason":"test","created_at":1612678877739},{"address":"192.168.0.3/32","ban_until":472792659688893,"ban_reason":"test","created_at":1612678888636},{"address":"192.168.0.4/32","ban_until":472792659688893,"ban_reason"#;
-        writeln!(file, "{}", truncated_json).unwrap();
+        writeln!(file, "{truncated_json}").unwrap();
         file.sync_all().unwrap();
     }
 

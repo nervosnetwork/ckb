@@ -64,7 +64,7 @@ fn main() {
                 let path_str = format!(".git/{}", head[5..].trim());
                 let path = Path::new(&path_str);
                 if path.exists() {
-                    println!("cargo:rerun-if-changed={}", path_str);
+                    println!("cargo:rerun-if-changed={path_str}");
                 }
             }
         }
@@ -72,7 +72,7 @@ fn main() {
 
     for file in files_stdout.iter().flat_map(|stdout| stdout.lines()) {
         if rerun_if_changed(file) {
-            println!("cargo:rerun-if-changed={}", file);
+            println!("cargo:rerun-if-changed={file}");
         }
     }
 }

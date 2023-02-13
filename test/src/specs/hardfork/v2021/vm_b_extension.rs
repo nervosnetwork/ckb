@@ -133,7 +133,7 @@ impl BExtScript {
         let hash_type = match vm_version {
             0 => ScriptHashType::Data,
             1 => ScriptHashType::Data1,
-            _ => panic!("unknown vm_version [{}]", vm_version),
+            _ => panic!("unknown vm_version [{vm_version}]"),
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
@@ -206,7 +206,7 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
                 Some(0) => "Data",
                 Some(1) => "Data1",
                 None => "Type",
-                _ => panic!("unknown vm_opt [{:?}]", vm_opt),
+                _ => panic!("unknown vm_opt [{vm_opt:?}]"),
             };
             let inst = if num0 == 0 && num1 == 0 {
                 "but skipped  "

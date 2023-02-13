@@ -54,7 +54,7 @@ impl Setup {
         matches: &ArgMatches,
     ) -> Result<Setup, ExitCode> {
         let root_dir = Self::root_dir_from_matches(matches)?;
-        let mut config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
+        let mut config = AppConfig::load_for_subcommand(root_dir, subcommand_name)?;
         config.set_bin_name(bin_name);
         #[cfg(feature = "with_sentry")]
         let is_sentry_enabled = is_daemon(subcommand_name) && config.sentry().is_enabled();
@@ -428,7 +428,7 @@ fn is_daemon(subcommand_name: &str) -> bool {
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
     spec.build_consensus().map_err(|err| {
-        eprintln!("chainspec error: {}", err);
+        eprintln!("chainspec error: {err}");
         ExitCode::Config
     })
 }

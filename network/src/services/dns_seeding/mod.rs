@@ -63,12 +63,12 @@ impl DnsSeedingService {
 
         let mut pubkey_bytes = [4u8; 65];
         hex_decode(TXT_VERIFY_PUBKEY.as_bytes(), &mut pubkey_bytes[1..65])
-            .map_err(|err| format!("parse key({}) error: {:?}", TXT_VERIFY_PUBKEY, err))?;
+            .map_err(|err| format!("parse key({TXT_VERIFY_PUBKEY}) error: {err:?}"))?;
         let pubkey = PublicKey::from_slice(&pubkey_bytes)
-            .map_err(|err| format!("create PublicKey failed: {:?}", err))?;
+            .map_err(|err| format!("create PublicKey failed: {err:?}"))?;
 
         let resolver = trust_dns_resolver::AsyncResolver::tokio_from_system_conf()
-            .map_err(|err| format!("Failed to create DNS resolver: {}", err))?;
+            .map_err(|err| format!("Failed to create DNS resolver: {err}"))?;
 
         let mut addrs = Vec::new();
         for seed in &self.seeds {
@@ -87,8 +87,7 @@ impl DnsSeedingService {
                                         }
                                         Err(err) => {
                                             debug!(
-                                                "decode dns txt record failed: {:?}, {:?}",
-                                                err, record
+                                                "decode dns txt record failed: {err:?}, {record:?}"
                                             );
                                         }
                                     }

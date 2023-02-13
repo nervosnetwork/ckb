@@ -189,7 +189,7 @@ pub fn test_cellbase_without_output() {
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
-    assert!(result.is_ok(), "Unexpected error {:?}", result);
+    assert!(result.is_ok(), "Unexpected error {result:?}");
 
     // only output_data
     let cellbase_without_output = TransactionBuilder::default()

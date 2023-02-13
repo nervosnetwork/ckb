@@ -130,7 +130,7 @@ impl LightClientProtocol {
             match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {
-                    let errmsg = format!("failed to generate a root since {:?}", err);
+                    let errmsg = format!("failed to generate a root since {err:?}");
                     return Err(errmsg);
                 }
             }
@@ -186,7 +186,7 @@ impl LightClientProtocol {
             let parent_chain_root = match mmr.get_root() {
                 Ok(root) => root,
                 Err(err) => {
-                    let errmsg = format!("failed to generate a root since {:?}", err);
+                    let errmsg = format!("failed to generate a root since {err:?}");
                     return StatusCode::InternalError.with_context(errmsg);
                 }
             };
@@ -196,7 +196,7 @@ impl LightClientProtocol {
                 match mmr.gen_proof(items_positions) {
                     Ok(proof) => proof.proof_items().to_owned(),
                     Err(err) => {
-                        let errmsg = format!("failed to generate a proof since {:?}", err);
+                        let errmsg = format!("failed to generate a proof since {err:?}");
                         return StatusCode::InternalError.with_context(errmsg);
                     }
                 }

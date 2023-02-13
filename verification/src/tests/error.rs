@@ -35,6 +35,6 @@ fn test_version_error_display() {
 
     assert_eq!(
         "Header(Version(BlockVersionError(expected: 0, actual: 1)))",
-        format!("{}", e)
+        format!("{e}")
     );
 }
