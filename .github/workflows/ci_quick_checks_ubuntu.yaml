@@ -9,9 +9,9 @@ on:
     branches:
       - master
       - develop
-      - trying
-      - staging
       - 'rc/*'
+  merge_group: {}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
@@ -23,8 +23,7 @@ jobs:
        github.event_name != 'push' ||
        ( github.event_name == 'push' &&
         ( github.ref == 'refs/heads/master' ||
-          github.ref == 'refs/heads/trying' ||
-          github.ref == 'refs/heads/staging' ||
+          github.ref == 'refs/heads/gh-readonly-queue/develop' ||
           (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]') ||
           startsWith(github.ref, 'refs/heads/rc/')
         )

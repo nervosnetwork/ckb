@@ -9,10 +9,8 @@ on:
     branches:
       - master
       - develop
-      - trying
-      - staging
       - 'rc/*'
-
+  merge_group: {}
 
 env:
   CARGO_TERM_COLOR: always
