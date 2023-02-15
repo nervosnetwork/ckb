@@ -1,6 +1,6 @@
 [package]
 name = "ckb-multisig"
-version = "0.108.0-pre"
+version = "0.109.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-error = { path = "../../error", version = "= 0.108.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.108.0-pre" }
-ckb-crypto = { path = "../crypto", version = "= 0.108.0-pre" }
+ckb-error = { path = "../../error", version = "= 0.109.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.109.0-pre" }
+ckb-crypto = { path = "../crypto", version = "= 0.109.0-pre" }
 
 [dev-dependencies]
 rand = "0.7"
