@@ -85,6 +85,11 @@ if [[ $GITHUB_EVENT_NAME == "push" ]];then
   MESSAGE="$COMMIT_MESSAGE"
   fun_pasing_message "$MESSAGE"
 fi
+if [[ $GITHUB_EVENT_NAME == "merge_group" ]];then
+  # Do not customize running settings for merge queue
+  MESSAGE=
+  fun_pasing_message "$MESSAGE"
+fi
 if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
   MESSAGE="$PR_COMMONS_BODY"
   actor_permission=`curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission |jq .permission | sed 's/\"//g'`
