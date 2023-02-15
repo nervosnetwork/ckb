@@ -422,6 +422,8 @@ fn build_store(
 
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
+
+    let tx_relay_sender = tx_pool_builder.tx_relay_sender();
     tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         // update statics
         tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
@@ -474,6 +476,12 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
                     if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
                         error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
                     }
+                }
+            }
+
+            if reject.is_allowed_relay() {
+                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject { tx_hash }) {
+                    error!("tx-pool tx_relay_sender internal error {}", e);
                 }
             }
 
