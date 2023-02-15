@@ -353,10 +353,15 @@ impl TxPoolService {
                         if reject.is_malformed_tx() {
                             self.ban_malformed(peer, format!("reject {reject}"));
                         }
+                        if reject.is_allowed_relay() {
+                            self.send_result_to_relayer(TxVerificationResult::Reject {
+                                tx_hash: tx_hash.clone(),
+                            });
+                        }
+
                         if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
-                        self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
                     }
                 }
             },
@@ -456,13 +461,14 @@ impl TxPoolService {
                                 orphan.tx.hash()
                             );
                             if !is_missing_input(&reject) {
-                                self.send_result_to_relayer(TxVerificationResult::Reject {
-                                    tx_hash: orphan.tx.hash(),
-                                });
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-
                                 if reject.is_malformed_tx() {
                                     self.ban_malformed(orphan.peer, format!("reject {reject}"));
+                                }
+                                if reject.is_allowed_relay() {
+                                    self.send_result_to_relayer(TxVerificationResult::Reject {
+                                        tx_hash: orphan.tx.hash(),
+                                    });
                                 }
                                 if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
                                 {

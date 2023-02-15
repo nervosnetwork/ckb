@@ -588,6 +588,11 @@ impl TxPoolServiceBuilder {
         self.callbacks.register_pending(callback);
     }
 
+    /// Return cloned tx relayer sender
+    pub fn tx_relay_sender(&self) -> ckb_channel::Sender<TxVerificationResult> {
+        self.tx_relay_sender.clone()
+    }
+
     /// Register new proposed callback
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
