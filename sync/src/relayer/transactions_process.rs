@@ -38,7 +38,8 @@ impl<'a> TransactionsProcess<'a> {
         let shared_state = self.relayer.shared().state();
         let txs: Vec<(TransactionView, Cycle)> = {
             // ignore the tx if it's already known or it has never been requested before
-            let tx_filter = shared_state.tx_filter();
+            let mut tx_filter = shared_state.tx_filter();
+            tx_filter.remove_expired();
             let unknown_tx_hashes = shared_state.unknown_tx_hashes();
 
             self.message

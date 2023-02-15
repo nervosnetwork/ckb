@@ -36,7 +36,8 @@ impl<'a> TransactionHashesProcess<'a> {
         }
 
         let tx_hashes: Vec<_> = {
-            let tx_filter = state.tx_filter();
+            let mut tx_filter = state.tx_filter();
+            tx_filter.remove_expired();
             self.message
                 .tx_hashes()
                 .iter()
