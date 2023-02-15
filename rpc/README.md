@@ -144,6 +144,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
     * [Type `IndexerRange`](#type-indexerrange)
+    * [Type `IndexerScriptSearchMode`](#type-indexerscriptsearchmode)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
     * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
@@ -5961,6 +5962,16 @@ A array represent (half-open) range bounded inclusively below and exclusively ab
 
 
 
+### Type `IndexerScriptSearchMode`
+
+IndexerScriptSearchMode represent script search mode, default is prefix search
+
+`IndexerScriptSearchMode` is equivalent to `"prefix" | "exact"`.
+
+*   Mode `prefix` search script with prefix
+*   Mode `exact` search script with exact match
+
+
 ### Type `IndexerScriptType`
 
 ScriptType `Lock` | `Type`
@@ -5979,9 +5990,11 @@ SearchKey represent indexer support params
 
 `IndexerSearchKey` is a JSON object with the following fields.
 
-*   `script`: [`Script`](#type-script) - Script, supports prefix search
+*   `script`: [`Script`](#type-script) - Script
 
 *   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
+
+*   `script_search_mode`: [`IndexerScriptSearchMode`](#type-indexerscriptsearchmode) `|` `null` - Script search mode, optional default is `prefix`, means search script with prefix
 
 *   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
 

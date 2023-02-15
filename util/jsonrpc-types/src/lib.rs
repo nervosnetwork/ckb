@@ -52,8 +52,8 @@ pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use indexer::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
-    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerTip,
-    IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
+    IndexerRange, IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey,
+    IndexerSearchKeyFilter, IndexerTip, IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
 };
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
