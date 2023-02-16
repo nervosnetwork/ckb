@@ -13,8 +13,8 @@ use ckb_async_runtime::{
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
-    IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx, IndexerTxWithCell,
-    IndexerTxWithCells, JsonBytes, Uint32,
+    IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
+    IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -313,6 +313,10 @@ impl IndexerHandle {
             IndexerScriptType::Lock => IndexerScriptType::Type,
             IndexerScriptType::Type => IndexerScriptType::Lock,
         };
+        let script_search_exact = matches!(
+            search_key.script_search_mode,
+            Some(IndexerScriptSearchMode::Exact)
+        );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
@@ -326,6 +330,12 @@ impl IndexerHandle {
         let cells = iter
             .take_while(|(key, _value)| key.starts_with(&prefix))
             .filter_map(|(key, value)| {
+                if script_search_exact {
+                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
+                    if key.len() != prefix.len() + 16 {
+                        return None;
+                    }
+                }
                 let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
                 let index =
                     u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
@@ -477,6 +487,10 @@ impl IndexerHandle {
             IndexerScriptType::Lock => IndexerScriptType::Type,
             IndexerScriptType::Type => IndexerScriptType::Lock,
         };
+        let script_search_exact = matches!(
+            search_key.script_search_mode,
+            Some(IndexerScriptSearchMode::Exact)
+        );
 
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
@@ -486,6 +500,12 @@ impl IndexerHandle {
             let mut tx_with_cells: Vec<IndexerTxWithCells> = Vec::new();
             let mut last_key = Vec::new();
             for (key, value) in iter.take_while(|(key, _value)| key.starts_with(&prefix)) {
+                if script_search_exact {
+                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
+                    if key.len() != prefix.len() + 17 {
+                        continue;
+                    }
+                }
                 let tx_hash: H256 = packed::Byte32::from_slice(&value)
                     .expect("stored tx hash")
                     .unpack();
@@ -593,6 +613,12 @@ impl IndexerHandle {
             let txs = iter
                 .take_while(|(key, _value)| key.starts_with(&prefix))
                 .filter_map(|(key, value)| {
+                    if script_search_exact {
+                        // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
+                        if key.len() != prefix.len() + 17 {
+                            return None;
+                        }
+                    }
                     let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
                     let block_number = u64::from_be_bytes(
                         key[key.len() - 17..key.len() - 9]
@@ -696,6 +722,10 @@ impl IndexerHandle {
             IndexerScriptType::Lock => IndexerScriptType::Type,
             IndexerScriptType::Type => IndexerScriptType::Lock,
         };
+        let script_search_exact = matches!(
+            search_key.script_search_mode,
+            Some(IndexerScriptSearchMode::Exact)
+        );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
@@ -708,6 +738,12 @@ impl IndexerHandle {
         let capacity: u64 = iter
             .take_while(|(key, _value)| key.starts_with(&prefix))
             .filter_map(|(key, value)| {
+                if script_search_exact {
+                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
+                    if key.len() != prefix.len() + 16 {
+                        return None;
+                    }
+                }
                 let tx_hash = packed::Byte32::from_slice(value.as_ref()).expect("stored tx hash");
                 let index =
                     u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
@@ -868,11 +904,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 
     fn try_into(self) -> Result<FilterOptions, Error> {
         let IndexerSearchKey {
-            script: _,
-            script_type: _,
-            filter,
-            with_data,
-            group_by_transaction: _,
+            filter, with_data, ..
         } = self;
         let filter = filter.unwrap_or_default();
         let script_prefix = if let Some(script) = filter.script {
@@ -1534,6 +1566,254 @@ mod tests {
             1000 * 100000000 * total_blocks,
             capacity.capacity.value(),
             "cellbases (last block live cell was consumed by a pending tx in the pool)"
+        );
+    }
+
+    #[test]
+    fn script_search_mode_rpc() {
+        let store = new_store("script_search_mode_rpc");
+        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
+        let stop_handler = StopHandler::new(SignalSender::Dummy, None, "indexer-test".to_string());
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            stop_handler,
+        };
+
+        // setup test data
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let lock_script11 = ScriptBuilder::default()
+            .code_hash(lock_script1.code_hash())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script11".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let type_script11 = ScriptBuilder::default()
+            .code_hash(type_script1.code_hash())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script11".to_vec()).pack())
+            .build();
+
+        let cellbase0 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx00 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx01 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script11.clone())
+                    .type_(Some(type_script11.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let block0 = BlockBuilder::default()
+            .transaction(cellbase0)
+            .transaction(tx00.clone())
+            .transaction(tx01.clone())
+            .header(HeaderBuilder::default().number(0.pack()).build())
+            .build();
+
+        indexer.append(&block0).unwrap();
+
+        let (mut pre_tx0, mut pre_tx1, mut pre_block) = (tx00, tx01, block0);
+        let total_blocks = 255;
+        for i in 1..total_blocks {
+            let cellbase = TransactionBuilder::default()
+                .input(CellInput::new_cellbase_input(i + 1))
+                .witness(Script::default().into_witness())
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(1000).pack())
+                        .lock(lock_script1.clone())
+                        .build(),
+                )
+                .output_data(Bytes::from(i.to_string()).pack())
+                .build();
+
+            pre_tx0 = TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::new(pre_tx0.hash(), 0), 0))
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(1000).pack())
+                        .lock(lock_script1.clone())
+                        .type_(Some(type_script1.clone()).pack())
+                        .build(),
+                )
+                .output_data(Default::default())
+                .build();
+
+            pre_tx1 = TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::new(pre_tx1.hash(), 0), 0))
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(2000).pack())
+                        .lock(lock_script11.clone())
+                        .type_(Some(type_script11.clone()).pack())
+                        .build(),
+                )
+                .output_data(Default::default())
+                .build();
+
+            pre_block = BlockBuilder::default()
+                .transaction(cellbase)
+                .transaction(pre_tx0.clone())
+                .transaction(pre_tx1.clone())
+                .header(
+                    HeaderBuilder::default()
+                        .number((pre_block.number() + 1).pack())
+                        .parent_hash(pre_block.hash())
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
+                        .build(),
+                )
+                .build();
+
+            indexer.append(&pre_block).unwrap();
+        }
+
+        // test get_cells rpc with prefix search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script1.clone().into(),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            total_blocks as usize + 2,
+            cells.objects.len(),
+            "total size should be cellbase cells count + 2 (last block live cell: lock_script1 and lock_script11)"
+        );
+
+        // test get_cells rpc with exact search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script1.clone().into(),
+                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            total_blocks as usize + 1,
+            cells.objects.len(),
+            "total size should be cellbase cells count + 1 (last block live cell: lock_script1)"
+        );
+
+        // test get_transactions rpc with exact search mode
+        let txs = rpc
+            .get_transactions(
+                IndexerSearchKey {
+                    script: lock_script1.clone().into(),
+                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(total_blocks as usize * 3 - 1, txs.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+
+        // test get_transactions rpc group by tx hash with exact search mode
+        let txs = rpc
+            .get_transactions(
+                IndexerSearchKey {
+                    script: lock_script1.clone().into(),
+                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    group_by_transaction: Some(true),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            total_blocks as usize * 2,
+            txs.objects.len(),
+            "total size should be cellbase tx count + total_block"
+        );
+
+        // test get_cells_capacity rpc with exact search mode
+        let capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script1.clone().into(),
+                script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                ..Default::default()
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            1000 * 100000000 * (total_blocks + 1),
+            capacity.capacity.value(),
+            "cellbases + last block live cell"
+        );
+
+        // test get_cells_capacity rpc with prefix search mode (by default)
+        let capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script1.into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            1000 * 100000000 * (total_blocks + 1) + 2000 * 100000000,
+            capacity.capacity.value()
         );
     }
 }
