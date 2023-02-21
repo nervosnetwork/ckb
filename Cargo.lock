@@ -1027,7 +1027,7 @@ dependencies = [
  "tempfile",
  "tentacle",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util 0.7.7",
  "trust-dns-resolver",
 ]
 
@@ -4389,7 +4389,7 @@ dependencies = [
  "tentacle-secio",
  "thiserror",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util 0.7.7",
  "tokio-yamux",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4431,7 +4431,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util 0.7.7",
  "unsigned-varint",
  "x25519-dalek",
 ]
@@ -4643,9 +4643,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.4"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bb2e075f03b3d66d8d8785356224ba688d2906a371015e225beeb65ca92c740"
+checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
 dependencies = [
  "bytes 1.3.0",
  "futures-core",
@@ -4666,7 +4666,7 @@ dependencies = [
  "log",
  "nohash-hasher",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util 0.7.7",
 ]
 
 [[package]]
