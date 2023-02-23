@@ -717,13 +717,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err, session_context.id, session_context.address,
                             );
-                            if let Err(err) = async_disconnect_with_message(
-                                context.control(),
+                            if let Err(err) = disconnect_with_message(
+                                &control,
                                 session_context.id,
                                 "reject peer connection",
-                            )
-                            .await
-                            {
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     session_context.id, err
