@@ -1,6 +1,6 @@
 [package]
 name = "ckb-systemtime"
-version = "0.108.0-rc1"
+version = "0.108.0-rc2"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2021"
