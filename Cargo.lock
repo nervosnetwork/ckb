@@ -422,7 +422,7 @@ dependencies = [
  "ckb-resource",
  "ckb-systemtime",
  "ckb-types",
- "clap 4.0.32",
+ "clap 4.1.8",
  "path-clean",
  "rand 0.7.3",
  "sentry",
@@ -504,7 +504,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification-traits",
- "clap 4.0.32",
+ "clap 4.1.8",
  "ctrlc",
  "fdlimit",
  "rayon",
@@ -1571,9 +1571,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.0.32"
+version = "4.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7db700bc935f9e43e88d00b0850dae18a63773cfbec6d8e070fccf7fef89a39"
+checksum = "c3d7ae14b20b94cb02149ed21a86c423859cbe18dc7ed69845cace50e52b40a5"
 dependencies = [
  "bitflags",
  "clap_lex 0.3.0",
