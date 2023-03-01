@@ -15,6 +15,7 @@ default = ["logging", "detect-asm"]
 asm = ["ckb-vm/asm"]
 detect-asm = ["ckb-vm/detect-asm"]
 logging = ["ckb-logger"]
+flatmemory = []
 
 [dependencies]
 ckb-traits = { path = "../traits", version = "= 0.109.0-pre" }
