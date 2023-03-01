@@ -141,12 +141,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
-
-[[package]]
-name = "base64"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
@@ -480,7 +474,7 @@ name = "ckb-bin"
 version = "0.109.0-pre"
 dependencies = [
  "atty",
- "base64 0.13.1",
+ "base64",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-build-info",
@@ -958,7 +952,7 @@ dependencies = [
 name = "ckb-miner"
 version = "0.109.0-pre"
 dependencies = [
- "base64 0.13.1",
+ "base64",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-channel",
@@ -3815,7 +3809,7 @@ version = "0.11.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21eed90ec8570952d53b772ecf8f206aa1ec9a3d76b2521c56c42973f2d91ee9"
 dependencies = [
- "base64 0.21.0",
+ "base64",
  "bytes 1.3.0",
  "encoding_rs",
  "futures-core",
