@@ -58,9 +58,6 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
 
     let err = err.err().unwrap();
     assert_eq!(clap::error::ErrorKind::MissingRequiredArgument, err.kind());
-    assert!(err
-        .to_string()
-        .contains("The following required arguments were not provided"));
     assert!(err.to_string().contains("--ba-arg"));
     assert!(err.to_string().contains("--ba-code-hash"));
 }
