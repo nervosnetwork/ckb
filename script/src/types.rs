@@ -16,7 +16,7 @@ use std::fmt;
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 #[cfg(not(has_asm))]
-use ckb_vm::{DefaultCoreMachine, SparseMemory, TraceMachine, WXorXMemory};
+use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
 
 /// The type of CKB-VM ISA.
 pub type VmIsa = u8;
@@ -25,15 +25,19 @@ pub type VmVersion = u32;
 
 #[cfg(has_asm)]
 pub(crate) type CoreMachineType = AsmCoreMachine;
-#[cfg(not(has_asm))]
-pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
+#[cfg(all(not(has_asm), not(feature = "flatmemory")))]
+pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
+#[cfg(all(not(has_asm), feature = "flatmemory"))]
+pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
 
 /// The type of core VM machine when uses ASM.
 #[cfg(has_asm)]
 pub type CoreMachine = Box<AsmCoreMachine>;
 /// The type of core VM machine when doesn't use ASM.
-#[cfg(not(has_asm))]
-pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>;
+#[cfg(all(not(has_asm), not(feature = "flatmemory")))]
+pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
+#[cfg(all(not(has_asm), feature = "flatmemory"))]
+pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
 
 /// The version of CKB Script Verifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
