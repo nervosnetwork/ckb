@@ -23,7 +23,7 @@ ckb-hash = { path = "../util/hash", version = "= 0.109.0-pre" }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile.workspace = true
 
 [features]
 portable = ["ckb-db/portable"]

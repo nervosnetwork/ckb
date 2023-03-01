@@ -33,7 +33,7 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.109.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.109.0-pre" }
 ckb-network = { path = "../network", version = "= 0.109.0-pre" }
 ckb-launcher = { path = "../util/launcher", version = "= 0.109.0-pre" }
-tempfile = "3.0"
+tempfile.workspace = true
 
 [[bench]]
 name = "bench_main"

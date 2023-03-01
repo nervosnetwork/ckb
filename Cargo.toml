@@ -91,6 +91,9 @@ members = [
     "ckb-bin"
 ]
 
+[workspace.dependencies]
+tempfile = "3"
+
 [profile.release]
 overflow-checks = true
 

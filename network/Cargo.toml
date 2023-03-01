@@ -43,7 +43,7 @@ with_sentry = ["sentry"]
 with_dns_seeding = ["lazy_static", "bs58", "faster-hex", "trust-dns-resolver", "secp256k1"]
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile.workspace = true
 criterion = "0.4"
 proptest = "1.0"
 num_cpus = "1.10"

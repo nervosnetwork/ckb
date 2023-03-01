@@ -37,5 +37,5 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.109.0
 tiny-keccak = { version = "2.0", features = ["sha3"] }
 ckb-crypto = { path = "../util/crypto", version = "= 0.109.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.109.0-pre" }
-tempfile = "3.0"
+tempfile.workspace = true
 rand = "0.8.4"

@@ -23,7 +23,7 @@ time = { version = "0.3.11", features = ["formatting"] }
 
 [dev-dependencies]
 ckb-logger = { path = "../logger", version = "= 0.109.0-pre" }
-tempfile = "3.0"
+tempfile.workspace = true
 
 [features]
 with_sentry = ["sentry"]

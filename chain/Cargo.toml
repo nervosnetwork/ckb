@@ -38,7 +38,7 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.109.0-pre" 
 ckb-network = { path = "../network", version = "= 0.109.0-pre" }
 ckb-launcher = { path = "../util/launcher", version = "= 0.109.0-pre" }
 lazy_static = "1.4"
-tempfile = "3.0"
+tempfile.workspace = true
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.109.0-pre" ,features = ["enable_faketime"]}
 
 [features]

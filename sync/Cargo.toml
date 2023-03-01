@@ -33,7 +33,7 @@ tokio = { version = "1", features = ["sync"] }
 lru = "0.7.1"
 futures = "0.3"
 governor = "0.3.1"
-tempfile = "3.0"
+tempfile.workspace = true
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.109.0-pre" }
 bitflags = "1.0"
 dashmap = "4.0"
