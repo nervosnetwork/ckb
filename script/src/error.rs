@@ -1,15 +1,15 @@
 use crate::types::{ScriptGroup, ScriptGroupType};
 use ckb_error::{prelude::*, Error, ErrorKind};
 use ckb_types::core::{Cycle, ScriptHashType};
-use ckb_types::packed::Script;
+use ckb_types::packed::{Byte32, Script};
 use std::{error::Error as StdError, fmt};
 
 /// Script execution error.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum ScriptError {
-    /// The field code_hash in script is invalid
-    #[error("InvalidCodeHash")]
-    InvalidCodeHash,
+    /// The field code_hash in script can't be resolved
+    #[error("ScriptNotFound: code_hash: {0}")]
+    ScriptNotFound(Byte32),
 
     /// The script consumes too much cycles
     #[error("ExceededMaximumCycles: expect cycles <= {0}")]
