@@ -1,4 +1,5 @@
 use crate::Work;
+use base64::Engine;
 use ckb_app_config::MinerClientConfig;
 use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
@@ -355,7 +356,7 @@ fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
             return None;
         }
         let mut encoded = "Basic ".to_string();
-        base64::encode_config_buf(a[0], base64::STANDARD, &mut encoded);
+        base64::prelude::BASE64_STANDARD.encode_string(a[0], &mut encoded);
         let mut header = HeaderValue::from_str(&encoded).unwrap();
         header.set_sensitive(true);
         Some(header)
