@@ -1336,15 +1336,18 @@ pub trait ChainRpc {
     ///         "dao_type_hash": null,
     ///         "epoch_duration_target": "0x3840",
     ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-    ///         "hardfork_features": [
-    ///             { "rfc": "0028", "epoch_number": "0x1526" },
-    ///             { "rfc": "0029", "epoch_number": "0x0" },
-    ///             { "rfc": "0030", "epoch_number": "0x0" },
-    ///             { "rfc": "0031", "epoch_number": "0x0" },
-    ///             { "rfc": "0032", "epoch_number": "0x0" },
-    ///             { "rfc": "0036", "epoch_number": "0x0" },
-    ///             { "rfc": "0038", "epoch_number": "0x0" }
-    ///         ],
+    ///         "hardfork_features": {
+    ///             "ckb2021": [
+    ///                 { "rfc": "0028", "epoch_number": "0x1526" },
+    ///                 { "rfc": "0029", "epoch_number": "0x0" },
+    ///                 { "rfc": "0030", "epoch_number": "0x0" },
+    ///                 { "rfc": "0031", "epoch_number": "0x0" },
+    ///                 { "rfc": "0032", "epoch_number": "0x0" },
+    ///                 { "rfc": "0036", "epoch_number": "0x0" },
+    ///                 { "rfc": "0038", "epoch_number": "0x0" }
+    ///             ],
+    ///             "ckb2023": []
+    ///         },
     ///         "id": "main",
     ///         "initial_primary_epoch_reward": "0x71afd498d000",
     ///         "max_block_bytes": "0x91c08",

@@ -9,7 +9,6 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        hardfork::HardForkSwitch,
         Capacity, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo,
     },
     h256,

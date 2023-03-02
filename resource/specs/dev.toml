@@ -96,13 +96,7 @@ genesis_epoch_length = 1000
 permanent_difficulty_in_dummy = true
 
 [params.hardfork]
-rfc_0028 = 0
-rfc_0029 = 0
-rfc_0030 = 0
-rfc_0031 = 0
-rfc_0032 = 0
-rfc_0036 = 0
-rfc_0038 = 0
+
 
 [pow]
 func = "Dummy"
