@@ -491,7 +491,7 @@ fn prepare_context_chain(
     for _ in 1..final_number - 1 {
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&parent, &shared.store().as_data_provider())
+            .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -526,7 +526,7 @@ fn prepare_context_chain(
     for i in 1..final_number {
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&parent, &shared.store().as_data_provider())
+            .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
         let mut uncles = vec![];
@@ -601,7 +601,7 @@ fn test_epoch_hash_rate_dampening() {
 
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -638,7 +638,7 @@ fn test_epoch_hash_rate_dampening() {
 
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -693,7 +693,7 @@ fn test_orphan_rate_estimation_overflow() {
 
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -751,7 +751,7 @@ fn test_next_epoch_ext() {
 
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -808,7 +808,7 @@ fn test_next_epoch_ext() {
 
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -850,7 +850,7 @@ fn test_next_epoch_ext() {
         // last_duration 7980
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&tip, &snapshot.as_data_provider())
+            .next_epoch_ext(&tip, &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 

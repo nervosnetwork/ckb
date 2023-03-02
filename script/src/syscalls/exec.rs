@@ -2,8 +2,9 @@ use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
     Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, WRONG_FORMAT,
 };
+use crate::types::Indices;
 use ckb_traits::CellDataProvider;
-use ckb_types::core::cell::CellMeta;
+use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
 use ckb_vm::Memory;
 use ckb_vm::{
@@ -11,48 +12,58 @@ use ckb_vm::{
     Bytes, Error as VMError, Register, SupportMachine, Syscalls,
 };
 use ckb_vm::{DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY};
+use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct Exec<'a, DL> {
-    data_loader: &'a DL,
-    outputs: &'a [CellMeta],
-    resolved_inputs: &'a [CellMeta],
-    resolved_cell_deps: &'a [CellMeta],
-    group_inputs: &'a [usize],
-    group_outputs: &'a [usize],
-    witnesses: BytesVec,
+pub struct Exec<DL> {
+    data_loader: DL,
+    rtx: Arc<ResolvedTransaction>,
+    outputs: Arc<Vec<CellMeta>>,
+    group_inputs: Indices,
+    group_outputs: Indices,
 }
 
-impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
+impl<DL: CellDataProvider> Exec<DL> {
     pub fn new(
-        data_loader: &'a DL,
-        outputs: &'a [CellMeta],
-        resolved_inputs: &'a [CellMeta],
-        resolved_cell_deps: &'a [CellMeta],
-        group_inputs: &'a [usize],
-        group_outputs: &'a [usize],
-        witnesses: BytesVec,
-    ) -> Exec<'a, DL> {
+        data_loader: DL,
+        rtx: Arc<ResolvedTransaction>,
+        outputs: Arc<Vec<CellMeta>>,
+        group_inputs: Indices,
+        group_outputs: Indices,
+    ) -> Exec<DL> {
         Exec {
             data_loader,
+            rtx,
             outputs,
-            resolved_inputs,
-            resolved_cell_deps,
             group_inputs,
             group_outputs,
-            witnesses,
         }
     }
 
-    fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
+    #[inline]
+    fn resolved_inputs(&self) -> &Vec<CellMeta> {
+        &self.rtx.resolved_inputs
+    }
+
+    #[inline]
+    fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
+        &self.rtx.resolved_cell_deps
+    }
+
+    #[inline]
+    fn witnesses(&self) -> BytesVec {
+        self.rtx.transaction.witnesses()
+    }
+
+    fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
         let cell_opt = match source {
-            Source::Transaction(SourceEntry::Input) => self.resolved_inputs.get(index),
+            Source::Transaction(SourceEntry::Input) => self.resolved_inputs().get(index),
             Source::Transaction(SourceEntry::Output) => self.outputs.get(index),
-            Source::Transaction(SourceEntry::CellDep) => self.resolved_cell_deps.get(index),
+            Source::Transaction(SourceEntry::CellDep) => self.resolved_cell_deps().get(index),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
-                .and_then(|actual_index| self.resolved_inputs.get(*actual_index)),
+                .and_then(|actual_index| self.resolved_inputs().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
@@ -72,13 +83,13 @@ impl<'a, DL: CellDataProvider + 'a> Exec<'a, DL> {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
-                .and_then(|actual_index| self.witnesses.get(*actual_index)),
+                .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
-                .and_then(|actual_index| self.witnesses.get(*actual_index)),
-            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
-            Source::Transaction(SourceEntry::Output) => self.witnesses.get(index),
+                .and_then(|actual_index| self.witnesses().get(*actual_index)),
+            Source::Transaction(SourceEntry::Input) => self.witnesses().get(index),
+            Source::Transaction(SourceEntry::Output) => self.witnesses().get(index),
             _ => {
                 return Err(INDEX_OUT_OF_BOUND);
             }
@@ -107,7 +118,7 @@ fn load_c_string<Mac: SupportMachine>(machine: &mut Mac, addr: u64) -> Result<By
     Ok(Bytes::from(buffer))
 }
 
-impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for Exec<'a, DL> {
+impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for Exec<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

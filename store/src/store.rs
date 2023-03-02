@@ -1,5 +1,5 @@
 use crate::cache::StoreCache;
-use crate::data_loader_wrapper::DataLoaderWrapper;
+use crate::data_loader_wrapper::BorrowedDataLoaderWrapper;
 use ckb_db::{
     iter::{DBIter, Direction, IteratorMode},
     DBPinnableSlice,
@@ -32,9 +32,9 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice>;
     /// TODO(doc): @quake
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
-    /// Return the provider trait default implementation
-    fn as_data_provider(&self) -> DataLoaderWrapper<'_, Self> {
-        DataLoaderWrapper::new(self)
+    /// Return the borrowed data loader wrapper
+    fn borrow_as_data_loader(&self) -> BorrowedDataLoaderWrapper<Self> {
+        BorrowedDataLoaderWrapper::new(self)
     }
 
     /// Get block by block header hash

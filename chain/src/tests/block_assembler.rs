@@ -236,7 +236,7 @@ fn test_prepare_uncles() {
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&block1_1.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&block1_1.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -260,7 +260,7 @@ fn test_prepare_uncles() {
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&block2_1.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&block2_1.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -317,7 +317,7 @@ fn test_candidate_uncles_retain() {
         let snapshot = shared.snapshot();
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&block1_1.header(), &shared.store().as_data_provider())
+            .next_epoch_ext(&block1_1.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
         let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
@@ -343,7 +343,7 @@ fn test_candidate_uncles_retain() {
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&block2_0.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&block2_0.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -356,7 +356,7 @@ fn test_candidate_uncles_retain() {
         let snapshot = shared.snapshot();
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&block3_0.header(), &shared.store().as_data_provider())
+            .next_epoch_ext(&block3_0.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
         let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);

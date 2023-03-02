@@ -362,7 +362,7 @@ impl ChainService {
     }
 
     fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let db_txn = self.shared.store().begin_transaction();
+        let db_txn = Arc::new(self.shared.store().begin_transaction());
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
 
@@ -401,7 +401,7 @@ impl ChainService {
         let next_block_epoch = self
             .shared
             .consensus()
-            .next_epoch_ext(&parent_header, &txn_snapshot.as_data_provider())
+            .next_epoch_ext(&parent_header, &txn_snapshot.borrow_as_data_loader())
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();
@@ -449,7 +449,7 @@ impl ChainService {
 
             // update and verify chain root
             // MUST update index before reconcile_main_chain
-            self.reconcile_main_chain(&db_txn, &mut fork, switch)?;
+            self.reconcile_main_chain(Arc::clone(&db_txn), &mut fork, switch)?;
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
@@ -707,7 +707,7 @@ impl ChainService {
     // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
-        txn: &StoreTransaction,
+        txn: Arc<StoreTransaction>,
         fork: &mut ForkChanges,
         switch: Switch,
     ) -> Result<(), Error> {
@@ -716,23 +716,23 @@ impl ChainService {
         }
 
         let txs_verify_cache = self.shared.txs_verify_cache();
-        let consensus = self.shared.consensus();
+        let consensus = self.shared.cloned_consensus();
         let async_handle = self.shared.tx_pool_controller().handle();
 
         let start_block_header = fork.attached_blocks()[0].header();
         let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
         trace!("light-client: new chain root MMR with size = {}", mmr_size);
-        let mut mmr = ChainRootMMR::new(mmr_size, txn);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn.as_ref());
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
             txn.attach_block(b)?;
-            attach_block_cell(txn, b)?;
+            attach_block_cell(&txn, b)?;
             mmr.push(b.digest())
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
         }
 
-        let verify_context = VerifyContext::new(txn, consensus);
+        let verify_context = VerifyContext::new(Arc::clone(&txn), consensus);
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -742,12 +742,12 @@ impl ChainService {
         {
             if !switch.disable_all() {
                 if found_error.is_none() {
-                    let resolved = self.resolve_block_transactions(txn, b, &verify_context);
+                    let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
                     match resolved {
                         Ok(resolved) => {
                             let verified = {
                                 let contextual_block_verifier = ContextualBlockVerifier::new(
-                                    &verify_context,
+                                    verify_context.clone(),
                                     async_handle,
                                     switch,
                                     Arc::clone(&txs_verify_cache),
@@ -764,12 +764,12 @@ impl ChainService {
                                         })
                                         .collect();
                                     txn.attach_block(b)?;
-                                    attach_block_cell(txn, b)?;
+                                    attach_block_cell(&txn, b)?;
                                     mmr.push(b.digest())
                                         .map_err(|e| InternalErrorKind::MMR.other(e))?;
 
                                     self.insert_ok_ext(
-                                        txn,
+                                        &txn,
                                         &b.header().hash(),
                                         ext.clone(),
                                         Some(&cache_entries),
@@ -788,24 +788,24 @@ impl ChainService {
                                 Err(err) => {
                                     self.print_error(b, &err);
                                     found_error = Some(err);
-                                    self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
+                                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
                                 }
                             }
                         }
                         Err(err) => {
                             found_error = Some(err);
-                            self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
+                            self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
                         }
                     }
                 } else {
-                    self.insert_failure_ext(txn, &b.header().hash(), ext.clone())?;
+                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
                 }
             } else {
                 txn.attach_block(b)?;
-                attach_block_cell(txn, b)?;
+                attach_block_cell(&txn, b)?;
                 mmr.push(b.digest())
                     .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(txn, &b.header().hash(), ext.clone(), None, None)?;
+                self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
             }
         }
 
@@ -824,7 +824,7 @@ impl ChainService {
         txn: &StoreTransaction,
         block: &BlockView,
         verify_context: &HC,
-    ) -> Result<Vec<ResolvedTransaction>, Error> {
+    ) -> Result<Vec<Arc<ResolvedTransaction>>, Error> {
         let mut seen_inputs = HashSet::new();
         let block_cp = BlockCellProvider::new(block)?;
         let transactions = block.transactions();
@@ -832,8 +832,11 @@ impl ChainService {
         let resolved = transactions
             .iter()
             .cloned()
-            .map(|tx| resolve_transaction(tx, &mut seen_inputs, &cell_provider, verify_context))
-            .collect::<Result<Vec<ResolvedTransaction>, _>>()?;
+            .map(|tx| {
+                resolve_transaction(tx, &mut seen_inputs, &cell_provider, verify_context)
+                    .map(Arc::new)
+            })
+            .collect::<Result<Vec<Arc<ResolvedTransaction>>, _>>()?;
         Ok(resolved)
     }
 
@@ -871,7 +874,7 @@ impl ChainService {
     fn monitor_block_txs_verified(
         &self,
         b: &BlockView,
-        resolved: &[ResolvedTransaction],
+        resolved: &[Arc<ResolvedTransaction>],
         cache_entries: &[Completed],
         cycles: Cycle,
     ) {

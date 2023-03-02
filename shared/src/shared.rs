@@ -290,6 +290,11 @@ impl Shared {
         self.snapshot_mgr.load()
     }
 
+    /// Return arc cloned snapshot
+    pub fn cloned_snapshot(&self) -> Arc<Snapshot> {
+        Arc::clone(&self.snapshot())
+    }
+
     /// TODO(doc): @quake
     pub fn store_snapshot(&self, snapshot: Arc<Snapshot>) {
         self.snapshot_mgr.store(snapshot)
@@ -322,6 +327,11 @@ impl Shared {
     /// TODO(doc): @quake
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
+    }
+
+    /// Return arc cloned consensus re
+    pub fn cloned_consensus(&self) -> Arc<Consensus> {
+        Arc::clone(&self.consensus)
     }
 
     /// Return async runtime handle

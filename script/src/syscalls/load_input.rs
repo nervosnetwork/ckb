@@ -1,3 +1,4 @@
+use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
@@ -6,6 +7,7 @@ use crate::{
     },
 };
 use byteorder::{LittleEndian, WriteBytesExt};
+use ckb_types::core::cell::ResolvedTransaction;
 use ckb_types::{
     packed::{CellInput, CellInputVec},
     prelude::*,
@@ -14,25 +16,28 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadInput<'a> {
-    inputs: CellInputVec,
-    group_inputs: &'a [usize],
+pub struct LoadInput {
+    rtx: Arc<ResolvedTransaction>,
+    group_inputs: Indices,
 }
 
-impl<'a> LoadInput<'a> {
-    pub fn new(inputs: CellInputVec, group_inputs: &'a [usize]) -> LoadInput<'a> {
-        LoadInput {
-            inputs,
-            group_inputs,
-        }
+impl LoadInput {
+    pub fn new(rtx: Arc<ResolvedTransaction>, group_inputs: Indices) -> LoadInput {
+        LoadInput { rtx, group_inputs }
+    }
+
+    #[inline]
+    fn inputs(&self) -> CellInputVec {
+        self.rtx.transaction.inputs()
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<CellInput, u8> {
         match source {
             Source::Transaction(SourceEntry::Input) => {
-                self.inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+                self.inputs().get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
@@ -41,7 +46,9 @@ impl<'a> LoadInput<'a> {
                 .group_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| self.inputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
+                .and_then(|actual_index| {
+                    self.inputs().get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)
+                }),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
@@ -80,7 +87,7 @@ impl<'a> LoadInput<'a> {
     }
 }
 
-impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
+impl<Mac: SupportMachine> Syscalls<Mac> for LoadInput {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

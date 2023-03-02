@@ -101,9 +101,9 @@ fn gen_block(
         let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        let data_loader = shared.store().as_data_provider();
+        let data_loader = shared.store().borrow_as_data_loader();
         DaoCalculator::new(shared.consensus(), &data_loader)
-            .dao_field(&[resolved_cellbase], parent_header)
+            .dao_field([resolved_cellbase].iter(), parent_header)
             .unwrap()
     };
 
@@ -131,7 +131,7 @@ fn insert_block(
         .unwrap();
     let epoch = snapshot
         .consensus()
-        .next_epoch_ext(&parent, &snapshot.as_data_provider())
+        .next_epoch_ext(&parent, &snapshot.borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -226,7 +226,7 @@ fn test_locate_latest_common_block2() {
         let store = shared1.store();
         let epoch = shared1
             .consensus()
-            .next_epoch_ext(&parent, &store.as_data_provider())
+            .next_epoch_ext(&parent, &store.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = gen_block(&shared1, &parent, &epoch, i);
@@ -247,7 +247,7 @@ fn test_locate_latest_common_block2() {
         let store = shared2.store();
         let epoch = shared2
             .consensus()
-            .next_epoch_ext(&parent, &store.as_data_provider())
+            .next_epoch_ext(&parent, &store.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
@@ -334,7 +334,7 @@ fn test_process_new_block() {
         let store = shared1.store();
         let epoch = shared1
             .consensus()
-            .next_epoch_ext(&parent, &store.as_data_provider())
+            .next_epoch_ext(&parent, &store.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
@@ -370,7 +370,7 @@ fn test_get_locator_response() {
         let store = shared.snapshot();
         let epoch = shared
             .consensus()
-            .next_epoch_ext(&parent, &store.as_data_provider())
+            .next_epoch_ext(&parent, &store.borrow_as_data_loader())
             .unwrap()
             .epoch();
         let new_block = gen_block(&shared, &parent, &epoch, i + 100);

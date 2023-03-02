@@ -256,7 +256,7 @@ fn test_full_dead_transaction() {
 
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent, &shared.store().as_data_provider())
+        .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
 
@@ -284,7 +284,7 @@ fn test_full_dead_transaction() {
 
             let epoch = shared
                 .consensus()
-                .next_epoch_ext(&parent, &shared.store().as_data_provider())
+                .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
                 .unwrap()
                 .epoch();
 
@@ -360,7 +360,7 @@ fn test_full_dead_transaction() {
 
                 let epoch = shared
                     .consensus()
-                    .next_epoch_ext(&parent, &shared.store().as_data_provider())
+                    .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
                     .unwrap()
                     .epoch();
 

@@ -10,12 +10,13 @@ use ckb_types::{
 };
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 /// An entry in the transaction pool.
 #[derive(Debug, Clone, Eq)]
 pub struct TxEntry {
     /// Transaction
-    pub rtx: ResolvedTransaction,
+    pub rtx: Arc<ResolvedTransaction>,
     /// Cycles
     pub cycles: Cycle,
     /// tx size
@@ -36,7 +37,7 @@ pub struct TxEntry {
 
 impl TxEntry {
     /// Create new transaction pool entry
-    pub fn new(rtx: ResolvedTransaction, cycles: Cycle, fee: Capacity, size: usize) -> Self {
+    pub fn new(rtx: Arc<ResolvedTransaction>, cycles: Cycle, fee: Capacity, size: usize) -> Self {
         TxEntry {
             rtx,
             cycles,
@@ -53,7 +54,7 @@ impl TxEntry {
     /// Create dummy entry from tx, skip resolve
     pub fn dummy_resolve(tx: TransactionView, cycles: Cycle, fee: Capacity, size: usize) -> Self {
         let rtx = ResolvedTransaction::dummy_resolve(tx);
-        TxEntry::new(rtx, cycles, fee, size)
+        TxEntry::new(Arc::new(rtx), cycles, fee, size)
     }
 
     /// Return related dep out_points
@@ -69,7 +70,7 @@ impl TxEntry {
     /// Converts a Entry into a TransactionView
     /// This consumes the Entry
     pub fn into_transaction(self) -> TransactionView {
-        self.rtx.transaction
+        self.rtx.transaction.clone()
     }
 
     /// Return proposal_short_id of transaction
