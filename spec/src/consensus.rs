@@ -25,7 +25,7 @@ use ckb_types::{
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
-        hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
+        hardfork::HardForks, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
         TransactionView, Version,
     },
@@ -282,7 +282,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
-                hardfork_switch: HardForkSwitch::new_mirana(),
+                hardfork_switch: HardForks::new_mirana(),
                 deployments: HashMap::new(),
                 versionbits_caches: VersionbitsCache::default(),
             },
@@ -468,7 +468,7 @@ impl ConsensusBuilder {
     }
 
     /// Sets a hard fork switch for the new Consensus.
-    pub fn hardfork_switch(mut self, hardfork_switch: HardForkSwitch) -> Self {
+    pub fn hardfork_switch(mut self, hardfork_switch: HardForks) -> Self {
         self.inner.hardfork_switch = hardfork_switch;
         self
     }
@@ -554,7 +554,7 @@ pub struct Consensus {
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
     /// A switch to select hard fork features base on the epoch number.
-    pub hardfork_switch: HardForkSwitch,
+    pub hardfork_switch: HardForks,
     /// Soft fork deployments
     pub deployments: HashMap<DeploymentPos, Deployment>,
     /// Soft fork state cache
@@ -951,7 +951,7 @@ impl Consensus {
     }
 
     /// Returns the hardfork switch.
-    pub fn hardfork_switch(&self) -> &HardForkSwitch {
+    pub fn hardfork_switch(&self) -> &HardForks {
         &self.hardfork_switch
     }
 
@@ -1081,9 +1081,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 .primary_epoch_reward_halving_interval
                 .into(),
             permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
-            hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
-                &consensus.hardfork_switch,
-            ),
+            hardfork_features: ckb_jsonrpc_types::HardForks::new(&consensus.hardfork_switch),
             softforks,
         }
     }

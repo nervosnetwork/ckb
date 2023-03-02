@@ -13,7 +13,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        hardfork::HardForkSwitch,
+        hardfork::HardForks,
         BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView,
         TransactionBuilder, TransactionInfo, TransactionView,
     },
@@ -545,7 +545,7 @@ fn test_fraction_epoch_since_verify_v2021() {
     };
     {
         // Test CKB v2021
-        let hardfork_switch = HardForkSwitch::new_mirana();
+        let hardfork_switch = HardForks::new_mirana();
         let consensus = ConsensusBuilder::default()
             .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
             .hardfork_switch(hardfork_switch)

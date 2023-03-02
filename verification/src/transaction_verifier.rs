@@ -728,6 +728,7 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                     let epoch_number = self.tx_env.epoch_number(proposal_window);
                     let hardfork_switch = self.consensus.hardfork_switch();
                     let base_timestamp = if hardfork_switch
+                        .ckb2021
                         .is_block_ts_as_relative_since_start_enabled(epoch_number)
                     {
                         self.data_loader
