@@ -359,9 +359,10 @@ fn check_invalid_dep_reference() {
     let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
     let cell_dep = CellDep::new_builder().out_point(dep_out_point).build();
 
+    let script_code_hash = blake2b_256(&buffer).pack();
     let script = Script::new_builder()
         .args(Bytes::from(args).pack())
-        .code_hash(blake2b_256(&buffer).pack())
+        .code_hash(script_code_hash.clone())
         .hash_type(ScriptHashType::Data.into())
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -388,7 +389,7 @@ fn check_invalid_dep_reference() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_error_eq!(
         result.unwrap_err(),
-        ScriptError::InvalidCodeHash.input_lock_script(0),
+        ScriptError::ScriptNotFound(script_code_hash).input_lock_script(0),
     );
 }
 

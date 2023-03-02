@@ -377,7 +377,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(lazy.access(self.data_loader))
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
             }
             ScriptHashType::Type => {
@@ -388,7 +388,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
             }
         }
@@ -759,7 +759,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
     ) -> Result<Cycle, ScriptError> {
         match self.find_script_group(script_group_type, script_hash) {
             Some(group) => self.verify_script_group(group, max_cycles),
-            None => Err(ScriptError::InvalidCodeHash),
+            None => Err(ScriptError::ScriptNotFound(script_hash.clone())),
         }
     }
 
