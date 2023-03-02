@@ -17,7 +17,7 @@ rocksdb = { package = "ckb-rocksdb", version ="=0.19.0", features = ["snappy"], 
 ckb-db-schema = { path = "../db-schema", version = "= 0.109.0-pre" }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile.workspace = true
 
 [features]
 default = []

@@ -36,5 +36,5 @@ ubyte = { version = "0.10", features = ["serde"] }
 with_sentry = ["sentry"]
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile.workspace = true
 ckb-systemtime = { path = "../systemtime", version = "= 0.109.0-pre" ,features = ["enable_faketime"]}

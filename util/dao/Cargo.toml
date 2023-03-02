@@ -19,4 +19,4 @@ ckb-traits = { path = "../../traits", version = "= 0.109.0-pre" }
 ckb-db = { path = "../../db", version = "= 0.109.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.109.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.109.0-pre" }
-tempfile = "3.0"
+tempfile.workspace = true

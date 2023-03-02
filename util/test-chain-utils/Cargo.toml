@@ -20,7 +20,7 @@ ckb-systemtime = { path = "../systemtime", version = "= 0.109.0-pre" }
 ckb-resource = { path = "../../resource", version = "= 0.109.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.109.0-pre" }
 ckb-util = { path = "..", version = "= 0.109.0-pre" }
-tempfile = "3.0"
+tempfile.workspace = true
 
 [dev-dependencies]
 ckb-systemtime = { path = "../systemtime", version = "= 0.109.0-pre", features = ["enable_faketime"] }
