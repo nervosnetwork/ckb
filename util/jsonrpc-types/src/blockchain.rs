@@ -1369,7 +1369,31 @@ pub struct Consensus {
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
-    pub hardfork_features: Vec<HardForkFeature>,
+    pub hardfork_features: HardForks,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct HardForks {
+    pub ckb2021: Vec<HardForkFeature>,
+    pub ckb2023: Vec<HardForkFeature>,
+}
+
+impl HardForks {
+    /// Returns a list of hardfork features from a hardfork switch.
+    pub fn new(hardforks: &core::hardfork::HardForks) -> Self {
+        HardForks {
+            ckb2021: vec![
+                HardForkFeature::new("0028", convert(hardforks.ckb2021.rfc_0028())),
+                HardForkFeature::new("0029", convert(hardforks.ckb2021.rfc_0029())),
+                HardForkFeature::new("0030", convert(hardforks.ckb2021.rfc_0030())),
+                HardForkFeature::new("0031", convert(hardforks.ckb2021.rfc_0031())),
+                HardForkFeature::new("0032", convert(hardforks.ckb2021.rfc_0032())),
+                HardForkFeature::new("0036", convert(hardforks.ckb2021.rfc_0036())),
+                HardForkFeature::new("0038", convert(hardforks.ckb2021.rfc_0038())),
+            ],
+            ckb2023: vec![],
+        }
+    }
 }
 
 /// The information about one hardfork feature.
@@ -1396,19 +1420,6 @@ impl HardForkFeature {
             rfc: rfc.to_owned(),
             epoch_number,
         }
-    }
-
-    /// Returns a list of hardfork features from a hardfork switch.
-    pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
-        vec![
-            Self::new("0028", convert(switch.rfc_0028())),
-            Self::new("0029", convert(switch.rfc_0029())),
-            Self::new("0030", convert(switch.rfc_0030())),
-            Self::new("0031", convert(switch.rfc_0031())),
-            Self::new("0032", convert(switch.rfc_0032())),
-            Self::new("0036", convert(switch.rfc_0036())),
-            Self::new("0038", convert(switch.rfc_0038())),
-        ]
     }
 }
 

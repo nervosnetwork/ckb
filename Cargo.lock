@@ -1442,6 +1442,7 @@ dependencies = [
  "bit-vec",
  "bytes 1.4.0",
  "ckb-channel",
+ "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
@@ -1454,6 +1455,7 @@ dependencies = [
  "molecule",
  "numext-fixed-uint",
  "once_cell",
+ "paste",
  "proptest",
 ]
 

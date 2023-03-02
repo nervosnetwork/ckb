@@ -1,99 +1,15 @@
-//! Hard forks related types.
-
 use crate::core::EpochNumber;
-
-// Defines all methods for a feature.
-macro_rules! define_methods {
-    ($feature:ident, $name_getter:ident,
-     $name_if_enabled:ident, $name_disable:ident, $rfc_name:literal) => {
-        define_methods!(
-            $feature,
-            $name_getter,
-            $name_if_enabled,
-            $name_disable,
-            concat!(
-                "Return the first epoch number when the [",
-                $rfc_name,
-                "](struct.HardForkSwitchBuilder.html#structfield.",
-                stringify!($feature),
-                ") is enabled."
-            ),
-            concat!(
-                "An alias for the method [",
-                stringify!($feature),
-                "(&self)](#method.",
-                stringify!($feature),
-                ") to let the code to be more readable."
-            ),
-            concat!(
-                "If the [",
-                $rfc_name,
-                "](struct.HardForkSwitchBuilder.html#structfield.",
-                stringify!($feature),
-                ") is enabled at the provided epoch."
-            ),
-            concat!(
-                "Set the first epoch number of the [",
-                $rfc_name,
-                "](struct.HardForkSwitchBuilder.html#structfield.",
-                stringify!($feature),
-                ")."
-            ),
-            concat!(
-                "Never enable the [",
-                $rfc_name,
-                "](struct.HardForkSwitchBuilder.html#structfield.",
-                stringify!($feature),
-                ")."
-            )
-        );
-    };
-    ($feature:ident, $name_getter_alias:ident,
-     $name_if_enabled:ident, $name_disable:ident,
-     $comment_getter:expr,$comment_getter_alias:expr, $comment_if_enabled:expr,
-     $comment_setter:expr, $comment_disable:expr) => {
-        impl HardForkSwitch {
-            #[doc = $comment_getter]
-            #[inline]
-            pub fn $feature(&self) -> EpochNumber {
-                self.$feature
-            }
-            #[doc = $comment_getter_alias]
-            #[inline]
-            pub fn $name_getter_alias(&self) -> EpochNumber {
-                self.$feature
-            }
-            #[doc = $comment_if_enabled]
-            #[inline]
-            pub fn $name_if_enabled(&self, epoch_number: EpochNumber) -> bool {
-                epoch_number >= self.$feature
-            }
-        }
-        impl HardForkSwitchBuilder {
-            #[doc = $comment_setter]
-            #[inline]
-            pub fn $feature(mut self, epoch_number: EpochNumber) -> Self {
-                self.$feature = Some(epoch_number);
-                self
-            }
-            #[doc = $comment_disable]
-            #[inline]
-            pub fn $name_disable(mut self) -> Self {
-                self.$feature = Some(EpochNumber::MAX);
-                self
-            }
-        }
-    };
-}
+use ckb_constant::hardfork;
+use paste::paste;
 
 /// A switch to select hard fork features base on the epoch number.
 ///
 /// For safety, all fields are private and not allowed to update.
-/// This structure can only be constructed by [`HardForkSwitchBuilder`].
+/// This structure can only be constructed by [`CKB2021Builder`].
 ///
-/// [`HardForkSwitchBuilder`]:  struct.HardForkSwitchBuilder.html
+/// [`CKB2021Builder`]:  struct.CKB2021Builder.html
 #[derive(Debug, Clone)]
-pub struct HardForkSwitch {
+pub struct CKB2021 {
     rfc_0028: EpochNumber,
     rfc_0029: EpochNumber,
     rfc_0030: EpochNumber,
@@ -103,11 +19,11 @@ pub struct HardForkSwitch {
     rfc_0038: EpochNumber,
 }
 
-/// Builder for [`HardForkSwitch`].
+/// Builder for [`CKB2021`].
 ///
-/// [`HardForkSwitch`]:  struct.HardForkSwitch.html
+/// [`CKB2021`]:  struct.CKB2021.html
 #[derive(Debug, Clone, Default)]
-pub struct HardForkSwitchBuilder {
+pub struct CKB2021Builder {
     /// Use input cell committing block timestamp as the start time for the relative timestamp in `since`.
     ///
     /// Ref: [CKB RFC 0028](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0028-change-since-relative-timestamp/0028-change-since-relative-timestamp.md)
@@ -149,14 +65,14 @@ pub struct HardForkSwitchBuilder {
     pub rfc_0038: Option<EpochNumber>,
 }
 
-impl HardForkSwitch {
+impl CKB2021 {
     /// Creates a new builder to build an instance.
-    pub fn new_builder() -> HardForkSwitchBuilder {
+    pub fn new_builder() -> CKB2021Builder {
         Default::default()
     }
 
     /// Creates a new builder based on the current instance.
-    pub fn as_builder(&self) -> HardForkSwitchBuilder {
+    pub fn as_builder(&self) -> CKB2021Builder {
         Self::new_builder()
             .rfc_0028(self.rfc_0028())
             .rfc_0029(self.rfc_0029())
@@ -171,7 +87,7 @@ impl HardForkSwitch {
     pub fn new_mirana() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
-            .rfc_0028(5414)
+            .rfc_0028(hardfork::mainnet::RFC0028_START_EPOCH)
             .rfc_0029(0)
             .rfc_0030(0)
             .rfc_0031(0)
@@ -196,6 +112,7 @@ impl HardForkSwitch {
 }
 
 define_methods!(
+    CKB2021,
     rfc_0028,
     block_ts_as_relative_since_start,
     is_block_ts_as_relative_since_start_enabled,
@@ -203,6 +120,7 @@ define_methods!(
     "RFC PR 0028"
 );
 define_methods!(
+    CKB2021,
     rfc_0029,
     allow_multiple_matches_on_identical_data,
     is_allow_multiple_matches_on_identical_data_enabled,
@@ -210,6 +128,7 @@ define_methods!(
     "RFC PR 0029"
 );
 define_methods!(
+    CKB2021,
     rfc_0030,
     check_length_in_epoch_since,
     is_check_length_in_epoch_since_enabled,
@@ -217,6 +136,7 @@ define_methods!(
     "RFC PR 0030"
 );
 define_methods!(
+    CKB2021,
     rfc_0031,
     reuse_uncles_hash_as_extra_hash,
     is_reuse_uncles_hash_as_extra_hash_enabled,
@@ -224,6 +144,7 @@ define_methods!(
     "RFC PR 0031"
 );
 define_methods!(
+    CKB2021,
     rfc_0032,
     vm_version_1_and_syscalls_2,
     is_vm_version_1_and_syscalls_2_enabled,
@@ -231,6 +152,7 @@ define_methods!(
     "RFC PR 0032"
 );
 define_methods!(
+    CKB2021,
     rfc_0036,
     remove_header_deps_immature_rule,
     is_remove_header_deps_immature_rule_enabled,
@@ -238,6 +160,7 @@ define_methods!(
     "RFC PR 0036"
 );
 define_methods!(
+    CKB2021,
     rfc_0038,
     disallow_over_max_dep_expansion_limit,
     is_disallow_over_max_dep_expansion_limit_enabled,
@@ -245,30 +168,23 @@ define_methods!(
     "RFC PR 0038"
 );
 
-impl HardForkSwitchBuilder {
-    /// Build a new [`HardForkSwitch`].
+impl CKB2021Builder {
+    /// Build a new [`CKB2021`].
     ///
     /// Returns an error if failed at any check, for example, there maybe are some features depend
     /// on others.
     ///
-    /// [`HardForkSwitch`]: struct.HardForkSwitch.html
-    pub fn build(self) -> Result<HardForkSwitch, String> {
-        macro_rules! try_find {
-            ($feature:ident) => {
-                self.$feature.ok_or_else(|| {
-                    concat!("The feature ", stringify!($feature), " isn't configured.").to_owned()
-                })?
-            };
-        }
-        let rfc_0028 = try_find!(rfc_0028);
-        let rfc_0029 = try_find!(rfc_0029);
-        let rfc_0030 = try_find!(rfc_0030);
-        let rfc_0031 = try_find!(rfc_0031);
-        let rfc_0032 = try_find!(rfc_0032);
-        let rfc_0036 = try_find!(rfc_0036);
-        let rfc_0038 = try_find!(rfc_0038);
+    /// [`CKB2021`]: struct.CKB2021.html
+    pub fn build(self) -> Result<CKB2021, String> {
+        let rfc_0028 = try_find!(self, rfc_0028);
+        let rfc_0029 = try_find!(self, rfc_0029);
+        let rfc_0030 = try_find!(self, rfc_0030);
+        let rfc_0031 = try_find!(self, rfc_0031);
+        let rfc_0032 = try_find!(self, rfc_0032);
+        let rfc_0036 = try_find!(self, rfc_0036);
+        let rfc_0038 = try_find!(self, rfc_0038);
 
-        Ok(HardForkSwitch {
+        Ok(CKB2021 {
             rfc_0028,
             rfc_0029,
             rfc_0030,
