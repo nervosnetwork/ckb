@@ -520,7 +520,6 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
- "golomb-coded-set",
 ]
 
 [[package]]
@@ -1301,7 +1300,6 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
- "ckb-hash",
  "ckb-merkle-mountain-range",
  "ckb-traits",
  "ckb-types",
@@ -1443,6 +1441,7 @@ dependencies = [
  "ckb-occupied-capacity",
  "ckb-rational",
  "derive_more",
+ "golomb-coded-set",
  "merkle-cbt",
  "molecule",
  "numext-fixed-uint",

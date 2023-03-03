@@ -2,9 +2,13 @@ use ckb_async_runtime::tokio::{self, sync::oneshot, task::block_in_place};
 use ckb_logger::{debug, warn};
 use ckb_shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_store::ChainStore;
-use ckb_types::{core::HeaderView, packed::Byte32, prelude::*};
-use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
+use ckb_store::{ChainDB, ChainStore};
+use ckb_types::{
+    core::HeaderView,
+    packed::{Byte32, CellOutput, OutPoint},
+    prelude::*,
+    utilities::{build_filter_data, FilterDataProvider},
+};
 
 const NAME: &str = "BlockFilter";
 
@@ -12,6 +16,24 @@ const NAME: &str = "BlockFilter";
 #[derive(Clone)]
 pub struct BlockFilter {
     shared: Shared,
+}
+
+struct WrappedChainDB<'a> {
+    inner: &'a ChainDB,
+}
+
+impl<'a> FilterDataProvider for WrappedChainDB<'a> {
+    fn cell(&self, out_point: &OutPoint) -> Option<CellOutput> {
+        self.inner
+            .get_transaction(&out_point.tx_hash())
+            .and_then(|(tx, _)| tx.outputs().get(out_point.index().unpack()))
+    }
+}
+
+impl<'a> WrappedChainDB<'a> {
+    fn new(inner: &'a ChainDB) -> Self {
+        Self { inner }
+    }
 }
 
 impl BlockFilter {
@@ -113,41 +135,18 @@ impl BlockFilter {
             db.get_block_filter_hash(&header.parent_hash())
                 .expect("parent block filter data stored")
         };
-        let mut filter_writer = std::io::Cursor::new(Vec::new());
-        let mut filter = build_gcs_filter(&mut filter_writer);
+
         let transactions = db.get_block_body(&header.hash());
         let transactions_size: usize = transactions.iter().map(|tx| tx.data().total_size()).sum();
-
-        for tx in transactions {
-            if !tx.is_cellbase() {
-                for out_point in tx.input_pts_iter() {
-                    if let Some(input_cell) = db
-                        .get_transaction(&out_point.tx_hash())
-                        .and_then(|(tx, _)| tx.outputs().get(out_point.index().unpack()))
-                    {
-                        filter.add_element(input_cell.calc_lock_hash().as_slice());
-                        if let Some(type_script) = input_cell.type_().to_opt() {
-                            filter.add_element(type_script.calc_script_hash().as_slice());
-                        }
-                    } else {
-                        warn!(
-                            "Can't find input cell for out_point: {:#x}, should only happen in test, skip adding to filter",
-                            out_point
-                        );
-                    }
-                }
-            }
-            for output_cell in tx.outputs() {
-                filter.add_element(output_cell.calc_lock_hash().as_slice());
-                if let Some(type_script) = output_cell.type_().to_opt() {
-                    filter.add_element(type_script.calc_script_hash().as_slice());
-                }
-            }
+        let provider = WrappedChainDB::new(db);
+        let (filter_data, missing_out_points) = build_filter_data(provider, &transactions);
+        for out_point in missing_out_points {
+            warn!(
+                "Can't find input cell for out_point: {:#x}, \
+                should only happen in test, skip adding to filter",
+                out_point
+            );
         }
-        filter
-            .finish()
-            .expect("flush to memory writer should be OK");
-        let filter_data = filter_writer.into_inner();
         let db_transaction = db.begin_transaction();
         db_transaction
             .insert_block_filter(
@@ -159,8 +158,4 @@ impl BlockFilter {
         db_transaction.commit().expect("commit should be ok");
         debug!("Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);
     }
-}
-
-fn build_gcs_filter(out: &mut dyn std::io::Write) -> GCSFilterWriter<SipHasher24Builder> {
-    GCSFilterWriter::new(out, SipHasher24Builder::new(0, 0), M, P)
 }

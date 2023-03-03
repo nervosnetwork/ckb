@@ -17,4 +17,3 @@ ckb-logger = { path = "../util/logger", version = "= 0.109.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.109.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.109.0-pre" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0-pre" }
-golomb-coded-set = "0.2.0"
