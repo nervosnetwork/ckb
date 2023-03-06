@@ -1,3 +1,19 @@
+# [v0.108.0](https://github.com/nervosnetwork/ckb/compare/v0.107.0...v0.108.0) (2023-03-06)
+
+### Features
+
+* #3839: Add exact search mode in indexer (@quake)
+
+### Bug Fixes
+
+* #3825: Resolve the error of block filter hash calculation (@quake)
+* #3841: Fix transaction rebroadcast by resubmitting (@zhangsoledad)
+* #3851: Fix omission modification (@driftluo)
+
+### Improvements
+
+* #3777: Remove nervosnetwork/faketime, replace cargo test by nextest-rs/nextest (@eval-exec)
+
 # [v0.107.0](https://github.com/nervosnetwork/ckb/compare/v0.106.0...v0.107.0) (2023-01-30)
 
 ### Features
