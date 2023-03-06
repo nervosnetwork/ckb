@@ -10,6 +10,7 @@ use ckb_network::{
 };
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
+use ckb_systemtime::{self, unix_time_as_millis};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -26,7 +27,6 @@ use ckb_types::{
     U256,
 };
 use ckb_verification_traits::Switch;
-use faketime::{self, unix_time_as_millis};
 use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {

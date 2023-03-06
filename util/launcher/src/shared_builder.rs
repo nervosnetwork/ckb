@@ -56,7 +56,7 @@ pub fn open_or_create_db(
     let migrate = Migrate::new(&config.path);
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
-        eprintln!("migrate error {}", e);
+        eprintln!("migrate error {e}");
         ExitCode::Failure
     })?;
 
@@ -88,13 +88,13 @@ pub fn open_or_create_db(
                     info!("process fast migrations ...");
 
                     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-                        eprintln!("migrate error {}", e);
+                        eprintln!("migrate error {e}");
                         ExitCode::Failure
                     })?;
 
                     if let Some(db) = bulk_load_db_db {
                         migrate.migrate(db).map_err(|err| {
-                            eprintln!("Run error: {:?}", err);
+                            eprintln!("Run error: {err:?}");
                             ExitCode::Failure
                         })?;
                     }
@@ -106,7 +106,7 @@ pub fn open_or_create_db(
     } else {
         let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
-            eprintln!("migrate init_db_version error {}", e);
+            eprintln!("migrate init_db_version error {e}");
             ExitCode::Failure
         })?;
         Ok(db)
@@ -147,27 +147,24 @@ impl SharedBuilder {
         // once #[thread_local] is stable
         // #[thread_local]
         // static RUNTIME_HANDLE: unsync::OnceCell<...
-
         thread_local! {
-            static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
             // NOTICE：we can't put the runtime directly into thread_local here,
             // on windows the runtime in thread_local will get stuck when dropping
             static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
         }
 
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
+        static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
 
         let db = {
             let db_id = DB_COUNT.fetch_add(1, Ordering::SeqCst);
-            let db_base_dir = TMP_DIR.with(|tmp_dir| {
-                tmp_dir
-                    .borrow()
-                    .get_or_try_init(TempDir::new)
-                    .unwrap()
-                    .path()
-                    .to_path_buf()
-            });
-            let db_dir = db_base_dir.join(format!("db_{}", db_id));
+            let db_base_dir = TMP_DIR
+                .borrow()
+                .get_or_try_init(TempDir::new)
+                .unwrap()
+                .path()
+                .to_path_buf();
+            let db_dir = db_base_dir.join(format!("db_{db_id}"));
             RocksDB::open_in(db_dir, COLUMNS)
         };
 
@@ -329,7 +326,7 @@ impl SharedBuilder {
         let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
         let store = build_store(db, store_config, ancient_path).map_err(|e| {
-            eprintln!("build_store {}", e);
+            eprintln!("build_store {e}");
             ExitCode::Failure
         })?;
 
@@ -337,7 +334,7 @@ impl SharedBuilder {
 
         let (snapshot, table) =
             Self::init_snapshot(&store, Arc::clone(&consensus)).map_err(|e| {
-                eprintln!("init_snapshot {}", e);
+                eprintln!("init_snapshot {e}");
                 ExitCode::Failure
             })?;
         let snapshot = Arc::new(snapshot);
@@ -425,6 +422,8 @@ fn build_store(
 
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
+
+    let tx_relay_sender = tx_pool_builder.tx_relay_sender();
     tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         // update statics
         tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
@@ -477,6 +476,12 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
                     if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
                         error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
                     }
+                }
+            }
+
+            if reject.is_allowed_relay() {
+                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject { tx_hash }) {
+                    error!("tx-pool tx_relay_sender internal error {}", e);
                 }
             }
 

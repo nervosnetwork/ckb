@@ -167,18 +167,12 @@ pub fn test_inputs_cellbase_maturity() {
                     inner: TransactionErrorSource::Inputs,
                     index: 0
                 },
-                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
-                base_epoch,
-                current_epoch,
-                cellbase_maturity
+                "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
             );
         } else {
             assert!(
                 verifier.verify().is_ok(),
-                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
-                base_epoch,
-                current_epoch,
-                cellbase_maturity
+                "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
             );
         }
         {
@@ -217,10 +211,7 @@ fn test_ignore_genesis_cellbase_maturity() {
         let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
         assert!(
             verifier.verify().is_ok(),
-            "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
-            base_epoch,
-            current_epoch,
-            cellbase_maturity
+            "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
         );
         {
             let number = current_epoch.number();
@@ -273,18 +264,12 @@ pub fn test_deps_cellbase_maturity() {
                     inner: TransactionErrorSource::CellDeps,
                     index: 0
                 },
-                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
-                base_epoch,
-                current_epoch,
-                cellbase_maturity,
+                "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
             );
         } else {
             assert!(
                 verifier.verify().is_ok(),
-                "base_epoch = {}, current_epoch = {}, cellbase_maturity = {}",
-                base_epoch,
-                current_epoch,
-                cellbase_maturity
+                "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
             );
         }
         {
@@ -567,7 +552,7 @@ fn test_fraction_epoch_since_verify_v2021() {
         );
 
         let result = SinceVerifier::new(&rtx2, &consensus, &median_time_context, &tx_env).verify();
-        assert!(result.is_ok(), "result = {:?}", result);
+        assert!(result.is_ok(), "result = {result:?}");
     }
 }
 

@@ -5,6 +5,7 @@ use ckb_chain_spec::{
 };
 use ckb_dao_utils::genesis_dao_data;
 use ckb_resource::Resource;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -16,7 +17,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     H256, U256,
 };
-use faketime::unix_time_as_millis;
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Read;
@@ -185,7 +185,7 @@ pub fn always_success_cellbase(
 fn load_spec_by_name(name: &str) -> ChainSpec {
     // remove "ckb_" prefix
     let base_name = &name[4..];
-    let res = Resource::bundled(format!("specs/{}.toml", base_name));
+    let res = Resource::bundled(format!("specs/{base_name}.toml"));
     ChainSpec::load_from(&res).expect("load spec by name")
 }
 

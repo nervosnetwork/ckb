@@ -207,7 +207,7 @@ impl AppConfig {
             AppConfig::Miner(config) => &config.chain.spec,
         };
         ChainSpec::load_from(spec_resource).map_err(|err| {
-            eprintln!("{}", err);
+            eprintln!("{err}");
             ExitCode::Config
         })
     }
@@ -350,7 +350,7 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> PathBuf {
 }
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
-    fs::create_dir_all(&dir.clean())?;
+    fs::create_dir_all(dir.clean())?;
     // std::fs::canonicalize will bring windows compatibility problems
     Ok(dir)
 }

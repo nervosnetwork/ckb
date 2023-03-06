@@ -29,8 +29,7 @@ impl Spec for RpcGetBlockMedianTime {
             let expected = *expected_median_time_map.get(&number).unwrap();
             assert_eq!(
                 expected, actual,
-                "block #{} median time does not match, expected = {}, actual = {}",
-                number, expected, actual,
+                "block #{number} median time does not match, expected = {expected}, actual = {actual}"
             )
         }
 

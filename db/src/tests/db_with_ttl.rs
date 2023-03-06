@@ -8,11 +8,11 @@ fn test_open_db_with_ttl() {
         .unwrap();
 
     let db = DBWithTTL::open_cf(&tmp_dir, vec!["1"], 100);
-    assert!(db.is_ok(), "{:?}", db);
+    assert!(db.is_ok(), "{db:?}");
     let mut db = db.unwrap();
 
     for i in 0..1000u64 {
-        db.put("1", &i.to_le_bytes(), &[2]).unwrap();
+        db.put("1", i.to_le_bytes(), [2]).unwrap();
         assert_eq!(
             db.get_pinned("1", &i.to_le_bytes())
                 .unwrap()
@@ -33,6 +33,6 @@ fn test_open_db_with_ttl() {
 
     db.create_cf_with_ttl("1", 50).unwrap();
     assert!(db.get_pinned("1", &[1]).unwrap().is_none());
-    db.put("1", &[1], &[3]).unwrap();
+    db.put("1", [1], [3]).unwrap();
     assert_eq!(db.get_pinned("1", &[1]).unwrap().unwrap().as_ref(), &[3]);
 }

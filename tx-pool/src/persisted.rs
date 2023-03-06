@@ -16,7 +16,7 @@ pub(crate) const VERSION: u32 = 1;
 impl TxPool {
     pub(crate) fn load_from_file(&self) -> Result<Vec<TransactionView>, AnyError> {
         let mut persisted_data_file = self.config.persisted_data.clone();
-        persisted_data_file.set_extension(format!("v{}", VERSION));
+        persisted_data_file.set_extension(format!("v{VERSION}"));
 
         if persisted_data_file.exists() {
             let mut file = OpenOptions::new()
@@ -24,16 +24,14 @@ impl TxPool {
                 .open(&persisted_data_file)
                 .map_err(|err| {
                     let errmsg = format!(
-                        "Failed to open the tx-pool persisted data file [{:?}], cause: {}",
-                        persisted_data_file, err
+                        "Failed to open the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
                     );
                     OtherError::new(errmsg)
                 })?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer).map_err(|err| {
                 let errmsg = format!(
-                    "Failed to read the tx-pool persisted data file [{:?}], cause: {}",
-                    persisted_data_file, err
+                    "Failed to read the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
                 );
                 OtherError::new(errmsg)
             })?;
@@ -41,8 +39,7 @@ impl TxPool {
             let persisted_data = TransactionVecReader::from_slice(&buffer)
                 .map_err(|err| {
                     let errmsg = format!(
-                        "The tx-pool persisted data file [{:?}] is broken, cause: {}",
-                        persisted_data_file, err
+                        "The tx-pool persisted data file [{persisted_data_file:?}] is broken, cause: {err}"
                     );
                     OtherError::new(errmsg)
                 })?
@@ -59,7 +56,7 @@ impl TxPool {
 
     pub(crate) fn save_into_file(&mut self) -> Result<(), AnyError> {
         let mut persisted_data_file = self.config.persisted_data.clone();
-        persisted_data_file.set_extension(format!("v{}", VERSION));
+        persisted_data_file.set_extension(format!("v{VERSION}"));
 
         let mut file = OpenOptions::new()
             .create(true)
@@ -68,8 +65,7 @@ impl TxPool {
             .open(&persisted_data_file)
             .map_err(|err| {
                 let errmsg = format!(
-                    "Failed to open the tx-pool persisted data file [{:?}], cause: {}",
-                    persisted_data_file, err
+                    "Failed to open the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
                 );
                 OtherError::new(errmsg)
             })?;
@@ -80,15 +76,13 @@ impl TxPool {
 
         file.write_all(txs.as_slice()).map_err(|err| {
             let errmsg = format!(
-                "Failed to write the tx-pool persisted data into file [{:?}], cause: {}",
-                persisted_data_file, err
+                "Failed to write the tx-pool persisted data into file [{persisted_data_file:?}], cause: {err}"
             );
             OtherError::new(errmsg)
         })?;
         file.sync_all().map_err(|err| {
             let errmsg = format!(
-                "Failed to sync the tx-pool persisted data file [{:?}], cause: {}",
-                persisted_data_file, err
+                "Failed to sync the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
             );
             OtherError::new(errmsg)
         })?;

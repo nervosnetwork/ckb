@@ -37,7 +37,7 @@ impl RocksDBSnapshot {
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
-        self.get_pinned_cf_full(Some(cf), &key, None)
+        self.get_pinned_cf_full(Some(cf), key, None)
             .map_err(internal_error)
     }
 }

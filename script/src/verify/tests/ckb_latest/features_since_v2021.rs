@@ -54,7 +54,7 @@ fn test_hint_instructions() {
             pc: 65_656,
             instruction: 36_906,
         };
-        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
@@ -104,7 +104,7 @@ fn test_b_extension() {
             pc: 0x10182,
             instruction: 0x60291913,
         };
-        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
@@ -650,17 +650,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
     });
 
     let cycles_once = result.unwrap();
-    assert!(
-        cycles <= TWO_IN_TWO_OUT_CYCLES,
-        "step_cycles {}",
-        step_cycles
-    );
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES, "step_cycles {step_cycles}");
     assert!(
         cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-        "step_cycles {}",
-        step_cycles
+        "step_cycles {step_cycles}"
     );
-    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+    assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }
 
 #[test]
@@ -704,17 +699,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
     });
 
     let cycles_once = result.unwrap();
-    assert!(
-        cycles <= TWO_IN_TWO_OUT_CYCLES,
-        "step_cycles {}",
-        step_cycles
-    );
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES, "step_cycles {step_cycles}");
     assert!(
         cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-        "step_cycles {}",
-        step_cycles
+        "step_cycles {step_cycles}"
     );
-    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+    assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }
 
 #[test]
@@ -787,17 +777,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
     });
 
     let cycles_once = result.unwrap();
-    assert!(
-        cycles <= TWO_IN_TWO_OUT_CYCLES,
-        "step_cycles {}",
-        step_cycles
-    );
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES, "step_cycles {step_cycles}");
     assert!(
         cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-        "step_cycles {}",
-        step_cycles
+        "step_cycles {step_cycles}"
     );
-    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+    assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }
 
 #[test]
@@ -903,7 +888,7 @@ fn load_code_into_global() {
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
         let vm_error = VmError::MemWriteOnFreezedPage;
-        let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
@@ -965,7 +950,7 @@ fn load_code_with_snapshot() {
 
         match result.unwrap() {
             VerifyResult::Suspended(state) => {
-                panic!("should be completed, {:?}", state);
+                panic!("should be completed, {state:?}");
             }
             VerifyResult::Completed(cycle) => {
                 cycles = cycle;

@@ -93,7 +93,7 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
             return Ok(JsonBytes::default());
         }
         let mut buffer = vec![0; bytes.len() >> 1]; // we checked length
-        hex_decode(bytes, &mut buffer).map_err(|e| E::custom(format_args!("{:?}", e)))?;
+        hex_decode(bytes, &mut buffer).map_err(|e| E::custom(format_args!("{e:?}")))?;
         Ok(JsonBytes::from_vec(buffer))
     }
 
@@ -114,7 +114,7 @@ impl serde::Serialize for JsonBytes {
         buffer[0] = b'0';
         buffer[1] = b'x';
         hex_encode(self.as_bytes(), &mut buffer[2..])
-            .map_err(|e| serde::ser::Error::custom(&format!("{}", e)))?;
+            .map_err(|e| serde::ser::Error::custom(format!("{e}")))?;
         serializer.serialize_str(unsafe { ::std::str::from_utf8_unchecked(&buffer) })
     }
 }

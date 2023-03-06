@@ -1,4 +1,5 @@
 use crate::component::container::AncestorsScoreSortKey;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
         cell::ResolvedTransaction,
@@ -7,7 +8,6 @@ use ckb_types::{
     },
     packed::{OutPoint, ProposalShortId},
 };
-use faketime::unix_time_as_millis;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
@@ -120,7 +120,7 @@ impl TxEntry {
             size: self.size as u64,
             fee: self.fee,
             ancestors_size: self.ancestors_size as u64,
-            ancestors_cycles: self.ancestors_cycles as u64,
+            ancestors_cycles: self.ancestors_cycles,
             ancestors_count: self.ancestors_count as u64,
             timestamp: self.timestamp,
         }

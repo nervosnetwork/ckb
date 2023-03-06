@@ -179,7 +179,7 @@ impl<'a, Mac: SupportMachine, DL: CellDataProvider> Syscalls<Mac> for LoadCell<'
             self.load_full(machine, &cell.cell_output)?
         };
 
-        machine.add_cycles_no_checking(transferred_byte_cycles(len as u64))?;
+        machine.add_cycles_no_checking(transferred_byte_cycles(len))?;
         machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }

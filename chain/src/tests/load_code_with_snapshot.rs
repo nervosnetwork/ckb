@@ -106,7 +106,7 @@ fn test_load_code() {
 
     let tx_pool = shared.tx_pool_controller();
     let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-    assert!(ret.is_ok(), "ret {:?}", ret);
+    assert!(ret.is_ok(), "ret {ret:?}");
     let tx_status = tx_pool.get_tx_status(tx.hash());
     assert_eq!(
         tx_status.unwrap().unwrap(),
@@ -160,11 +160,9 @@ fn test_load_code_with_snapshot() {
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)
         .build();
-    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     {
         let tx_pool_config = TxPoolConfig {
             max_tx_verify_cycles: 10_000, // 10_000/ 11_740
-            recent_reject: tmp_dir.path().to_path_buf(),
             ..Default::default()
         };
 
@@ -175,7 +173,7 @@ fn test_load_code_with_snapshot() {
 
         let tx_pool = shared.tx_pool_controller();
         let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-        assert!(ret.is_ok(), "ret {:?}", ret);
+        assert!(ret.is_ok(), "ret {ret:?}");
 
         let mut counter = 0;
         loop {
@@ -248,11 +246,9 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         .hardfork_switch(hardfork_switch)
         .build();
 
-    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     {
         let tx_pool_config = TxPoolConfig {
             max_tx_verify_cycles: 10_000, // 10_000/ 11_740
-            recent_reject: tmp_dir.path().to_path_buf(),
             ..Default::default()
         };
 
@@ -263,7 +259,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
 
         let tx_pool = shared.tx_pool_controller();
         let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-        assert!(ret.is_ok(), "ret {:?}", ret);
+        assert!(ret.is_ok(), "ret {ret:?}");
 
         let mut counter = 0;
         loop {

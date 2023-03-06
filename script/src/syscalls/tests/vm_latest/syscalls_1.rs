@@ -655,7 +655,7 @@ fn _test_load_header(
     machine.set_register(A4, source); //source: 4 header
     machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
-    let data_hash = blake2b_256(&data).pack();
+    let data_hash = blake2b_256(data).pack();
     let header = HeaderBuilder::default()
         .transactions_root(data_hash)
         .build();
@@ -768,7 +768,7 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
     machine.set_register(A5, field as u64);
     machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-    let data_hash: H256 = blake2b_256(&data).into();
+    let data_hash: H256 = blake2b_256(data).into();
     let epoch = EpochNumberWithFraction::new(1, 40, 1000);
     let header = HeaderBuilder::default()
         .transactions_root(data_hash.pack())
@@ -858,7 +858,7 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
 
     prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(hash_len));
 
-    for (i, addr) in (addr..addr + hash_len as u64).enumerate() {
+    for (i, addr) in (addr..addr + hash_len).enumerate() {
         prop_assert_eq!(
             machine.memory_mut().load8(&addr),
             Ok(u64::from(hash.as_slice()[i]))
@@ -902,7 +902,7 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
 
     prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(tx_len));
 
-    for (i, addr) in (addr..addr + tx_len as u64).enumerate() {
+    for (i, addr) in (addr..addr + tx_len).enumerate() {
         prop_assert_eq!(
             machine.memory_mut().load8(&addr),
             Ok(u64::from(tx.as_slice()[i]))

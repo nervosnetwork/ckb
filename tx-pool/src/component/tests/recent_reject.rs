@@ -13,14 +13,14 @@ fn test_basic() {
     let mut recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
 
     for i in 0..80u64 {
-        let key = Byte32::new(blake2b_256(&i.to_le_bytes()));
+        let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         recent_reject
             .put(&key, Reject::Malformed(i.to_string()))
             .unwrap();
     }
 
     for i in 0..80u64 {
-        let key = Byte32::new(blake2b_256(&i.to_le_bytes()));
+        let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         let reject: ckb_jsonrpc_types::PoolTransactionReject =
             Reject::Malformed(i.to_string()).into();
         assert_eq!(
@@ -30,7 +30,7 @@ fn test_basic() {
     }
 
     for i in 0..80u64 {
-        let key = Byte32::new(blake2b_256(&i.to_le_bytes()));
+        let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         recent_reject
             .put(&key, Reject::Malformed(i.to_string()))
             .unwrap();

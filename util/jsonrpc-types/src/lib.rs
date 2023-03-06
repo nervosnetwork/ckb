@@ -25,11 +25,12 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockEconomicState, BlockIssuance, BlockResponse, BlockView, BlockWithCyclesResponse,
-    CellDep, CellInput, CellOutput, Consensus, DepType, EpochView, FeeRateStatics, HardForkFeature,
-    Header, HeaderView, MerkleProof, MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType,
-    Status, Transaction, TransactionAndWitnessProof, TransactionProof, TransactionView,
-    TransactionWithStatusResponse, TxStatus, UncleBlock, UncleBlockView,
+    Block, BlockEconomicState, BlockFilter, BlockIssuance, BlockResponse, BlockView,
+    BlockWithCyclesResponse, CellDep, CellInput, CellOutput, Consensus, DepType, EpochView,
+    FeeRateStatics, HardForkFeature, Header, HeaderView, MerkleProof, MinerReward, OutPoint,
+    ProposalWindow, Script, ScriptHashType, Status, Transaction, TransactionAndWitnessProof,
+    TransactionProof, TransactionView, TransactionWithStatusResponse, TxStatus, UncleBlock,
+    UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
@@ -51,8 +52,8 @@ pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
 pub use indexer::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
-    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerTip,
-    IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
+    IndexerRange, IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey,
+    IndexerSearchKeyFilter, IndexerTip, IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
 };
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,

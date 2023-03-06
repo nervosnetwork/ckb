@@ -9,7 +9,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
 
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {
-            eprintln!("migrate error {}", e);
+            eprintln!("migrate error {e}");
             ExitCode::Failure
         })?;
 
@@ -61,13 +61,13 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     }
 
     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-        eprintln!("migrate error {}", e);
+        eprintln!("migrate error {e}");
         ExitCode::Failure
     })?;
 
     if let Some(db) = bulk_load_db_db {
         migrate.migrate(db).map_err(|err| {
-            eprintln!("Run error: {:?}", err);
+            eprintln!("Run error: {err:?}");
             ExitCode::Failure
         })?;
     }

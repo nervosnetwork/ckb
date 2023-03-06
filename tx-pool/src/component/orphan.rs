@@ -29,7 +29,7 @@ impl Entry {
             tx,
             peer,
             cycle,
-            expires_at: faketime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
+            expires_at: ckb_systemtime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
         }
     }
 }
@@ -84,7 +84,7 @@ impl OrphanPool {
     }
 
     pub fn limit_size(&mut self) -> usize {
-        let now = faketime::unix_time().as_secs();
+        let now = ckb_systemtime::unix_time().as_secs();
         let expires: Vec<_> = self
             .entries
             .iter()

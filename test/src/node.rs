@@ -5,7 +5,7 @@ use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::{BlockTemplate, TxPoolInfo};
+use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
@@ -79,9 +79,9 @@ impl Node {
         node.modify_app_config(|app_config| {
             let rpc_port = find_available_port();
             let p2p_port = find_available_port();
-            app_config.rpc.listen_address = format!("127.0.0.1:{}", rpc_port);
+            app_config.rpc.listen_address = format!("127.0.0.1:{rpc_port}");
             app_config.network.listen_addresses =
-                vec![format!("/ip4/127.0.0.1/tcp/{}", p2p_port).parse().unwrap()];
+                vec![format!("/ip4/127.0.0.1/tcp/{p2p_port}").parse().unwrap()];
         });
 
         node
@@ -130,7 +130,7 @@ impl Node {
 
         let p2p_listen = app_config.network.listen_addresses[0].to_string();
         let rpc_address = app_config.rpc.listen_address;
-        let rpc_client = RpcClient::new(&format!("http://{}/", rpc_address));
+        let rpc_client = RpcClient::new(&format!("http://{rpc_address}/"));
         let consensus = {
             // Ensure the data path is available because chain_spec.build_consensus() needs to access the
             // system-cell data.
@@ -390,11 +390,10 @@ impl Node {
             .into()
     }
 
-    pub fn get_block_filter(&self, hash: Byte32) -> bytes::Bytes {
+    pub fn get_block_filter(&self, hash: Byte32) -> BlockFilter {
         self.rpc_client()
             .get_block_filter(hash)
             .expect("block filter exists")
-            .into_bytes()
     }
 
     /// The states of chain and txpool are updated asynchronously. Which means that the chain has
@@ -413,8 +412,7 @@ impl Node {
             recent = tx_pool_info;
         }
         panic!(
-            "timeout to get_tip_tx_pool_info, tip_header={:?}, tx_pool_info: {:?}",
-            tip_header, recent
+            "timeout to get_tip_tx_pool_info, tip_header={tip_header:?}, tx_pool_info: {recent:?}"
         );
     }
 
@@ -584,9 +582,9 @@ impl Node {
     pub fn start(&mut self) {
         let mut child_process = Command::new(binary())
             .env("RUST_BACKTRACE", "full")
-            .args(&[
+            .args([
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 "run",
                 "--ba-advanced",
             ])
@@ -655,10 +653,10 @@ impl Node {
 
     pub fn export(&self, target: String) {
         Command::new(binary())
-            .args(&[
+            .args([
                 "export",
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 &target,
             ])
             .stdin(Stdio::null())
@@ -670,10 +668,10 @@ impl Node {
 
     pub fn import(&self, target: String) {
         Command::new(binary())
-            .args(&[
+            .args([
                 "import",
                 "-C",
-                &self.working_dir().to_string_lossy().to_string(),
+                &self.working_dir().to_string_lossy(),
                 &target,
             ])
             .stdin(Stdio::null())
@@ -720,7 +718,7 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
         tip_headers.len() == 1
     });
     if !synced {
-        panic!("timeout to wait for sync, tip_headers: {:?}", tip_headers);
+        panic!("timeout to wait for sync, tip_headers: {tip_headers:?}");
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();

@@ -36,7 +36,7 @@ impl_error_conversion_with_kind!(
 impl_error_conversion_with_adaptor!(BlockAssemblerError, InternalError, Error);
 
 pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError) {
-    let e = OtherError::new(format!("TrySendError {}", error));
+    let e = OtherError::new(format!("TrySendError {error}"));
     let m = match error {
         TrySendError::Full(t) | TrySendError::Closed(t) => t,
     };
@@ -44,9 +44,9 @@ pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError
 }
 
 pub(crate) fn handle_recv_error(error: RecvError) -> OtherError {
-    OtherError::new(format!("RecvError {}", error))
+    OtherError::new(format!("RecvError {error}"))
 }
 
 pub(crate) fn handle_send_cmd_error<T: fmt::Debug>(error: SendError<T>) -> OtherError {
-    OtherError::new(format!("send command fails: {:?}", error))
+    OtherError::new(format!("send command fails: {error:?}"))
 }

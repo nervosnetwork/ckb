@@ -206,7 +206,7 @@ impl CKBProtocol {
             max_frame_length,
             network_state,
             handler,
-            protocol_name: format!("/ckb/{}", protocol_name),
+            protocol_name: format!("/ckb/{protocol_name}"),
             supported_versions: {
                 let mut versions: Vec<_> = versions.to_vec();
                 versions.sort_by(|a, b| b.cmp(a));

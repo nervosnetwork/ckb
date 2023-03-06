@@ -1,6 +1,7 @@
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_store::{ChainDB, ChainStore};
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
@@ -10,7 +11,6 @@ use ckb_types::{
     packed::{Byte32, OutPoint},
     prelude::*,
 };
-use faketime::unix_time_as_millis;
 use std::sync::Arc;
 use tempfile::TempDir;
 

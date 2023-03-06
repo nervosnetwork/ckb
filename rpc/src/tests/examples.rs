@@ -335,7 +335,7 @@ fn find_rpc_method(line: &str) -> Option<&str> {
                 }
             }
         }
-        panic!("Fail to parse the RPC method name from line: {}", line);
+        panic!("Fail to parse the RPC method name from line: {line}");
     } else {
         None
     }
@@ -350,17 +350,14 @@ fn collect_code_block(
         if let Some(ref request) = request {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!(
-                    "Unexpected request. The request {} has no matched response yet.",
-                    request
-                ),
+                format!("Unexpected request. The request {request} has no matched response yet."),
             ));
         }
 
         let new_request: RpcTestRequest = serde_json::from_str(&code_block).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("Invalid JSONRPC Request: {}\n{}", e, code_block),
+                format!("Invalid JSONRPC Request: {e}\n{code_block}"),
             )
         })?;
         *request = Some(new_request);
@@ -368,7 +365,7 @@ fn collect_code_block(
         let response: RpcTestResponse = serde_json::from_str(&code_block).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::Other,
-                format!("Invalid JSONRPC Response: {}\n{}", e, code_block),
+                format!("Invalid JSONRPC Response: {e}\n{code_block}"),
             )
         })?;
         if let Some(request) = request.take() {
@@ -378,11 +375,11 @@ fn collect_code_block(
                     "Unmatched response id",
                 ));
             }
-            let request_display = format!("{}", request);
+            let request_display = format!("{request}");
             if !collected.insert(RpcTestExample { request, response }) {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
-                    format!("Duplicate example {}", request_display),
+                    format!("Duplicate example {request_display}"),
                 ));
             }
         } else {
@@ -603,7 +600,7 @@ where
     if !example.response.result.is_null() {
         let result: serde_json::Result<T> = serde_json::from_value(example.response.result.clone());
         if let Err(ref err) = result {
-            assert!(result.is_ok(), "Deserialize response result error: {}", err);
+            assert!(result.is_ok(), "Deserialize response result error: {err}");
         }
     }
     *response = example.response.clone()
@@ -614,7 +611,7 @@ where
 fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
     use ckb_jsonrpc_types::{BannedAddr, Capacity, LocalNode, RemoteNode, Uint64};
 
-    let example_tx_hash = format!("{:#x}", EXAMPLE_TX_HASH);
+    let example_tx_hash = format!("{EXAMPLE_TX_HASH:#x}");
 
     match example.request.method.as_str() {
         "local_node_info" => replace_rpc_response::<LocalNode>(example, response),
@@ -655,7 +652,7 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
     match (example.request.method.as_str(), example.request.id) {
         ("get_transaction", 42) => {
             assert_eq!(
-                vec![json!(format!("{:#x}", EXAMPLE_TX_HASH))],
+                vec![json!(format!("{EXAMPLE_TX_HASH:#x}"))],
                 example.request.params,
                 "get_transaction(id=42) must query the example tx"
             );

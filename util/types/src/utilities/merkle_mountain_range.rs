@@ -71,8 +71,7 @@ impl packed::HeaderDigest {
         let end_number: BlockNumber = self.end_number().unpack();
         if start_number > end_number {
             let errmsg = format!(
-                "failed since the start block number is bigger than the end ([{},{}])",
-                start_number, end_number
+                "failed since the start block number is bigger than the end ([{start_number},{end_number}])"
             );
             return Err(errmsg);
         }
@@ -88,8 +87,7 @@ impl packed::HeaderDigest {
                     && start_epoch.index() > end_epoch.index()))
         {
             let errmsg = format!(
-                "failed since the start epoch is bigger than the end ([{:#},{:#}])",
-                start_epoch, end_epoch
+                "failed since the start epoch is bigger than the end ([{start_epoch:#},{end_epoch:#}])"
             );
             return Err(errmsg);
         }
@@ -102,8 +100,7 @@ impl packed::HeaderDigest {
             if start_compact_target != end_compact_target {
                 // In the same epoch, all compact targets should be same.
                 let errmsg = format!(
-                    "failed since the compact targets should be same during epochs ([{:#},{:#}])",
-                    start_epoch, end_epoch
+                    "failed since the compact targets should be same during epochs ([{start_epoch:#},{end_epoch:#}])"
                 );
                 return Err(errmsg);
             } else {
@@ -113,9 +110,8 @@ impl packed::HeaderDigest {
                 let total_difficulty_calculated = block_difficulty * blocks_count;
                 if total_difficulty != total_difficulty_calculated {
                     let errmsg = format!(
-                        "failed since total difficulty is {} but the calculated is {} \
-                        during epochs ([{:#},{:#}])",
-                        total_difficulty, total_difficulty_calculated, start_epoch, end_epoch
+                        "failed since total difficulty is {total_difficulty} but the calculated is {total_difficulty_calculated} \
+                        during epochs ([{start_epoch:#},{end_epoch:#}])"
                     );
                     return Err(errmsg);
                 }
@@ -150,8 +146,7 @@ impl Merge for MergeHeaderDigest {
         let rhs_start_number: BlockNumber = rhs.start_number().unpack();
         if lhs_end_number + 1 != rhs_start_number {
             let errmsg = format!(
-                "failed since the blocks isn't continuous ([-,{}], [{},-])",
-                lhs_end_number, rhs_start_number
+                "failed since the blocks isn't continuous ([-,{lhs_end_number}], [{rhs_start_number},-])"
             );
             return Err(MMRError::MergeError(errmsg));
         }
@@ -161,8 +156,7 @@ impl Merge for MergeHeaderDigest {
         let rhs_start_epoch: EpochNumberWithFraction = rhs.start_epoch().unpack();
         if !rhs_start_epoch.is_successor_of(lhs_end_epoch) && !lhs_end_epoch.is_genesis() {
             let errmsg = format!(
-                "failed since the epochs isn't continuous ([-,{:#}], [{:#},-])",
-                lhs_end_epoch, rhs_start_epoch
+                "failed since the epochs isn't continuous ([-,{lhs_end_epoch:#}], [{rhs_start_epoch:#},-])",
             );
             return Err(MMRError::MergeError(errmsg));
         }

@@ -165,7 +165,7 @@ impl CellMeta {
 }
 
 /// TODO(doc): @quake
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Eq)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
     Live(CellMeta),
@@ -624,7 +624,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
                 let data = get_cell_data(&out_point)
                     .ok_or_else(|| String::from("Can not get cell data"))?;
                 let sub_out_points =
-                    parse_dep_group_data(&data).map_err(|err| format!("Invalid data: {}", err))?;
+                    parse_dep_group_data(&data).map_err(|err| format!("Invalid data: {err}"))?;
                 out_points.extend(sub_out_points.into_iter());
             }
             out_points.push(out_point);

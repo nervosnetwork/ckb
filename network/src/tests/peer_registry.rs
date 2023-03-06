@@ -1,3 +1,5 @@
+#![allow(clippy::unchecked_duration_subtraction)]
+
 use super::random_addr;
 use crate::{
     errors::{Error, PeerError},
@@ -28,7 +30,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
         )
         .unwrap_err();
     assert_eq!(
-        format!("{}", err),
+        format!("{err}"),
         format!("{}", Error::Peer(PeerError::NonReserved))
     );
 
@@ -70,7 +72,7 @@ fn test_accept_inbound_peer_until_full() {
         )
         .unwrap_err();
     assert_eq!(
-        format!("{}", err),
+        format!("{err}"),
         format!("{}", Error::Peer(PeerError::SessionExists(3.into()))),
     );
 
@@ -102,7 +104,7 @@ fn test_accept_inbound_peer_until_full() {
         )
         .unwrap_err();
     assert_eq!(
-        format!("{}", err),
+        format!("{err}"),
         format!(
             "{}",
             Error::Peer(PeerError::PeerIdExists(

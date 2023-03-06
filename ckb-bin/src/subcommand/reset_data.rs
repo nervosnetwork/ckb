@@ -42,7 +42,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let input = prompt(format!("remove {}? ", to_be_deleted_targets).as_str());
+        let input = prompt(format!("remove {to_be_deleted_targets}? ").as_str());
         if !["y", "Y"].contains(&input.trim()) {
             return Ok(());
         }
@@ -52,7 +52,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         if dir.exists() {
             println!("deleting {}", dir.display());
             if let Some(e) = fs::remove_dir_all(dir).err() {
-                eprintln!("{}", e);
+                eprintln!("{e}");
                 errors_count += 1;
             }
         }
@@ -62,7 +62,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         if file.exists() {
             println!("deleting {}", file.display());
             if let Some(e) = fs::remove_file(file).err() {
-                eprintln!("{}", e);
+                eprintln!("{e}");
                 errors_count += 1;
             }
         }

@@ -95,7 +95,7 @@ pub fn new_global_runtime() -> (Handle, Runtime) {
                     }
                 })
                 .expect("impossible since the above closure must return Some(number)");
-            format!("GlobalRt-{}", id)
+            format!("GlobalRt-{id}")
         })
         .build()
         .expect("ckb runtime initialized");
@@ -133,7 +133,7 @@ pub fn new_background_runtime() -> (Handle, StopHandler<()>) {
                     }
                 })
                 .expect("impossible since the above closure must return Some(number)");
-            format!("GlobalRt-{}", id)
+            format!("GlobalRt-{id}")
         })
         .build()
         .expect("ckb runtime initialized");

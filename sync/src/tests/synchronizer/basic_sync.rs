@@ -14,6 +14,7 @@ use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
+use ckb_systemtime::{self, unix_time_as_millis};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -25,7 +26,6 @@ use ckb_types::{
 };
 use ckb_util::RwLock;
 use ckb_verification_traits::Switch;
-use faketime::{self, unix_time_as_millis};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -33,9 +33,9 @@ const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
-    let thread_name = format!("FAKETIME={}", faketime_file.display());
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
+    let thread_name = "fake_time=0".to_string();
 
     let (mut node1, shared1) = setup_node(1);
     let (mut node2, shared2) = setup_node(3);

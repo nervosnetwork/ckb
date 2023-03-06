@@ -15,6 +15,7 @@ use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
         cell::{
@@ -32,7 +33,6 @@ use ckb_verification::cache::Completed;
 use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
-use faketime::unix_time_as_millis;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
@@ -925,8 +925,8 @@ impl ChainService {
         for number in (bottom..=tip_number).rev() {
             let hash = snapshot
                 .get_block_hash(number)
-                .unwrap_or_else(|| panic!("invalid block number({}), tip={}", number, tip_number));
-            debug!("   {} => {}", number, hash);
+                .unwrap_or_else(|| panic!("invalid block number({number}), tip={tip_number}"));
+            debug!("   {number} => {hash}");
         }
 
         debug!("}}");

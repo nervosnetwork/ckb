@@ -40,14 +40,11 @@ impl Spec for GetBlocksTimeout {
         let (count, last_hash) = received.unwrap();
         assert!(
             count == INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-            "Should received only {} GetBlocks",
-            INIT_BLOCKS_IN_TRANSIT_PER_PEER
+            "Should received only {INIT_BLOCKS_IN_TRANSIT_PER_PEER} GetBlocks"
         );
         assert!(
             expected_hash == last_hash,
-            "The last hash of GetBlocks should be {:#x} but got {:#x}",
-            expected_hash,
-            last_hash,
+            "The last hash of GetBlocks should be {expected_hash:#x} but got {last_hash:#x}"
         );
 
         let received = wait_get_blocks_point(&net, &node1, block_download_timeout_secs * 2, 1);

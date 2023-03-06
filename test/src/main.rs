@@ -57,7 +57,7 @@ fn main() {
         .value_of("log-file")
         .map(PathBuf::from_str)
         .transpose()
-        .unwrap_or_else(|err| panic!("failed to parse the log file path since {}", err));
+        .unwrap_or_else(|err| panic!("failed to parse the log file path since {err}"));
     let fail_fast = !matches.is_present("no-fail-fast");
     let report = !matches.is_present("no-report");
     let clean_tmp = !matches.is_present("keep-tmp-data");
@@ -96,7 +96,7 @@ fn main() {
             logger_config.log_to_file = false;
         }
         ckb_logger_service::init(None, logger_config)
-            .unwrap_or_else(|err| panic!("failed to init the logger service since {}", err))
+            .unwrap_or_else(|err| panic!("failed to init the logger service since {err}"))
     };
 
     if matches.is_present("list-specs") {
@@ -341,7 +341,7 @@ fn filter_specs(
 
     for name in spec_names_to_run.iter() {
         if !all_specs.iter().any(|spec| spec.name() == *name) {
-            eprintln!("Unknown spec {}", name);
+            eprintln!("Unknown spec {name}");
             std::process::exit(1);
         }
     }
@@ -414,6 +414,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RelayInvalidTransaction),
         Box::new(TransactionRelayTimeout),
         Box::new(TransactionRelayEmptyPeers),
+        Box::new(TransactionRelayConflict),
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
@@ -466,8 +467,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
             "send_multisig_secp_tx_use_dep_group_type_hash",
             ScriptHashType::Type,
         )),
-        Box::new(CheckTypical2In2OutTx::default()),
-        Box::new(AlertPropagation::default()),
+        Box::<ckb_test::specs::CheckTypical2In2OutTx>::default(),
+        Box::<ckb_test::specs::AlertPropagation>::default(),
         // TODO These cases will fail occasionally because of some unknown
         // asynchronous issues.
         Box::new(IBDProcess),
@@ -542,7 +543,7 @@ fn list_specs() {
     let mut names: Vec<_> = all_specs.iter().map(|spec| spec.name()).collect();
     names.sort_unstable();
     for spec_name in names {
-        println!("{}", spec_name);
+        println!("{spec_name}");
     }
 }
 
@@ -570,13 +571,13 @@ fn print_panicked_logs(node_log_paths: &[PathBuf]) {
             from_ln + print_lns,
             node_log.display(),
         );
-        BufReader::new(File::open(&node_log).expect("failed to read node's log"))
+        BufReader::new(File::open(node_log).expect("failed to read node's log"))
             .lines()
             .skip(from_ln)
             .take(print_lns)
             .for_each(|line| {
                 if let Ok(line) = line {
-                    println!("{}", line);
+                    println!("{line}");
                 }
             });
     }
@@ -603,7 +604,7 @@ fn tail_node_logs(node_log_paths: &[PathBuf]) {
             node_log.display()
         );
         for log in content.lines().skip(skip) {
-            println!("{}", log);
+            println!("{log}");
         }
     }
 }
@@ -615,9 +616,9 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
         return Ok(());
     };
 
-    let mut f = File::create(&path)?;
+    let mut f = File::create(path)?;
     for name in error_spec_names {
-        writeln!(&mut f, "ckb-test failed on spec {}", name)?;
+        writeln!(&mut f, "ckb-test failed on spec {name}")?;
     }
 
     Ok(())
@@ -633,8 +634,8 @@ fn print_results(mut test_results: Vec<TestResult>) {
         println!(
             "{:50} | {:10} | {:<10}",
             result.spec_name,
-            format_args!("{:?}", result.status),
-            format_args!("{} s", result.duration),
+            format!("{:?}", result.status),
+            format!("{} s", result.duration),
         );
     }
 }

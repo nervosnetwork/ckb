@@ -3,7 +3,7 @@ use crate::{
     NetworkState,
 };
 use ckb_logger::trace;
-use faketime::unix_time_as_millis;
+use ckb_systemtime::unix_time_as_millis;
 use futures::Future;
 use p2p::{multiaddr::MultiAddr, service::ServiceControl};
 use rand::prelude::IteratorRandom;

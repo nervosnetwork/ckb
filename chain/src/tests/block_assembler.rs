@@ -131,8 +131,8 @@ fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_block_template_timestamp() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    ::std::env::set_var("FAKETIME", faketime_file.as_os_str());
+    let mut _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let consensus = Consensus::default();
     let epoch = consensus.genesis_epoch_ext().clone();
@@ -395,8 +395,7 @@ fn check_txs(entities: &[TxEntry], expect_txs: Vec<&TransactionView>, format_arg
             .map(|entry| entry.transaction().hash())
             .collect::<Vec<_>>(),
         expect_txs.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
-        "{}",
-        format_arg
+        "{format_arg}"
     );
 }
 

@@ -38,7 +38,7 @@ fn main() {
     bundled.build("bundled.rs").expect("build resource bundle");
 
     let out_path = Path::new(&env::var("OUT_DIR").unwrap()).join("code_hashes.rs");
-    let mut out_file = BufWriter::new(File::create(&out_path).expect("create code_hashes.rs"));
+    let mut out_file = BufWriter::new(File::create(out_path).expect("create code_hashes.rs"));
 
     writeln!(
         &mut out_file,

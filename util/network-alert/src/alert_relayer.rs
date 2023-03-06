@@ -56,7 +56,7 @@ impl AlertRelayer {
     }
 
     fn clear_expired_alerts(&mut self) {
-        let now = faketime::unix_time_as_millis();
+        let now = ckb_systemtime::unix_time_as_millis();
         self.notifier.lock().clear_expired_alerts(now);
     }
 

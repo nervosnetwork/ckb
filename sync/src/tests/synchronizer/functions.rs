@@ -11,6 +11,7 @@ use ckb_network::{
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
         cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder,
@@ -25,7 +26,6 @@ use ckb_types::{
 };
 use ckb_util::Mutex;
 use ckb_verification_traits::Switch;
-use faketime::unix_time_as_millis;
 use futures::future::Future;
 use std::{
     collections::{HashMap, HashSet},
@@ -694,13 +694,14 @@ fn test_sync_process() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_header_sync_timeout() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let (_, _, synchronizer) = start_chain(None);
 
     let network_context = mock_network_context(5);
-    faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
+
+    _faketime_guard.set_faketime(MAX_TIP_AGE * 2);
     assert!(synchronizer
         .shared
         .active_chain()
@@ -745,8 +746,8 @@ fn test_header_sync_timeout() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_chain_sync_timeout() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
@@ -897,7 +898,7 @@ fn test_chain_sync_timeout() {
             );
         }
     }
-    faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
+    _faketime_guard.set_faketime(CHAIN_SYNC_TIMEOUT + 1);
     synchronizer.eviction(&network_context);
     {
         // No evidence yet that our peer has synced to a chain with work equal to that
@@ -913,11 +914,7 @@ fn test_chain_sync_timeout() {
             unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME
         );
     }
-    faketime::write_millis(
-        &faketime_file,
-        unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
-    )
-    .expect("write millis");
+    _faketime_guard.set_faketime(unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1);
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
@@ -947,8 +944,8 @@ fn test_chain_sync_timeout() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_n_sync_started() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
@@ -992,7 +989,7 @@ fn test_n_sync_started() {
     synchronizer.eviction(&network_context);
 
     assert!({ network_context.disconnected.lock().is_empty() });
-    faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
+    _faketime_guard.set_faketime(CHAIN_SYNC_TIMEOUT + 1);
     synchronizer.eviction(&network_context);
     {
         assert!({ network_context.disconnected.lock().is_empty() });
@@ -1007,11 +1004,8 @@ fn test_n_sync_started() {
         );
     }
 
-    faketime::write_millis(
-        &faketime_file,
-        unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1,
-    )
-    .expect("write millis");
+    _faketime_guard.set_faketime(unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1);
+
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
@@ -1042,8 +1036,8 @@ fn test_fix_last_common_header() {
     //  M1 -> M2 -> M3 -> M4 -> M5 -> M6 (chain M)
     //              \
     //                \-> F4 -> F5 -> F6 -> F7 (chain F)
-    let m_ = |number| format!("M{}", number);
-    let f_ = |number| format!("F{}", number);
+    let m_ = |number| format!("M{number}");
+    let f_ = |number| format!("F{number}");
     let mut graph = HashMap::new();
     let mut graph_exts = HashMap::new();
 
@@ -1159,8 +1153,7 @@ fn test_fix_last_common_header() {
             });
         assert_eq!(
             expected, actual,
-            "Case: {}, last_common: {:?}, best_known: {:?}, expected: {:?}, actual: {:?}",
-            case, last_common, best_known, expected, actual,
+            "Case: {case}, last_common: {last_common:?}, best_known: {best_known:?}, expected: {expected:?}, actual: {actual:?}"
         );
     }
 }

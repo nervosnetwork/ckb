@@ -405,10 +405,10 @@ impl NetworkState {
         target: TargetProtocol,
     ) -> Result<(), Error> {
         if !self.can_dial(&addr) {
-            return Err(Error::Dial(format!("ignore dialing addr {}", addr)));
+            return Err(Error::Dial(format!("ignore dialing addr {addr}")));
         }
 
-        debug!("dialing {}", addr);
+        debug!("dialing {addr}");
         p2p_control.dial(addr.clone(), target)?;
         self.dialing_addrs.write().insert(
             extract_peer_id(&addr).expect("verified addr"),
@@ -424,7 +424,7 @@ impl NetworkState {
             addr,
             TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
         ) {
-            debug!("dial_identify error: {}", err);
+            debug!("dial_identify error: {err}");
         }
     }
 
@@ -435,7 +435,7 @@ impl NetworkState {
             addr.clone(),
             TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
         ) {
-            debug!("dial_feeler error {}", err);
+            debug!("dial_feeler error {err}");
         } else {
             self.with_peer_registry_mut(|reg| {
                 reg.add_feeler(&addr);
@@ -457,7 +457,7 @@ impl NetworkState {
                     addr.clone(),
                     TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 ) {
-                    trace!("try_dial_observed_addrs fail {} on public address", err)
+                    trace!("try_dial_observed_addrs fail {err} on public address")
                 }
             }
         } else {
@@ -467,7 +467,7 @@ impl NetworkState {
                     addr,
                     TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 ) {
-                    trace!("try_dial_observed_addrs fail {} on pending observed", err)
+                    trace!("try_dial_observed_addrs fail {err} on pending observed")
                 }
             }
         }
@@ -592,7 +592,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                 error,
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
-                let message = format!("ProtocolError id={}", proto_id);
+                let message = format!("ProtocolError id={proto_id}");
                 // Ban because misbehave of remote peer
                 self.network_state.ban_session(
                     &context.control().clone().into(),
@@ -641,7 +641,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                             &context.control().clone().into(),
                             id,
                             Duration::from_secs(300),
-                            format!("protocol {} panic when process peer message", proto_id),
+                            format!("protocol {proto_id} panic when process peer message"),
                         );
                     }
                     #[cfg(feature = "with_sentry")]
@@ -649,7 +649,7 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                         |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
                         || {
                             capture_message(
-                                &format!("ProtocolHandleError: AbnormallyClosed, proto_id: {:?}, session id: {:?}", opt_session_id, opt_session_id),
+                                &format!("ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}"),
                                 Level::Warning,
                             )
                         },
@@ -717,13 +717,11 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err, session_context.id, session_context.address,
                             );
-                            if let Err(err) = async_disconnect_with_message(
-                                context.control(),
+                            if let Err(err) = disconnect_with_message(
+                                &control,
                                 session_context.id,
                                 "reject peer connection",
-                            )
-                            .await
-                            {
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     session_context.id, err

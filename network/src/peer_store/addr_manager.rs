@@ -45,7 +45,7 @@ impl AddrManager {
         let mut duplicate_ips = HashSet::new();
         let mut addr_infos = Vec::with_capacity(count);
         let mut rng = rand::thread_rng();
-        let now_ms = faketime::unix_time_as_millis();
+        let now_ms = ckb_systemtime::unix_time_as_millis();
         for i in 0..self.random_ids.len() {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle

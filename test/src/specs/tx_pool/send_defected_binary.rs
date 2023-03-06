@@ -108,7 +108,7 @@ impl Spec for SendDefectedBinary {
             .pubkey()
             .expect("Get pubkey failed")
             .serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        let lock_arg = Bytes::from(blake2b_256(pubkey_data)[0..20].to_vec());
         let reject_ill_transactions = self.reject_ill_transactions;
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);

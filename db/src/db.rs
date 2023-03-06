@@ -38,15 +38,13 @@ impl RocksDB {
                 None => Some(DEFAULT_CACHE_SIZE),
             };
 
-            let mut full_opts =
-                FullOptions::load_from_file(file, cache_size, false).map_err(|err| {
-                    internal_error(format!("failed to load the options file: {}", err))
-                })?;
+            let mut full_opts = FullOptions::load_from_file(file, cache_size, false)
+                .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
             let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
             full_opts
                 .complete_column_families(&cf_names_str, false)
                 .map_err(|err| {
-                    internal_error(format!("failed to check all column families: {}", err))
+                    internal_error(format!("failed to check all column families: {err}"))
                 })?;
             let FullOptions {
                 db_opts,
@@ -66,7 +64,7 @@ impl RocksDB {
         opts.create_missing_column_families(true);
 
         let db = OptimisticTransactionDB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
-            .map_err(|err| internal_error(format!("failed to open database: {}", err)))?;
+            .map_err(|err| internal_error(format!("failed to open database: {err}")))?;
 
         if !config.options.is_empty() {
             let rocksdb_options: Vec<(&str, &str)> = config
@@ -91,12 +89,12 @@ impl RocksDB {
     pub fn repair<P: AsRef<Path>>(path: P) -> Result<()> {
         let repair_opts = Options::default();
         OptimisticTransactionDB::repair(repair_opts, path)
-            .map_err(|err| internal_error(format!("failed to repair database: {}", err)))
+            .map_err(|err| internal_error(format!("failed to repair database: {err}")))
     }
 
     /// Open a database with the given configuration and columns count.
     pub fn open(config: &DBConfig, columns: u32) -> Self {
-        Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{}", err))
+        Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{err}"))
     }
 
     /// Open a database in the given directory with the default configuration and columns count.
@@ -105,7 +103,7 @@ impl RocksDB {
             path: path.as_ref().to_path_buf(),
             ..Default::default()
         };
-        Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{}", err))
+        Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{err}"))
     }
 
     /// Set appropriate parameters for bulk loading.
@@ -121,7 +119,7 @@ impl RocksDB {
         let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
-        OptimisticTransactionDB::open_cf(&opts, path, &cf_options).map_or_else(
+        OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
             |err| {
                 let err_str = err.as_ref();
                 if err_str.starts_with("Invalid argument:")
@@ -130,18 +128,16 @@ impl RocksDB {
                     Ok(None)
                 } else if err_str.starts_with("Corruption:") {
                     info!(
-                        "DB corrupted: {}.\n\
+                        "DB corrupted: {err_str}.\n\
                         Try ckb db-repair command to repair DB.\n\
                         Note: Currently there is a limitation that un-flushed column families will be lost after repair.\
                         This would happen even if the DB is in healthy state.\n\
                         See https://github.com/facebook/rocksdb/wiki/RocksDB-Repairer for detail",
-                        err_str
                     );
                     Err(internal_error(err_str))
                 } else {
                     Err(internal_error(format!(
-                        "failed to open the database: {}",
-                        err
+                        "failed to open the database: {err}"
                     )))
                 }
             },
@@ -157,13 +153,13 @@ impl RocksDB {
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.inner, col)?;
-        self.inner.get_pinned_cf(cf, &key).map_err(internal_error)
+        self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
-        self.inner.get_pinned(&key).map_err(internal_error)
+        self.inner.get_pinned(key).map_err(internal_error)
     }
 
     /// Insert a value into the database under the given key.
@@ -321,5 +317,5 @@ impl RocksDB {
 #[inline]
 pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&ColumnFamily> {
     db.cf_handle(col)
-        .ok_or_else(|| internal_error(format!("column {} not found", col)))
+        .ok_or_else(|| internal_error(format!("column {col} not found")))
 }

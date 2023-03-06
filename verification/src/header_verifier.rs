@@ -5,10 +5,10 @@ use crate::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderProvider;
 use ckb_types::core::{HeaderView, Version};
 use ckb_verification_traits::Verifier;
-use faketime::unix_time_as_millis;
 
 /// Context-dependent verification checks for block header
 ///

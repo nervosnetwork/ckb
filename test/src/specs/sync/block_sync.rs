@@ -399,15 +399,11 @@ impl Spec for RequestUnverifiedBlocks {
         }
         assert!(
             main_hashes.iter().all(|hash| received.contains(hash)),
-            "Expect receiving all of the main_chain blocks: {:?}, actual: {:?}",
-            main_hashes,
-            received,
+            "Expect receiving all of the main_chain blocks: {main_hashes:?}, actual: {received:?}"
         );
         assert!(
             fork_hashes.iter().all(|hash| !received.contains(hash)),
-            "Expect not receiving any of the fork_chain blocks: {:?}, actual: {:?}",
-            fork_hashes,
-            received,
+            "Expect not receiving any of the fork_chain blocks: {fork_hashes:?}, actual: {received:?}"
         );
     }
 }

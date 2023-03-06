@@ -157,7 +157,7 @@ impl<'a> HeadersProcess<'a> {
                         result.error, headers,
                     );
                     return StatusCode::HeadersIsInvalid
-                        .with_context(format!("accept header {:?}", header));
+                        .with_context(format!("accept header {header:?}"));
                 }
                 ValidationState::TemporaryInvalid => {
                     debug!(
@@ -201,7 +201,7 @@ impl<'a> HeadersProcess<'a> {
                 .nc
                 .disconnect(self.peer, "useless outbound peer in IBD")
             {
-                return StatusCode::Network.with_context(format!("Disconnect error: {:?}", err));
+                return StatusCode::Network.with_context(format!("Disconnect error: {err:?}"));
             }
         }
 

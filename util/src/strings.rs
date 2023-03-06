@@ -27,8 +27,7 @@ pub fn check_if_identifier_is_valid(ident: &str) -> Result<(), String> {
     }
     if !re.is_match(ident) {
         return Err(format!(
-            "Invalid identifier \"{}\", the identifier pattern is \"{}\"",
-            ident, IDENT_PATTERN
+            "Invalid identifier \"{ident}\", the identifier pattern is \"{IDENT_PATTERN}\""
         ));
     }
     Ok(())

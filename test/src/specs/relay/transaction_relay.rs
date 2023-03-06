@@ -5,11 +5,12 @@ use crate::util::transaction::{always_success_transaction, always_success_transa
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_constant::sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
+use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_types::{
-    core::TransactionBuilder,
-    packed::{GetRelayTransactions, RelayMessage},
+    core::{capacity_bytes, Capacity, TransactionBuilder},
+    packed::{CellOutputBuilder, GetRelayTransactions, RelayMessage},
     prelude::*,
 };
 
@@ -156,8 +157,7 @@ impl Spec for RelayInvalidTransaction {
         assert_eq!(
             banned_addrs.len(),
             1,
-            "Net should be banned: {:?}",
-            banned_addrs
+            "Net should be banned: {banned_addrs:?}"
         );
     }
 }
@@ -198,6 +198,93 @@ impl Spec for TransactionRelayEmptyPeers {
             node1
                 .rpc_client()
                 .get_transaction(transaction.hash())
+                .transaction
+                .is_some()
+        });
+        assert!(relayed, "Transaction should be relayed to node1");
+    }
+}
+
+pub struct TransactionRelayConflict;
+
+impl Spec for TransactionRelayConflict {
+    crate::setup!(num_nodes: 2);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        out_ibd_mode(nodes);
+        connect_all(nodes);
+
+        let node0 = &nodes[0];
+        let node1 = &nodes[1];
+
+        node0.mine_until_out_bootstrap_period();
+        waiting_for_sync(nodes);
+
+        let tx_hash_0 = node0.generate_transaction();
+        info!("Generate 2 txs with same input");
+        let tx1 = node0.new_transaction(tx_hash_0.clone());
+        let tx2_temp = node0.new_transaction(tx_hash_0);
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(80).pack())
+            .build();
+
+        let tx2 = tx2_temp
+            .as_advanced_builder()
+            .set_outputs(vec![output])
+            .build();
+        node0.rpc_client().send_transaction(tx1.data().into());
+        sleep(6);
+        node0.rpc_client().send_transaction(tx2.data().into());
+
+        let relayed = wait_until(20, || {
+            [tx1.hash(), tx2.hash()].iter().all(|hash| {
+                node1
+                    .rpc_client()
+                    .get_transaction(hash.clone())
+                    .transaction
+                    .is_some()
+            })
+        });
+        assert!(relayed, "all transactions should be relayed");
+
+        let proposed = node1.mine_with_blocking(|template| template.proposals.len() != 3);
+        node1.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+
+        waiting_for_sync(nodes);
+        node0.wait_for_tx_pool();
+        node1.wait_for_tx_pool();
+
+        let ret = node1
+            .rpc_client()
+            .get_transaction_with_verbosity(tx2.hash(), 1);
+        assert!(matches!(ret.tx_status.status, Status::Rejected));
+
+        node0.remove_transaction(tx1.hash());
+        node0.remove_transaction(tx2.hash());
+        node1.remove_transaction(tx1.hash());
+        node1.remove_transaction(tx2.hash());
+        node0.wait_for_tx_pool();
+        node1.wait_for_tx_pool();
+
+        let result = wait_until(5, || {
+            let tx_pool_info = node0.get_tip_tx_pool_info();
+            tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
+        });
+        assert!(result, "remove txs from node0");
+        let result = wait_until(5, || {
+            let tx_pool_info = node1.get_tip_tx_pool_info();
+            tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
+        });
+        assert!(result, "remove txs from node1");
+
+        let relayed = wait_until(10, || {
+            // re-broadcast
+            let _ = node1
+                .rpc_client()
+                .send_transaction_result(tx2.data().into());
+            node0
+                .rpc_client()
+                .get_transaction(tx2.hash())
                 .transaction
                 .is_some()
         });

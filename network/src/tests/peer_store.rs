@@ -85,8 +85,8 @@ fn test_update_status() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_ban_peer() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
@@ -114,7 +114,7 @@ fn test_ban_peer() {
         peer_store.ban_addr(&addr, 10_000, "no reason".into());
     }
 
-    faketime::write_millis(&faketime_file, 30_000).expect("write millis");
+    _faketime_guard.set_faketime(30_000);
 
     // Cleanup will be performed every 1024 inserts
     let addr = random_addr_v6();
@@ -125,10 +125,8 @@ fn test_ban_peer() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_attempt_ban() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
-
-    faketime::write_millis(&faketime_file, 1).expect("write millis");
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(1);
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
@@ -139,9 +137,9 @@ fn test_attempt_ban() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .mark_connected(faketime::unix_time_as_millis());
+        .mark_connected(ckb_systemtime::unix_time_as_millis());
 
-    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+    _faketime_guard.set_faketime(100_000);
 
     assert_eq!(
         peer_store
@@ -161,10 +159,8 @@ fn test_attempt_ban() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
-
-    faketime::write_millis(&faketime_file, 1).expect("write millis");
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(1);
 
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store
@@ -178,8 +174,8 @@ fn test_fetch_addrs_to_attempt() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .mark_connected(faketime::unix_time_as_millis());
-    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+        .mark_connected(ckb_systemtime::unix_time_as_millis());
+    _faketime_guard.set_faketime(100_000);
 
     assert_eq!(
         peer_store
@@ -196,16 +192,14 @@ fn test_fetch_addrs_to_attempt() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_or_feeler() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
-
-    faketime::write_millis(&faketime_file, 1).expect("write millis");
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(1);
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store.add_outbound_addr(addr, Flags::COMPATIBILITY);
 
-    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+    _faketime_guard.set_faketime(100_000);
 
     assert_eq!(
         peer_store
@@ -215,8 +209,7 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
     );
     assert!(peer_store.fetch_addrs_to_feeler(2).is_empty());
 
-    faketime::write_millis(&faketime_file, 100_000 + ADDR_TRY_TIMEOUT_MS + 1)
-        .expect("write millis");
+    _faketime_guard.set_faketime(100_000 + ADDR_TRY_TIMEOUT_MS + 1);
 
     assert!(peer_store
         .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
@@ -227,17 +220,15 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
 #[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_in_last_minutes() {
-    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
-    faketime::enable(&faketime_file);
-
-    faketime::write_millis(&faketime_file, 100_000).expect("write millis");
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
 
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
     peer_store
         .add_addr(addr.clone(), Flags::COMPATIBILITY)
         .unwrap();
-    let now = faketime::unix_time_as_millis();
+    let now = ckb_systemtime::unix_time_as_millis();
 
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now);
@@ -257,7 +248,7 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
         .get_mut(&addr)
         .unwrap()
         .mark_connected(now);
-    faketime::write_millis(&faketime_file, 200_000).expect("write millis");
+    _faketime_guard.set_faketime(200_000);
 
     assert_eq!(
         peer_store
@@ -297,7 +288,7 @@ fn test_fetch_addrs_to_feeler() {
         .mut_addr_manager()
         .get_mut(&addr)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .last_connected_at_ms = ckb_systemtime::unix_time_as_millis();
     peer_store.remove_disconnected_peer(&addr);
     assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
 }
@@ -391,7 +382,7 @@ fn test_random_fetch_with_filter() {
         .mut_addr_manager()
         .get_mut(&addr1)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .last_connected_at_ms = ckb_systemtime::unix_time_as_millis();
     assert_eq!(peer_store.addr_manager().count(), 1);
     assert_eq!(
         peer_store.fetch_random_addrs(1, Flags::COMPATIBILITY).len(),
@@ -406,7 +397,7 @@ fn test_random_fetch_with_filter() {
         .mut_addr_manager()
         .get_mut(&addr2)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .last_connected_at_ms = ckb_systemtime::unix_time_as_millis();
     assert_eq!(peer_store.fetch_random_addrs(2, Flags::SYNC).len(), 1);
 
     peer_store
@@ -416,7 +407,7 @@ fn test_random_fetch_with_filter() {
         .mut_addr_manager()
         .get_mut(&addr3)
         .unwrap()
-        .last_connected_at_ms = faketime::unix_time_as_millis();
+        .last_connected_at_ms = ckb_systemtime::unix_time_as_millis();
     assert_eq!(peer_store.fetch_random_addrs(2, Flags::SYNC).len(), 2);
 
     assert_eq!(
@@ -449,7 +440,7 @@ fn test_get_random_restrict_addrs_from_same_ip() {
 #[test]
 fn test_eviction() {
     let mut peer_store = PeerStore::default();
-    let now = faketime::unix_time_as_millis();
+    let now = ckb_systemtime::unix_time_as_millis();
     let tried_ms = now - 61_000;
     // add addrs, make the peer store has 4 groups addrs
     for i in 0..(ADDR_COUNT_LIMIT - 5) {

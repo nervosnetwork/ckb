@@ -58,7 +58,7 @@ impl Spec for RpcSetBan {
         banned_ip_node.modify_app_config(|app_config| {
             let p2p_port = find_available_port();
             app_config.network.listen_addresses =
-                vec![format!("/ip4/{}/tcp/{}", BAD_NODE_IP_1, p2p_port)
+                vec![format!("/ip4/{BAD_NODE_IP_1}/tcp/{p2p_port}")
                     .parse()
                     .unwrap()];
         });
@@ -68,7 +68,7 @@ impl Spec for RpcSetBan {
         banned_ipsubnet_node.modify_app_config(|app_config| {
             let p2p_port = find_available_port();
             app_config.network.listen_addresses =
-                vec![format!("/ip4/{}/tcp/{}", BAD_NODE_IP_2, p2p_port)
+                vec![format!("/ip4/{BAD_NODE_IP_2}/tcp/{p2p_port}")
                     .parse()
                     .unwrap()];
         });

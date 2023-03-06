@@ -19,13 +19,19 @@ GRCOV_EXCL_STOP  = ^\s*\)(;)?$$
 GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_)?assert(_eq|_ne|_error_eq))!\(.*\)(;)?$$
 
 ##@ Testing
+.PHONY: doc-test
+doc-test: ## Run doc tests
+	cargo test --all --doc
+
 .PHONY: test
-test: quick-test ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture --ignored
+test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
+	$(MAKE) doc-test
 
 .PHONY: quick-test
 quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
-	cargo test ${VERBOSE} --features ${CKB_FEATURES} --all -- --nocapture
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
+	$(MAKE) doc-test
 
 .PHONY: cov-install-tools
 cov-install-tools:
@@ -97,7 +103,8 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
 	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
-	cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps
+	cargo doc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core --no-deps
+	cargo doc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-rpc -p ckb-jsonrpc-types --no-deps
 	ln -nsf "${CARGO_TARGET_DIR}" "target"
 	if command -v python3 &> /dev/null; then \
 		python3 ./devtools/doc/rpc.py > rpc/README.md; \

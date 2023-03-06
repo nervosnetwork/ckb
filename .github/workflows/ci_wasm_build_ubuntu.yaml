@@ -9,10 +9,8 @@ on:
     branches:
       - master
       - develop
-      - trying
-      - staging
       - 'rc/*'
-
+  merge_group: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,8 +23,7 @@ jobs:
        github.event_name != 'push' ||
        ( github.event_name == 'push' &&
         ( github.ref == 'refs/heads/master' ||
-          github.ref == 'refs/heads/trying' ||
-          github.ref == 'refs/heads/staging' ||
+          github.ref == 'refs/heads/gh-readonly-queue/develop' ||
           (github.ref == 'refs/heads/develop' && github.event.head_commit.author.name != 'bors[bot]') ||
           startsWith(github.ref, 'refs/heads/rc/')
         )
@@ -47,7 +44,7 @@ jobs:
         PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
         GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-        GITHUB_REPOSITORY: ${{ github.repositoty }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_wasm_build_ubuntu:
     name: ci_wasm_build_ubuntu
@@ -57,7 +54,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: 1.61.0
+        toolchain: 1.67.1
     - run: sudo apt-get update && sudo apt-get install -y pkg-config clang
     - uses: actions/checkout@v3
     - name: ci_wasm_build_ubuntu

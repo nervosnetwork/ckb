@@ -52,7 +52,7 @@ impl Import {
         let metadata = fs::metadata(&self.source)?;
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);
-        let progress_bar = ProgressBar::new(metadata.len() as u64);
+        let progress_bar = ProgressBar::new(metadata.len());
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>6}/{total_bytes:6} {msg}")

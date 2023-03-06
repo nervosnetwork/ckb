@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockNumber, BlockResponse, BlockView, CellWithStatus, Consensus,
-    EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, JsonBytes, OutPoint,
+    BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
+    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, OutPoint,
     ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
     TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
@@ -517,11 +517,14 @@ pub trait ChainRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x..."
+    ///   "result": {
+    ///    "data": "0x...",
+    ///    "hash": "0x..."
+    ///   }
     /// }
     /// ```
     #[rpc(name = "get_block_filter")]
-    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>>;
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>>;
 
     /// Returns the information about a transaction requested by transaction hash.
     ///
@@ -1568,10 +1571,9 @@ impl ChainRpc for ChainRpcImpl {
         let ret = self.get_block_by_hash(&snapshot, &block_hash, verbosity, with_cycles);
         if ret == Ok(None) {
             let message = format!(
-                "Chain Index says block #{} is {:#x}, but that block is not in the database",
-                block_number, block_hash
+                "Chain Index says block #{block_number} is {block_hash:#x}, but that block is not in the database"
             );
-            error!("{}", message);
+            error!("{message}");
             return Err(RPCError::custom(
                 RPCError::ChainIndexIsInconsistent,
                 message,
@@ -1635,21 +1637,28 @@ impl ChainRpc for ChainRpcImpl {
 
         result.ok_or_else(|| {
             let message = format!(
-                "Chain Index says block #{} is {:#x}, but that block is not in the database",
-                block_number, block_hash
+                "Chain Index says block #{block_number} is {block_hash:#x}, but that block is not in the database"
             );
-            error!("{}", message);
+            error!("{message}");
             RPCError::custom(RPCError::ChainIndexIsInconsistent, message)
         })
     }
 
-    fn get_block_filter(&self, block_hash: H256) -> Result<Option<JsonBytes>> {
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
         let store = self.shared.store();
         let block_hash = block_hash.pack();
         if !store.is_main_chain(&block_hash) {
             return Ok(None);
         }
-        Ok(store.get_block_filter(&block_hash).map(Into::into))
+        Ok(store.get_block_filter(&block_hash).map(|data| {
+            let hash = store
+                .get_block_filter_hash(&block_hash)
+                .expect("stored filter hash");
+            BlockFilter {
+                data: data.into(),
+                hash: hash.into(),
+            }
+        }))
     }
 
     fn get_transaction(
@@ -2172,15 +2181,13 @@ impl ChainRpcImpl {
 
                     if !tx_indices.insert(tx_info.index as u32) {
                         return Err(RPCError::invalid_params(format!(
-                            "Duplicated tx_hash {:#x}",
-                            tx_hash
+                            "Duplicated tx_hash {tx_hash:#x}"
                         )));
                     }
                 }
                 None => {
                     return Err(RPCError::invalid_params(format!(
-                        "Transaction {:#x} not yet in block",
-                        tx_hash
+                        "Transaction {tx_hash:#x} not yet in block"
                     )));
                 }
             }
@@ -2199,8 +2206,7 @@ impl ChainRpcImpl {
             .get_block(&retrieved_block_hash)
             .ok_or_else(|| {
                 let message = format!(
-                    "Chain TransactionInfo says block {:#x} existing, but that block is not in the database",
-                    retrieved_block_hash
+                    "Chain TransactionInfo says block {retrieved_block_hash:#x} existing, but that block is not in the database"
                 );
                 error!("{}", message);
                 RPCError::custom(RPCError::ChainIndexIsInconsistent, message)

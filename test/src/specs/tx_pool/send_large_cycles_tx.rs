@@ -307,7 +307,7 @@ impl RandomKey {
     fn new() -> Self {
         let privkey = Generator::new().gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-        let lock_arg = Bytes::from(blake2b_256(&pubkey_data)[0..20].to_vec());
+        let lock_arg = Bytes::from(blake2b_256(pubkey_data)[0..20].to_vec());
         Self { privkey, lock_arg }
     }
 

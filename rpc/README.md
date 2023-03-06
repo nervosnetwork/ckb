@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
 
 
 ## Table of Contents
@@ -106,6 +106,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
+    * [Type `BlockFilter`](#type-blockfilter)
     * [Type `BlockIssuance`](#type-blockissuance)
     * [Type `BlockNumber`](#type-blocknumber)
     * [Type `BlockResponse`](#type-blockresponse)
@@ -143,6 +144,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.61.0.
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
     * [Type `IndexerRange`](#type-indexerrange)
+    * [Type `IndexerScriptSearchMode`](#type-indexerscriptsearchmode)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
     * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
@@ -723,7 +725,7 @@ The response looks like below when `verbosity` is 0.
 #### Method `get_block_filter`
 * `get_block_filter(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
-* result: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`BlockFilter`](#type-blockfilter) `|` `null`
 
 Returns the block filter by block hash.
 
@@ -771,7 +773,10 @@ The response looks like below when the block have block filter.
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x..."
+  "result": {
+   "data": "0x...",
+   "hash": "0x..."
+  }
 }
 ```
 
@@ -1872,9 +1877,7 @@ The methods here may be removed or changed in future releases without prior noti
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
 
-👎 Deprecated since 0.105.1:
-Please use the RPC method [`estimate_cycles`](#method-estimate_cycles) instead
-
+👎Deprecated since 0.105.1: Please use the RPC method [`estimate_cycles`](#method-estimate_cycles) instead
 
 Dry run a transaction and return the execution cycles.
 
@@ -5125,6 +5128,19 @@ It includes the rewards details and when it is finalized.
 *   `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
 
 
+### Type `BlockFilter`
+
+Block filter data and hash.
+
+#### Fields
+
+`BlockFilter` is a JSON object with the following fields.
+
+*   `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
+
+*   `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
+
+
 ### Type `BlockIssuance`
 
 Block base rewards.
@@ -5266,22 +5282,7 @@ The JSON view of a Block including header and body.
 
 ### Type `Byte32`
 
-Fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
-
-##### Example
-
-
-```
-0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000
-```
-
-
-#### Fields
-
-`Byte32` is a JSON object with the following fields.
-
-*   `0`: https://doc.rust-lang.org/1.61.0/std/primitive.array.html - Creates Bytes from the array.
-
+The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `Capacity`
 
@@ -5645,7 +5646,7 @@ An object containing various state info regarding deployments of consensus chang
 
 `DeploymentInfo` is a JSON object with the following fields.
 
-*   `bit`: https://doc.rust-lang.org/1.61.0/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+*   `bit`: https://doc.rust-lang.org/1.67.1/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
 
 *   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
 
@@ -5792,18 +5793,7 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 
 ### Type `H256`
 
-The 32-byte fixed-length binary data.
-
-The name comes from the number of bits in the data.
-
-In JSONRPC, it is encoded as a 0x-prefixed hex string.
-
-#### Fields
-
-`H256` is a JSON object with the following fields.
-
-*   `0`: https://doc.rust-lang.org/1.61.0/std/primitive.array.html - Converts `Self` to a byte slice.
-
+The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `HardForkFeature`
 
@@ -5972,6 +5962,16 @@ A array represent (half-open) range bounded inclusively below and exclusively ab
 
 
 
+### Type `IndexerScriptSearchMode`
+
+IndexerScriptSearchMode represent script search mode, default is prefix search
+
+`IndexerScriptSearchMode` is equivalent to `"prefix" | "exact"`.
+
+*   Mode `prefix` search script with prefix
+*   Mode `exact` search script with exact match
+
+
 ### Type `IndexerScriptType`
 
 ScriptType `Lock` | `Type`
@@ -5990,9 +5990,11 @@ SearchKey represent indexer support params
 
 `IndexerSearchKey` is a JSON object with the following fields.
 
-*   `script`: [`Script`](#type-script) - Script, supports prefix search
+*   `script`: [`Script`](#type-script) - Script
 
 *   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
+
+*   `script_search_mode`: [`IndexerScriptSearchMode`](#type-indexerscriptsearchmode) `|` `null` - Script search mode, optional default is `prefix`, means search script with prefix
 
 *   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
 

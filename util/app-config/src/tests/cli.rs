@@ -21,15 +21,13 @@ fn stats_args() {
         .try_get_matches_from(vec!["", CMD_STATS, "--to", "100"]);
     assert!(stats.is_ok());
 
-    let stats = app
-        .clone()
-        .try_get_matches_from(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
+    let stats = app.try_get_matches_from(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
     assert!(stats.is_ok());
 }
 
 #[test]
 fn ba_message_requires_ba_arg_or_ba_code_hash() {
-    let ok_ba_arg = basic_app().try_get_matches_from(&[
+    let ok_ba_arg = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-message",
@@ -37,7 +35,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
         "--ba-arg",
         "0x00",
     ]);
-    let ba_code_hash = basic_app().try_get_matches_from(&[
+    let ba_code_hash = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-message",
@@ -45,7 +43,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
         "--ba-code-hash",
         "0x00",
     ]);
-    let err = basic_app().try_get_matches_from(&[BIN_NAME, "init", "--ba-message", "0x00"]);
+    let err = basic_app().try_get_matches_from([BIN_NAME, "init", "--ba-message", "0x00"]);
 
     assert!(
         ok_ba_arg.is_ok(),
@@ -59,7 +57,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
     );
 
     let err = err.err().unwrap();
-    assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind());
+    assert_eq!(clap::error::ErrorKind::MissingRequiredArgument, err.kind());
     assert!(err
         .to_string()
         .contains("The following required arguments were not provided"));
@@ -69,7 +67,7 @@ fn ba_message_requires_ba_arg_or_ba_code_hash() {
 
 #[test]
 fn ba_arg_and_ba_code_hash() {
-    let matches = basic_app().try_get_matches_from(&[
+    let matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-code-hash",
@@ -83,11 +81,11 @@ fn ba_arg_and_ba_code_hash() {
 #[test]
 fn ba_advanced() {
     let matches = basic_app()
-        .try_get_matches_from(&[BIN_NAME, "run", "--ba-advanced"])
+        .try_get_matches_from([BIN_NAME, "run", "--ba-advanced"])
         .unwrap();
     let sub_matches = matches.subcommand().unwrap().1;
 
-    assert_eq!(1, sub_matches.occurrences_of(ARG_BA_ADVANCED));
+    assert!(sub_matches.contains_id(ARG_BA_ADVANCED));
 }
 
 #[test]
@@ -96,7 +94,7 @@ fn ba_advanced() {
 /// ckb run --assume-valid-target
 /// not for `ckb init --ba-arg` && `ckb init --ba-message`
 fn h256_as_validator() {
-    let ok_matches = basic_app().try_get_matches_from(&[
+    let ok_matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-code-hash",
@@ -106,7 +104,7 @@ fn h256_as_validator() {
     ]);
     assert!(ok_matches.is_ok());
 
-    let err_matches = basic_app().try_get_matches_from(&[
+    let err_matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-code-hash",
@@ -115,9 +113,9 @@ fn h256_as_validator() {
         "0x00",
     ]);
     let err = err_matches.err().unwrap();
-    assert_eq!(clap::ErrorKind::ValueValidation, err.kind());
+    assert_eq!(clap::error::ErrorKind::ValueValidation, err.kind());
 
-    let err_matches = basic_app().try_get_matches_from(&[
+    let err_matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "init",
         "--ba-code-hash",
@@ -126,21 +124,21 @@ fn h256_as_validator() {
         "0x00",
     ]);
     let err = err_matches.err().unwrap();
-    assert_eq!(clap::ErrorKind::ValueValidation, err.kind());
+    assert_eq!(clap::error::ErrorKind::ValueValidation, err.kind());
 
-    let ok_matches = basic_app().try_get_matches_from(&[
+    let ok_matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "run",
         "--assume-valid-target",
         "0x94a4e93601f7295501891764880d37e9fcf886d02bf64b3d06f9137db8fa981e",
     ]);
     assert!(ok_matches.is_ok());
-    let err_matches = basic_app().try_get_matches_from(&[
+    let err_matches = basic_app().try_get_matches_from([
         BIN_NAME,
         "run",
         "--assume-valid-target",
         "0x94a4e93601f729550",
     ]);
     let err = err_matches.err().unwrap();
-    assert_eq!(clap::ErrorKind::ValueValidation, err.kind());
+    assert_eq!(clap::error::ErrorKind::ValueValidation, err.kind());
 }

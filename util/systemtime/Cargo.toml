@@ -1,0 +1,17 @@
+[package]
+name = "ckb-systemtime"
+version = "0.108.0"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2021"
+description = "CKB faketime."
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[dependencies]
+
+[dev-dependencies]
+
+[features]
+default = []
+enable_faketime = []

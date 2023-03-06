@@ -28,7 +28,7 @@ use std::fmt::{Debug, Display};
 ///
 /// Unless otherwise noted, all the errors return optional detailed information as `string` in the error
 /// object `data` field.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum RPCError {
     /// (-1): CKB internal errors are considered to never happen or only happen when the system
     /// resources are exhausted.
@@ -119,7 +119,7 @@ impl RPCError {
     pub fn invalid_params<T: Display>(message: T) -> Error {
         Error {
             code: ErrorCode::InvalidParams,
-            message: format!("InvalidParams: {}", message),
+            message: format!("InvalidParams: {message}"),
             data: None,
         }
     }
@@ -128,7 +128,7 @@ impl RPCError {
     pub fn custom<T: Display>(error_code: RPCError, message: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
-            message: format!("{:?}: {}", error_code, message),
+            message: format!("{error_code:?}: {message}"),
             data: None,
         }
     }
@@ -141,8 +141,8 @@ impl RPCError {
     ) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
-            message: format!("{:?}: {}", error_code, message),
-            data: Some(Value::String(format!("{:?}", data))),
+            message: format!("{error_code:?}: {message}"),
+            data: Some(Value::String(format!("{data:?}"))),
         }
     }
 
@@ -153,8 +153,8 @@ impl RPCError {
     pub fn custom_with_error<T: Display + Debug>(error_code: RPCError, err: T) -> Error {
         Error {
             code: ErrorCode::ServerError(error_code as i64),
-            message: format!("{:?}: {}", error_code, err),
-            data: Some(Value::String(format!("{:?}", err))),
+            message: format!("{error_code:?}: {err}"),
+            data: Some(Value::String(format!("{err:?}"))),
         }
     }
 

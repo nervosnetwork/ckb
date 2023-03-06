@@ -48,10 +48,12 @@ impl<T> IndexerPagination<T> {
 /// SearchKey represent indexer support params
 #[derive(Deserialize)]
 pub struct IndexerSearchKey {
-    /// Script, supports prefix search
+    /// Script
     pub script: Script,
     /// Script Type
     pub script_type: IndexerScriptType,
+    /// Script search mode, optional default is `prefix`, means search script with prefix
+    pub script_search_mode: Option<IndexerScriptSearchMode>,
     /// filter cells by following conditions, all conditions are optional
     pub filter: Option<IndexerSearchKeyFilter>,
     /// bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
@@ -65,10 +67,27 @@ impl Default for IndexerSearchKey {
         Self {
             script: Script::default(),
             script_type: IndexerScriptType::Lock,
+            script_search_mode: None,
             filter: None,
             with_data: None,
             group_by_transaction: None,
         }
+    }
+}
+
+/// IndexerScriptSearchMode represent script search mode, default is prefix search
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexerScriptSearchMode {
+    /// Mode `prefix` search script with prefix
+    Prefix,
+    /// Mode `exact` search script with exact match
+    Exact,
+}
+
+impl Default for IndexerScriptSearchMode {
+    fn default() -> Self {
+        Self::Prefix
     }
 }
 

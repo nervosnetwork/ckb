@@ -67,7 +67,7 @@ impl FromStr for Privkey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(H256::from_str(s)
-            .map_err(|e| Error::Other(format!("{:?}", e)))?
+            .map_err(|e| Error::Other(format!("{e:?}")))?
             .into())
     }
 }

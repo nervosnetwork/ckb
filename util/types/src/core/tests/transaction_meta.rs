@@ -14,9 +14,9 @@ fn set_unset_dead_out_of_bounds() {
     assert!(meta.is_dead(3) == Some(false));
     // none-op
     meta.set_dead(4);
-    assert!(meta.is_dead(4) == None);
+    assert!(meta.is_dead(4).is_none());
     meta.unset_dead(4);
-    assert!(meta.is_dead(4) == None);
+    assert!(meta.is_dead(4).is_none());
 }
 
 #[test]

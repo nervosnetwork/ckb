@@ -7,13 +7,15 @@ use ckb_db::{
 };
 use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
-    META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
+use ckb_hash::blake2b_256;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
     core::{
@@ -385,11 +387,24 @@ impl StoreTransaction {
         &self,
         block_hash: &packed::Byte32,
         filter_data: &packed::Bytes,
+        parent_block_filter_hash: &packed::Byte32,
     ) -> Result<(), Error> {
         self.insert_raw(
             COLUMN_BLOCK_FILTER,
             block_hash.as_slice(),
             filter_data.as_slice(),
+        )?;
+        let current_block_filter_hash = blake2b_256(
+            [
+                parent_block_filter_hash.as_slice(),
+                filter_data.calc_raw_data_hash().as_slice(),
+            ]
+            .concat(),
+        );
+        self.insert_raw(
+            COLUMN_BLOCK_FILTER_HASH,
+            block_hash.as_slice(),
+            current_block_filter_hash.as_slice(),
         )?;
         self.insert_raw(
             COLUMN_META,
@@ -408,7 +423,7 @@ impl MMRStore<packed::HeaderDigest> for &StoreTransaction {
         for (offset, elem) in elems.iter().enumerate() {
             let pos: u64 = pos + (offset as u64);
             self.insert_header_digest(pos, elem).map_err(|err| {
-                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
+                MMRError::StoreError(format!("Failed to append to MMR, DB error {err}"))
             })?;
         }
         Ok(())

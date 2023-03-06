@@ -30,12 +30,12 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32},
     prelude::*,
 };
-use faketime::unix_time_as_millis;
 use std::{
     collections::HashSet,
     sync::{atomic::Ordering, Arc},
@@ -227,11 +227,11 @@ impl Synchronizer {
         &self.shared
     }
 
-    fn try_process<'r>(
+    fn try_process(
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        message: packed::SyncMessageUnionReader<'r>,
+        message: packed::SyncMessageUnionReader<'_>,
     ) -> Status {
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
@@ -255,11 +255,11 @@ impl Synchronizer {
         }
     }
 
-    fn process<'r>(
+    fn process(
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        message: packed::SyncMessageUnionReader<'r>,
+        message: packed::SyncMessageUnionReader<'_>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;

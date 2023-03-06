@@ -87,7 +87,7 @@ impl CellField {
             4 => Ok(CellField::Type),
             5 => Ok(CellField::TypeHash),
             6 => Ok(CellField::OccupiedCapacity),
-            _ => Err(Error::External(format!("CellField parse_from_u64 {}", i))),
+            _ => Err(Error::External(format!("CellField parse_from_u64 {i}"))),
         }
     }
 }
@@ -109,7 +109,7 @@ impl HeaderField {
             0 => Ok(HeaderField::EpochNumber),
             1 => Ok(HeaderField::EpochStartBlockNumber),
             2 => Ok(HeaderField::EpochLength),
-            _ => Err(Error::External(format!("HeaderField parse_from_u64 {}", i))),
+            _ => Err(Error::External(format!("HeaderField parse_from_u64 {i}"))),
         }
     }
 }
@@ -125,7 +125,7 @@ impl InputField {
         match i {
             0 => Ok(InputField::OutPoint),
             1 => Ok(InputField::Since),
-            _ => Err(Error::External(format!("InputField parse_from_u64 {}", i))),
+            _ => Err(Error::External(format!("InputField parse_from_u64 {i}"))),
         }
     }
 }
@@ -158,7 +158,7 @@ impl SourceEntry {
             2 => Ok(SourceEntry::Output),
             3 => Ok(SourceEntry::CellDep),
             4 => Ok(SourceEntry::HeaderDep),
-            _ => Err(Error::External(format!("SourceEntry parse_from_u64 {}", i))),
+            _ => Err(Error::External(format!("SourceEntry parse_from_u64 {i}"))),
         }
     }
 }
@@ -204,7 +204,7 @@ impl Place {
         match i {
             0 => Ok(Place::CellData),
             1 => Ok(Place::Witness),
-            _ => Err(Error::External(format!("Place parse_from_u64 {}", i))),
+            _ => Err(Error::External(format!("Place parse_from_u64 {i}"))),
         }
     }
 }

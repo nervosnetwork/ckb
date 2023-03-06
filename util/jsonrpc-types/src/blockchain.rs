@@ -214,7 +214,7 @@ impl From<packed::OutPoint> for OutPoint {
 impl From<OutPoint> for packed::OutPoint {
     fn from(json: OutPoint) -> Self {
         let OutPoint { tx_hash, index } = json;
-        let index = index.value() as u32;
+        let index = index.value();
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash.pack())
             .index(index.pack())
@@ -1281,6 +1281,15 @@ impl From<RawMerkleProof> for MerkleProof {
     }
 }
 
+/// Block filter data and hash.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockFilter {
+    /// The the hex-encoded filter data of the block
+    pub data: JsonBytes,
+    /// The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
+    pub hash: Byte32,
+}
+
 /// Two protocol parameters `closest` and `farthest` define the closest
 /// and farthest on-chain distance between a transaction's proposal
 /// and commitment.
@@ -1399,7 +1408,7 @@ impl HardForkFeature {
 }
 
 /// The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct FeeRateStatics {
     /// mean
     pub mean: Uint64,

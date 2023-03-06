@@ -3,6 +3,7 @@ use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_launcher::SharedBuilder;
 use ckb_store::ChainStore;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{BlockBuilder, BlockExt, BlockView},
     packed,
@@ -10,7 +11,6 @@ use ckb_types::{
     U256,
 };
 use ckb_verification_traits::Switch;
-use faketime::unix_time_as_millis;
 use std::collections::HashSet;
 use std::sync::Arc;
 

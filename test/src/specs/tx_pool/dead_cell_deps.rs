@@ -76,8 +76,7 @@ impl Spec for CellBeingCellDepThenSpentInSameBlockTestSubmitBlock {
             .submit_block("".to_owned(), block.data().into());
         assert!(
             ret.is_ok(),
-            "a block commits transactions [C, B] should be valid, ret: {:?}",
-            ret
+            "a block commits transactions [C, B] should be valid, ret: {ret:?}"
         );
     }
 }
@@ -149,8 +148,7 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
             .submit_block("".to_owned(), block.data().into());
         assert!(
             ret.is_err(),
-            "a block commits transactions [B, C] should be invalid, ret: {:?}",
-            ret
+            "a block commits transactions [B, C] should be invalid, ret: {ret:?}"
         );
     }
 }

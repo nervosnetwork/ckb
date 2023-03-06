@@ -6,8 +6,8 @@ use ckb_constant::sync::{
 };
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{core, packed};
-use faketime::unix_time_as_millis;
 use std::cmp::min;
 
 pub struct BlockFetcher<'a> {

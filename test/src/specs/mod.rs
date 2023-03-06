@@ -41,7 +41,7 @@ pub trait Spec: Send {
 
     fn before_run(&self) -> Vec<Node> {
         let mut nodes = (0..self.setup().num_nodes)
-            .map(|i| Node::new(self.name(), &format!("node{}", i)))
+            .map(|i| Node::new(self.name(), &format!("node{i}")))
             .collect::<Vec<_>>();
         nodes
             .iter_mut()
@@ -77,19 +77,19 @@ impl Default for Setup {
 #[macro_export]
 macro_rules! setup {
     ($($setup:tt)*) => {
-        fn setup(&self) -> $crate::Setup{ crate::setup_internal!($($setup)*) }
+        fn setup(&self) -> $crate::Setup{ $crate::setup_internal!($($setup)*) }
     };
 }
 
 #[macro_export]
 macro_rules! setup_internal {
     ($field:ident: $value:expr,) => {
-        crate::setup_internal!($field: $value)
+        $crate::setup_internal!($field: $value)
     };
     ($field:ident: $value:expr) => {
         $crate::Setup{ $field: $value, ..Default::default() }
     };
     ($field:ident: $value:expr, $($rest:tt)*) =>  {
-        $crate::Setup{ $field: $value, ..crate::setup_internal!($($rest)*) }
+        $crate::Setup{ $field: $value, ..$crate::setup_internal!($($rest)*) }
     };
 }

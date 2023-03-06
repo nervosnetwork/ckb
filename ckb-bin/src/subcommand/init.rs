@@ -19,7 +19,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     if args.list_chains {
         for spec in AVAILABLE_SPECS {
-            println!("{}", spec);
+            println!("{spec}");
         }
         return Ok(());
     }
@@ -52,7 +52,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
         args.block_assembler_args = in_args
-            .trim()
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
@@ -80,7 +79,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     .expect("Build consensus failed")
                     .get_secp_type_script_hash()
                     .unpack();
-                format!("{:#x}", hash)
+                format!("{hash:#x}")
             });
 
     let block_assembler_code_hash =
@@ -103,9 +102,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     );
                 } else if *default_code_hash != *hash {
                     eprintln!(
-                        "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
-                         It will require `ckb run --ba-advanced` to enable this block assembler",
-                        default_code_hash, hash
+                        "WARN: the default secp256k1 code hash is `{default_code_hash}`, you are using `{hash}`.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler"
                     );
                 } else if args.block_assembler_args.len() != 1
                     || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
@@ -180,11 +178,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             let mut encoded_content = String::new();
             io::stdin().read_to_string(&mut encoded_content)?;
             let spec_content = base64::decode_config(
-                &encoded_content.trim(),
+                encoded_content.trim(),
                 base64::STANDARD.decode_allow_trailing_bits(true),
             )
             .map_err(|err| {
-                eprintln!("stdin must be encoded in base64: {}", err);
+                eprintln!("stdin must be encoded in base64: {err}");
                 ExitCode::Failure
             })?;
             fs::write(target_file, spec_content)?;
@@ -193,7 +191,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             fs::copy(spec_file, target_file)?;
         }
     } else if args.chain == "dev" {
-        println!("create {}", SPEC_DEV_FILE_NAME);
+        println!("create {SPEC_DEV_FILE_NAME}");
         let bundled = Resource::bundled(SPEC_DEV_FILE_NAME.to_string());
         let kvs = args.customize_spec.key_value_pairs();
         let context_spec =
@@ -201,25 +199,22 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         bundled.export(&context_spec, &args.root_dir)?;
     }
 
-    println!("create {}", CKB_CONFIG_FILE_NAME);
+    println!("create {CKB_CONFIG_FILE_NAME}");
     Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
-    println!("create {}", MINER_CONFIG_FILE_NAME);
+    println!("create {MINER_CONFIG_FILE_NAME}");
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
-    println!("create {}", DB_OPTIONS_FILE_NAME);
+    println!("create {DB_OPTIONS_FILE_NAME}");
     Resource::bundled_db_options().export(&context, &args.root_dir)?;
 
     let genesis_hash = AppConfig::load_for_subcommand(args.root_dir, cli::CMD_INIT)?
         .chain_spec()?
         .build_genesis()
         .map_err(|err| {
-            eprintln!(
-                "couldn't build genesis from generated chain spec, since {}",
-                err
-            );
+            eprintln!("couldn't build genesis from generated chain spec, since {err}");
             ExitCode::Failure
         })?
         .hash();
-    println!("Genesis Hash: {:#x}", genesis_hash);
+    println!("Genesis Hash: {genesis_hash:#x}");
 
     Ok(())
 }

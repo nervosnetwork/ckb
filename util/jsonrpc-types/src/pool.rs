@@ -215,17 +215,17 @@ pub enum PoolTransactionReject {
 impl From<Reject> for PoolTransactionReject {
     fn from(reject: Reject) -> Self {
         match reject {
-            Reject::LowFeeRate(..) => Self::LowFeeRate(format!("{}", reject)),
+            Reject::LowFeeRate(..) => Self::LowFeeRate(format!("{reject}")),
             Reject::ExceededMaximumAncestorsCount => {
-                Self::ExceededMaximumAncestorsCount(format!("{}", reject))
+                Self::ExceededMaximumAncestorsCount(format!("{reject}"))
             }
-            Reject::Full(..) => Self::Full(format!("{}", reject)),
-            Reject::Duplicated(_) => Self::Duplicated(format!("{}", reject)),
-            Reject::Malformed(_) => Self::Malformed(format!("{}", reject)),
-            Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{}", reject)),
-            Reject::Resolve(_) => Self::Resolve(format!("{}", reject)),
-            Reject::Verification(_) => Self::Verification(format!("{}", reject)),
-            Reject::Expiry(_) => Self::Expiry(format!("{}", reject)),
+            Reject::Full(..) => Self::Full(format!("{reject}")),
+            Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
+            Reject::Malformed(_) => Self::Malformed(format!("{reject}")),
+            Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{reject}")),
+            Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
+            Reject::Verification(_) => Self::Verification(format!("{reject}")),
+            Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
         }
     }
 }

@@ -113,6 +113,8 @@ impl Binaries {
     }
 }
 
+type DebugPrinter = Box<dyn Fn(&Byte32, &str)>;
+
 /// This struct leverages CKB VM to verify transaction inputs.
 ///
 /// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
@@ -120,7 +122,7 @@ impl Binaries {
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
 
-    debug_printer: Box<dyn Fn(&Byte32, &str)>,
+    debug_printer: DebugPrinter,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction,
@@ -466,8 +468,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {} {}",
-                    limit_cycles, cycles
+                    "expect invalid cycles {limit_cycles} {cycles}"
                 ))
                 .source(group)
             })?;
@@ -545,8 +546,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         for (idx, (_hash, group)) in self.groups().enumerate().skip(skip) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {} {}",
-                    limit_cycles, cycles
+                    "expect invalid cycles {limit_cycles} {cycles}"
                 ))
                 .source(group)
             })?;
@@ -601,7 +601,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         let mut cycles = current_cycles;
 
         let (_hash, current_group) = self.groups().nth(current).ok_or_else(|| {
-            ScriptError::VMInternalError(format!("snapshot group missing {:?}", current))
+            ScriptError::VMInternalError(format!("snapshot group missing {current:?}"))
                 .unknown_source()
         })?;
 
@@ -625,7 +625,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                         return Ok(VerifyResult::Suspended(state));
                     }
                     error => {
-                        let e = ScriptError::VMInternalError(format!("{:?}", error));
+                        let e = ScriptError::VMInternalError(format!("{error:?}"));
                         #[cfg(feature = "logging")]
                         logging::on_script_error(_hash, &self.hash(), &e);
                         return Err(e.source(current_group).into());
@@ -653,8 +653,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
         for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {} {}",
-                    limit_cycles, cycles
+                    "expect invalid cycles {limit_cycles} {cycles}"
                 ))
                 .source(group)
             })?;
@@ -726,11 +725,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         for (_hash, group) in self.groups().skip(snap.current + 1) {
             let remain_cycles = max_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {} {}",
-                    max_cycles, cycles
-                ))
-                .source(group)
+                ScriptError::VMInternalError(format!("expect invalid cycles {max_cycles} {cycles}"))
+                    .source(group)
             })?;
 
             match self.verify_group_with_chunk(group, remain_cycles, &None) {
@@ -905,7 +901,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(format!("{:?}", error)),
+            _ => ScriptError::VMInternalError(format!("{error:?}")),
         };
 
         let bytes = machine
@@ -933,7 +929,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(format!("{:?}", error)),
+            _ => ScriptError::VMInternalError(format!("{error:?}")),
         };
 
         // we should not capture snapshot if load program failed by exceeded cycles
@@ -953,7 +949,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                     Some(program_bytes_cycles),
                 )));
             }
-            load_ret.map_err(|e| ScriptError::VMInternalError(format!("{:?}", e)))?;
+            load_ret.map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
         }
 
         match machine.run() {
@@ -968,7 +964,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> TransactionScriptsVerifier<'a, D
                 VMInternalError::CyclesExceeded => {
                     Ok(ChunkState::suspended(ResumableMachine::new(machine, None)))
                 }
-                _ => Err(ScriptError::VMInternalError(format!("{:?}", error))),
+                _ => Err(ScriptError::VMInternalError(format!("{error:?}"))),
             },
         }
     }

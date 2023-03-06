@@ -228,10 +228,10 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
     let mut generator = Generator::non_crypto_safe_prng(42);
     let privkey = generator.gen_privkey();
     let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    let lock_arg = Bytes::from((&blake2b_256(&pubkey_data)[0..20]).to_owned());
+    let lock_arg = Bytes::from((blake2b_256(pubkey_data)[0..20]).to_owned());
     let privkey2 = generator.gen_privkey();
     let pubkey_data2 = privkey2.pubkey().expect("Get pubkey failed").serialize();
-    let lock_arg2 = Bytes::from((&blake2b_256(&pubkey_data2)[0..20]).to_owned());
+    let lock_arg2 = Bytes::from((blake2b_256(pubkey_data2)[0..20]).to_owned());
 
     let lock = Script::new_builder()
         .args(lock_arg.pack())

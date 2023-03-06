@@ -1148,7 +1148,7 @@ fn load_code_to_stack_then_reuse_case1_load_and_write() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert!(result.is_err());
     let vm_error = VmError::MemWriteOnExecutablePage;
-    let script_error = ScriptError::VMInternalError(format!("{:?}", vm_error));
+    let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
     assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
 }
 
@@ -1247,7 +1247,7 @@ fn check_debugger() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert!(result.is_ok(), "result {:?}", result);
+    assert!(result.is_ok(), "result {result:?}");
 }
 
 #[test]
@@ -1286,15 +1286,10 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
     });
 
     let cycles_once = result.unwrap();
-    assert!(
-        cycles <= TWO_IN_TWO_OUT_CYCLES,
-        "step_cycles {}",
-        step_cycles
-    );
+    assert!(cycles <= TWO_IN_TWO_OUT_CYCLES, "step_cycles {step_cycles}");
     assert!(
         cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-        "step_cycles {}",
-        step_cycles
+        "step_cycles {step_cycles}"
     );
-    assert_eq!(cycles, cycles_once, "step_cycles {}", step_cycles);
+    assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }

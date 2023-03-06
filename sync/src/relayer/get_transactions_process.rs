@@ -34,8 +34,7 @@ impl<'a> GetTransactionsProcess<'a> {
         {
             if message_len > MAX_RELAY_TXS_NUM_PER_BATCH {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
-                    "TxHashes count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
-                    message_len, MAX_RELAY_TXS_NUM_PER_BATCH,
+                    "TxHashes count({message_len}) > MAX_RELAY_TXS_NUM_PER_BATCH({MAX_RELAY_TXS_NUM_PER_BATCH})",
                 ));
             }
         }

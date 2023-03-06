@@ -57,7 +57,7 @@ impl DiscoveryMessage {
                     .build()
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {
-                let bool_ = if announce { 1u8 } else { 0 };
+                let bool_ = u8::from(announce);
                 let announce = packed::Bool::new_builder().set([bool_.into()]).build();
                 let mut item_vec = Vec::with_capacity(items.len());
                 for item in items {
@@ -176,8 +176,7 @@ impl std::fmt::Display for DiscoveryMessage {
             DiscoveryMessage::GetNodes { version, count, .. } => {
                 write!(
                     f,
-                    "DiscoveryMessage::GetNodes(version:{}, count:{})",
-                    version, count
+                    "DiscoveryMessage::GetNodes(version:{version}, count:{count})"
                 )?;
             }
             DiscoveryMessage::Nodes(Nodes { announce, items }) => {

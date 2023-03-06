@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 /// Notify config options.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// An executable script to be called whenever there's a new block in the canonical chain.
