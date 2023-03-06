@@ -1,6 +1,6 @@
 [package]
 name = "ckb-tx-pool"
-version = "0.108.0-rc2"
+version = "0.108.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,27 +11,27 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.108.0-rc2" }
-ckb-logger = {path = "../util/logger", version = "= 0.108.0-rc2"}
-ckb-verification = { path = "../verification", version = "= 0.108.0-rc2" }
-ckb-systemtime = {path = "../util/systemtime", version = "= 0.108.0-rc2"}
+ckb-types = { path = "../util/types", version = "= 0.108.0" }
+ckb-logger = {path = "../util/logger", version = "= 0.108.0"}
+ckb-verification = { path = "../verification", version = "= 0.108.0" }
+ckb-systemtime = {path = "../util/systemtime", version = "= 0.108.0"}
 lru = "0.7.1"
-ckb-dao = { path = "../util/dao", version = "= 0.108.0-rc2" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.108.0-rc2" }
-ckb-store = { path = "../store", version = "= 0.108.0-rc2" }
-ckb-util = { path = "../util", version = "= 0.108.0-rc2" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.108.0-rc2" }
-ckb-chain-spec = { path = "../spec", version = "= 0.108.0-rc2" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.108.0-rc2" }
-ckb-error = { path = "../error", version = "= 0.108.0-rc2" }
+ckb-dao = { path = "../util/dao", version = "= 0.108.0" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.108.0" }
+ckb-store = { path = "../store", version = "= 0.108.0" }
+ckb-util = { path = "../util", version = "= 0.108.0" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.108.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.108.0" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.108.0" }
+ckb-error = { path = "../error", version = "= 0.108.0" }
 tokio = { version = "1", features = ["sync", "process"] }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.108.0-rc2" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.108.0-rc2" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.108.0-rc2" }
-ckb-network = { path = "../network", version = "= 0.108.0-rc2" }
-ckb-channel = { path = "../util/channel", version = "= 0.108.0-rc2" }
-ckb-traits = { path = "../traits", version = "= 0.108.0-rc2" }
-ckb-db = { path = "../db", version = "= 0.108.0-rc2" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.108.0" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.108.0" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.108.0" }
+ckb-network = { path = "../network", version = "= 0.108.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.108.0" }
+ckb-traits = { path = "../traits", version = "= 0.108.0" }
+ckb-db = { path = "../db", version = "= 0.108.0" }
 sentry = { version = "0.26.0", optional = true }
 serde_json = "1.0"
 rand = "0.8.4"
@@ -39,8 +39,8 @@ hyper = { version = "0.14", features = ["http1", "client", "tcp"] }
 
 [dev-dependencies]
 tempfile = "3.0"
-ckb-hash = { path = "../util/hash", version = "= 0.108.0-rc2" }
-ckb-systemtime = {path = "../util/systemtime", version = "= 0.108.0-rc2", features = ["enable_faketime"]}
+ckb-hash = { path = "../util/hash", version = "= 0.108.0" }
+ckb-systemtime = {path = "../util/systemtime", version = "= 0.108.0", features = ["enable_faketime"]}
 
 [features]
 default = []
