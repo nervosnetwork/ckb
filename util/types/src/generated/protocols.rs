@@ -28,11 +28,12 @@ impl ::core::fmt::Display for PingPayload {
 }
 impl ::core::default::Default for PingPayload {
     fn default() -> Self {
-        let v: Vec<u8> = vec![0, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
-        PingPayload::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        PingPayload::new_unchecked(v)
     }
 }
 impl PingPayload {
+    const DEFAULT_VALUE: [u8; 16] = [0, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
     pub const ITEMS_COUNT: usize = 2;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
@@ -326,13 +327,14 @@ impl ::core::fmt::Display for PingMessage {
 }
 impl ::core::default::Default for PingMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            24, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        PingMessage::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        PingMessage::new_unchecked(v)
     }
 }
 impl PingMessage {
+    const DEFAULT_VALUE: [u8; 24] = [
+        24, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -563,11 +565,12 @@ impl ::core::fmt::Display for Ping {
 }
 impl ::core::default::Default for Ping {
     fn default() -> Self {
-        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
-        Ping::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Ping::new_unchecked(v)
     }
 }
 impl Ping {
+    const DEFAULT_VALUE: [u8; 12] = [12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -798,11 +801,12 @@ impl ::core::fmt::Display for Pong {
 }
 impl ::core::default::Default for Pong {
     fn default() -> Self {
-        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
-        Pong::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Pong::new_unchecked(v)
     }
 }
 impl Pong {
+    const DEFAULT_VALUE: [u8; 12] = [12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -1035,11 +1039,12 @@ impl ::core::fmt::Display for NodeVec {
 }
 impl ::core::default::Default for NodeVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
-        NodeVec::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        NodeVec::new_unchecked(v)
     }
 }
 impl NodeVec {
+    const DEFAULT_VALUE: [u8; 4] = [4, 0, 0, 0];
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -1374,11 +1379,12 @@ impl ::core::fmt::Display for Node2Vec {
 }
 impl ::core::default::Default for Node2Vec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
-        Node2Vec::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Node2Vec::new_unchecked(v)
     }
 }
 impl Node2Vec {
+    const DEFAULT_VALUE: [u8; 4] = [4, 0, 0, 0];
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -1707,11 +1713,12 @@ impl ::core::fmt::Display for Uint16 {
 }
 impl ::core::default::Default for Uint16 {
     fn default() -> Self {
-        let v: Vec<u8> = vec![0, 0];
-        Uint16::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Uint16::new_unchecked(v)
     }
 }
 impl Uint16 {
+    const DEFAULT_VALUE: [u8; 2] = [0, 0];
     pub const TOTAL_SIZE: usize = 2;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 2;
@@ -1884,11 +1891,12 @@ impl ::core::fmt::Display for PortOpt {
 }
 impl ::core::default::Default for PortOpt {
     fn default() -> Self {
-        let v: Vec<u8> = vec![];
-        PortOpt::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        PortOpt::new_unchecked(v)
     }
 }
 impl PortOpt {
+    const DEFAULT_VALUE: [u8; 0] = [];
     pub fn is_none(&self) -> bool {
         self.0.is_empty()
     }
@@ -2045,13 +2053,14 @@ impl ::core::fmt::Display for DiscoveryPayload {
 }
 impl ::core::default::Default for DiscoveryPayload {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            0, 0, 0, 0, 24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        DiscoveryPayload::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        DiscoveryPayload::new_unchecked(v)
     }
 }
 impl DiscoveryPayload {
+    const DEFAULT_VALUE: [u8; 28] = [
+        0, 0, 0, 0, 24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const ITEMS_COUNT: usize = 2;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
@@ -2345,14 +2354,15 @@ impl ::core::fmt::Display for DiscoveryMessage {
 }
 impl ::core::default::Default for DiscoveryMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            36, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        DiscoveryMessage::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        DiscoveryMessage::new_unchecked(v)
     }
 }
 impl DiscoveryMessage {
+    const DEFAULT_VALUE: [u8; 36] = [
+        36, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -2585,13 +2595,14 @@ impl ::core::fmt::Display for GetNodes {
 }
 impl ::core::default::Default for GetNodes {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        GetNodes::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        GetNodes::new_unchecked(v)
     }
 }
 impl GetNodes {
+    const DEFAULT_VALUE: [u8; 24] = [
+        24, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -2875,14 +2886,15 @@ impl ::core::fmt::Display for GetNodes2 {
 }
 impl ::core::default::Default for GetNodes2 {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            36, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        GetNodes2::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        GetNodes2::new_unchecked(v)
     }
 }
 impl GetNodes2 {
+    const DEFAULT_VALUE: [u8; 36] = [
+        36, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 4;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -3188,11 +3200,12 @@ impl ::core::fmt::Display for Nodes {
 }
 impl ::core::default::Default for Nodes {
     fn default() -> Self {
-        let v: Vec<u8> = vec![17, 0, 0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 0, 4, 0, 0, 0];
-        Nodes::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Nodes::new_unchecked(v)
     }
 }
 impl Nodes {
+    const DEFAULT_VALUE: [u8; 17] = [17, 0, 0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 0, 4, 0, 0, 0];
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -3450,11 +3463,12 @@ impl ::core::fmt::Display for Nodes2 {
 }
 impl ::core::default::Default for Nodes2 {
     fn default() -> Self {
-        let v: Vec<u8> = vec![17, 0, 0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 0, 4, 0, 0, 0];
-        Nodes2::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Nodes2::new_unchecked(v)
     }
 }
 impl Nodes2 {
+    const DEFAULT_VALUE: [u8; 17] = [17, 0, 0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 0, 4, 0, 0, 0];
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -3711,11 +3725,12 @@ impl ::core::fmt::Display for Node {
 }
 impl ::core::default::Default for Node {
     fn default() -> Self {
-        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0];
-        Node::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Node::new_unchecked(v)
     }
 }
 impl Node {
+    const DEFAULT_VALUE: [u8; 12] = [12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -3947,13 +3962,14 @@ impl ::core::fmt::Display for Node2 {
 }
 impl ::core::default::Default for Node2 {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            24, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        Node2::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Node2::new_unchecked(v)
     }
 }
 impl Node2 {
+    const DEFAULT_VALUE: [u8; 24] = [
+        24, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 2;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -4212,11 +4228,12 @@ impl ::core::fmt::Display for AddressVec {
 }
 impl ::core::default::Default for AddressVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
-        AddressVec::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        AddressVec::new_unchecked(v)
     }
 }
 impl AddressVec {
+    const DEFAULT_VALUE: [u8; 4] = [4, 0, 0, 0];
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -4549,11 +4566,12 @@ impl ::core::fmt::Display for Address {
 }
 impl ::core::default::Default for Address {
     fn default() -> Self {
-        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
-        Address::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        Address::new_unchecked(v)
     }
 }
 impl Address {
+    const DEFAULT_VALUE: [u8; 12] = [12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
     pub const FIELD_COUNT: usize = 1;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
@@ -4786,14 +4804,15 @@ impl ::core::fmt::Display for IdentifyMessage {
 }
 impl ::core::default::Default for IdentifyMessage {
     fn default() -> Self {
-        let v: Vec<u8> = vec![
-            36, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 32, 0, 0, 0, 4, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        IdentifyMessage::new_unchecked(v.into())
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        IdentifyMessage::new_unchecked(v)
     }
 }
 impl IdentifyMessage {
+    const DEFAULT_VALUE: [u8; 36] = [
+        36, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 32, 0, 0, 0, 4, 0, 0, 0, 12, 0, 0, 0, 8, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0,
+    ];
     pub const FIELD_COUNT: usize = 3;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
