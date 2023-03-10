@@ -1,81 +1,206 @@
+#![allow(missing_docs)]
 //! A lightweight metrics facade used in CKB.
 //!
 //! The `ckb-metrics` crate is a set of tools for metrics.
 //! The crate [`ckb-metrics-service`] is the runtime which handles the metrics data in CKB.
 //!
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
-//!
-//! ## Use
-//!
-//! The basic use of the facade crate is through the metrics macro: [`metrics!`].
-//!
-//! ### Examples
-//!
-//! ```rust
-//! use ckb_metrics::{metrics, Timer};
-//!
-//! fn run_query(_: &str) -> u64 { 42 }
-//!
-//! pub fn process(query: &str) -> u64 {
-//!     let timer = Timer::start();
-//!     let row_count = run_query(query);
-//!     metrics!(timing, "process.query_time", timer.stop());
-//!     metrics!(counter, "process.query_row_count", row_count);
-//!     row_count
-//! }
-//! ```
 
-use opentelemetry::metrics::Meter;
-use std::time::{Duration, Instant};
+use prometheus::{
+    register_int_counter, register_int_counter_vec, register_int_gauge, register_int_gauge_vec,
+    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+};
+use prometheus_static_metric::make_static_metric;
+use std::cell::Cell;
 
-#[doc(hidden)]
-pub use opentelemetry as internal;
-
-/// Returns a global meter.
-pub fn global_meter() -> Meter {
-    opentelemetry::global::meter("ckb-metrics")
+pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
+    prometheus::gather()
 }
 
-/// A simple timer which is used to time how much time elapsed.
-pub struct Timer(Instant);
-
-impl Timer {
-    /// Starts a new timer.
-    pub fn start() -> Self {
-        Self(Instant::now())
+make_static_metric! {
+    // Struct for the CKB sys mem process statistics type label
+    struct CkbSysMemProcessStatistics: IntGauge{
+        "type" => {
+            rss,
+            vms,
+        },
     }
 
-    /// Stops the timer and return how much time elapsed.
-    pub fn stop(self) -> Duration {
-        Instant::now() - self.0
+    // Struct for the CKB sys mem jemalloc statistics type label
+    struct CkbSysMemJemallocStatistics: IntGauge{
+        "type" => {
+            allocated,
+            resident,
+            active,
+            mapped,
+            retained,
+            metadata,
+        },
     }
 }
 
-/// Out-of-the-box macros for metrics.
-///
-/// - A counter is a cumulative metric that represents a monotonically increasing value which
-///   can only be increased or be reset to zero on restart.
-/// - A gauge is a metric that can go up and down, arbitrarily, over time.
-/// - A timing is a metric of time consumed.
-// Since the APIs of opentelemetry<=0.15.0 is not stable, so just let them be compatible with metrics=0.12.1.
-#[macro_export(local_inner_macros)]
-macro_rules! metrics {
-    (counter, $label:literal, $value:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
-        $crate::global_meter()
-            .u64_counter($label)
-            .init()
-            .add($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
-    };
-    (gauge, $label:literal, $value:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
-        $crate::global_meter()
-            .i64_value_recorder($label)
-            .init()
-            .record($value, &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
-    };
-    (timing, $label:literal, $duration:expr $(, $span_name:expr => $span_value:expr )* $(,)?) => {
-        $crate::global_meter()
-            .f64_value_recorder($label)
-            .init()
-            .record($duration.as_secs_f64(), &[$( $crate::internal::KeyValue::new($span_name, $span_value), )*]);
-    };
+pub struct Metrics {
+    /// Gauge metric for CKB chain tip header number
+    pub ckb_chain_tip: IntGauge,
+    /// Gauge for tracking the size of all frozen data
+    pub ckb_freezer_size: IntGauge,
+    /// Counter for measuring the effective amount of data read
+    pub ckb_freezer_read: IntCounter,
+    /// Counter for relay transaction short id collide
+    pub ckb_relay_transaction_short_id_collide: IntCounter,
+    /// Counter for relay compact block transaction count
+    pub ckb_relay_cb_transaction_count: IntCounter,
+    /// Counter for relay compact block reconstruct ok
+    pub ckb_relay_cb_reconstruct_ok: IntCounter,
+    /// Counter for relay compact block fresh transaction count
+    pub ckb_relay_cb_fresh_tx_cnt: IntCounter,
+    /// Counter for relay compact block reconstruct fail
+    pub ckb_relay_cb_reconstruct_fail: IntCounter,
+    // Gauge for CKB shared best number
+    pub ckb_shared_best_number: IntGauge,
+    // GaugeVec for CKB system memory process statistics
+    pub ckb_sys_mem_process: CkbSysMemProcessStatistics,
+    // GaugeVec for CKB system memory jemalloc statistics
+    pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
+    /// Gauge for CKB network connections
+    pub ckb_message_bytes: IntCounterVec,
+    /// Gauge for CKB rocksdb statistics
+    pub ckb_sys_mem_rocksdb: IntGaugeVec,
+    /// Counter for CKB network ban peers
+    pub ckb_network_ban_peer: IntCounter,
+}
+
+static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| Metrics {
+    ckb_chain_tip: register_int_gauge!("ckb_chain_tip", "The CKB chain tip header number").unwrap(),
+    ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+    ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
+    ckb_relay_transaction_short_id_collide: register_int_counter!(
+        "ckb_relay_transaction_short_id_collide",
+        "The CKB relay transaction short id collide"
+    )
+    .unwrap(),
+    ckb_relay_cb_transaction_count: register_int_counter!(
+        "ckb_relay_cb_transaction_count",
+        "The CKB relay compact block transaction count"
+    )
+    .unwrap(),
+    ckb_relay_cb_reconstruct_ok: register_int_counter!(
+        "ckb_relay_cb_reconstruct_ok",
+        "The CKB relay compact block reconstruct ok count"
+    )
+    .unwrap(),
+    ckb_relay_cb_fresh_tx_cnt: register_int_counter!(
+        "ckb_relay_cb_fresh_tx_cnt",
+        "The CKB relay compact block fresh tx count"
+    )
+    .unwrap(),
+    ckb_relay_cb_reconstruct_fail: register_int_counter!(
+        "ckb_relay_cb_reconstruct_fail",
+        "The CKB relay compact block reconstruct fail count"
+    )
+    .unwrap(),
+    ckb_shared_best_number: register_int_gauge!(
+        "ckb_shared_best_number",
+        "The CKB shared best header number"
+    )
+    .unwrap(),
+    ckb_sys_mem_process: CkbSysMemProcessStatistics::from(
+        &register_int_gauge_vec!(
+            "ckb_sys_mem_process",
+            "CKB system memory for process statistics",
+            &["type"]
+        )
+        .unwrap(),
+    ),
+    ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics::from(
+        &register_int_gauge_vec!(
+            "ckb_sys_mem_jemalloc",
+            "CKB system memory for jemalloc statistics",
+            &["type"]
+        )
+        .unwrap(),
+    ),
+    ckb_message_bytes: register_int_counter_vec!(
+        "ckb_message_bytes",
+        "The CKB message bytes",
+        &["direction", "protocol_name", "msg_item_name", "status_code"]
+    )
+    .unwrap(),
+
+    ckb_sys_mem_rocksdb: register_int_gauge_vec!(
+        "ckb_sys_mem_rocksdb",
+        "CKB system memory for rocksdb statistics",
+        &["type", "cf"]
+    )
+    .unwrap(),
+    ckb_network_ban_peer: register_int_counter!(
+        "ckb_network_ban_peer",
+        "CKB network baned peer count"
+    )
+    .unwrap(),
+});
+
+/// Indicate whether the metrics service is enabled.
+/// This value will set by ckb-metrics-service
+pub static METRICS_SERVICE_ENABLED: once_cell::sync::OnceCell<bool> =
+    once_cell::sync::OnceCell::new();
+
+thread_local! {
+    static ENABLE_COLLECT_METRICS: Cell<Option<bool>>= Cell::default();
+}
+
+/// if metrics service is enabled, `handle()` will return `Some(&'static METRICS)`
+/// else will return `None`
+pub fn handle() -> Option<&'static Metrics> {
+    let enabled_collect_metrics: bool =
+        ENABLE_COLLECT_METRICS.with(
+            |enable_collect_metrics| match enable_collect_metrics.get() {
+                Some(enabled) => enabled,
+                None => match METRICS_SERVICE_ENABLED.get().copied() {
+                    Some(enabled) => {
+                        enable_collect_metrics.set(Some(enabled));
+                        enabled
+                    }
+                    None => false,
+                },
+            },
+        );
+
+    if enabled_collect_metrics {
+        Some(&METRICS)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::METRICS;
+    use std::ops::Deref;
+
+    // https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
+    // The Metric names may contain ASCII letters and digits, as well as underscores and colons. It must match the regex [a-zA-Z_:][a-zA-Z0-9_:]*.
+    // The Metric Label names may contain ASCII letters, numbers, as well as underscores. They must match the regex [a-zA-Z_][a-zA-Z0-9_]*. Label names beginning with __ are reserved for internal use.
+    // Test that all metrics have valid names and labels
+    // Just simple call .deref() method to make sure all metrics are initialized successfully
+    // If the metrics name or label is invalid, this test will panic
+    #[test]
+    fn test_metrics_name() {
+        let _ = METRICS.deref();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_metrics_name() {
+        let res = prometheus::register_int_gauge!(
+            "ckb.chain.tip",
+            "a bad metric which contains '.' in its name"
+        );
+        assert!(res.is_err());
+        let res = prometheus::register_int_gauge!(
+            "ckb-chain-tip",
+            "a bad metric which contains '-' in its name"
+        );
+        assert!(res.is_err());
+    }
 }

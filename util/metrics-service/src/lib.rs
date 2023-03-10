@@ -1,13 +1,12 @@
 //! The service which handles the metrics data in CKB.
 
-use std::{convert::Infallible, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, net::SocketAddr};
 
 use hyper::{
     header::CONTENT_TYPE,
     service::{make_service_fn, service_fn},
     Body, Error as HyperError, Method, Request, Response, Server,
 };
-use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::Encoder as _;
 
 use ckb_async_runtime::Handle;
@@ -28,6 +27,7 @@ pub enum Guard {
 /// Returns [Guard](enum.Guard.html) if succeeded, or an `String` to describes the reason for the failure.
 pub fn init(config: Config, handle: Handle) -> Result<Guard, String> {
     if config.exporter.is_empty() {
+        let _ignored = ckb_metrics::METRICS_SERVICE_ENABLED.set(false);
         return Ok(Guard::Off);
     }
 
@@ -35,6 +35,10 @@ pub fn init(config: Config, handle: Handle) -> Result<Guard, String> {
         check_exporter_name(&name)?;
         run_exporter(exporter, &handle)?;
     }
+    // The .set() method's return value can indicate whether the value has set or not.
+    // Just ignore its return value
+    // I don't care this because CKB only initializes the ckb-metrics-service once.
+    let _ignored = ckb_metrics::METRICS_SERVICE_ENABLED.set(true);
 
     Ok(Guard::On)
 }
@@ -50,22 +54,8 @@ fn run_exporter(exporter: Exporter, handle: &Handle) -> Result<(), String> {
             let addr = listen_address
                 .parse::<SocketAddr>()
                 .map_err(|err| format!("failed to parse listen_address because {err}"))?;
-            // TODO Not allow to configure the prometheus exporter, since the API is not stable.
-            // If anyone who want to customize the configurations, update the follow code.
-            // Ref: https://docs.rs/opentelemetry-prometheus/*/opentelemetry_prometheus/struct.ExporterBuilder.html
-            let exporter = {
-                let exporter = opentelemetry_prometheus::exporter()
-                    .try_init()
-                    .map_err(|err| format!("failed to init prometheus exporter because {err}"))?;
-                Arc::new(exporter)
-            };
-            let make_svc = make_service_fn(move |_conn| {
-                let exporter = Arc::clone(&exporter);
-                async move {
-                    Ok::<_, Infallible>(service_fn(move |req| {
-                        start_prometheus_service(req, Arc::clone(&exporter))
-                    }))
-                }
+            let make_svc = make_service_fn(move |_conn| async move {
+                Ok::<_, Infallible>(service_fn(start_prometheus_service))
             });
             ckb_logger::info!("start prometheus exporter at {}", addr);
             handle.spawn(async move {
@@ -79,15 +69,12 @@ fn run_exporter(exporter: Exporter, handle: &Handle) -> Result<(), String> {
     Ok(())
 }
 
-async fn start_prometheus_service(
-    req: Request<Body>,
-    exporter: Arc<PrometheusExporter>,
-) -> Result<Response<Body>, HyperError> {
+async fn start_prometheus_service(req: Request<Body>) -> Result<Response<Body>, HyperError> {
     Ok(match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             let mut buffer = vec![];
             let encoder = prometheus::TextEncoder::new();
-            let metric_families = exporter.registry().gather();
+            let metric_families = ckb_metrics::gather();
             encoder.encode(&metric_families, &mut buffer).unwrap();
             Response::builder()
                 .status(200)

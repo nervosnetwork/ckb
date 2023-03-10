@@ -9,4 +9,6 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-opentelemetry = { version = "0.15", default-features=false, features = ["metrics"] }
+prometheus = "0.13.3"
+prometheus-static-metric = "0.5.1"
+once_cell = "1.17.1"
