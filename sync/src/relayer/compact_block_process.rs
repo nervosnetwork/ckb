@@ -7,7 +7,6 @@ use crate::SyncShared;
 use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
-use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderProvider;
@@ -96,12 +95,12 @@ impl<'a> CompactBlockProcess<'a> {
         // into database
         match ret {
             ReconstructionResult::Block(block) => {
-                metrics!(
-                    counter,
-                    "ckb.relay.cb_transaction_count",
-                    block.transactions().len() as u64
-                );
-                metrics!(counter, "ckb.relay.cb_reconstruct_ok", 1);
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics
+                        .ckb_relay_cb_transaction_count
+                        .inc_by(block.transactions().len() as u64);
+                    metrics.ckb_relay_cb_reconstruct_ok.inc();
+                }
 
                 pending_compact_blocks.remove(&block_hash);
                 // remove all pending request below this block epoch
@@ -124,12 +123,13 @@ impl<'a> CompactBlockProcess<'a> {
             ReconstructionResult::Missing(transactions, uncles) => {
                 let missing_transactions: Vec<u32> =
                     transactions.into_iter().map(|i| i as u32).collect();
-                metrics!(
-                    counter,
-                    "ckb.relay.cb_fresh_tx_cnt",
-                    missing_transactions.len() as u64
-                );
-                metrics!(counter, "ckb.relay.cb_reconstruct_fail", 1);
+
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics
+                        .ckb_relay_cb_fresh_tx_cnt
+                        .inc_by(missing_transactions.len() as u64);
+                    metrics.ckb_relay_cb_reconstruct_fail.inc();
+                }
 
                 let missing_uncles: Vec<u32> = uncles.into_iter().map(|i| i as u32).collect();
                 missing_or_collided_post_process(

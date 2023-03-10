@@ -122,6 +122,11 @@ impl StatusCode {
     pub fn with_context<S: ToString>(self, context: S) -> Status {
         Status::new(self, Some(context))
     }
+
+    /// StatusCode's name like `Ok(100)`
+    pub fn name(self) -> String {
+        format!("{:?}({})", self, self as u16)
+    }
 }
 
 /// Process message status

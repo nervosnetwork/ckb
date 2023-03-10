@@ -1,7 +1,6 @@
 use std::{fs, io, str::FromStr, sync, thread, time};
 
 use ckb_logger::{error, info};
-use ckb_metrics::metrics;
 use jemalloc_ctl::{epoch, stats};
 
 use crate::rocksdb::TrackRocksDBMemory;
@@ -68,8 +67,10 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                         // Virtual memory size, total amount of memory.
                         let vms = memory.size as i64;
 
-                        metrics!(gauge, "ckb-sys.mem.process", rss, "type" => "rss");
-                        metrics!(gauge, "ckb-sys.mem.process", vms, "type" => "vms");
+                        if let Some(metrics) = ckb_metrics::handle() {
+                            metrics.ckb_sys_mem_process.rss.set(rss);
+                            metrics.ckb_sys_mem_process.vms.set(vms);
+                        }
 
                         let allocated = mib_read!(allocated);
                         let resident = mib_read!(resident);
@@ -77,16 +78,17 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                         let mapped = mib_read!(mapped);
                         let retained = mib_read!(retained);
                         let metadata = mib_read!(metadata);
+                        if let Some(metrics) = ckb_metrics::handle() {
+                            metrics.ckb_sys_mem_jemalloc.allocated.set(allocated);
+                            metrics.ckb_sys_mem_jemalloc.resident.set(resident);
+                            metrics.ckb_sys_mem_jemalloc.active.set(active);
+                            metrics.ckb_sys_mem_jemalloc.mapped.set(mapped);
+                            metrics.ckb_sys_mem_jemalloc.retained.set(retained);
+                            metrics.ckb_sys_mem_jemalloc.metadata.set(metadata);
 
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", allocated, "type" => "allocated");
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", resident, "type" => "resident");
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", active, "type" => "active");
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", mapped, "type" => "mapped");
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", retained, "type" => "retained");
-                        metrics!(gauge, "ckb-sys.mem.jemalloc", metadata, "type" => "metadata");
-
-                        if let Some(tracker) = tracker_opt.clone() {
-                            tracker.gather_memory_stats();
+                            if let Some(tracker) = tracker_opt.clone() {
+                                tracker.gather_memory_stats();
+                            }
                         }
                     } else {
                         error!("failed to fetch the memory information about current process");

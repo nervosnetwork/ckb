@@ -15,7 +15,6 @@ use ckb_constant::sync::{
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, trace};
-use ckb_metrics::metrics;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -1642,7 +1641,9 @@ impl SyncState {
             return;
         }
 
-        metrics!(gauge, "ckb.shared_best_number", header.number() as i64);
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_shared_best_number.set(header.number() as i64);
+        }
         *self.shared_best_header.write() = header;
     }
 

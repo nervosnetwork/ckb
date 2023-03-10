@@ -22,12 +22,11 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
-use crate::utils::send_message_to;
+use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
-use ckb_metrics::metrics;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
@@ -164,14 +163,12 @@ impl Relayer {
         let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(Arc::clone(&nc), peer, message);
 
-        metrics!(
-            counter,
-            "ckb.messages_bytes",
+        metric_ckb_message_bytes(
+            MetricDirection::In,
+            &SupportProtocols::RelayV2.name(),
+            message.item_name(),
+            Some(status.code()),
             item_bytes,
-            "direction" => "in",
-            "protocol_id" => SupportProtocols::RelayV2.protocol_id().value().to_string(),
-            "item_id" => message.item_id().to_string(),
-            "status" => (status.code() as u16).to_string(),
         );
 
         if let Some(ban_time) = status.should_ban() {
@@ -525,7 +522,9 @@ impl Relayer {
                             )),
                     );
                 } else {
-                    metrics!(counter, "ckb.relay.transaction_short_id_collide", 1);
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics.ckb_relay_transaction_short_id_collide.inc();
+                    }
                     return ReconstructionResult::Collided;
                 }
             }
