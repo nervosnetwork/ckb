@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test-chain-utils"
-version = "0.108.0"
+version = "0.108.1-rc1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,18 +9,18 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = {path = "../types", version = "= 0.108.0"}
-ckb-db = { path = "../../db", version = "= 0.108.0" }
-ckb-store = { path = "../../store", version = "= 0.108.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.108.0" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.108.0" }
-ckb-traits = { path = "../../traits", version = "= 0.108.0" }
+ckb-types = {path = "../types", version = "= 0.108.1-rc1"}
+ckb-db = { path = "../../db", version = "= 0.108.1-rc1" }
+ckb-store = { path = "../../store", version = "= 0.108.1-rc1" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.108.1-rc1" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.108.1-rc1" }
+ckb-traits = { path = "../../traits", version = "= 0.108.1-rc1" }
 lazy_static = "1.3.0"
-ckb-systemtime = { path = "../systemtime", version = "= 0.108.0" }
-ckb-resource = { path = "../../resource", version = "= 0.108.0" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.108.0" }
-ckb-util = { path = "..", version = "= 0.108.0" }
+ckb-systemtime = { path = "../systemtime", version = "= 0.108.1-rc1" }
+ckb-resource = { path = "../../resource", version = "= 0.108.1-rc1" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.108.1-rc1" }
+ckb-util = { path = "..", version = "= 0.108.1-rc1" }
 tempfile = "3.0"
 
 [dev-dependencies]
-ckb-systemtime = { path = "../systemtime", version = "= 0.108.0", features = ["enable_faketime"] }
+ckb-systemtime = { path = "../systemtime", version = "= 0.108.1-rc1", features = ["enable_faketime"] }
