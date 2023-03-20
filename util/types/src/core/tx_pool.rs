@@ -21,6 +21,10 @@ pub enum Reject {
     #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
     ExceededMaximumAncestorsCount,
 
+    /// Transaction exceeded maximum size limit
+    #[error("Transaction size {0} exceeded maximum limit {1}")]
+    ExceededTransactionSizeLimit(u64, u64),
+
     /// Transaction pool exceeded maximum size or cycles limit,
     #[error("Transaction pool exceeded maximum {0} limit({1}), try send it later")]
     Full(String, u64),
@@ -252,3 +256,9 @@ pub fn get_transaction_weight(tx_size: usize, cycles: u64) -> u64 {
         (cycles as f64 * DEFAULT_BYTES_PER_CYCLES) as u64,
     )
 }
+
+/// The maximum size of the tx-pool to accept transactions
+/// The ckb consensus does not limit the size of a single transaction,
+/// but if the size of the transaction is close to the limit of the block,
+/// it may cause the transaction to fail to be packed
+pub const TRANSACTION_SIZE_LIMIT: u64 = 512 * 1_000;

@@ -49,6 +49,12 @@ fn test_submit_transaction_error() {
         "PoolRejectedMalformedTransaction: Malformed cellbase like transaction",
         RPCError::from_submit_transaction_reject(&reject).message
     );
+
+    let reject = Reject::ExceededTransactionSizeLimit(10, 9);
+    assert_eq!(
+        "PoolRejectedTransactionBySizeLimit: Transaction size 10 exceeded maximum limit 9",
+        RPCError::from_submit_transaction_reject(&reject).message
+    );
 }
 
 #[test]

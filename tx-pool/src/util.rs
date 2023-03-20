@@ -4,7 +4,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::{cell::ResolvedTransaction, Capacity, Cycle, TransactionView};
+use ckb_types::core::{
+    cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT, Capacity, Cycle, TransactionView,
+};
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualTransactionVerifier, NonContextualTransactionVerifier,
@@ -67,6 +69,17 @@ pub(crate) fn non_contextual_verify(
     NonContextualTransactionVerifier::new(tx, consensus)
         .verify()
         .map_err(Reject::Verification)?;
+
+    // The ckb consensus does not limit the size of a single transaction,
+    // but if the size of the transaction is close to the limit of the block,
+    // it may cause the transaction to fail to be packed
+    let tx_size = tx.data().serialized_size_in_block() as u64;
+    if tx_size > TRANSACTION_SIZE_LIMIT {
+        return Err(Reject::ExceededTransactionSizeLimit(
+            tx_size,
+            TRANSACTION_SIZE_LIMIT,
+        ));
+    }
     // cellbase is only valid in a block, not as a loose transaction
     if tx.is_cellbase() {
         return Err(Reject::Malformed("cellbase like".to_owned()));
