@@ -7,8 +7,8 @@
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 
 use prometheus::{
-    register_int_counter, register_int_counter_vec, register_int_gauge, register_int_gauge_vec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    register_histogram_vec, register_int_counter, register_int_gauge, register_int_gauge_vec,
+    HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use prometheus_static_metric::make_static_metric;
 use std::cell::Cell;
@@ -62,8 +62,8 @@ pub struct Metrics {
     pub ckb_sys_mem_process: CkbSysMemProcessStatistics,
     // GaugeVec for CKB system memory jemalloc statistics
     pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
-    /// Gauge for CKB network connections
-    pub ckb_message_bytes: IntCounterVec,
+    /// Histogram for CKB network connections
+    pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
     pub ckb_sys_mem_rocksdb: IntGaugeVec,
     /// Counter for CKB network ban peers
@@ -120,10 +120,13 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| M
         )
         .unwrap(),
     ),
-    ckb_message_bytes: register_int_counter_vec!(
+    ckb_message_bytes: register_histogram_vec!(
         "ckb_message_bytes",
         "The CKB message bytes",
-        &["direction", "protocol_name", "msg_item_name", "status_code"]
+        &["direction", "protocol_name", "msg_item_name", "status_code"],
+        vec![
+            500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 100000.0, 200000.0, 500000.0
+        ]
     )
     .unwrap(),
 

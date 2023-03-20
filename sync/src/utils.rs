@@ -68,7 +68,7 @@ pub(crate) fn metric_ckb_message_bytes(
                 item_name,
                 &status_code.unwrap_or(StatusCode::Ignored).name(),
             ])
-            .inc_by(bytes);
+            .observe(bytes as f64);
     }
 }
 
