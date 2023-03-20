@@ -8,7 +8,6 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_metrics::metrics;
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
@@ -503,7 +502,9 @@ impl ChainService {
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
             }
-            metrics!(gauge, "ckb.chain_tip", block.header().number() as i64);
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_chain_tip.set(block.header().number() as i64);
+            }
         } else {
             self.shared.refresh_snapshot();
             info!(

@@ -1,5 +1,4 @@
 use ckb_db::internal::ops::{GetColumnFamilys, GetProperty, GetPropertyCF};
-use ckb_metrics::metrics;
 
 #[derive(Debug, Clone)]
 enum PropertyValue<T> {
@@ -61,7 +60,12 @@ where
                 .property_int_value_cf(cf, &format!("rocksdb.{key}"))
                 .map_err(|err| format!("{err}"))
                 .into();
-            metrics!(gauge, "ckb-sys.mem.rocksdb", value_col.as_i64(), "type" => key.to_owned(), "cf" => cf_name.to_owned());
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics
+                    .ckb_sys_mem_rocksdb
+                    .with_label_values(&[key, cf_name])
+                    .set(value_col.as_i64());
+            }
             values.push(value_col);
         }
     }

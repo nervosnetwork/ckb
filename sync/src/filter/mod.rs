@@ -7,9 +7,9 @@ use get_block_filter_check_points_process::GetBlockFilterCheckPointsProcess;
 use get_block_filter_hashes_process::GetBlockFilterHashesProcess;
 use get_block_filters_process::GetBlockFiltersProcess;
 
+use crate::utils::{metric_ckb_message_bytes, MetricDirection};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, warn_target};
-use ckb_metrics::metrics;
 use ckb_network::{
     async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
 };
@@ -71,14 +71,12 @@ impl BlockFilter {
         let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(Arc::clone(&nc), peer, message);
 
-        metrics!(
-            counter,
-            "ckb.messages_bytes",
+        metric_ckb_message_bytes(
+            MetricDirection::In,
+            &SupportProtocols::Filter.name(),
+            message.item_name(),
+            Some(status.code()),
             item_bytes,
-            "direction" => "in",
-            "protocol_id" => SupportProtocols::Filter.protocol_id().value().to_string(),
-            "item_id" => message.item_id().to_string(),
-            "status" => (status.code() as u16).to_string(),
         );
 
         if let Some(ban_time) = status.should_ban() {
