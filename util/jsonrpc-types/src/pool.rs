@@ -190,6 +190,9 @@ pub enum PoolTransactionReject {
     /// Transaction exceeded maximum ancestors count limit
     ExceededMaximumAncestorsCount(String),
 
+    /// Transaction exceeded maximum size limit
+    ExceededTransactionSizeLimit(String),
+
     /// Transaction pool exceeded maximum size or cycles limit,
     Full(String),
 
@@ -218,6 +221,9 @@ impl From<Reject> for PoolTransactionReject {
             Reject::LowFeeRate(..) => Self::LowFeeRate(format!("{reject}")),
             Reject::ExceededMaximumAncestorsCount => {
                 Self::ExceededMaximumAncestorsCount(format!("{reject}"))
+            }
+            Reject::ExceededTransactionSizeLimit(..) => {
+                Self::ExceededTransactionSizeLimit(format!("{reject}"))
             }
             Reject::Full(..) => Self::Full(format!("{reject}")),
             Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
