@@ -112,12 +112,7 @@ impl TxPool {
 
     /// Whether Tx-pool reach size limit
     pub fn reach_size_limit(&self, tx_size: usize) -> bool {
-        (self.total_tx_size + tx_size) > self.config.max_mem_size
-    }
-
-    /// Whether Tx-pool reach cycles limit
-    pub fn reach_cycles_limit(&self, cycles: Cycle) -> bool {
-        (self.total_tx_cycles + cycles) > self.config.max_cycles
+        (self.total_tx_size + tx_size) > self.config.max_tx_pool_size
     }
 
     /// Update size and cycles statics for add tx
@@ -329,7 +324,7 @@ impl TxPool {
 
     // Remove transactions from the pool until total size < size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
-        while self.total_tx_size > self.config.max_mem_size {
+        while self.total_tx_size > self.config.max_tx_pool_size {
             if !self.pending.is_empty() {
                 if let Some(id) = self
                     .pending

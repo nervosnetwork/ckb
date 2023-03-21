@@ -77,7 +77,7 @@ reject_ill_transactions = true
 enable_deprecated_rpc = true
 
 [tx_pool]
-max_mem_size = 20_000_000 # 20mb
+max_tx_pool_size = 180_000_000 # 180mb
 max_cycles = 200_000_000_000
 min_fee_rate = 0 # shannons/KB
 max_tx_verify_cycles = 70_000_000

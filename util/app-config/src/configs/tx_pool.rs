@@ -9,10 +9,8 @@ use url::Url;
 /// Transaction pool configuration
 #[derive(Clone, Debug, Serialize)]
 pub struct TxPoolConfig {
-    /// Keep the transaction pool below <max_mem_size> mb
-    pub max_mem_size: usize,
-    /// Keep the transaction pool below <max_cycles> cycles
-    pub max_cycles: Cycle,
+    /// Keep the transaction pool below <max_tx_pool_size> mb
+    pub max_tx_pool_size: usize,
     /// txs with lower fee rate than this will not be relayed or be mined
     #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,

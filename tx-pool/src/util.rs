@@ -22,23 +22,6 @@ pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Re
     Ok(())
 }
 
-// pub(crate) fn check_tx_size_limit(tx_pool: &TxPool, tx_size: usize) -> Result<(), Reject> {
-//     if tx_pool.reach_size_limit(tx_size) {
-//         return Err(Reject::Full(
-//             "size".to_owned(),
-//             tx_pool.config.max_mem_size as u64,
-//         ));
-//     }
-//     Ok(())
-// }
-
-// pub(crate) fn check_tx_cycle_limit(tx_pool: &TxPool, cycles: Cycle) -> Result<(), Reject> {
-//     if tx_pool.reach_cycles_limit(cycles) {
-//         return Err(Reject::Full("cycles".to_owned(), tx_pool.config.max_cycles));
-//     }
-//     Ok(())
-// }
-
 pub(crate) fn check_tx_fee(
     tx_pool: &TxPool,
     snapshot: &Snapshot,
