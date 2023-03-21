@@ -99,17 +99,6 @@ jobs:
         cp util/app-config/src/tests/*.bats /tmp/bats_testbed/
         cp util/app-config/src/tests/cli_test.sh /tmp/bats_testbed/
         chmod a+x /tmp/bats_testbed/cli_test.sh
-    - name: Setup BATS testing framework
-      uses: mig4/setup-bats@v1.2.0
-    - name: Setup Bats libs
-      uses: brokenpip3/setup-bats-libs@0.1.0
-      with:
-        support-install: true
-        support-path: /usr/lib/bats-support
-        assert-install: true
-        assert-path: /usr/lib/bats-assert
-        detik-install: false
-        file-install: false
     - name: checkout pre-synced file from ckb-asset repo
       uses: actions/checkout@v3
       with:
@@ -121,7 +110,14 @@ jobs:
         cd /tmp/bats_testbed && ./ckb init --force && ./ckb import ckb_mainnet_4000.json
     - name: run bats cases
       run: |
-        cd /tmp/bats_testbed && ./cli_test.sh
+        cd /tmp/bats_testbed
+        git clone --depth 1 --branch v1.9.0 https://github.com/bats-core/bats-core.git    bats-core/bats
+        git clone --depth 1 --branch v0.3.0 https://github.com/bats-core/bats-support.git bats-core/test_helper/bats-support
+        git clone --depth 1 --branch v2.1.0 https://github.com/bats-core/bats-assert.git  bats-core/test_helper/bats-assert
+        sudo ./bats-core/bats/install.sh /usr/local
+        sudo bash ./bats-core/test_helper/bats-support/load.bash
+        sudo bash ./bats-core/test_helper/bats-assert/load.bash
+        ./cli_test.sh
       shell: bash
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
