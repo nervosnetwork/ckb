@@ -296,23 +296,38 @@ impl TxPool {
         }
     }
 
+    //  Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
-        let removed = self
-            .pending
-            .remove_entries_by_filter(|_id, tx_entry| now_ms > self.expiry + tx_entry.timestamp);
+        let expired =
+            |_id: &ProposalShortId, tx_entry: &TxEntry| self.expiry + tx_entry.timestamp < now_ms;
+        let mut removed = self.pending.remove_entries_by_filter(expired);
+        removed.extend(self.gap.remove_entries_by_filter(expired));
+        let removed_proposed_ids: Vec<_> = self
+            .proposed
+            .iter()
+            .filter_map(|(id, tx_entry)| {
+                if self.expiry + tx_entry.timestamp < now_ms {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .cloned()
+            .collect();
+        for id in removed_proposed_ids {
+            removed.extend(self.proposed.remove_entry_and_descendants(&id))
+        }
 
         for entry in removed {
             let tx_hash = entry.transaction().hash();
-            debug!(
-                "remove_expired from pending {} timestamp({})",
-                tx_hash, entry.timestamp
-            );
+            debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
         }
     }
 
+    // Remove transactions from the pool until total size < size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
         while self.total_tx_size > self.config.max_mem_size {
             if !self.pending.is_empty() {
@@ -353,24 +368,22 @@ impl TxPool {
                         callbacks.call_reject(self, &entry, reject);
                     }
                 }
-            } else {
-                if let Some(id) = self
-                    .proposed
-                    .iter()
-                    .min_by_key(|(_id, entry)| entry.as_evict_key())
-                    .map(|(id, _)| id)
-                    .cloned()
-                {
-                    let removed = self.proposed.remove_entry_and_descendants(&id);
-                    for entry in removed {
-                        let tx_hash = entry.transaction().hash();
-                        debug!(
-                            "removed by size limit from proposed {} timestamp({})",
-                            tx_hash, entry.timestamp
-                        );
-                        let reject = Reject::Full(format!("fee: {}", entry.fee));
-                        callbacks.call_reject(self, &entry, reject);
-                    }
+            } else if let Some(id) = self
+                .proposed
+                .iter()
+                .min_by_key(|(_id, entry)| entry.as_evict_key())
+                .map(|(id, _)| id)
+                .cloned()
+            {
+                let removed = self.proposed.remove_entry_and_descendants(&id);
+                for entry in removed {
+                    let tx_hash = entry.transaction().hash();
+                    debug!(
+                        "removed by size limit from proposed {} timestamp({})",
+                        tx_hash, entry.timestamp
+                    );
+                    let reject = Reject::Full(format!("fee: {}", entry.fee));
+                    callbacks.call_reject(self, &entry, reject);
                 }
             }
         }
