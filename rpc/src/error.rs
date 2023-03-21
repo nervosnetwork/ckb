@@ -167,7 +167,7 @@ impl RPCError {
             Reject::ExceededMaximumAncestorsCount => {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
-            Reject::Full(_, _) => RPCError::PoolIsFull,
+            Reject::Full(_) => RPCError::PoolIsFull,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
             Reject::Malformed(_) => RPCError::PoolRejectedMalformedTransaction,
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,

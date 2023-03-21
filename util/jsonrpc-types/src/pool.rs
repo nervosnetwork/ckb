@@ -193,7 +193,7 @@ pub enum PoolTransactionReject {
     /// Transaction exceeded maximum size limit
     ExceededTransactionSizeLimit(String),
 
-    /// Transaction pool exceeded maximum size or cycles limit,
+    /// Transaction are replaced because the pool is full
     Full(String),
 
     /// Transaction already exist in transaction_pool

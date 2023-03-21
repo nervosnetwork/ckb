@@ -442,7 +442,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CompactBlockRelayLessThenSharedBestKnown),
         Box::new(InvalidLocatorSize),
         Box::new(SizeLimit),
-        Box::new(CyclesLimit),
         Box::new(SendDefectedBinary::new(
             "send_defected_binary_reject_known_bugs",
             true,

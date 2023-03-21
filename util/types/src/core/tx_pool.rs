@@ -25,9 +25,9 @@ pub enum Reject {
     #[error("Transaction size {0} exceeded maximum limit {1}")]
     ExceededTransactionSizeLimit(u64, u64),
 
-    /// Transaction pool exceeded maximum size or cycles limit,
-    #[error("Transaction pool exceeded maximum {0} limit({1}), try send it later")]
-    Full(String, u64),
+    /// Transaction are replaced because the pool is full
+    #[error("Transaction are replaced because the pool is full {0}")]
+    Full(String),
 
     /// Transaction already exist in transaction_pool
     #[error("Transaction({0}) already exist in transaction_pool")]

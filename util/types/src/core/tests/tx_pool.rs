@@ -13,7 +13,10 @@ fn test_if_is_malformed_tx() {
     let reject = Reject::ExceededMaximumAncestorsCount;
     assert!(!reject.is_malformed_tx());
 
-    let reject = Reject::Full(Default::default(), 0);
+    let reject = Reject::ExceededTransactionSizeLimit(0, 0);
+    assert!(!reject.is_malformed_tx());
+
+    let reject = Reject::Full(Default::default());
     assert!(!reject.is_malformed_tx());
 
     let reject = Reject::Duplicated(Default::default());
