@@ -313,6 +313,69 @@ impl TxPool {
         }
     }
 
+    pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
+        while self.total_tx_size > self.config.max_mem_size {
+            if !self.pending.is_empty() {
+                if let Some(id) = self
+                    .pending
+                    .iter()
+                    .min_by_key(|(_id, entry)| entry.as_evict_key())
+                    .map(|(id, _)| id)
+                    .cloned()
+                {
+                    let removed = self.pending.remove_entry_and_descendants(&id);
+                    for entry in removed {
+                        let tx_hash = entry.transaction().hash();
+                        debug!(
+                            "removed by size limit from pending {} timestamp({})",
+                            tx_hash, entry.timestamp
+                        );
+                        let reject = Reject::Full(format!("fee: {}", entry.fee));
+                        callbacks.call_reject(self, &entry, reject);
+                    }
+                }
+            } else if !self.gap.is_empty() {
+                if let Some(id) = self
+                    .gap
+                    .iter()
+                    .min_by_key(|(_id, entry)| entry.as_evict_key())
+                    .map(|(id, _)| id)
+                    .cloned()
+                {
+                    let removed = self.gap.remove_entry_and_descendants(&id);
+                    for entry in removed {
+                        let tx_hash = entry.transaction().hash();
+                        debug!(
+                            "removed by size limit from gap {} timestamp({})",
+                            tx_hash, entry.timestamp
+                        );
+                        let reject = Reject::Full(format!("fee: {}", entry.fee));
+                        callbacks.call_reject(self, &entry, reject);
+                    }
+                }
+            } else {
+                if let Some(id) = self
+                    .proposed
+                    .iter()
+                    .min_by_key(|(_id, entry)| entry.as_evict_key())
+                    .map(|(id, _)| id)
+                    .cloned()
+                {
+                    let removed = self.proposed.remove_entry_and_descendants(&id);
+                    for entry in removed {
+                        let tx_hash = entry.transaction().hash();
+                        debug!(
+                            "removed by size limit from proposed {} timestamp({})",
+                            tx_hash, entry.timestamp
+                        );
+                        let reject = Reject::Full(format!("fee: {}", entry.fee));
+                        callbacks.call_reject(self, &entry, reject);
+                    }
+                }
+            }
+        }
+    }
+
     // remove transaction with detached proposal from gap and proposed
     // try re-put to pending
     pub(crate) fn remove_by_detached_proposal<'a>(
@@ -419,6 +482,7 @@ impl TxPool {
         &mut self,
         cache_entry: CacheEntry,
         size: usize,
+        timestamp: u64,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.snapshot();
@@ -429,7 +493,8 @@ impl TxPool {
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
-        let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
+        let entry =
+            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry) {
             Ok(CacheEntry::Completed(verified))
@@ -442,7 +507,8 @@ impl TxPool {
         &mut self,
         cache_entry: CacheEntry,
         size: usize,
-        rtx: ResolvedTransaction,
+        timestamp: u64,
+        rtx: ResolvedTransaction
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
@@ -452,7 +518,8 @@ impl TxPool {
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
-        let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
+        let entry =
+            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
             Ok(CacheEntry::Completed(verified))

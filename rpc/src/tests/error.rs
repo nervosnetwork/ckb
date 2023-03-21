@@ -32,9 +32,9 @@ fn test_submit_transaction_error() {
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
-    let reject = Reject::Full("size".to_owned(), 10);
+    let reject = Reject::Full("size".to_owned());
     assert_eq!(
-        "PoolIsFull: Transaction pool exceeded maximum size limit(10), try send it later",
+        "PoolIsFull: Transaction are replaced because the pool is full size",
         RPCError::from_submit_transaction_reject(&reject).message
     );
 
