@@ -55,7 +55,7 @@ impl Spec for SizeLimit {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_SIZE_LIMIT;
+        config.tx_pool.max_tx_pool_size = MAX_MEM_SIZE_FOR_SIZE_LIMIT;
         config.tx_pool.min_fee_rate = FeeRate::zero();
     }
 }
