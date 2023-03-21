@@ -4986,6 +4986,10 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
 (-1109): The transaction is expired from tx-pool after `expiry_hours`.
 
+### Error `PoolRejectedTransactionBySizeLimit`
+
+(-1110): The transaction exceeded maximum size limit.
+
 ### Error `Indexer`
 
 (-1200): The indexer error.
@@ -6329,14 +6333,15 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
 
 *   `LowFeeRate`: Transaction fee lower than config
 *   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
-*   `Full`: Transaction pool exceeded maximum size or cycles limit,
+*   `ExceededTransactionSizeLimit`: Transaction exceeded maximum size limit
+*   `Full`: Transaction are replaced because the pool is full
 *   `Duplicated`: Transaction already exist in transaction_pool
 *   `Malformed`: Malformed transaction
 *   `DeclaredWrongCycles`: Declared wrong cycles
