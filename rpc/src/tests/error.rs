@@ -22,7 +22,7 @@ fn test_submit_transaction_error() {
     let min_fee_rate = FeeRate::from_u64(500);
     let reject = Reject::LowFeeRate(min_fee_rate, 100, 50);
     assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KB, so the transaction fee should be 100 shannons at least, but only got 50",
+            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KW, so the transaction fee should be 100 shannons at least, but only got 50",
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
@@ -32,9 +32,12 @@ fn test_submit_transaction_error() {
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
-    let reject = Reject::Full("size".to_owned());
+    let reject = Reject::Full(format!(
+        "the fee_rate for this transaction is: {}",
+        FeeRate::from_u64(500)
+    ));
     assert_eq!(
-        "PoolIsFull: Transaction are replaced because the pool is full size",
+        "PoolIsFull: Transaction are replaced because the pool is full, the fee_rate for this transaction is: 500 shannons/KW",
         RPCError::from_submit_transaction_reject(&reject).message
     );
 

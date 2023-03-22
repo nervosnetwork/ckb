@@ -99,6 +99,12 @@ impl TxEntry {
         EvictKey::from(self)
     }
 
+    /// Returns fee rate
+    pub fn fee_rate(&self) -> FeeRate {
+        let weight = get_transaction_weight(self.size, self.cycles);
+        FeeRate::calculate(self.fee, weight)
+    }
+
     /// Update ancestor state for add an entry
     pub fn add_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_add(1);
@@ -184,9 +190,10 @@ impl Ord for TxEntry {
 }
 
 /// Currently we do not have trace descendants,
-/// so we take the simplest strategy to evict the transactions by first comparing the fee_rate,
-/// and then taking the one with the largest timestamp,
-/// which also means that the fewer descendants may exist.
+/// so first take the simplest strategy,
+/// first compare fee_rate, select the smallest fee_rate,
+/// and then select the latest timestamp, for eviction,
+/// the latest timestamp which also means that the fewer descendants may exist.
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct EvictKey {
     fee_rate: FeeRate,
@@ -195,9 +202,8 @@ pub struct EvictKey {
 
 impl From<&TxEntry> for EvictKey {
     fn from(entry: &TxEntry) -> Self {
-        let weight = get_transaction_weight(entry.size, entry.cycles);
         EvictKey {
-            fee_rate: FeeRate::calculate(entry.fee, weight),
+            fee_rate: entry.fee_rate(),
             timestamp: entry.timestamp,
         }
     }
