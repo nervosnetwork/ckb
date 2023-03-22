@@ -941,7 +941,7 @@ fn _update_tx_pool_for_reorg(
     // Remove expired transaction from pending
     tx_pool.remove_expired(callbacks);
 
-    // Remove transactions from the pool until its size < size_limit.
+    // Remove transactions from the pool until its size <= size_limit.
     tx_pool.limit_size(callbacks);
 }
 

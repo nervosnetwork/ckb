@@ -14,7 +14,7 @@ use std::collections::HashMap;
 #[derive(Error, Debug, Clone)]
 pub enum Reject {
     /// Transaction fee lower than config
-    #[error("The min fee rate is {0} shannons/KB, so the transaction fee should be {1} shannons at least, but only got {2}")]
+    #[error("The min fee rate is {0}, so the transaction fee should be {1} shannons at least, but only got {2}")]
     LowFeeRate(FeeRate, u64, u64),
 
     /// Transaction exceeded maximum ancestors count limit
@@ -26,7 +26,7 @@ pub enum Reject {
     ExceededTransactionSizeLimit(u64, u64),
 
     /// Transaction are replaced because the pool is full
-    #[error("Transaction are replaced because the pool is full {0}")]
+    #[error("Transaction are replaced because the pool is full, {0}")]
     Full(String),
 
     /// Transaction already exist in transaction_pool

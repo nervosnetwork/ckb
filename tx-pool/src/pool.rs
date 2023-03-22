@@ -42,7 +42,10 @@ macro_rules! evict_for_trim_size {
                     "removed by size limit {} timestamp({})",
                     tx_hash, entry.timestamp
                 );
-                let reject = Reject::Full(format!("fee: {}", entry.fee));
+                let reject = Reject::Full(format!(
+                    "the fee_rate for this transaction is: {}",
+                    entry.fee_rate()
+                ));
                 $callbacks.call_reject($self, &entry, reject);
             }
         }
