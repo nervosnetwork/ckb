@@ -26,6 +26,29 @@ use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 
+// limit the size of the pool by sorting out tx based on EvictKey.
+macro_rules! evict_for_trim_size {
+    ($self:ident, $pool:expr, $callbacks:expr) => {
+        if let Some(id) = $pool
+            .iter()
+            .min_by_key(|(_id, entry)| entry.as_evict_key())
+            .map(|(id, _)| id)
+            .cloned()
+        {
+            let removed = $pool.remove_entry_and_descendants(&id);
+            for entry in removed {
+                let tx_hash = entry.transaction().hash();
+                debug!(
+                    "removed by size limit {} timestamp({})",
+                    tx_hash, entry.timestamp
+                );
+                let reject = Reject::Full(format!("fee: {}", entry.fee));
+                $callbacks.call_reject($self, &entry, reject);
+            }
+        }
+    };
+}
+
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
@@ -326,60 +349,11 @@ impl TxPool {
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
         while self.total_tx_size > self.config.max_tx_pool_size {
             if !self.pending.is_empty() {
-                if let Some(id) = self
-                    .pending
-                    .iter()
-                    .min_by_key(|(_id, entry)| entry.as_evict_key())
-                    .map(|(id, _)| id)
-                    .cloned()
-                {
-                    let removed = self.pending.remove_entry_and_descendants(&id);
-                    for entry in removed {
-                        let tx_hash = entry.transaction().hash();
-                        debug!(
-                            "removed by size limit from pending {} timestamp({})",
-                            tx_hash, entry.timestamp
-                        );
-                        let reject = Reject::Full(format!("fee: {}", entry.fee));
-                        callbacks.call_reject(self, &entry, reject);
-                    }
-                }
+                evict_for_trim_size!(self, self.pending, callbacks)
             } else if !self.gap.is_empty() {
-                if let Some(id) = self
-                    .gap
-                    .iter()
-                    .min_by_key(|(_id, entry)| entry.as_evict_key())
-                    .map(|(id, _)| id)
-                    .cloned()
-                {
-                    let removed = self.gap.remove_entry_and_descendants(&id);
-                    for entry in removed {
-                        let tx_hash = entry.transaction().hash();
-                        debug!(
-                            "removed by size limit from gap {} timestamp({})",
-                            tx_hash, entry.timestamp
-                        );
-                        let reject = Reject::Full(format!("fee: {}", entry.fee));
-                        callbacks.call_reject(self, &entry, reject);
-                    }
-                }
-            } else if let Some(id) = self
-                .proposed
-                .iter()
-                .min_by_key(|(_id, entry)| entry.as_evict_key())
-                .map(|(id, _)| id)
-                .cloned()
-            {
-                let removed = self.proposed.remove_entry_and_descendants(&id);
-                for entry in removed {
-                    let tx_hash = entry.transaction().hash();
-                    debug!(
-                        "removed by size limit from proposed {} timestamp({})",
-                        tx_hash, entry.timestamp
-                    );
-                    let reject = Reject::Full(format!("fee: {}", entry.fee));
-                    callbacks.call_reject(self, &entry, reject);
-                }
+                evict_for_trim_size!(self, self.gap, callbacks)
+            } else {
+                evict_for_trim_size!(self, self.proposed, callbacks)
             }
         }
     }
