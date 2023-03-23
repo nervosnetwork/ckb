@@ -23,6 +23,10 @@ GRCOV_EXCL_LINE = \s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_
 doc-test: ## Run doc tests
 	cargo test --all --doc
 
+.PHONY: cli-test
+cli-test: build # Run ckb command line usage bats test
+	./util/app-config/src/tests/cli_test.sh
+
 .PHONY: test
 test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
