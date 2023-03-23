@@ -10,7 +10,6 @@ use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -25,6 +24,32 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+
+// limit the size of the pool by sorting out tx based on EvictKey.
+macro_rules! evict_for_trim_size {
+    ($self:ident, $pool:expr, $callbacks:expr) => {
+        if let Some(id) = $pool
+            .iter()
+            .min_by_key(|(_id, entry)| entry.as_evict_key())
+            .map(|(id, _)| id)
+            .cloned()
+        {
+            let removed = $pool.remove_entry_and_descendants(&id);
+            for entry in removed {
+                let tx_hash = entry.transaction().hash();
+                debug!(
+                    "removed by size limit {} timestamp({})",
+                    tx_hash, entry.timestamp
+                );
+                let reject = Reject::Full(format!(
+                    "the fee_rate for this transaction is: {}",
+                    entry.fee_rate()
+                ));
+                $callbacks.call_reject($self, &entry, reject);
+            }
+        }
+    };
+}
 
 /// Tx-pool implementation
 pub struct TxPool {
@@ -47,38 +72,6 @@ pub struct TxPool {
     pub recent_reject: Option<RecentReject>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
-}
-
-/// Transaction pool information.
-#[derive(Clone, Debug)]
-pub struct TxPoolInfo {
-    /// The associated chain tip block hash.
-    ///
-    /// Transaction pool is stateful. It manages the transactions which are valid to be commit
-    /// after this block.
-    pub tip_hash: Byte32,
-    /// The block number of the block `tip_hash`.
-    pub tip_number: BlockNumber,
-    /// Count of transactions in the pending state.
-    ///
-    /// The pending transactions must be proposed in a new block first.
-    pub pending_size: usize,
-    /// Count of transactions in the proposed state.
-    ///
-    /// The proposed transactions are ready to be commit in the new block after the block
-    /// `tip_hash`.
-    pub proposed_size: usize,
-    /// Count of orphan transactions.
-    ///
-    /// An orphan transaction has an input cell from the transaction which is neither in the chain
-    /// nor in the transaction pool.
-    pub orphan_size: usize,
-    /// Total count of transactions in the pool of all the different kinds of states.
-    pub total_tx_size: usize,
-    /// Total consumed VM cycles of all the transactions in the pool.
-    pub total_tx_cycles: Cycle,
-    /// Last updated time. This is the Unix timestamp in milliseconds.
-    pub last_txs_updated_at: u64,
 }
 
 impl TxPool {
@@ -112,12 +105,7 @@ impl TxPool {
 
     /// Whether Tx-pool reach size limit
     pub fn reach_size_limit(&self, tx_size: usize) -> bool {
-        (self.total_tx_size + tx_size) > self.config.max_mem_size
-    }
-
-    /// Whether Tx-pool reach cycles limit
-    pub fn reach_cycles_limit(&self, cycles: Cycle) -> bool {
-        (self.total_tx_cycles + cycles) > self.config.max_cycles
+        (self.total_tx_size + tx_size) > self.config.max_tx_pool_size
     }
 
     /// Update size and cycles statics for add tx
@@ -296,20 +284,47 @@ impl TxPool {
         }
     }
 
+    //  Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
-        let removed = self
-            .pending
-            .remove_entries_by_filter(|_id, tx_entry| now_ms > self.expiry + tx_entry.timestamp);
+        let expired =
+            |_id: &ProposalShortId, tx_entry: &TxEntry| self.expiry + tx_entry.timestamp < now_ms;
+        let mut removed = self.pending.remove_entries_by_filter(expired);
+        removed.extend(self.gap.remove_entries_by_filter(expired));
+        let removed_proposed_ids: Vec<_> = self
+            .proposed
+            .iter()
+            .filter_map(|(id, tx_entry)| {
+                if self.expiry + tx_entry.timestamp < now_ms {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .cloned()
+            .collect();
+        for id in removed_proposed_ids {
+            removed.extend(self.proposed.remove_entry_and_descendants(&id))
+        }
 
         for entry in removed {
             let tx_hash = entry.transaction().hash();
-            debug!(
-                "remove_expired from pending {} timestamp({})",
-                tx_hash, entry.timestamp
-            );
+            debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
+        }
+    }
+
+    // Remove transactions from the pool until total size < size_limit.
+    pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
+        while self.total_tx_size > self.config.max_tx_pool_size {
+            if !self.pending.is_empty() {
+                evict_for_trim_size!(self, self.pending, callbacks)
+            } else if !self.gap.is_empty() {
+                evict_for_trim_size!(self, self.gap, callbacks)
+            } else {
+                evict_for_trim_size!(self, self.proposed, callbacks)
+            }
         }
     }
 
@@ -419,6 +434,7 @@ impl TxPool {
         &mut self,
         cache_entry: CacheEntry,
         size: usize,
+        timestamp: u64,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.snapshot();
@@ -429,7 +445,8 @@ impl TxPool {
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
-        let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
+        let entry =
+            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
         let tx_hash = entry.transaction().hash();
         if self.add_gap(entry) {
             Ok(CacheEntry::Completed(verified))
@@ -442,6 +459,7 @@ impl TxPool {
         &mut self,
         cache_entry: CacheEntry,
         size: usize,
+        timestamp: u64,
         rtx: ResolvedTransaction,
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.snapshot();
@@ -452,7 +470,8 @@ impl TxPool {
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
 
-        let entry = TxEntry::new(rtx, verified.cycles, verified.fee, size);
+        let entry =
+            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
         let tx_hash = entry.transaction().hash();
         if self.add_proposed(entry)? {
             Ok(CacheEntry::Completed(verified))

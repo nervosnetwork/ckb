@@ -17,8 +17,8 @@ use ckb_sync::SyncShared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, FeeRate, Ratio,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, Ratio, TransactionBuilder,
+        TransactionView,
     },
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
@@ -244,7 +244,7 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), vec![], vec![])
+        .enable_pool(shared.clone(), vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),

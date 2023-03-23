@@ -42,6 +42,10 @@ impl PendingQueue {
         self.inner.len()
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.len() == 0
+    }
+
     #[cfg(test)]
     pub(crate) fn outputs_len(&self) -> usize {
         self.outputs.len()

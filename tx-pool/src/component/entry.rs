@@ -4,7 +4,7 @@ use ckb_types::{
     core::{
         cell::ResolvedTransaction,
         tx_pool::{get_transaction_weight, TxEntryInfo},
-        Capacity, Cycle, TransactionView,
+        Capacity, Cycle, FeeRate, TransactionView,
     },
     packed::{OutPoint, ProposalShortId},
 };
@@ -37,16 +37,27 @@ pub struct TxEntry {
 impl TxEntry {
     /// Create new transaction pool entry
     pub fn new(rtx: ResolvedTransaction, cycles: Cycle, fee: Capacity, size: usize) -> Self {
+        Self::new_with_timestamp(rtx, cycles, fee, size, unix_time_as_millis())
+    }
+
+    /// Create new transaction pool entry with specified timestamp
+    pub fn new_with_timestamp(
+        rtx: ResolvedTransaction,
+        cycles: Cycle,
+        fee: Capacity,
+        size: usize,
+        timestamp: u64,
+    ) -> Self {
         TxEntry {
             rtx,
             cycles,
             size,
             fee,
+            timestamp,
             ancestors_size: size,
             ancestors_fee: fee,
             ancestors_cycles: cycles,
             ancestors_count: 1,
-            timestamp: unix_time_as_millis(),
         }
     }
 
@@ -80,6 +91,17 @@ impl TxEntry {
     /// Returns a sorted_key
     pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
         AncestorsScoreSortKey::from(self)
+    }
+
+    /// Returns a evict_key
+    pub fn as_evict_key(&self) -> EvictKey {
+        EvictKey::from(self)
+    }
+
+    /// Returns fee rate
+    pub fn fee_rate(&self) -> FeeRate {
+        let weight = get_transaction_weight(self.size, self.cycles);
+        FeeRate::calculate(self.fee, weight)
     }
 
     /// Update ancestor state for add an entry
@@ -163,5 +185,41 @@ impl PartialOrd for TxEntry {
 impl Ord for TxEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_sorted_key().cmp(&other.as_sorted_key())
+    }
+}
+
+/// Currently we do not have trace descendants,
+/// so first take the simplest strategy,
+/// first compare fee_rate, select the smallest fee_rate,
+/// and then select the latest timestamp, for eviction,
+/// the latest timestamp which also means that the fewer descendants may exist.
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct EvictKey {
+    fee_rate: FeeRate,
+    timestamp: u64,
+}
+
+impl From<&TxEntry> for EvictKey {
+    fn from(entry: &TxEntry) -> Self {
+        EvictKey {
+            fee_rate: entry.fee_rate(),
+            timestamp: entry.timestamp,
+        }
+    }
+}
+
+impl PartialOrd for EvictKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for EvictKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.fee_rate == other.fee_rate {
+            self.timestamp.cmp(&other.timestamp).reverse()
+        } else {
+            self.fee_rate.cmp(&other.fee_rate)
+        }
     }
 }
