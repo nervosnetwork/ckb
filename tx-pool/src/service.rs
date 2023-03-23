@@ -5,7 +5,7 @@ use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
-use crate::pool::{TxPool, TxPoolInfo};
+use crate::pool::TxPool;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -20,7 +20,7 @@ use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
 use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
-        tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
         BlockView, Cycle, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
@@ -1035,7 +1035,10 @@ impl TxPoolService {
             orphan_size: orphan.len(),
             total_tx_size: tx_pool.total_tx_size,
             total_tx_cycles: tx_pool.total_tx_cycles,
+            min_fee_rate: self.tx_pool_config.min_fee_rate,
             last_txs_updated_at: 0,
+            tx_size_limit: TRANSACTION_SIZE_LIMIT,
+            max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
         }
     }
 

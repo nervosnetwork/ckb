@@ -110,6 +110,8 @@ pub enum RPCError {
     PoolRejectedMalformedTransaction = -1108,
     /// (-1109): The transaction is expired from tx-pool after `expiry_hours`.
     TransactionExpired = -1109,
+    /// (-1110): The transaction exceeded maximum size limit.
+    PoolRejectedTransactionBySizeLimit = -1110,
     /// (-1200): The indexer error.
     Indexer = -1200,
 }
@@ -165,12 +167,15 @@ impl RPCError {
             Reject::ExceededMaximumAncestorsCount => {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
-            Reject::Full(_, _) => RPCError::PoolIsFull,
+            Reject::Full(_) => RPCError::PoolIsFull,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
             Reject::Malformed(_) => RPCError::PoolRejectedMalformedTransaction,
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,
             Reject::Resolve(_) => RPCError::TransactionFailedToResolve,
             Reject::Verification(_) => RPCError::TransactionFailedToVerify,
+            Reject::ExceededTransactionSizeLimit(_, _) => {
+                RPCError::PoolRejectedTransactionBySizeLimit
+            }
             Reject::Expiry(_) => RPCError::TransactionExpired,
         };
         RPCError::custom_with_error(code, reject)

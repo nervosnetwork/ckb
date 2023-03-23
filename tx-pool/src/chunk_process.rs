@@ -241,10 +241,8 @@ impl ChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) = self
-                        .service
-                        .submit_entry(completed, tip_hash, entry, status)
-                        .await;
+                    let (ret, submit_snapshot) =
+                        self.service.submit_entry(tip_hash, entry, status).await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
                     self.service
                         .after_process(tx, remote, &submit_snapshot, &Ok(completed))
@@ -306,10 +304,7 @@ impl ChunkProcess {
         }
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self
-            .service
-            .submit_entry(completed, tip_hash, entry, status)
-            .await;
+        let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, snapshot);
 
         self.service.notify_block_assembler(status).await;
