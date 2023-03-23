@@ -4435,14 +4435,16 @@ Response
   "jsonrpc": "2.0",
   "result": {
     "last_txs_updated_at": "0x0",
-    "min_fee_rate": "0x0",
+    "min_fee_rate": "0x3e8",
+    "max_tx_pool_size": "0xaba9500",
     "orphan": "0x0",
     "pending": "0x1",
     "proposed": "0x0",
     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "tip_number": "0x400",
     "total_tx_cycles": "0x219",
-    "total_tx_size": "0x112"
+    "total_tx_size": "0x112",
+    "tx_size_limit": "0x7d000"
   }
 }
 ```
@@ -6915,6 +6917,12 @@ Transaction pool information.
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
 *   `last_txs_updated_at`: [`Timestamp`](#type-timestamp) - Last updated time. This is the Unix timestamp in milliseconds.
+
+*   `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
+
+    Transactions with a large size close to the block size limit may not be packaged, because the block header and cellbase are occupied, so the tx-pool is limited to accepting transaction up to tx_size_limit.
+
+*   `max_tx_pool_size`: [`Uint64`](#type-uint64) - Total limit on the size of transactions in the tx-pool
 
 
 ### Type `TxStatus`

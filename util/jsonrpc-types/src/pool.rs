@@ -1,6 +1,8 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
-use ckb_types::core::tx_pool::{Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds};
+use ckb_types::core::tx_pool::{
+    Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
+};
 use ckb_types::prelude::Unpack;
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
@@ -40,6 +42,32 @@ pub struct TxPoolInfo {
     pub min_fee_rate: Uint64,
     /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: Timestamp,
+    /// Limiting transactions to tx_size_limit
+    ///
+    /// Transactions with a large size close to the block size limit may not be packaged,
+    /// because the block header and cellbase are occupied,
+    /// so the tx-pool is limited to accepting transaction up to tx_size_limit.
+    pub tx_size_limit: Uint64,
+    /// Total limit on the size of transactions in the tx-pool
+    pub max_tx_pool_size: Uint64,
+}
+
+impl From<CoreTxPoolInfo> for TxPoolInfo {
+    fn from(tx_pool_info: CoreTxPoolInfo) -> Self {
+        TxPoolInfo {
+            tip_hash: tx_pool_info.tip_hash.unpack(),
+            tip_number: tx_pool_info.tip_number.into(),
+            pending: (tx_pool_info.pending_size as u64).into(),
+            proposed: (tx_pool_info.proposed_size as u64).into(),
+            orphan: (tx_pool_info.orphan_size as u64).into(),
+            total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
+            total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
+            min_fee_rate: tx_pool_info.min_fee_rate.as_u64().into(),
+            last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
+            tx_size_limit: tx_pool_info.tx_size_limit.into(),
+            max_tx_pool_size: tx_pool_info.max_tx_pool_size.into(),
+        }
+    }
 }
 
 /// The transaction entry in the pool.

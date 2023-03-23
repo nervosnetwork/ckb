@@ -1,7 +1,7 @@
 //! Tx-pool shared type define.
 use crate::core::{
     error::{OutPointError, TransactionError},
-    Capacity, Cycle, FeeRate,
+    BlockNumber, Capacity, Cycle, FeeRate,
 };
 use crate::packed::Byte32;
 use crate::{core, H256};
@@ -262,3 +262,47 @@ pub fn get_transaction_weight(tx_size: usize, cycles: u64) -> u64 {
 /// but if the size of the transaction is close to the limit of the block,
 /// it may cause the transaction to fail to be packed
 pub const TRANSACTION_SIZE_LIMIT: u64 = 512 * 1_000;
+
+/// Transaction pool information.
+#[derive(Clone, Debug)]
+pub struct TxPoolInfo {
+    /// The associated chain tip block hash.
+    ///
+    /// Transaction pool is stateful. It manages the transactions which are valid to be commit
+    /// after this block.
+    pub tip_hash: Byte32,
+    /// The block number of the block `tip_hash`.
+    pub tip_number: BlockNumber,
+    /// Count of transactions in the pending state.
+    ///
+    /// The pending transactions must be proposed in a new block first.
+    pub pending_size: usize,
+    /// Count of transactions in the proposed state.
+    ///
+    /// The proposed transactions are ready to be commit in the new block after the block
+    /// `tip_hash`.
+    pub proposed_size: usize,
+    /// Count of orphan transactions.
+    ///
+    /// An orphan transaction has an input cell from the transaction which is neither in the chain
+    /// nor in the transaction pool.
+    pub orphan_size: usize,
+    /// Total count of transactions in the pool of all the different kinds of states.
+    pub total_tx_size: usize,
+    /// Total consumed VM cycles of all the transactions in the pool.
+    pub total_tx_cycles: Cycle,
+    /// Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+    ///
+    /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
+    pub min_fee_rate: FeeRate,
+    /// Last updated time. This is the Unix timestamp in milliseconds.
+    pub last_txs_updated_at: u64,
+    /// Limiting transactions to tx_size_limit
+    ///
+    /// Transactions with a large size close to the block size limit may not be packaged,
+    /// because the block header and cellbase are occupied,
+    /// so the tx-pool is limited to accepting transaction up to tx_size_limit.
+    pub tx_size_limit: u64,
+    /// Total limit on the size of transactions in the tx-pool
+    pub max_tx_pool_size: u64,
+}
