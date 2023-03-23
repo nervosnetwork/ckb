@@ -15,7 +15,7 @@ use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier 
 use ckb_pow::Pow;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
-use ckb_types::{core::FeeRate, packed::Script};
+use ckb_types::packed::Script;
 use ckb_util::Mutex;
 use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
@@ -52,13 +52,11 @@ impl<'a> ServiceBuilder<'a> {
     pub fn enable_pool(
         mut self,
         shared: Shared,
-        min_fee_rate: FeeRate,
         extra_well_known_lock_scripts: Vec<Script>,
         extra_well_known_type_scripts: Vec<Script>,
     ) -> Self {
         let rpc_methods = PoolRpcImpl::new(
             shared,
-            min_fee_rate,
             extra_well_known_lock_scripts,
             extra_well_known_type_scripts,
         )

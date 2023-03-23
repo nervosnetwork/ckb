@@ -377,7 +377,6 @@ impl Launcher {
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
-                self.args.config.tx_pool.min_fee_rate,
                 rpc_config
                     .extra_well_known_lock_scripts
                     .iter()
