@@ -1,6 +1,6 @@
 [package]
 name = "ckb-indexer"
-version = "0.108.1-rc1"
+version = "0.108.1-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -13,15 +13,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 thiserror = "1.0"
 rocksdb = { package = "ckb-rocksdb", version ="=0.19.0", features = ["snappy"], default-features = false }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.108.1-rc1" }
-ckb-types = { path = "../types", version = "= 0.108.1-rc1" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.108.1-rc1" }
-ckb-logger = { path = "../logger", version = "= 0.108.1-rc1" }
-ckb-app-config = { path = "../app-config", version = "= 0.108.1-rc1" }
-ckb-notify = { path = "../../notify", version = "= 0.108.1-rc1" }
-ckb-store = { path = "../../store", version = "= 0.108.1-rc1" }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.108.1-rc1" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.108.1-rc1" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.108.1-rc2" }
+ckb-types = { path = "../types", version = "= 0.108.1-rc2" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.108.1-rc2" }
+ckb-logger = { path = "../logger", version = "= 0.108.1-rc2" }
+ckb-app-config = { path = "../app-config", version = "= 0.108.1-rc2" }
+ckb-notify = { path = "../../notify", version = "= 0.108.1-rc2" }
+ckb-store = { path = "../../store", version = "= 0.108.1-rc2" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.108.1-rc2" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.108.1-rc2" }
 rhai = { version = "1.10.0", features = ["no_function", "no_float", "no_module", "sync"]}
 serde_json = "1.0"
 numext-fixed-uint = "0.1"

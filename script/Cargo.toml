@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script"
-version = "0.108.1-rc1"
+version = "0.108.1-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -17,24 +17,24 @@ detect-asm = ["ckb-vm/detect-asm"]
 logging = ["ckb-logger"]
 
 [dependencies]
-ckb-traits = { path = "../traits", version = "= 0.108.1-rc1" }
+ckb-traits = { path = "../traits", version = "= 0.108.1-rc2" }
 byteorder = "1.3.1"
-ckb-types = { path = "../util/types", version = "= 0.108.1-rc1" }
-ckb-hash = { path = "../util/hash", version = "= 0.108.1-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.108.1-rc2" }
+ckb-hash = { path = "../util/hash", version = "= 0.108.1-rc2" }
 ckb-vm = { version = "=0.22.2", default-features = false }
 faster-hex = "0.6"
-ckb-logger = { path = "../util/logger", version = "= 0.108.1-rc1", optional = true }
+ckb-logger = { path = "../util/logger", version = "= 0.108.1-rc2", optional = true }
 serde = { version = "1.0", features = ["derive"] }
-ckb-error = { path = "../error", version = "= 0.108.1-rc1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.108.1-rc1" }
+ckb-error = { path = "../error", version = "= 0.108.1-rc2" }
+ckb-chain-spec = { path = "../spec", version = "= 0.108.1-rc2" }
 
 [dev-dependencies]
 proptest = "1.0"
-ckb-db = { path = "../db", version = "= 0.108.1-rc1" }
-ckb-store = { path = "../store", version = "= 0.108.1-rc1" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.108.1-rc1" }
+ckb-db = { path = "../db", version = "= 0.108.1-rc2" }
+ckb-store = { path = "../store", version = "= 0.108.1-rc2" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.108.1-rc2" }
 tiny-keccak = { version = "2.0", features = ["sha3"] }
-ckb-crypto = { path = "../util/crypto", version = "= 0.108.1-rc1" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.108.1-rc1" }
+ckb-crypto = { path = "../util/crypto", version = "= 0.108.1-rc2" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.108.1-rc2" }
 tempfile = "3.0"
 rand = "0.8.4"
