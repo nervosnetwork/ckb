@@ -12,7 +12,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.3.0
+  CKB_CLI_VERSION: v1.4.0
 
 jobs:
   create-release:
@@ -214,6 +214,65 @@ jobs:
     env:
       REL_PKG: ${{ matrix.rel_pkg }}
 
+  package-for-mac-aarch64:
+    name: package-for-mac-aarch64
+    runs-on: [self-hosted, macOS, ARM64]
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "aarch64-apple-darwin.zip"
+            build_target: "prod"
+          - rel_pkg: "aarch64-apple-darwin-portable.zip"
+            build_target: "prod_portable"
+    steps:
+    - name: Setup PATH
+      run: |
+        echo /opt/homebrew/bin >> $GITHUB_PATH
+        echo /opt/homebrew/sbin >> $GITHUB_PATH
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install Depedencies
+      run: |
+        if ! [ -d /opt/homebrew/opt/openssl@1.1 ]; then
+          brew install "openssl@1.1"
+        fi
+        if ! type -f gpg &> /dev/null; then
+          brew install gnupg
+        fi
+        if ! [ -f "$HOME/.cargo/bin/rustup" ]; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        fi
+
+    - uses: actions/checkout@v3
+    - name: Set Env
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+    - name: Build CKB and Package CKB
+      env:
+        LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+        GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@1.1/include ${{ matrix.build_target }}
+        gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+        gpg --import devtools/ci/signer.asc
+        devtools/ci/package.sh target/prod/ckb
+        mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+        mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+    - name: upload-zip-file
+      uses: actions/upload-artifact@v2
+      with:
+        name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+        path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+    - name: upload-asc-file
+      uses: actions/upload-artifact@v2
+      with:
+        name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
+        path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
+    env:
+      REL_PKG: ${{ matrix.rel_pkg }}
+
   package-for-windows:
     name: package-for-windows
     runs-on: windows-2019
@@ -287,12 +346,15 @@ jobs:
           - REL_PKG: x86_64-unknown-centos-gnu-portable.tar.gz
           - REL_PKG: x86_64-apple-darwin.zip
           - REL_PKG: x86_64-apple-darwin-portable.zip
+          - REL_PKG: aarch64-apple-darwin.zip
+          - REL_PKG: aarch64-apple-darwin-portable.zip
           - REL_PKG: x86_64-pc-windows-msvc.zip
     needs:
       - create-release
       - package-for-linux
       - package-for-linux-aarch64
       - package-for-mac
+      - package-for-mac-aarch64
       - package-for-windows
       - package-for-centos
     steps:
