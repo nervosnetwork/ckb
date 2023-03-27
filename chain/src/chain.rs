@@ -826,6 +826,12 @@ impl ChainService {
                                 .collect::<Result<Vec<Completed>, Error>>()
                             {
                                 Ok(cache_entries) => {
+                                    let txs_sizes = resolved
+                                        .iter()
+                                        .map(|rtx| {
+                                            rtx.transaction.data().serialized_size_in_block() as u64
+                                        })
+                                        .collect();
                                     txn.attach_block(b)?;
                                     attach_block_cell(&txn, b)?;
                                     mmr.push(b.digest())
@@ -836,7 +842,7 @@ impl ChainService {
                                         &b.header().hash(),
                                         ext.clone(),
                                         Some(&cache_entries),
-                                        None,
+                                        Some(txs_sizes),
                                     )?;
                                 }
                                 Err(err) => {
