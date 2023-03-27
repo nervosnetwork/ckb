@@ -13,6 +13,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -733,7 +734,7 @@ impl ChainService {
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
         }
 
-        let verify_context = VerifyContext::new(Arc::clone(&txn), consensus);
+        let verify_context = VerifyContext::new(Arc::clone(&txn), Arc::clone(&consensus));
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -802,11 +803,56 @@ impl ChainService {
                     self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
                 }
             } else {
-                txn.attach_block(b)?;
-                attach_block_cell(&txn, b)?;
-                mmr.push(b.digest())
-                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
+                // when switch is Switch::DISABLE_ALL, we need to calculate tx fees
+                // and insert tx fees to BlockExt
+
+                if found_error.is_none() {
+                    let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
+                    match resolved {
+                        Ok(resolved) => {
+                            match resolved
+                                .iter()
+                                .skip(1)
+                                .map(|rtx| {
+                                    ckb_verification::FeeCalculator::new(
+                                        Arc::clone(rtx),
+                                        &consensus,
+                                        txn.as_data_loader(),
+                                    )
+                                    .transaction_fee()
+                                    .map(|fee| Completed { cycles: 0, fee })
+                                    .map_err(Error::from)
+                                })
+                                .collect::<Result<Vec<Completed>, Error>>()
+                            {
+                                Ok(cache_entries) => {
+                                    txn.attach_block(b)?;
+                                    attach_block_cell(&txn, b)?;
+                                    mmr.push(b.digest())
+                                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+
+                                    self.insert_ok_ext(
+                                        &txn,
+                                        &b.header().hash(),
+                                        ext.clone(),
+                                        Some(&cache_entries),
+                                        None,
+                                    )?;
+                                }
+                                Err(err) => {
+                                    found_error = Some(err);
+                                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            found_error = Some(err);
+                            self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                        }
+                    }
+                } else {
+                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                }
             }
         }
 
