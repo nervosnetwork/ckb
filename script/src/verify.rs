@@ -132,17 +132,17 @@ pub struct TransactionScriptsSyscallsGenerator<DL> {
 impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     TransactionScriptsSyscallsGenerator<DL>
 {
-    /// construct current cycles syscall
+    /// Build syscall: current_cycles
     pub fn build_current_cycles(&self) -> CurrentCycles {
         CurrentCycles::new()
     }
 
-    /// construct vm version syscall
+    /// Build syscall: vm_version
     pub fn build_vm_version(&self) -> VMVersion {
         VMVersion::new()
     }
 
-    /// construct exec syscall
+    /// Build syscall: exec
     pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
         Exec::new(
             self.data_loader.clone(),
@@ -153,12 +153,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
-    /// construct load_tx syscall
+    /// Build syscall: load_tx
     pub fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(Arc::clone(&self.rtx))
     }
 
-    /// construct load_cell syscall
+    /// Build syscall: load_cell
     pub fn build_load_cell(&self, group_inputs: Indices, group_outputs: Indices) -> LoadCell<DL> {
         LoadCell::new(
             self.data_loader.clone(),
@@ -169,7 +169,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
-    /// construct load_cell_data syscall
+    /// Build syscall: load_cell_data
     pub fn build_load_cell_data(
         &self,
         group_inputs: Indices,
@@ -184,17 +184,17 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
-    /// construct load_input syscall
+    ///Build syscall: load_input
     pub fn build_load_input(&self, group_inputs: Indices) -> LoadInput {
         LoadInput::new(Arc::clone(&self.rtx), group_inputs)
     }
 
-    /// construct load_script_hash syscall
+    /// Build syscall: load_script_hash
     pub fn build_load_script_hash(&self, hash: Byte32) -> LoadScriptHash {
         LoadScriptHash::new(hash)
     }
 
-    /// construct load_header syscall
+    /// Build syscall: load_header
     pub fn build_load_header(&self, group_inputs: Indices) -> LoadHeader<DL> {
         LoadHeader::new(
             self.data_loader.clone(),
@@ -203,22 +203,22 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
-    /// construct load_witness syscall
+    /// Build syscall: load_witness
     pub fn build_load_witness(&self, group_inputs: Indices, group_outputs: Indices) -> LoadWitness {
         LoadWitness::new(Arc::clone(&self.rtx), group_inputs, group_outputs)
     }
 
-    /// construct load_script syscall
+    /// Build syscall: load_script
     pub fn build_load_script(&self, script: Script) -> LoadScript {
         LoadScript::new(script)
     }
 
-    /// construct get_memory_limit syscall
+    /// Build syscall: get_memory_limit
     pub fn build_get_memory_limit(&self, memory_limit: u64) -> GetMemoryLimit {
         GetMemoryLimit::new(memory_limit)
     }
 
-    /// construct set_content syscall
+    /// Build syscall: set_content
     pub fn build_set_content(
         &self,
         content: Arc<Mutex<Vec<u8>>>,
@@ -227,7 +227,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         SetContent::new(content, content_length)
     }
 
-    /// Generate non-root syscalls (without spawn, set_content, get_memory_limit)
+    /// Generate same syscalls. The result does not contain spawn syscalls.
     pub fn generate_same_syscalls(
         &self,
         script_version: ScriptVersion,
@@ -274,7 +274,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         syscalls
     }
 
-    /// Generate all syscalls (including spawn, set_content, get_memory_limit )
+    /// Generate root syscalls.
     pub fn generate_root_syscalls(
         &self,
         script_version: ScriptVersion,
