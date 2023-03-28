@@ -132,14 +132,17 @@ pub struct TransactionScriptsSyscallsGenerator<DL> {
 impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     TransactionScriptsSyscallsGenerator<DL>
 {
+    /// Build syscall: current_cycles
     pub fn build_current_cycles(&self) -> CurrentCycles {
         CurrentCycles::new()
     }
 
+    /// Build syscall: vm_version
     pub fn build_vm_version(&self) -> VMVersion {
         VMVersion::new()
     }
 
+    /// Build syscall: exec
     pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
         Exec::new(
             self.data_loader.clone(),
@@ -150,10 +153,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
+    /// Build syscall: load_tx
     pub fn build_load_tx(&self) -> LoadTx {
         LoadTx::new(Arc::clone(&self.rtx))
     }
 
+    /// Build syscall: load_cell
     pub fn build_load_cell(&self, group_inputs: Indices, group_outputs: Indices) -> LoadCell<DL> {
         LoadCell::new(
             self.data_loader.clone(),
@@ -164,6 +169,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
+    /// Build syscall: load_cell_data
     pub fn build_load_cell_data(
         &self,
         group_inputs: Indices,
@@ -178,14 +184,17 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
+    ///Build syscall: load_input
     pub fn build_load_input(&self, group_inputs: Indices) -> LoadInput {
         LoadInput::new(Arc::clone(&self.rtx), group_inputs)
     }
 
+    /// Build syscall: load_script_hash
     pub fn build_load_script_hash(&self, hash: Byte32) -> LoadScriptHash {
         LoadScriptHash::new(hash)
     }
 
+    /// Build syscall: load_header
     pub fn build_load_header(&self, group_inputs: Indices) -> LoadHeader<DL> {
         LoadHeader::new(
             self.data_loader.clone(),
@@ -194,18 +203,22 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         )
     }
 
+    /// Build syscall: load_witness
     pub fn build_load_witness(&self, group_inputs: Indices, group_outputs: Indices) -> LoadWitness {
         LoadWitness::new(Arc::clone(&self.rtx), group_inputs, group_outputs)
     }
 
+    /// Build syscall: load_script
     pub fn build_load_script(&self, script: Script) -> LoadScript {
         LoadScript::new(script)
     }
 
+    /// Build syscall: get_memory_limit
     pub fn build_get_memory_limit(&self, memory_limit: u64) -> GetMemoryLimit {
         GetMemoryLimit::new(memory_limit)
     }
 
+    /// Build syscall: set_content
     pub fn build_set_content(
         &self,
         content: Arc<Mutex<Vec<u8>>>,
@@ -214,6 +227,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         SetContent::new(content, content_length)
     }
 
+    /// Generate same syscalls. The result does not contain spawn syscalls.
     pub fn generate_same_syscalls(
         &self,
         script_version: ScriptVersion,
@@ -260,6 +274,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         syscalls
     }
 
+    /// Generate root syscalls.
     pub fn generate_root_syscalls(
         &self,
         script_version: ScriptVersion,
@@ -910,11 +925,13 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let generator = TransactionScriptsSyscallsGenerator {
             data_loader: self.data_loader.clone(),
-            debug_printer: self.debug_printer.clone(),
-            outputs: self.outputs.clone(),
-            rtx: self.rtx.clone(),
+            debug_printer: Arc::<dyn for<'a, 'b> Fn(&'a Byte32, &'b str) + Send + Sync>::clone(
+                &self.debug_printer,
+            ),
+            outputs: Arc::<Vec<CellMeta>>::clone(&self.outputs),
+            rtx: Arc::<ResolvedTransaction>::clone(&self.rtx),
             #[cfg(test)]
-            skip_pause: self.skip_pause.clone(),
+            skip_pause: Arc::<AtomicBool>::clone(&self.skip_pause),
         };
         generator.generate_root_syscalls(script_version, script_group)
     }

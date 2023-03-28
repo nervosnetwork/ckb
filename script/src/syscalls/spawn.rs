@@ -32,6 +32,7 @@ pub struct Spawn<DL> {
 }
 
 impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spawn<DL> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         data_loader: DL,
         group_inputs: Indices,
@@ -169,10 +170,11 @@ where
             let machine_builder = machine_builder.syscall(Box::new(
                 self.syscalls_generator.build_get_memory_limit(memory_limit),
             ));
-            let machine_builder = machine_builder.syscall(Box::new(
-                self.syscalls_generator
-                    .build_set_content(machine_content.clone(), content_length.to_u64()),
-            ));
+            let machine_builder =
+                machine_builder.syscall(Box::new(self.syscalls_generator.build_set_content(
+                    Arc::<Mutex<Vec<u8>>>::clone(&machine_content),
+                    content_length.to_u64(),
+                )));
             let machine_builder = machine_builder.syscall(Box::new(Spawn::new(
                 self.data_loader.clone(),
                 Arc::clone(&self.group_inputs),

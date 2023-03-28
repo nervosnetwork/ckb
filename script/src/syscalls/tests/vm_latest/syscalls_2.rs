@@ -83,7 +83,8 @@ fn test_set_content() {
     machine.set_register(A7, SET_CONTENT);
 
     let content_data = Arc::new(Mutex::new(vec![]));
-    let result = SetContent::new(content_data.clone(), 5).ecall(&mut machine);
+    let result =
+        SetContent::new(Arc::<Mutex<Vec<u8>>>::clone(&content_data), 5).ecall(&mut machine);
 
     assert!(result.unwrap());
     assert_eq!(machine.memory_mut().load64(&20000).unwrap(), 5);
