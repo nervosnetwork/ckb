@@ -998,7 +998,7 @@ dependencies = [
 name = "ckb-network"
 version = "0.109.0-pre"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.0.2",
  "bloom-filters",
  "bs58",
  "ckb-app-config",
@@ -1320,7 +1320,7 @@ dependencies = [
 name = "ckb-sync"
 version = "0.109.0-pre"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.0.2",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-chain",
@@ -1519,7 +1519,7 @@ dependencies = [
 name = "ckb-verification-traits"
 version = "0.109.0-pre"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.0.2",
  "ckb-error",
 ]
 
