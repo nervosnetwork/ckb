@@ -10,7 +10,7 @@ fn test_script_hash_type() {
     let default_value: u8 = default.into();
     assert_eq!(default_value, 0);
 
-    let max_value = 2u8;
+    let max_value = 3u8;
     for v in 0..32 {
         let res = ScriptHashType::try_from(v);
         if v <= max_value {
