@@ -6681,11 +6681,12 @@ Allowed kinds: “data”, “type” and “data1”.
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
-`ScriptHashType` is equivalent to `"data" | "type" | "data1"`.
+`ScriptHashType` is equivalent to `"data" | "type" | "data1" | "data2"`.
 
 *   Type “data” matches script code via cell data hash, and run the script code in v0 CKB VM.
 *   Type “type” matches script code via cell type script hash.
 *   Type “data1” matches script code via cell data hash, and run the script code in v1 CKB VM.
+*   Type “data2” matches script code via cell data hash, and run the script code in v2 CKB VM.
 
 
 ### Type `SerializedBlock`
