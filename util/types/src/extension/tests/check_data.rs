@@ -28,11 +28,11 @@ fn test_check_data_via_transaction(
 
 #[test]
 fn check_data() {
-    for ht in 0..3 {
+    for ht in 0..4 {
         for dt in 0..2 {
             let ht_right = ht.into();
             let dt_right = dt.into();
-            let ht_error = 3.into();
+            let ht_error = 4.into();
             let dt_error = 2.into();
 
             let script_right = packed::Script::new_builder().hash_type(ht_right).build();
