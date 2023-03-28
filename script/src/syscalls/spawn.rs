@@ -31,8 +31,8 @@ pub struct Spawn<DL> {
     peak_memory: u64,
 }
 
-#[allow(clippy::too_many_arguments)]
 impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spawn<DL> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         data_loader: DL,
         group_inputs: Indices,
