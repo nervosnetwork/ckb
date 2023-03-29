@@ -912,19 +912,27 @@ fn test_sync_based_on_disable_all_chain() {
     let mut parent_tx = genesis_tx;
 
     let mut txs = Vec::with_capacity(100);
+    (1..=20).for_each(|_| {
+        chain.gen_empty_block(&mock_store);
+        let block = chain.blocks().last().unwrap();
+        chain_controller
+            .internal_process_block(Arc::new(block.to_owned()), Switch::NONE)
+            .expect("process empty block ");
+    });
 
     /*
-    tx_fee for block 1 is 100;
-    tx_fee for block 2 is 200;
-    tx_fee for block 3 is 300;
+    tx_fee for block 21 is 100;
+    tx_fee for block 22 is 200;
+    tx_fee for block 23 is 300;
     ...
-    tx_fee for block 20 is 2000;
+    tx_fee for block 40 is 2000;
     ...
-    tx_fee for block 100 is 10000;
+    tx_fee for block 120 is 10000;
      */
-    let fee_fn = |block_number: u64| -> Capacity { Capacity::shannons(100_u64 * block_number) };
+    let fee_fn =
+        |block_number: u64| -> Capacity { Capacity::shannons(100_u64 * (block_number - 20)) };
 
-    for block_number in 1..=100 {
+    for block_number in 21..=120 {
         let parent_cap: Capacity = parent_tx.output(0).unwrap().as_reader().capacity().unpack();
         let tx_fee = fee_fn(block_number);
         let capacity = parent_cap.safe_sub(tx_fee).unwrap();
@@ -944,51 +952,51 @@ fn test_sync_based_on_disable_all_chain() {
     }
 
     /*
-    In block 1, we propose txs[0]
-    In block 2, we propose txs[1]
-    In block 3, we propose txs[2], and commit txs[0]
-    In block 4, we propose txs[3], and commit txs[1]
-    In block 5, we propose txs[4], and commit txs[2]
-    In block 6, we propose txs[5], and commit txs[3]
-    In block 7, we propose txs[6], and commit txs[4]
+    In block 21, we propose txs[0]
+    In block 22, we propose txs[1]
+    In block 23, we propose txs[2], and commit txs[0]
+    In block 24, we propose txs[3], and commit txs[1]
+    In block 25, we propose txs[4], and commit txs[2]
+    In block 26, we propose txs[5], and commit txs[3]
+    In block 27, we propose txs[6], and commit txs[4]
     ...
-    In block 19, we propose txs[18], and commit txs[16]
-    In block 20, we propose txs[19], and commit txs[17]
+    In block 39, we propose txs[18], and commit txs[16]
+    In block 40, we propose txs[19], and commit txs[17]
     ...
-    In block 100, we propose txs[99], and commit txs[97]
-    In block 101, we don't propose any tx, and commit txs[98]
-    In block 102, we don't propose any tx, and commit txs[99]
+    In block 120, we propose txs[99], and commit txs[97]
+    In block 121, we don't propose any tx, and commit txs[98]
+    In block 122, we don't propose any tx, and commit txs[99]
      */
-    for block_number in 1..=102 {
+    for block_number in 21..=122 {
         assert_eq!(block_number, chain.tip_header().number() + 1);
 
         let mut proposals_txs = Vec::new();
         let mut commits_txs = Vec::new();
         match block_number {
-            1..=2 => {
-                proposals_txs.push(txs[block_number as usize - 1].clone());
+            21..=22 => {
+                proposals_txs.push(txs[block_number as usize - 20 - 1].clone());
                 println!(
                     "In block {}, propose txs[{}]",
                     block_number,
-                    block_number - 1
+                    block_number - 20 - 1
                 );
             }
-            3..=100 => {
-                proposals_txs.push(txs[block_number as usize - 1].clone());
-                commits_txs.push(txs[block_number as usize - 1 - 2].clone());
+            23..=120 => {
+                proposals_txs.push(txs[block_number as usize - 20 - 1].clone());
+                commits_txs.push(txs[block_number as usize - 20 - 1 - 2].clone());
                 println!(
                     "In block {}, propose txs[{}], and commit txs[{}]",
                     block_number,
-                    block_number - 1,
-                    block_number - 1 - 2
+                    block_number - 20 - 1,
+                    block_number - 20 - 1 - 2
                 );
             }
-            101..=102 => {
-                commits_txs.push(txs[block_number as usize - 1 - 2].clone());
+            121..=122 => {
+                commits_txs.push(txs[block_number as usize - 20 - 1 - 2].clone());
                 println!(
                     "In block {}, commit txs[{}]",
                     block_number,
-                    block_number - 1 - 2
+                    block_number - 20 - 1 - 2
                 );
             }
             _ => {
@@ -1001,7 +1009,7 @@ fn test_sync_based_on_disable_all_chain() {
                 calculate_reward(&mock_store, shared.consensus(), &chain.tip_header());
 
             let mut proposal_reward: Capacity = Capacity::zero();
-            if block_number >= 13 {
+            if block_number >= 32 {
                 let tx_fee: Capacity = fee_fn(block_number - 11);
                 proposal_reward = tx_fee
                     .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
@@ -1009,7 +1017,7 @@ fn test_sync_based_on_disable_all_chain() {
             }
 
             let mut commit_reward: Capacity = Capacity::zero();
-            if block_number >= 14 {
+            if block_number >= 34 {
                 let tx_fee: Capacity = fee_fn(block_number - 13);
 
                 commit_reward = tx_fee
@@ -1042,7 +1050,7 @@ fn test_sync_based_on_disable_all_chain() {
         let block = chain.blocks().last().unwrap();
 
         let mut switch = Switch::DISABLE_ALL;
-        if block_number >= 30 {
+        if block_number >= 50 {
             switch = Switch::NONE;
         }
         println!(
