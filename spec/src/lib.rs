@@ -706,6 +706,15 @@ impl ChainSpec {
                         .into());
                     }
                 }
+                ScriptHashType::Data2 => {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data2",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
             }
         }
 

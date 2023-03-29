@@ -12,5 +12,5 @@ pub use crate::types::{
     CoreMachine, ScriptGroup, ScriptGroupType, ScriptVersion, TransactionSnapshot,
     TransactionState, VerifyResult, VmIsa, VmVersion,
 };
-pub use crate::verify::TransactionScriptsVerifier;
+pub use crate::verify::{TransactionScriptsSyscallsGenerator, TransactionScriptsVerifier};
 pub use crate::verify_env::TxVerifyEnv;
