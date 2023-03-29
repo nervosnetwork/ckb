@@ -552,6 +552,40 @@ impl<'a> MockChain<'a> {
         self.commit_block(store, new_block)
     }
 
+    pub fn gen_block_with_proposal_txs_and_commit_txs(
+        &mut self,
+        proposals: Vec<TransactionView>,
+        commits: Vec<TransactionView>,
+        store: &MockStore,
+        reward: Capacity,
+    ) {
+        let parent = self.tip_header();
+        let cellbase = create_cellbase_with_reward(self.consensus, &parent, reward);
+
+        let mut txs_to_resolve = vec![cellbase.clone()];
+        txs_to_resolve.extend_from_slice(&commits);
+        let dao = dao_data(self.consensus, &parent, &txs_to_resolve, store, false);
+
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().borrow_as_data_loader())
+            .unwrap()
+            .epoch();
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash())
+            .number((parent.number() + 1).pack())
+            .compact_target(epoch.compact_target().pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .dao(dao)
+            .transaction(cellbase)
+            .transactions(commits)
+            .proposals(proposals.iter().map(TransactionView::proposal_short_id))
+            .build();
+
+        self.commit_block(store, new_block)
+    }
+
     pub fn tip_header(&self) -> HeaderView {
         self.blocks
             .last()
