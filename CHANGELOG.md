@@ -1,3 +1,15 @@
+# [v0.108.1](https://github.com/nervosnetwork/ckb/compare/v0.108.0...v0.108.1) (2023-04-04)
+
+### Bug Fixes
+
+* #3887: Potentially tx-pool panic after detached (@zhangsoledad)
+* #3903: Resolve the bug of list-hashes subcmd (@quake)
+* #3901: Fix tx-pool remove expired (@zhangsoledad)
+
+### Misc
+
+* #3851: Omission modification (@driftluo)
+
 # [v0.108.0](https://github.com/nervosnetwork/ckb/compare/v0.107.0...v0.108.0) (2023-03-06)
 
 ### Features
