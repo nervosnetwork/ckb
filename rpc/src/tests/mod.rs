@@ -13,8 +13,8 @@ use ckb_test_chain_utils::{
 };
 use ckb_types::{
     core::{
-        cell::resolve_transaction, BlockBuilder, BlockView, FeeRate, HeaderView,
-        TransactionBuilder, TransactionView,
+        cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
+        TransactionView,
     },
     h256,
     packed::{CellInput, OutPoint},
@@ -290,7 +290,7 @@ fn setup() -> RpcTestSuite {
 
     let builder = ServiceBuilder::new(&rpc_config)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), FeeRate::zero(), vec![], vec![])
+        .enable_pool(shared.clone(), vec![], vec![])
         .enable_miner(
             shared.clone(),
             network_controller.clone(),

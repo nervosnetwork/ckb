@@ -39,6 +39,6 @@ impl FeeRate {
 
 impl ::std::fmt::Display for FeeRate {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{} shannons/KW", self.0)
     }
 }

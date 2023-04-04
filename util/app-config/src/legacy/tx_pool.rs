@@ -12,13 +12,18 @@ const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 // default max ancestors count
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 // Default expiration time for pool transactions in hours
-const DEFAULT_EXPIRY_HOURS: u8 = 24;
+const DEFAULT_EXPIRY_HOURS: u8 = 12;
+// Default max_tx_pool_size 180mb
+const DEFAULT_MAX_TX_POOL_SIZE: usize = 180_000_000;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 pub(crate) struct TxPoolConfig {
-    max_mem_size: usize,
-    max_cycles: Cycle,
+    #[serde(default = "default_max_tx_pool_size")]
+    max_tx_pool_size: usize,
+    max_mem_size: Option<usize>,
+    max_cycles: Option<Cycle>,
     pub(crate) max_verify_cache_size: Option<usize>,
     pub(crate) max_conflict_cache_size: Option<usize>,
     pub(crate) max_committed_txs_hash_cache_size: Option<usize>,
@@ -50,6 +55,10 @@ fn default_expiry_hours() -> u8 {
     DEFAULT_EXPIRY_HOURS
 }
 
+fn default_max_tx_pool_size() -> usize {
+    DEFAULT_MAX_TX_POOL_SIZE
+}
+
 impl Default for crate::TxPoolConfig {
     fn default() -> Self {
         TxPoolConfig::default().into()
@@ -59,8 +68,9 @@ impl Default for crate::TxPoolConfig {
 impl Default for TxPoolConfig {
     fn default() -> Self {
         Self {
-            max_mem_size: 20_000_000, // 20mb
-            max_cycles: 200_000_000_000,
+            max_mem_size: None,
+            max_tx_pool_size: DEFAULT_MAX_TX_POOL_SIZE,
+            max_cycles: None,
             max_verify_cache_size: None,
             max_conflict_cache_size: None,
             max_committed_txs_hash_cache_size: None,
@@ -79,8 +89,9 @@ impl Default for TxPoolConfig {
 impl From<TxPoolConfig> for crate::TxPoolConfig {
     fn from(input: TxPoolConfig) -> Self {
         let TxPoolConfig {
-            max_mem_size,
-            max_cycles,
+            max_mem_size: _,
+            max_tx_pool_size,
+            max_cycles: _,
             max_verify_cache_size: _,
             max_conflict_cache_size: _,
             max_committed_txs_hash_cache_size: _,
@@ -93,9 +104,9 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             recent_reject,
             expiry_hours,
         } = input;
+
         Self {
-            max_mem_size,
-            max_cycles,
+            max_tx_pool_size,
             min_fee_rate,
             max_tx_verify_cycles,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),

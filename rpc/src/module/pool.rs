@@ -161,14 +161,16 @@ pub trait PoolRpc {
     ///   "jsonrpc": "2.0",
     ///   "result": {
     ///     "last_txs_updated_at": "0x0",
-    ///     "min_fee_rate": "0x0",
+    ///     "min_fee_rate": "0x3e8",
+    ///     "max_tx_pool_size": "0xaba9500",
     ///     "orphan": "0x0",
     ///     "pending": "0x1",
     ///     "proposed": "0x0",
     ///     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///     "tip_number": "0x400",
     ///     "total_tx_cycles": "0x219",
-    ///     "total_tx_size": "0x112"
+    ///     "total_tx_size": "0x112",
+    ///     "tx_size_limit": "0x7d000"
     ///   }
     /// }
     /// ```
@@ -276,7 +278,6 @@ pub trait PoolRpc {
 
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
-    min_fee_rate: core::FeeRate,
     well_known_lock_scripts: Vec<packed::Script>,
     well_known_type_scripts: Vec<packed::Script>,
 }
@@ -284,7 +285,6 @@ pub(crate) struct PoolRpcImpl {
 impl PoolRpcImpl {
     pub fn new(
         shared: Shared,
-        min_fee_rate: core::FeeRate,
         mut extra_well_known_lock_scripts: Vec<packed::Script>,
         mut extra_well_known_type_scripts: Vec<packed::Script>,
     ) -> PoolRpcImpl {
@@ -298,7 +298,6 @@ impl PoolRpcImpl {
 
         PoolRpcImpl {
             shared,
-            min_fee_rate,
             well_known_lock_scripts,
             well_known_type_scripts,
         }
@@ -449,17 +448,7 @@ impl PoolRpc for PoolRpcImpl {
 
         let tx_pool_info = get_tx_pool_info.unwrap();
 
-        Ok(TxPoolInfo {
-            tip_hash: tx_pool_info.tip_hash.unpack(),
-            tip_number: tx_pool_info.tip_number.into(),
-            pending: (tx_pool_info.pending_size as u64).into(),
-            proposed: (tx_pool_info.proposed_size as u64).into(),
-            orphan: (tx_pool_info.orphan_size as u64).into(),
-            total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
-            total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
-            min_fee_rate: self.min_fee_rate.as_u64().into(),
-            last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
-        })
+        Ok(tx_pool_info.into())
     }
 
     fn clear_tx_pool(&self) -> Result<()> {

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-launcher"
-version = "0.108.0"
+version = "0.108.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,44 +11,44 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.108.0" }
-ckb-store = { path = "../../store", version = "= 0.108.0" }
-ckb-db = { path = "../../db", version = "= 0.108.0" }
-ckb-migration-template = { path = "migration-template", version = "= 0.108.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.108.0" }
-ckb-db-migration = { path = "../../db-migration", version = "= 0.108.0" }
-ckb-logger = { path = "../logger", version = "= 0.108.0" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.108.0" }
-ckb-error = { path = "../../error", version = "= 0.108.0" }
-ckb-build-info = { path = "../build-info", version = "= 0.108.0" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.108.0" }
-ckb-chain = { path = "../../chain", version = "= 0.108.0" }
-ckb-shared = { path = "../../shared", version = "= 0.108.0" }
-ckb-network = { path = "../../network", version = "= 0.108.0"}
-ckb-rpc = { path = "../../rpc", version = "= 0.108.0"}
-ckb-resource = { path = "../../resource", version = "= 0.108.0"}
-ckb-network-alert = { path = "../network-alert", version = "= 0.108.0" }
-ckb-sync = { path = "../../sync", version = "= 0.108.0"}
-ckb-verification = { path = "../../verification", version = "= 0.108.0" }
-ckb-verification-traits = { path = "../../verification/traits", version = "= 0.108.0" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.108.0" }
-ckb-proposal-table = { path = "../proposal-table", version = "= 0.108.0" }
-ckb-channel = { path = "../channel", version = "= 0.108.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.108.0" }
-ckb-freezer = { path = "../../freezer", version = "= 0.108.0" }
-ckb-notify = { path = "../../notify", version = "= 0.108.0" }
-ckb-snapshot = { path = "../snapshot", version = "= 0.108.0" }
-ckb-tx-pool = { path = "../../tx-pool", version = "= 0.108.0" }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.108.0" }
-ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.108.0" }
-ckb-block-filter = { path = "../../block-filter", version = "= 0.108.0" }
-ckb-hash = { path = "../hash", version = "= 0.108.0" }
+ckb-types = { path = "../types", version = "= 0.108.1" }
+ckb-store = { path = "../../store", version = "= 0.108.1" }
+ckb-db = { path = "../../db", version = "= 0.108.1" }
+ckb-migration-template = { path = "migration-template", version = "= 0.108.1" }
+ckb-app-config = { path = "../app-config", version = "= 0.108.1" }
+ckb-db-migration = { path = "../../db-migration", version = "= 0.108.1" }
+ckb-logger = { path = "../logger", version = "= 0.108.1" }
+ckb-db-schema = { path = "../../db-schema", version = "= 0.108.1" }
+ckb-error = { path = "../../error", version = "= 0.108.1" }
+ckb-build-info = { path = "../build-info", version = "= 0.108.1" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.108.1" }
+ckb-chain = { path = "../../chain", version = "= 0.108.1" }
+ckb-shared = { path = "../../shared", version = "= 0.108.1" }
+ckb-network = { path = "../../network", version = "= 0.108.1"}
+ckb-rpc = { path = "../../rpc", version = "= 0.108.1"}
+ckb-resource = { path = "../../resource", version = "= 0.108.1"}
+ckb-network-alert = { path = "../network-alert", version = "= 0.108.1" }
+ckb-sync = { path = "../../sync", version = "= 0.108.1"}
+ckb-verification = { path = "../../verification", version = "= 0.108.1" }
+ckb-verification-traits = { path = "../../verification/traits", version = "= 0.108.1" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.108.1" }
+ckb-proposal-table = { path = "../proposal-table", version = "= 0.108.1" }
+ckb-channel = { path = "../channel", version = "= 0.108.1" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.108.1" }
+ckb-freezer = { path = "../../freezer", version = "= 0.108.1" }
+ckb-notify = { path = "../../notify", version = "= 0.108.1" }
+ckb-snapshot = { path = "../snapshot", version = "= 0.108.1" }
+ckb-tx-pool = { path = "../../tx-pool", version = "= 0.108.1" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.108.1" }
+ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.108.1" }
+ckb-block-filter = { path = "../../block-filter", version = "= 0.108.1" }
+ckb-hash = { path = "../hash", version = "= 0.108.1" }
 num_cpus = "1.10"
 once_cell = "1.8.0"
 tempfile = "3.0"
 
 [dev-dependencies]
-ckb-systemtime = {path = "../systemtime", version = "= 0.108.0", features = ["enable_faketime"]  }
+ckb-systemtime = {path = "../systemtime", version = "= 0.108.1", features = ["enable_faketime"]  }
 
 [features]
 with_sentry = [ "ckb-sync/with_sentry", "ckb-network/with_sentry", "ckb-app-config/with_sentry" ]

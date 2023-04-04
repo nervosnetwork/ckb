@@ -1,5 +1,4 @@
 use crate::callback::Callbacks;
-use crate::component::chunk::DEFAULT_MAX_CHUNK_TRANSACTIONS;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
@@ -7,8 +6,8 @@ use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
-    check_tx_cycle_limit, check_tx_fee, check_tx_size_limit, check_txid_collision,
-    is_missing_input, non_contextual_verify, time_relative_verify, verify_rtx,
+    check_tx_fee, check_txid_collision, is_missing_input, non_contextual_verify,
+    time_relative_verify, verify_rtx,
 };
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
@@ -93,15 +92,12 @@ impl TxPoolService {
 
     pub(crate) async fn submit_entry(
         &self,
-        verified: Completed,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                check_tx_cycle_limit(tx_pool, verified.cycles)?;
-
                 // if snapshot changed by context switch
                 // we need redo time_relative verify
                 let tip_hash = snapshot.tip_hash();
@@ -200,7 +196,6 @@ impl TxPoolService {
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
-                check_tx_size_limit(tx_pool, tx_size)?;
 
                 check_txid_collision(tx_pool, tx)?;
 
@@ -572,10 +567,7 @@ impl TxPoolService {
                     }
                     ScriptVerifyResult::Suspended(state) => {
                         if is_chunk_full {
-                            Err(Reject::Full(
-                                "chunk".to_owned(),
-                                DEFAULT_MAX_CHUNK_TRANSACTIONS as u64,
-                            ))
+                            Err(Reject::Full("chunk".to_owned()))
                         } else {
                             let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
                             Ok(CacheEntry::suspended(snap, fee))
@@ -599,7 +591,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(completed, tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -666,7 +658,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(verified, tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -924,7 +916,9 @@ fn _update_tx_pool_for_reorg(
             debug!("tx move to proposed {}", entry.transaction().hash());
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
             let tx_hash = entry.transaction().hash();
-            if let Err(e) = tx_pool.proposed_rtx(cached, entry.size, entry.rtx.clone()) {
+            if let Err(e) =
+                tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, entry.rtx.clone())
+            {
                 debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             } else {
@@ -936,15 +930,19 @@ fn _update_tx_pool_for_reorg(
             debug!("tx move to gap {}", entry.transaction().hash());
             let tx_hash = entry.transaction().hash();
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.rtx.clone()) {
+            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.timestamp, entry.rtx.clone())
+            {
                 debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             }
         }
     }
 
-    // remove expired transaction from pending
+    // Remove expired transaction from pending
     tx_pool.remove_expired(callbacks);
+
+    // Remove transactions from the pool until its size <= size_limit.
+    tx_pool.limit_size(callbacks);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
