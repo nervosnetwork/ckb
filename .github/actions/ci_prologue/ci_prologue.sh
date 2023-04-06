@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -evx
 fun_run_os(){
   runs_on="$1"
   github_workflow_os=`echo $GITHUB_WORKFLOW | awk -F '_' '{print $NF}'`
