@@ -1678,8 +1678,8 @@ Response
         "secp256k1_blake160_multisig_all_type_hash": null,
         "secp256k1_blake160_sighash_all_type_hash": null,
         "softforks": {
-            "Testdummy": {
-                "status": "Rfc0043",
+            "testdummy": {
+                "status": "rfc0043",
                 "rfc0043": {
                     "bit": 1,
                     "min_activation_epoch": "0x0",
@@ -4668,13 +4668,13 @@ Response
     "epoch": "0x1",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
        "deployments": {
-           "Testdummy": {
+           "testdummy": {
                "bit": 1,
                "min_activation_epoch": "0x0",
                "period": "0xa",
                "since": "0x0",
                "start": "0x0",
-               "state": "Failed",
+               "state": "failed",
                "timeout": "0x0",
                "threshold": {
                     "numer": 3,
@@ -5706,7 +5706,7 @@ An object containing various state info regarding deployments of consensus chang
 
 Deployment name
 
-`DeploymentPos` is equivalent to `"Testdummy" | "LightClient"`.
+`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
 
 *   Dummy
 *   light client protocol
@@ -5716,7 +5716,7 @@ Deployment name
 
 The possible softfork deployment state
 
-`DeploymentState` is equivalent to `"Defined" | "Started" | "LockedIn" | "Active" | "Failed"`.
+`DeploymentState` is equivalent to `"defined" | "started" | "locked_in" | "active" | "failed"`.
 
 *   First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
 *   For epochs past the `start` epoch.
@@ -6641,8 +6641,8 @@ SoftFork information
 
 `SoftFork` is equivalent to `"buried" | "rfc0043"`.
 
-*   the activation epoch is hard-coded into the client implementation
-*   the activation is controlled by rfc0043 signaling
+*   buried - the activation epoch is hard-coded into the client implementation
+*   rfc0043 - the activation is controlled by rfc0043 signaling
 
 
 ### Type `Status`

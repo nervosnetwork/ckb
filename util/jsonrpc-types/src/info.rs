@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 /// Deployment name
 #[derive(Clone, Hash, Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum DeploymentPos {
     /// Dummy
     Testdummy,
@@ -14,6 +15,7 @@ pub enum DeploymentPos {
 
 /// The possible softfork deployment state
 #[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum DeploymentState {
     /// First state that each softfork starts.
     /// The 0 epoch is by definition in this state for each deployment.
