@@ -1,6 +1,6 @@
 [package]
 name = "ckb-channel"
-version = "0.109.0-pre"
+version = "0.109.0-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
