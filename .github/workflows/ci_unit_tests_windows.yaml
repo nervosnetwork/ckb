@@ -61,11 +61,10 @@ jobs:
         scoop install git
         scoop bucket add extras
         scoop install llvm yasm
-    - name: Install cargo-nextest
-      run: |
-        scoop install wget
-        wget https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.36/cargo-nextest-0.9.36-x86_64-pc-windows-msvc.zip
-        7z x cargo-nextest-0.9.36-x86_64-pc-windows-msvc.zip -oC:\Users\Administrator\.cargo\bin -y
+    - name: Install nextest dependency
+      run: scoop install jq
+    - name: Install nextest-rs/nextest
+      uses: taiki-e/install-action@nextest
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
