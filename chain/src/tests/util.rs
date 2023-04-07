@@ -179,8 +179,17 @@ pub(crate) fn create_cellbase(
     consensus: &Consensus,
     parent: &HeaderView,
 ) -> TransactionView {
+    let reward = calculate_reward(store, consensus, parent);
+    create_cellbase_with_reward(consensus, parent, reward)
+}
+
+#[allow(clippy::int_plus_one)]
+pub(crate) fn create_cellbase_with_reward(
+    consensus: &Consensus,
+    parent: &HeaderView,
+    reward: Capacity,
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
-    let capacity = calculate_reward(store, consensus, parent);
     let builder = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
         .witness(always_success_script.clone().into_witness());
@@ -191,7 +200,7 @@ pub(crate) fn create_cellbase(
         builder
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity.pack())
+                    .capacity(reward.pack())
                     .lock(always_success_script.clone())
                     .build(),
             )
@@ -260,11 +269,23 @@ pub(crate) fn create_multi_outputs_transaction(
 }
 
 pub(crate) fn create_transaction(parent: &Byte32, unique_data: u8) -> TransactionView {
-    create_transaction_with_out_point(OutPoint::new(parent.clone(), 0), unique_data)
+    create_transaction_with_input(OutPoint::new(parent.clone(), 0), unique_data)
 }
 
-pub(crate) fn create_transaction_with_out_point(
-    out_point: OutPoint,
+pub(crate) fn create_transaction_with_input(
+    out_point_as_input: OutPoint,
+    unique_data: u8,
+) -> TransactionView {
+    create_transaction_with_input_and_output_capacity(
+        out_point_as_input,
+        capacity_bytes!(100),
+        unique_data,
+    )
+}
+
+pub(crate) fn create_transaction_with_input_and_output_capacity(
+    out_point_as_input: OutPoint,
+    output_capacity: Capacity,
     unique_data: u8,
 ) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
@@ -274,12 +295,12 @@ pub(crate) fn create_transaction_with_out_point(
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(output_capacity.pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
         .output_data(data.pack())
-        .input(CellInput::new(out_point, 0))
+        .input(CellInput::new(out_point_as_input, 0))
         .cell_dep(
             CellDep::new_builder()
                 .out_point(always_success_out_point)
@@ -526,6 +547,40 @@ impl<'a> MockChain<'a> {
             .dao(dao)
             .transaction(cellbase)
             .transactions(txs)
+            .build();
+
+        self.commit_block(store, new_block)
+    }
+
+    pub fn gen_block_with_proposal_txs_and_commit_txs(
+        &mut self,
+        proposals: Vec<TransactionView>,
+        commits: Vec<TransactionView>,
+        store: &MockStore,
+        reward: Capacity,
+    ) {
+        let parent = self.tip_header();
+        let cellbase = create_cellbase_with_reward(self.consensus, &parent, reward);
+
+        let mut txs_to_resolve = vec![cellbase.clone()];
+        txs_to_resolve.extend_from_slice(&commits);
+        let dao = dao_data(self.consensus, &parent, &txs_to_resolve, store, false);
+
+        let epoch = self
+            .consensus
+            .next_epoch_ext(&parent, &store.store().borrow_as_data_loader())
+            .unwrap()
+            .epoch();
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash())
+            .number((parent.number() + 1).pack())
+            .compact_target(epoch.compact_target().pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .dao(dao)
+            .transaction(cellbase)
+            .transactions(commits)
+            .proposals(proposals.iter().map(TransactionView::proposal_short_id))
             .build();
 
         self.commit_block(store, new_block)

@@ -563,6 +563,7 @@ dependencies = [
  "ckb-verification-traits",
  "faux",
  "lazy_static",
+ "rand 0.7.3",
  "tempfile",
 ]
 

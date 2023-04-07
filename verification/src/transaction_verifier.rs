@@ -210,6 +210,7 @@ where
 //     }
 // }
 
+/// FeeCalculator calculates transaction fee
 pub struct FeeCalculator<'a, DL> {
     transaction: Arc<ResolvedTransaction>,
     consensus: &'a Consensus,
@@ -217,7 +218,8 @@ pub struct FeeCalculator<'a, DL> {
 }
 
 impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a, DL> {
-    fn new(
+    /// Creates a new FeeCalculator
+    pub fn new(
         transaction: Arc<ResolvedTransaction>,
         consensus: &'a Consensus,
         data_loader: DL,
@@ -229,7 +231,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a
         }
     }
 
-    fn transaction_fee(&self) -> Result<Capacity, DaoError> {
+    /// Calculate transaction fee
+    pub fn transaction_fee(&self) -> Result<Capacity, DaoError> {
         // skip tx fee calculation for cellbase
         if self.transaction.is_cellbase() {
             Ok(Capacity::zero())

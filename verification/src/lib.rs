@@ -22,7 +22,7 @@ pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
     CapacityVerifier, ContextualTransactionVerifier, ContextualWithoutScriptTransactionVerifier,
-    NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
+    FeeCalculator, NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
     TimeRelativeTransactionVerifier,
 };
 pub use ckb_script::{

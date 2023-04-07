@@ -1,14 +1,15 @@
 use crate::chain::ChainController;
 use crate::tests::util::{
-    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
-    create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
-    MockStore,
+    calculate_reward, create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
+    create_transaction, create_transaction_with_input,
+    create_transaction_with_input_and_output_capacity, dao_data, start_chain, MockChain, MockStore,
 };
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -16,13 +17,15 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMeta, CellProvider, CellStatus},
-        BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionInfo,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
+        TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
-    utilities::{compact_to_difficulty, difficulty_to_compact},
+    utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
     U256,
 };
 use ckb_verification_traits::Switch;
+use rand::random;
 use std::sync::Arc;
 
 #[test]
@@ -296,7 +299,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_input(OutPoint::new(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -330,7 +333,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_input(OutPoint::new(tx1_hash.clone(), 1), 3);
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
@@ -868,5 +871,201 @@ fn test_next_epoch_ext() {
             "epoch difficulty {}",
             compact_to_difficulty(epoch.compact_target())
         );
+    }
+}
+
+#[test]
+fn test_sync_based_on_disable_all_chain() {
+    const GENESIS_CAPACITY: u64 = 10000000000;
+    let (_, _, always_success_script) = always_success_cell();
+    let always_success_tx = create_always_success_tx();
+    let genesis_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(GENESIS_CAPACITY.pack())
+                .lock(always_success_script.clone())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+
+    let dao = genesis_dao_data(vec![&always_success_tx, &genesis_tx]).unwrap();
+
+    let genesis_block = BlockBuilder::default()
+        .transaction(always_success_tx)
+        .transaction(genesis_tx.clone())
+        .compact_target(DIFF_TWO.pack())
+        .dao(dao)
+        .build();
+
+    let consensus = ConsensusBuilder::default()
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
+        .genesis_block(genesis_block)
+        .build();
+
+    let (chain_controller, shared, parent) = start_chain(Some(consensus));
+
+    let mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent, shared.consensus());
+
+    let mut parent_tx = genesis_tx;
+
+    let mut txs = Vec::with_capacity(100);
+    (1..=20).for_each(|_| {
+        chain.gen_empty_block(&mock_store);
+        let block = chain.blocks().last().unwrap();
+        chain_controller
+            .internal_process_block(Arc::new(block.to_owned()), Switch::NONE)
+            .expect("process empty block ");
+    });
+
+    /*
+    tx_fee for block 21 is 100;
+    tx_fee for block 22 is 200;
+    tx_fee for block 23 is 300;
+    ...
+    tx_fee for block 40 is 2000;
+    ...
+    tx_fee for block 120 is 10000;
+     */
+    let fee_fn =
+        |block_number: u64| -> Capacity { Capacity::shannons(100_u64 * (block_number - 20)) };
+
+    for block_number in 21..=120 {
+        let parent_cap: Capacity = parent_tx.output(0).unwrap().as_reader().capacity().unpack();
+        let tx_fee = fee_fn(block_number);
+        let capacity = parent_cap.safe_sub(tx_fee).unwrap();
+        let tx = create_transaction_with_input_and_output_capacity(
+            OutPoint::new(parent_tx.hash().clone(), 0),
+            capacity,
+            random::<u8>(),
+        );
+        println!(
+            "created a transaction: {} in block: {}, tx_fee:  {}",
+            tx.hash(),
+            block_number,
+            tx_fee
+        );
+        parent_tx = tx.clone();
+        txs.push(tx);
+    }
+
+    /*
+    In block 21, we propose txs[0]
+    In block 22, we propose txs[1]
+    In block 23, we propose txs[2], and commit txs[0]
+    In block 24, we propose txs[3], and commit txs[1]
+    In block 25, we propose txs[4], and commit txs[2]
+    In block 26, we propose txs[5], and commit txs[3]
+    In block 27, we propose txs[6], and commit txs[4]
+    ...
+    In block 39, we propose txs[18], and commit txs[16]
+    In block 40, we propose txs[19], and commit txs[17]
+    ...
+    In block 120, we propose txs[99], and commit txs[97]
+    In block 121, we don't propose any tx, and commit txs[98]
+    In block 122, we don't propose any tx, and commit txs[99]
+     */
+    for block_number in 21..=122 {
+        assert_eq!(block_number, chain.tip_header().number() + 1);
+
+        let mut proposals_txs = Vec::new();
+        let mut commits_txs = Vec::new();
+        match block_number {
+            21..=22 => {
+                proposals_txs.push(txs[block_number as usize - 20 - 1].clone());
+                println!(
+                    "In block {}, propose txs[{}]",
+                    block_number,
+                    block_number - 20 - 1
+                );
+            }
+            23..=120 => {
+                proposals_txs.push(txs[block_number as usize - 20 - 1].clone());
+                commits_txs.push(txs[block_number as usize - 20 - 1 - 2].clone());
+                println!(
+                    "In block {}, propose txs[{}], and commit txs[{}]",
+                    block_number,
+                    block_number - 20 - 1,
+                    block_number - 20 - 1 - 2
+                );
+            }
+            121..=122 => {
+                commits_txs.push(txs[block_number as usize - 20 - 1 - 2].clone());
+                println!(
+                    "In block {}, commit txs[{}]",
+                    block_number,
+                    block_number - 20 - 1 - 2
+                );
+            }
+            _ => {
+                unreachable!("block_number should be in [1, 22]");
+            }
+        }
+
+        let reward: Capacity = {
+            let block_reward =
+                calculate_reward(&mock_store, shared.consensus(), &chain.tip_header());
+
+            let mut proposal_reward: Capacity = Capacity::zero();
+            if block_number >= 32 {
+                let tx_fee: Capacity = fee_fn(block_number - 11);
+                proposal_reward = tx_fee
+                    .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
+                    .unwrap();
+            }
+
+            let mut commit_reward: Capacity = Capacity::zero();
+            if block_number >= 34 {
+                let tx_fee: Capacity = fee_fn(block_number - 13);
+
+                commit_reward = tx_fee
+                    .safe_sub(
+                        tx_fee
+                            .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
+                            .unwrap(),
+                    )
+                    .unwrap();
+            }
+
+            let total_reward = block_reward
+                .safe_add(proposal_reward)
+                .unwrap()
+                .safe_add(commit_reward)
+                .unwrap();
+            println!(
+                "In block {}, calculate reward: block_reward + proposal + commit = total: {} + {} + {} = {}",
+                block_number, block_reward, proposal_reward, commit_reward, total_reward
+            );
+            total_reward
+        };
+
+        chain.gen_block_with_proposal_txs_and_commit_txs(
+            proposals_txs,
+            commits_txs,
+            &mock_store,
+            reward,
+        );
+        let block = chain.blocks().last().unwrap();
+
+        let mut switch = Switch::DISABLE_ALL;
+        if block_number >= 50 {
+            switch = Switch::NONE;
+        }
+        println!(
+            "\nChainService: processing block {}: with switch = {}",
+            block.number(),
+            {
+                match switch {
+                    Switch::NONE => "Switch::NONE",
+                    Switch::DISABLE_ALL => "Switch::DISABLE_ALL",
+                    _ => unreachable!(),
+                }
+            }
+        );
+        chain_controller
+            .internal_process_block(Arc::new(block.clone()), switch)
+            .expect("process block ok");
     }
 }

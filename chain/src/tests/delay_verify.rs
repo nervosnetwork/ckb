@@ -1,6 +1,6 @@
 use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
-    create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
+    create_transaction_with_input, dao_data, start_chain, MockChain, MockStore,
 };
 use ckb_error::assert_error_eq;
 use ckb_store::ChainStore;
@@ -144,7 +144,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_input(OutPoint::new(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -200,7 +200,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_input(OutPoint::new(tx1_hash.clone(), 1), 3);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     chain2.gen_empty_block_with_inc_diff(20000u64, &mock_store);

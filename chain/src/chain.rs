@@ -13,6 +13,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -733,7 +734,7 @@ impl ChainService {
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
         }
 
-        let verify_context = VerifyContext::new(Arc::clone(&txn), consensus);
+        let verify_context = VerifyContext::new(Arc::clone(&txn), Arc::clone(&consensus));
 
         let mut found_error = None;
         for (ext, b) in fork
@@ -741,12 +742,12 @@ impl ChainService {
             .iter()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
-            if !switch.disable_all() {
-                if found_error.is_none() {
-                    let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
-                    match resolved {
-                        Ok(resolved) => {
-                            let verified = {
+            if found_error.is_none() {
+                let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
+                match resolved {
+                    Ok(resolved) => {
+                        let cycles_and_cache_entries: Result<(Cycle, Vec<Completed>), Error> = {
+                            if !switch.disable_all() {
                                 let contextual_block_verifier = ContextualBlockVerifier::new(
                                     verify_context.clone(),
                                     async_handle,
@@ -755,58 +756,70 @@ impl ChainService {
                                     &mmr,
                                 );
                                 contextual_block_verifier.verify(&resolved, b)
-                            };
-                            match verified {
-                                Ok((cycles, cache_entries)) => {
-                                    let txs_sizes = resolved
-                                        .iter()
-                                        .map(|rtx| {
-                                            rtx.transaction.data().serialized_size_in_block() as u64
-                                        })
-                                        .collect();
-                                    txn.attach_block(b)?;
-                                    attach_block_cell(&txn, b)?;
-                                    mmr.push(b.digest())
-                                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                            } else {
+                                // when switch is Switch::DISABLE_ALL, calculate tx_fees and return zero cycles
+                                resolved
+                                    .iter()
+                                    .skip(1)
+                                    .map(|rtx| {
+                                        ckb_verification::FeeCalculator::new(
+                                            Arc::clone(rtx),
+                                            &consensus,
+                                            txn.as_data_loader(),
+                                        )
+                                        .transaction_fee()
+                                        .map(|fee| Completed { cycles: 0, fee })
+                                        .map_err(Error::from)
+                                    })
+                                    .collect::<Result<Vec<Completed>, Error>>()
+                                    .map(|cache_entries| (0 as Cycle, cache_entries))
+                            }
+                        };
 
-                                    self.insert_ok_ext(
-                                        &txn,
-                                        &b.header().hash(),
-                                        ext.clone(),
-                                        Some(&cache_entries),
-                                        Some(txs_sizes),
-                                    )?;
+                        match cycles_and_cache_entries {
+                            Ok((cycles, cache_entries)) => {
+                                let txs_sizes = resolved
+                                    .iter()
+                                    .map(|rtx| {
+                                        rtx.transaction.data().serialized_size_in_block() as u64
+                                    })
+                                    .collect();
+                                txn.attach_block(b)?;
+                                attach_block_cell(&txn, b)?;
+                                mmr.push(b.digest())
+                                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
 
-                                    if !switch.disable_script() && b.transactions().len() > 1 {
-                                        self.monitor_block_txs_verified(
-                                            b,
-                                            &resolved,
-                                            &cache_entries,
-                                            cycles,
-                                        );
-                                    }
-                                }
-                                Err(err) => {
-                                    self.print_error(b, &err);
-                                    found_error = Some(err);
-                                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                                self.insert_ok_ext(
+                                    &txn,
+                                    &b.header().hash(),
+                                    ext.clone(),
+                                    Some(&cache_entries),
+                                    Some(txs_sizes),
+                                )?;
+
+                                if !switch.disable_script() && b.transactions().len() > 1 {
+                                    self.monitor_block_txs_verified(
+                                        b,
+                                        &resolved,
+                                        &cache_entries,
+                                        cycles,
+                                    );
                                 }
                             }
-                        }
-                        Err(err) => {
-                            found_error = Some(err);
-                            self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                            Err(err) => {
+                                self.print_error(b, &err);
+                                found_error = Some(err);
+                                self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                            }
                         }
                     }
-                } else {
-                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                    Err(err) => {
+                        found_error = Some(err);
+                        self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                    }
                 }
             } else {
-                txn.attach_block(b)?;
-                attach_block_cell(&txn, b)?;
-                mmr.push(b.digest())
-                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
+                self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
             }
         }
 
