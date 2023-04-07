@@ -1,4 +1,4 @@
-use ckb_jsonrpc_types::FeeRateStatics;
+use ckb_jsonrpc_types::FeeRateStatistics;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::{tx_pool::get_transaction_weight, BlockExt, BlockNumber, FeeRate};
@@ -75,7 +75,7 @@ where
         FeeRateCollector { provider }
     }
 
-    pub fn statistics(&self, target: Option<u64>) -> Option<FeeRateStatics> {
+    pub fn statistics(&self, target: Option<u64>) -> Option<FeeRateStatistics> {
         let mut target = target.unwrap_or(DEFAULT_TARGET);
         if is_even(target) {
             target = target.saturating_add(1);
@@ -104,7 +104,7 @@ where
         if fee_rates.is_empty() {
             None
         } else {
-            Some(FeeRateStatics {
+            Some(FeeRateStatistics {
                 mean: mean(&fee_rates).into(),
                 median: median(&mut fee_rates).into(),
             })

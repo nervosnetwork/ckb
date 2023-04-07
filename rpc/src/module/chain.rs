@@ -2,7 +2,7 @@ use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
-    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, OutPoint,
+    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
     ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
     TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
@@ -1548,8 +1548,54 @@ pub trait ChainRpc {
     ///    }
     /// }
     /// ```
+    #[deprecated(
+        since = "0.109.0",
+        note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
+    )]
     #[rpc(name = "get_fee_rate_statics")]
-    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>>;
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
+
+    /// Returns the fee_rate statistics of confirmed blocks on the chain
+    ///
+    /// ## Params
+    ///
+    /// * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+    ///  If the number is even, automatically add one. If not specified, defaults to 21
+    ///
+    /// ## Returns
+    ///
+    /// If the query finds the corresponding historical data,
+    /// the corresponding statistics are returned,
+    /// containing the mean and median, in shannons per kilo-weight.
+    /// If not, it returns null.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_fee_rate_statistics",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "mean": "0xe79d",
+    ///     "median": "0x14a8"
+    ///    }
+    /// }
+    /// ```
+    #[rpc(name = "get_fee_rate_statistics")]
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -2044,7 +2090,12 @@ impl ChainRpc for ChainRpcImpl {
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
+        Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
+            .statistics(target.map(Into::into)))
+    }
+
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }
