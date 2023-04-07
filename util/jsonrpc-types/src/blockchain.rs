@@ -1384,6 +1384,7 @@ pub struct HardForkFeature {
 /// hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
 /// where activation is controlled by rfc0043 signaling).
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum SoftForkStatus {
     /// the activation epoch is hard-coded into the client implementation
     Buried,
@@ -1395,9 +1396,9 @@ pub enum SoftForkStatus {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum SoftFork {
-    /// the activation epoch is hard-coded into the client implementation
+    /// buried - the activation epoch is hard-coded into the client implementation
     Buried(Buried),
-    /// the activation is controlled by rfc0043 signaling
+    /// rfc0043 - the activation is controlled by rfc0043 signaling
     Rfc0043(Rfc0043),
 }
 

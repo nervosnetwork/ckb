@@ -78,13 +78,13 @@ pub trait StatsRpc {
     ///     "epoch": "0x1",
     ///     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     ///        "deployments": {
-    ///            "Testdummy": {
+    ///            "testdummy": {
     ///                "bit": 1,
     ///                "min_activation_epoch": "0x0",
     ///                "period": "0xa",
     ///                "since": "0x0",
     ///                "start": "0x0",
-    ///                "state": "Failed",
+    ///                "state": "failed",
     ///                "timeout": "0x0",
     ///                "threshold": {
     ///                     "numer": 3,

@@ -1363,8 +1363,8 @@ pub trait ChainRpc {
     ///         "secp256k1_blake160_multisig_all_type_hash": null,
     ///         "secp256k1_blake160_sighash_all_type_hash": null,
     ///         "softforks": {
-    ///             "Testdummy": {
-    ///                 "status": "Rfc0043",
+    ///             "testdummy": {
+    ///                 "status": "rfc0043",
     ///                 "rfc0043": {
     ///                     "bit": 1,
     ///                     "min_activation_epoch": "0x0",
