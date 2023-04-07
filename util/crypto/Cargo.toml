@@ -1,6 +1,6 @@
 [package]
 name = "ckb-crypto"
-version = "0.109.0-pre"
+version = "0.110.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.109.0-pre" }
+ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.110.0-pre" }
 lazy_static = "1.3"
 secp256k1 = { version = "0.24", features = ["recovery"], optional = true }
 thiserror = "1.0.22"
