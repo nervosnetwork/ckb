@@ -1,10 +1,14 @@
 //! Utilities for tokio runtime.
+//!
+//! Handle is a newtype wrap and unwrap tokio::Handle, it is workaround with Rust Orphan Rules.
+//! We need `Handle` impl ckb spawn trait decouple tokio dependence
 
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use core::future::Future;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
+use std::time::Duration;
 use tokio::runtime::Builder;
 use tokio::runtime::Handle as TokioHandle;
 use tokio::sync::oneshot;
@@ -13,8 +17,7 @@ use tokio::task::JoinHandle;
 pub use tokio;
 pub use tokio::runtime::Runtime;
 
-// Handle is a newtype wrap and unwrap tokio::Handle, it is workaround with Rust Orphan Rules.
-// We need `Handle` impl ckb spawn trait decouple tokio dependence
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Handle to the runtime.
 #[derive(Debug, Clone)]
@@ -145,6 +148,7 @@ pub fn new_background_runtime() -> (Handle, StopHandler<()>) {
         .name("GlobalRtBuilder".to_string())
         .spawn(move || {
             let ret = runtime.block_on(rx);
+            runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
             ckb_logger::debug!("global runtime finish {:?}", ret);
         })
         .expect("tokio runtime started");
