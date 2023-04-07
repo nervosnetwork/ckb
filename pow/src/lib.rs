@@ -20,15 +20,17 @@ pub use crate::dummy::DummyPowEngine;
 pub use crate::eaglesong::EaglesongPowEngine;
 pub use crate::eaglesong_blake2b::EaglesongBlake2bPowEngine;
 
-/// TODO(doc): @quake
+/// The PoW engine traits bundled
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
-    /// TODO(doc): @quake
+    /// Mocking dummy PoW engine
     Dummy,
-    /// TODO(doc): @quake
+    /// The Eaglesong PoW engine
+    /// Check details of Eaglesong from: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md
     Eaglesong,
-    /// TODO(doc): @quake
+    /// The Eaglesong PoW engine, similar to `Eaglesong`, but using `blake2b` hash as the final output.
+    /// Check details of blake2b from: https://tools.ietf.org/html/rfc7693 and blake2b-rs from: https://github.com/nervosnetwork/blake2b-rs
     EaglesongBlake2b,
 }
 
@@ -43,7 +45,7 @@ impl fmt::Display for Pow {
 }
 
 impl Pow {
-    /// TODO(doc): @quake
+    /// Allocates a new engine instance
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine),
@@ -52,13 +54,13 @@ impl Pow {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Determine whether this engine is dummy(mocking)
     pub fn is_dummy(&self) -> bool {
         *self == Pow::Dummy
     }
 }
 
-/// TODO(doc): @quake
+/// Combine pow_hash and nonce to a message, in little endian
 pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
     let mut message = [0; 48];
     message[0..32].copy_from_slice(pow_hash.as_slice());
@@ -66,15 +68,15 @@ pub fn pow_message(pow_hash: &Byte32, nonce: u128) -> [u8; 48] {
     message
 }
 
-/// TODO(doc): @quake
+/// A trait for PoW engine, which is used to verify PoW
 pub trait PowEngine: Send + Sync + AsAny {
-    /// TODO(doc): @quake
+    /// Verify header
     fn verify(&self, header: &Header) -> bool;
 }
 
-/// TODO(doc): @quake
+/// A trait for casting to trait `Any`
 pub trait AsAny {
-    /// TODO(doc): @quake
+    /// Cast to trait `Any`
     fn as_any(&self) -> &dyn Any;
 }
 
