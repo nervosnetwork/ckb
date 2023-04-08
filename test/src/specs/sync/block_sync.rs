@@ -14,6 +14,30 @@ use ckb_types::{
 };
 use std::time::Duration;
 
+// If I received a block which is not requested, I will ban the remote peer
+pub struct BanPeerWhoSendBlockIDidNotRequest;
+
+impl Spec for BanPeerWhoSendBlockIDidNotRequest {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        info!("Run BanPeerWhoSendBlockIDidNotRequest");
+        info!("Connect node0");
+        let node0 = &nodes[0];
+        out_ibd_mode(nodes);
+        let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
+        net.connect(node0);
+
+        info!("Send node0 a block which is not requested by him");
+        let one_block = node0.new_block_builder(None, None, None).build();
+        net.send(node0, SupportProtocols::Sync, build_block(&one_block));
+
+        let rpc_client = nodes[0].rpc_client();
+        let ret = wait_until(10, || rpc_client.get_peers().is_empty());
+        assert!(ret, "Node0 should disconnect test node");
+        let ret = wait_until(10, || !rpc_client.get_banned_addresses().is_empty());
+        assert!(ret, "Node0 should ban test node");
+    }
+}
+
 pub struct BlockSyncFromOne;
 
 impl Spec for BlockSyncFromOne {

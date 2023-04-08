@@ -15,7 +15,7 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, RepairArgs, ReplayArgs,
+    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
@@ -114,13 +114,6 @@ impl Setup {
             check,
             force,
         })
-    }
-
-    /// `db-repair` subcommand
-    pub fn db_repair(self, _matches: &ArgMatches) -> Result<RepairArgs, ExitCode> {
-        let config = self.config.into_ckb()?;
-
-        Ok(RepairArgs { config })
     }
 
     /// Executes `ckb miner`.

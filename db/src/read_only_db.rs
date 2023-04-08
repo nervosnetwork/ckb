@@ -29,18 +29,10 @@ impl ReadOnlyDB {
             |err| {
                 let err_str = err.as_ref();
                 // notice: err msg difference
-                if err_str.starts_with("IO error: No such file or directory")
-                {
+                if err_str.starts_with("IO error: No such file or directory") {
                     Ok(None)
                 } else if err_str.starts_with("Corruption:") {
-                    info!(
-                        "DB corrupted: {}.\n\
-                        Try ckb db-repair command to repair DB.\n\
-                        Note: Currently there is a limitation that un-flushed column families will be lost after repair.\
-                        This would happen even if the DB is in healthy state.\n\
-                        See https://github.com/facebook/rocksdb/wiki/RocksDB-Repairer for detail",
-                        err_str
-                    );
+                    info!("DB corrupted: {err_str}.");
                     Err(internal_error("DB corrupted"))
                 } else {
                     Err(internal_error(format!(

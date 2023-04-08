@@ -36,7 +36,6 @@ ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.109.0-rc2
 ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.109.0-rc2" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.109.0-rc2" }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0-rc2" }
-ckb-db = { path = "../db", version = "= 0.109.0-rc2" }
 ckb-launcher = { path = "../util/launcher", version = "= 0.109.0-rc2" }
 base64 = "0.21.0"
 tempfile.workspace = true
@@ -50,5 +49,5 @@ deadlock_detection = ["ckb-util/deadlock_detection"]
 profiling = ["ckb-memory-tracker/profiling"]
 with_sentry = ["sentry", "ckb-launcher/with_sentry", "ckb-network/with_sentry", "ckb-app-config/with_sentry", "ckb-logger-service/with_sentry"]
 with_dns_seeding = ["ckb-network/with_dns_seeding"]
-portable = ["ckb-db/portable", "ckb-launcher/portable"]
-march-native = ["ckb-db/march-native", "ckb-launcher/march-native"]
+portable = ["ckb-launcher/portable"]
+march-native = ["ckb-launcher/march-native"]
