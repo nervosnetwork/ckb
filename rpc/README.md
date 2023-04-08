@@ -172,6 +172,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `ScriptHashType`](#type-scripthashtype)
     * [Type `SerializedBlock`](#type-serializedblock)
     * [Type `SerializedHeader`](#type-serializedheader)
+    * [Type `SoftFork`](#type-softfork)
     * [Type `Status`](#type-status)
     * [Type `SyncState`](#type-syncstate)
     * [Type `Timestamp`](#type-timestamp)
@@ -1676,6 +1677,22 @@ Response
         "secondary_epoch_reward": "0x37d0c8e28542",
         "secp256k1_blake160_multisig_all_type_hash": null,
         "secp256k1_blake160_sighash_all_type_hash": null,
+        "softforks": {
+            "testdummy": {
+                "status": "rfc0043",
+                "rfc0043": {
+                    "bit": 1,
+                    "min_activation_epoch": "0x0",
+                    "period": "0xa",
+                    "start": "0x0",
+                    "threshold": {
+                        "denom": 4,
+                        "numer": 3
+                    },
+                    "timeout": "0x0"
+                }
+            }
+        },
         "tx_proposal_window": {
             "closest": "0x2",
             "farthest": "0xa"
@@ -4651,12 +4668,18 @@ Response
     "epoch": "0x1",
     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
        "deployments": {
-           "Testdummy": {
+           "testdummy": {
                "bit": 1,
                "min_activation_epoch": "0x0",
+               "period": "0xa",
+               "since": "0x0",
                "start": "0x0",
-               "state": "Failed",
-               "timeout": "0x0"
+               "state": "failed",
+               "timeout": "0x0",
+               "threshold": {
+                    "numer": 3,
+                    "denom": 4
+                }
            }
        }
   }
@@ -5609,6 +5632,8 @@ Consensus defines various parameters that influence chain consensus
 
 *   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
 
+*   `softforks`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`SoftFork`](#type-softfork) `}` - Softforks
+
 
 ### Type `Cycle`
 
@@ -5660,14 +5685,28 @@ An object containing various state info regarding deployments of consensus chang
 
 *   `min_activation_epoch`: [`EpochNumber`](#type-epochnumber) - specifies the epoch at which the softfork is allowed to become active.
 
-*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are
+*   `period`: [`EpochNumber`](#type-epochnumber) - the length in epochs of the signalling period
+
+*   `threshold`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
+
+*   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are:
+
+    *   `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
+
+    *   `STARTED` for all blocks reach or past the start_epoch.
+
+    *   `LOCKED_IN` for one period after the first period with STARTED blocks of which at least threshold has the associated bit set in version.
+
+    *   `ACTIVE` for all blocks after the LOCKED_IN period.
+
+    *   `FAILED` for all blocks after the timeout_epoch, if LOCKED_IN was not reached.
 
 
 ### Type `DeploymentPos`
 
 Deployment name
 
-`DeploymentPos` is equivalent to `"Testdummy" | "LightClient"`.
+`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
 
 *   Dummy
 *   light client protocol
@@ -5677,7 +5716,7 @@ Deployment name
 
 The possible softfork deployment state
 
-`DeploymentState` is equivalent to `"Defined" | "Started" | "LockedIn" | "Active" | "Failed"`.
+`DeploymentState` is equivalent to `"defined" | "started" | "locked_in" | "active" | "failed"`.
 
 *   First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
 *   For epochs past the `start` epoch.
@@ -6595,6 +6634,16 @@ This is a 0x-prefix hex string. It is the block serialized by molecule using the
 ### Type `SerializedHeader`
 
 This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`.
+
+### Type `SoftFork`
+
+SoftFork information
+
+`SoftFork` is equivalent to `"buried" | "rfc0043"`.
+
+*   buried - the activation epoch is hard-coded into the client implementation
+*   rfc0043 - the activation is controlled by rfc0043 signaling
+
 
 ### Type `Status`
 
