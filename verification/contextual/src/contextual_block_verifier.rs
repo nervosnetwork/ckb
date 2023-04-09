@@ -465,7 +465,7 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS>
                     .map(|completed| (tx_hash, completed))
                 }
             })
-            .skip(1)
+            .skip(1) // skip cellbase tx
             .collect::<Result<Vec<(Byte32, Completed)>, Error>>()?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
