@@ -98,6 +98,10 @@ pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 /// The struct represent CKB two-step-transaction-confirmation params
 ///
 /// [two-step-transaction-confirmation params](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#two-step-transaction-confirmation)
+///
+/// The `ProposalWindow` consists of two fields:
+/// self.0, aka w_close, self.1, aka w_far
+/// w_close and w_far define the closest and farthest on-chain distance between a transaction’s proposal and commitment.
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
