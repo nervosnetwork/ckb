@@ -28,7 +28,7 @@ Submit one issue per bug or feature request. Don't list multiple bugs or feature
 Please include the following in your submission:
 
 1. **Do not open up a GitHub issue to report security vulnerabilities**. Instead,
-refer to the [security policy](https://www.notion.so/cryptape/SECURITY.md)
+refer to the [security policy](https://github.com/nervosnetwork/ckb/blob/develop/SECURITY.md)
 2. When creating a new issue, be sure to include **a title and clear description**. It is appreciated that if you can also attach as much relevant information as possible, including:
 - Version
 - Environment
