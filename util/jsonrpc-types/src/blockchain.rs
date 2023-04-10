@@ -1,12 +1,14 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, ProposalShortId,
-    ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64, Version,
+    BlockNumber, Byte32, Capacity, Cycle, DeploymentPos, EpochNumber, EpochNumberWithFraction,
+    ProposalShortId, ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64,
+    Version,
 };
 use ckb_types::core::tx_pool;
 use ckb_types::utilities::MerkleProof as RawMerkleProof;
 use ckb_types::{core, packed, prelude::*, H256};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
@@ -1365,6 +1367,8 @@ pub struct Consensus {
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
     pub hardfork_features: Vec<HardForkFeature>,
+    /// Softforks
+    pub softforks: HashMap<DeploymentPos, SoftFork>,
 }
 
 /// The information about one hardfork feature.
@@ -1374,6 +1378,81 @@ pub struct HardForkFeature {
     pub rfc: String,
     /// The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
     pub epoch_number: Option<EpochNumber>,
+}
+
+/// SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is
+/// hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
+/// where activation is controlled by rfc0043 signaling).
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum SoftForkStatus {
+    /// the activation epoch is hard-coded into the client implementation
+    Buried,
+    /// the activation is controlled by rfc0043 signaling
+    Rfc0043,
+}
+
+/// SoftFork information
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum SoftFork {
+    /// buried - the activation epoch is hard-coded into the client implementation
+    Buried(Buried),
+    /// rfc0043 - the activation is controlled by rfc0043 signaling
+    Rfc0043(Rfc0043),
+}
+
+impl SoftFork {
+    /// Construct new rfc0043
+    pub fn new_rfc0043(deployment: Deployment) -> SoftFork {
+        SoftFork::Rfc0043(Rfc0043 {
+            status: SoftForkStatus::Rfc0043,
+            rfc0043: deployment,
+        })
+    }
+}
+
+/// Represent soft fork deployments where the activation epoch is
+/// hard-coded into the client implementation
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Buried {
+    /// SoftFork status
+    pub status: SoftForkStatus,
+    /// Whether the rules are active
+    pub active: bool,
+    /// The first epoch  which the rules will be enforced
+    pub epoch: EpochNumber,
+}
+
+/// Represent soft fork deployments
+/// where activation is controlled by rfc0043 signaling
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Rfc0043 {
+    /// SoftFork status
+    pub status: SoftForkStatus,
+    /// RFC0043 deployment params
+    pub rfc0043: Deployment,
+}
+
+/// RFC0043 deployment params
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Deployment {
+    /// Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+    /// It is chosen from the set {0,1,2,...,28}.
+    pub bit: u8,
+    /// Specifies the first epoch in which the bit gains meaning.
+    pub start: EpochNumber,
+    /// Specifies an epoch at which the miner signaling ends.
+    /// Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
+    /// the deployment is considered failed on all descendants of the block.
+    pub timeout: EpochNumber,
+    /// Specifies the epoch at which the softfork is allowed to become active.
+    pub min_activation_epoch: EpochNumber,
+    /// Specifies length of epochs of the signalling period.
+    pub period: EpochNumber,
+    /// Specifies the minimum ratio of block per `period`,
+    /// which indicate the locked_in of the softfork during the `period`.
+    pub threshold: core::Ratio,
 }
 
 fn convert(number: core::EpochNumber) -> Option<EpochNumber> {
