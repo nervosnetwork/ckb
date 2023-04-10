@@ -339,12 +339,20 @@ impl Synchronizer {
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let (is_outbound, is_whitelist) = nc
+        let pid = SupportProtocols::Sync.protocol_id();
+        let (is_outbound, is_whitelist, is_2023edition) = nc
             .get_peer(peer)
-            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
-            .unwrap_or((false, false));
+            .map(|peer| {
+                (
+                    peer.is_outbound(),
+                    peer.is_whitelist,
+                    peer.protocols.get(&pid).map(|v| v == "3").unwrap_or(false),
+                )
+            })
+            .unwrap_or((false, false, false));
 
-        self.peers().sync_connected(peer, is_outbound, is_whitelist);
+        self.peers()
+            .sync_connected(peer, is_outbound, is_whitelist, is_2023edition);
     }
 
     /// Regularly check and eject some nodes that do not respond in time
