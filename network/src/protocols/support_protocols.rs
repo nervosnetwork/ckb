@@ -6,7 +6,7 @@ use p2p::{
 };
 use tokio_util::codec::length_delimited;
 
-const LASTEST_VERSION: &str = "2";
+const LASTEST_VERSION: &str = "3";
 
 /// All supported protocols
 ///
@@ -44,6 +44,9 @@ pub enum SupportProtocols {
     ///
     /// [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md#new-block-announcement)
     RelayV2,
+    /// Relay: ckb's main communication protocol for synchronizing latest transactions and blocks.
+    /// [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md#new-block-announcement)
+    RelayV3,
     /// Time: A protocol used for node pairing that warns if there is a large gap between the local time and the remote node.
     Time,
     /// Alert: A protocol reserved by the Nervos Foundation to publish network-wide announcements.
@@ -66,6 +69,7 @@ impl SupportProtocols {
             SupportProtocols::DisconnectMessage => 4,
             SupportProtocols::Sync => 100,
             SupportProtocols::RelayV2 => 101,
+            SupportProtocols::RelayV3 => 103,
             SupportProtocols::Time => 102,
             SupportProtocols::Alert => 110,
             SupportProtocols::LightClient => 120,
@@ -84,6 +88,7 @@ impl SupportProtocols {
             SupportProtocols::DisconnectMessage => "/ckb/disconnectmsg",
             SupportProtocols::Sync => "/ckb/syn",
             SupportProtocols::RelayV2 => "/ckb/relay",
+            SupportProtocols::RelayV3 => "/ckb/relay3",
             SupportProtocols::Time => "/ckb/tim",
             SupportProtocols::Alert => "/ckb/alt",
             SupportProtocols::LightClient => "/ckb/lightclient",
@@ -96,36 +101,39 @@ impl SupportProtocols {
     pub fn support_versions(&self) -> Vec<String> {
         // Here you have to make sure that the list of supported versions is sorted from smallest to largest
         match self {
-            SupportProtocols::Ping => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Discovery => vec![LASTEST_VERSION.to_owned(), "2.1".to_owned()],
-            SupportProtocols::Identify => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Feeler => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::DisconnectMessage => {
-                vec![LASTEST_VERSION.to_owned()]
+            SupportProtocols::Ping => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Discovery => {
+                vec!["2".to_owned(), "2.1".to_owned(), LASTEST_VERSION.to_owned()]
             }
-            SupportProtocols::Sync => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Time => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Alert => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::RelayV2 => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::LightClient => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Filter => vec![LASTEST_VERSION.to_owned()],
+            SupportProtocols::Identify => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Feeler => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::DisconnectMessage => {
+                vec!["2".to_owned(), LASTEST_VERSION.to_owned()]
+            }
+            SupportProtocols::Sync => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Time => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Alert => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::RelayV2 => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::RelayV3 => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::LightClient => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::Filter => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
         }
     }
 
     /// Protocol message max length
     pub fn max_frame_length(&self) -> usize {
         match self {
-            SupportProtocols::Ping => 1024,                   // 1   KB
-            SupportProtocols::Discovery => 512 * 1024,        // 512 KB
-            SupportProtocols::Identify => 2 * 1024,           // 2   KB
-            SupportProtocols::Feeler => 1024,                 // 1   KB
-            SupportProtocols::DisconnectMessage => 1024,      // 1   KB
-            SupportProtocols::Sync => 2 * 1024 * 1024,        // 2   MB
-            SupportProtocols::RelayV2 => 4 * 1024 * 1024,     // 4   MB
-            SupportProtocols::Time => 1024,                   // 1   KB
-            SupportProtocols::Alert => 128 * 1024,            // 128 KB
+            SupportProtocols::Ping => 1024,              // 1   KB
+            SupportProtocols::Discovery => 512 * 1024,   // 512 KB
+            SupportProtocols::Identify => 2 * 1024,      // 2   KB
+            SupportProtocols::Feeler => 1024,            // 1   KB
+            SupportProtocols::DisconnectMessage => 1024, // 1   KB
+            SupportProtocols::Sync => 2 * 1024 * 1024,   // 2   MB
+            SupportProtocols::RelayV2 | SupportProtocols::RelayV3 => 4 * 1024 * 1024, // 4   MB
+            SupportProtocols::Time => 1024,              // 1   KB
+            SupportProtocols::Alert => 128 * 1024,       // 128 KB
             SupportProtocols::LightClient => 2 * 1024 * 1024, // 2 MB
-            SupportProtocols::Filter => 2 * 1024 * 1024,      // 2   MB
+            SupportProtocols::Filter => 2 * 1024 * 1024, // 2   MB
         }
     }
 

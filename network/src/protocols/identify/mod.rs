@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 use std::time::{Duration, Instant};
 
 use ckb_logger::{debug, error, trace, warn};
@@ -370,7 +370,18 @@ impl Callback for IdentifyCallback {
     }
 
     fn unregister(&self, context: &ProtocolContextMutRef) {
-        if context.session.ty.is_outbound() {
+        let protocol_version_match = self
+            .network_state
+            .with_peer_registry(|reg| {
+                reg.get_peer(context.session.id)
+                    .map(|p| p.protocol_version(context.proto_id))
+            })
+            .flatten()
+            .map(|version| version != "3")
+            .unwrap_or_default();
+
+        if self.network_state.ckb2023.load(Ordering::SeqCst) && protocol_version_match {
+        } else if context.session.ty.is_outbound() {
             // Due to the filtering strategy of the peer store, if the node is
             // disconnected after a long connection is maintained for more than seven days,
             // it is possible that the node will be accidentally evicted, so it is necessary
@@ -416,14 +427,40 @@ impl Callback for IdentifyCallback {
 
                 let required_flags = self.network_state.required_flags;
 
+                let protocol_version_match = self
+                    .network_state
+                    .with_peer_registry(|reg| {
+                        reg.get_peer(context.session.id)
+                            .map(|p| p.protocol_version(context.proto_id))
+                    })
+                    .flatten()
+                    .map(|version| version != "3")
+                    .unwrap_or_default();
+                let ckb2023 = self.network_state.ckb2023.load(Ordering::SeqCst);
+
+                let renew = if ckb2023 && protocol_version_match {
+                    if context.session.ty.is_outbound() {
+                        self.network_state
+                            .peer_store
+                            .lock()
+                            .mut_addr_manager()
+                            .remove(&context.session.address);
+                    }
+                    false
+                } else {
+                    true
+                };
+
                 if context.session.ty.is_outbound() {
                     // why don't set inbound here?
                     // because inbound address can't feeler during staying connected
                     // and if set it to peer store, it will be broadcast to the entire network,
                     // but this is an unverified address
-                    self.network_state.with_peer_store_mut(|peer_store| {
-                        peer_store.add_outbound_addr(context.session.address.clone(), flags);
-                    });
+                    if renew {
+                        self.network_state.with_peer_store_mut(|peer_store| {
+                            peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                        });
+                    }
 
                     if self
                         .network_state
@@ -441,7 +478,12 @@ impl Callback for IdentifyCallback {
                             .open_protocols(
                                 context.session.id,
                                 TargetProtocol::Filter(Box::new(move |id| {
-                                    id != &SupportProtocols::Feeler.protocol_id()
+                                    if ckb2023 {
+                                        id != &SupportProtocols::Feeler.protocol_id()
+                                            && id != &SupportProtocols::RelayV2.protocol_id()
+                                    } else {
+                                        id != &SupportProtocols::Feeler.protocol_id()
+                                    }
                                 })),
                             )
                             .await;

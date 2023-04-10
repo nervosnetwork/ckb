@@ -139,6 +139,7 @@ pub struct PeerFlags {
     pub is_outbound: bool,
     pub is_protect: bool,
     pub is_whitelist: bool,
+    pub is_2023edition: bool,
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -861,7 +862,13 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn sync_connected(&self, peer: PeerIndex, is_outbound: bool, is_whitelist: bool) {
+    pub fn sync_connected(
+        &self,
+        peer: PeerIndex,
+        is_outbound: bool,
+        is_whitelist: bool,
+        is_2023edition: bool,
+    ) {
         let protect_outbound = is_outbound
             && self
                 .n_protected_outbound_peers
@@ -877,6 +884,7 @@ impl Peers {
         let peer_flags = PeerFlags {
             is_outbound,
             is_whitelist,
+            is_2023edition,
             is_protect: protect_outbound,
         };
         self.state

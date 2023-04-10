@@ -206,6 +206,9 @@ struct TestNetworkContext {
 
 #[async_trait]
 impl CKBProtocolContext for TestNetworkContext {
+    fn ckb2023(&self) -> bool {
+        false
+    }
     // Interact with underlying p2p service
     async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), ckb_network::Error> {
         let index = Index::Timer(self.protocol, token);
