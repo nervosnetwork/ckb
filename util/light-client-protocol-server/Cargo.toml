@@ -22,7 +22,6 @@ ckb-systemtime = {path = "../systemtime", version = "= 0.110.0-pre"}
 ckb-chain = { path = "../../chain", version = "= 0.110.0-pre" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.110.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.110.0-pre" }
-ckb-launcher = { path = "../launcher", version = "= 0.110.0-pre" }
 ckb-app-config = { path = "../app-config", version = "= 0.110.0-pre" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.110.0-pre" }
 ckb-dao-utils = { path = "../dao/utils", version = "= 0.110.0-pre" }

@@ -27,9 +27,7 @@ ckb-verification = { path = "..", version = "= 0.110.0-pre" }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.110.0-pre" }
 ckb-shared = { path = "../../shared", version = "= 0.110.0-pre" }
-ckb-launcher = { path = "../../util/launcher", version = "= 0.110.0-pre" }
 ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.110.0-pre" }
 ckb-systemtime = { path = "../../util/systemtime", version = "= 0.110.0-pre", features = ["enable_faketime"]}
 rand = "0.7"

@@ -59,7 +59,7 @@ case $GITHUB_WORKFLOW in
     make check-whitespaces
     make check-dirty-rpc-doc
     make check-dirty-hashes-toml
-    devtools/ci/check-cyclic-dependencies.py
+    devtools/ci/check-cyclic-dependencies.py --dev
     ;;
   ci_wasm_build*)
     echo "ci_WASM_build"

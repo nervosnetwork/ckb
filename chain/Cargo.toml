@@ -36,7 +36,6 @@ ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.110
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.110.0-pre", features = ["internal"] }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.110.0-pre" }
 ckb-network = { path = "../network", version = "= 0.110.0-pre" }
-ckb-launcher = { path = "../util/launcher", version = "= 0.110.0-pre" }
 lazy_static = "1.4"
 tempfile.workspace = true
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.110.0-pre" ,features = ["enable_faketime"]}
