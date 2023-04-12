@@ -1,5 +1,6 @@
 use ckb_app_config::{ExitCode, MigrateArgs};
 use ckb_launcher::migrate::Migrate;
+use is_terminal::IsTerminal;
 use std::cmp::Ordering;
 
 use crate::helper::prompt;
@@ -37,7 +38,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
             }
 
             if migrate.require_expensive(&db) && !args.force {
-                if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
+                if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                     let input = prompt("\
                     \n\
                     Doing migration will take quite a long time before CKB could work again.\n\
