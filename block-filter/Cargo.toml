@@ -1,6 +1,6 @@
 [package]
 name = "ckb-block-filter"
-version = "0.109.0-rc1"
+version = "0.109.0-rc2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,9 +11,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-store = { path = "../store", version = "= 0.109.0-rc1" }
-ckb-shared = { path = "../shared", version = "= 0.109.0-rc1" }
-ckb-logger = { path = "../util/logger", version = "= 0.109.0-rc1" }
-ckb-types = { path = "../util/types", version = "= 0.109.0-rc1" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.109.0-rc1" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0-rc1" }
+ckb-store = { path = "../store", version = "= 0.109.0-rc2" }
+ckb-shared = { path = "../shared", version = "= 0.109.0-rc2" }
+ckb-logger = { path = "../util/logger", version = "= 0.109.0-rc2" }
+ckb-types = { path = "../util/types", version = "= 0.109.0-rc2" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.109.0-rc2" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0-rc2" }

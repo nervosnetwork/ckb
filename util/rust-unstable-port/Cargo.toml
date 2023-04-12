@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rust-unstable-port"
-version = "0.109.0-rc1"
+version = "0.109.0-rc2"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
