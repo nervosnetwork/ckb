@@ -659,6 +659,7 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
         }
         ("generate_block", 42) => return false,
         ("get_fee_rate_statics", 42) => return false,
+        ("get_fee_rate_statistics", 42) => return false,
         ("generate_block_with_template", 42) => return false,
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,
