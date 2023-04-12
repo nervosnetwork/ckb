@@ -1,6 +1,6 @@
 [package]
 name = "ckb-logger"
-version = "0.109.0-rc2"
+version = "0.109.0-rc3"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2021"
