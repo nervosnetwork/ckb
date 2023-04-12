@@ -55,6 +55,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `get_block_median_time`](#method-get_block_median_time)
         * [Method `estimate_cycles`](#method-estimate_cycles)
         * [Method `get_fee_rate_statics`](#method-get_fee_rate_statics)
+        * [Method `get_fee_rate_statistics`](#method-get_fee_rate_statistics)
     * [Module Experiment](#module-experiment)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
@@ -135,7 +136,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `EstimateCycles`](#type-estimatecycles)
-    * [Type `FeeRateStatics`](#type-feeratestatics)
+    * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `Header`](#type-header)
@@ -1839,7 +1840,9 @@ Response
 #### Method `get_fee_rate_statics`
 * `get_fee_rate_statics(target)`
     * `target`: [`Uint64`](#type-uint64) `|` `null`
-* result: [`FeeRateStatics`](#type-feeratestatics) `|` `null`
+* result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
+
+👎Deprecated since 0.109.0: Please use the RPC method [`get_fee_rate_statistics`](#method-get_fee_rate_statistics) instead
 
 Returns the fee_rate statistics of confirmed blocks on the chain
 
@@ -1861,6 +1864,51 @@ Request
   "id": 42,
   "jsonrpc": "2.0",
   "method": "get_fee_rate_statics",
+  "params": []
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "mean": "0xe79d",
+    "median": "0x14a8"
+   }
+}
+```
+
+
+#### Method `get_fee_rate_statistics`
+* `get_fee_rate_statistics(target)`
+    * `target`: [`Uint64`](#type-uint64) `|` `null`
+* result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
+
+Returns the fee_rate statistics of confirmed blocks on the chain
+
+###### Params
+
+*   `target` - Specify the number (1 - 101) of confirmed blocks to be counted. If the number is even, automatically add one. If not specified, defaults to 21
+
+###### Returns
+
+If the query finds the corresponding historical data, the corresponding statistics are returned, containing the mean and median, in shannons per kilo-weight. If not, it returns null.
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fee_rate_statistics",
   "params": []
 }
 ```
@@ -5823,13 +5871,13 @@ Response result of the RPC method `estimate_cycles`.
 *   `cycles`: [`Cycle`](#type-cycle) - The count of cycles that the VM has consumed to verify this transaction.
 
 
-### Type `FeeRateStatics`
+### Type `FeeRateStatistics`
 
 The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
 
 #### Fields
 
-`FeeRateStatics` is a JSON object with the following fields.
+`FeeRateStatistics` is a JSON object with the following fields.
 
 *   `mean`: [`Uint64`](#type-uint64) - mean
 

@@ -1,5 +1,5 @@
 use crate::util::{FeeRateCollector, FeeRateProvider};
-use ckb_jsonrpc_types::FeeRateStatics;
+use ckb_jsonrpc_types::FeeRateStatistics;
 use ckb_types::core::{BlockExt, BlockNumber, Capacity};
 use std::collections::HashMap;
 
@@ -63,7 +63,7 @@ fn test_fee_rate_statics() {
     let statistics = FeeRateCollector::new(&provider).statistics(None);
     assert_eq!(
         statistics,
-        Some(FeeRateStatics {
+        Some(FeeRateStatistics {
             mean: 11_000.into(),
             median: 11_000.into(),
         })
@@ -72,7 +72,7 @@ fn test_fee_rate_statics() {
     let statistics = FeeRateCollector::new(&provider).statistics(Some(9));
     assert_eq!(
         statistics,
-        Some(FeeRateStatics {
+        Some(FeeRateStatistics {
             mean: 17_000.into(),
             median: 17_000.into()
         })
@@ -81,7 +81,7 @@ fn test_fee_rate_statics() {
     let statistics = FeeRateCollector::new(&provider).statistics(Some(30));
     assert_eq!(
         statistics,
-        Some(FeeRateStatics {
+        Some(FeeRateStatistics {
             mean: 11_000.into(),
             median: 11_000.into(),
         })
@@ -90,7 +90,7 @@ fn test_fee_rate_statics() {
     let statistics = FeeRateCollector::new(&provider).statistics(Some(0));
     assert_eq!(
         statistics,
-        Some(FeeRateStatics {
+        Some(FeeRateStatistics {
             mean: 21_000.into(),
             median: 21_000.into(),
         })
@@ -102,7 +102,7 @@ fn test_fee_rate_statics() {
     assert_eq!(statistics11, statistics12);
     assert_eq!(
         statistics11,
-        Some(FeeRateStatics {
+        Some(FeeRateStatistics {
             mean: 16500.into(),
             median: 16500.into(),
         })

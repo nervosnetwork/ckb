@@ -1488,7 +1488,7 @@ impl HardForkFeature {
 
 /// The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct FeeRateStatics {
+pub struct FeeRateStatistics {
     /// mean
     pub mean: Uint64,
     /// median
