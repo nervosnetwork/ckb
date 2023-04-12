@@ -67,11 +67,10 @@ impl Handle {
     }
 }
 
-/// Create new threaded_scheduler tokio Runtime, return `Runtime`
-pub fn new_global_runtime() -> (Handle, Runtime) {
-    let runtime = Builder::new_multi_thread()
+/// Create a new runtime with unique name.
+fn new_runtime() -> Runtime {
+    Builder::new_multi_thread()
         .enable_all()
-        .thread_name("GlobalRt")
         .thread_name_fn(|| {
             static ATOMIC_ID: AtomicU32 = AtomicU32::new(0);
             let id = ATOMIC_ID
@@ -98,46 +97,21 @@ pub fn new_global_runtime() -> (Handle, Runtime) {
             format!("GlobalRt-{id}")
         })
         .build()
-        .expect("ckb runtime initialized");
+        .expect("ckb runtime initialized")
+}
 
+/// Create new threaded_scheduler tokio Runtime, return `Runtime`
+pub fn new_global_runtime() -> (Handle, Runtime) {
+    let runtime = new_runtime();
     let handle = runtime.handle().clone();
 
     (Handle { inner: handle }, runtime)
 }
 
-/// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle
+/// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle,
+/// NOTICE: This is only used in testing
 pub fn new_background_runtime() -> (Handle, StopHandler<()>) {
-    let runtime = Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("GlobalRt")
-        .thread_name_fn(|| {
-            static ATOMIC_ID: AtomicU32 = AtomicU32::new(0);
-            let id = ATOMIC_ID
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                    // A long thread name will cut to 15 characters in debug tools.
-                    // Such as "top", "htop", "gdb" and so on.
-                    // It's a kernel limit.
-                    //
-                    // So if we want to see the whole name in debug tools,
-                    // this number should have 6 digits at most,
-                    // since the prefix uses 9 characters in below code.
-                    //
-                    // There still has a issue:
-                    // When id wraps around, we couldn't know whether the old id
-                    // is released or not.
-                    // But we can ignore this, because it's almost impossible.
-                    if n >= 999_999 {
-                        Some(0)
-                    } else {
-                        Some(n + 1)
-                    }
-                })
-                .expect("impossible since the above closure must return Some(number)");
-            format!("GlobalRt-{id}")
-        })
-        .build()
-        .expect("ckb runtime initialized");
-
+    let runtime = new_runtime();
     let handle = runtime.handle().clone();
 
     let (tx, rx) = oneshot::channel();
