@@ -24,16 +24,10 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                 return Err(ExitCode::Failure);
             }
 
-            if args.check {
-                if matches!(db_status, Ordering::Less) {
-                    return Ok(());
-                } else {
-                    return Err(ExitCode::Cli);
-                }
-            }
-
             if matches!(db_status, Ordering::Equal) {
                 return Ok(());
+            } else if args.check {
+                return Err(ExitCode::Cli);
             }
 
             if migrate.require_expensive(&db) && !args.force {
