@@ -81,17 +81,6 @@ impl RocksDB {
         })
     }
 
-    /// Repairer does best effort recovery to recover as much data as possible
-    /// after a disaster without compromising consistency.
-    /// It does not guarantee bringing the database to a time consistent state.
-    /// Note: Currently there is a limitation that un-flushed column families will be lost after repair.
-    /// This would happen even if the DB is in healthy state.
-    pub fn repair<P: AsRef<Path>>(path: P) -> Result<()> {
-        let repair_opts = Options::default();
-        OptimisticTransactionDB::repair(repair_opts, path)
-            .map_err(|err| internal_error(format!("failed to repair database: {err}")))
-    }
-
     /// Open a database with the given configuration and columns count.
     pub fn open(config: &DBConfig, columns: u32) -> Self {
         Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{err}"))
@@ -127,13 +116,7 @@ impl RocksDB {
                 {
                     Ok(None)
                 } else if err_str.starts_with("Corruption:") {
-                    info!(
-                        "DB corrupted: {err_str}.\n\
-                        Try ckb db-repair command to repair DB.\n\
-                        Note: Currently there is a limitation that un-flushed column families will be lost after repair.\
-                        This would happen even if the DB is in healthy state.\n\
-                        See https://github.com/facebook/rocksdb/wiki/RocksDB-Repairer for detail",
-                    );
+                    info!("DB corrupted: {err_str}.");
                     Err(internal_error(err_str))
                 } else {
                     Err(internal_error(format!(

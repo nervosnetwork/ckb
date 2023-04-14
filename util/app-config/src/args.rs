@@ -186,12 +186,6 @@ pub struct MigrateArgs {
     pub force: bool,
 }
 
-/// Parsed command line arguments for `ckb db-repair`.
-pub struct RepairArgs {
-    /// Parsed `ckb.toml`.
-    pub config: Box<CKBAppConfig>,
-}
-
 impl CustomizeSpec {
     /// No specified parameters for chain spec.
     pub fn is_unset(&self) -> bool {
