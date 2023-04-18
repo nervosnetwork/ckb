@@ -1,6 +1,6 @@
 [package]
 name = "ckb-bin"
-version = "0.109.0-rc3"
+version = "0.109.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -14,29 +14,29 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 serde_plain = "0.3.0"
 toml = "0.5"
-ckb-app-config = { path = "../util/app-config", version = "= 0.109.0-rc3" }
-ckb-logger = { path = "../util/logger", version = "= 0.109.0-rc3" }
-ckb-logger-service = { path = "../util/logger-service", version = "= 0.109.0-rc3" }
-ckb-metrics-service = { path = "../util/metrics-service", version = "= 0.109.0-rc3" }
-ckb-util = { path = "../util", version = "= 0.109.0-rc3" }
-ckb-types = { path = "../util/types", version = "= 0.109.0-rc3" }
-ckb-channel = { path = "../util/channel", version = "= 0.109.0-rc3" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.109.0-rc3" }
-ckb-chain = { path = "../chain", version = "= 0.109.0-rc3" }
-ckb-shared = { path = "../shared", version = "= 0.109.0-rc3" }
-ckb-store = { path = "../store", version = "= 0.109.0-rc3" }
-ckb-chain-spec = {path = "../spec", version = "= 0.109.0-rc3"}
-ckb-miner = { path = "../miner", version = "= 0.109.0-rc3" }
-ckb-network = { path = "../network", version = "= 0.109.0-rc3"}
-ckb-resource = { path = "../resource", version = "= 0.109.0-rc3"}
+ckb-app-config = { path = "../util/app-config", version = "= 0.109.0" }
+ckb-logger = { path = "../util/logger", version = "= 0.109.0" }
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.109.0" }
+ckb-metrics-service = { path = "../util/metrics-service", version = "= 0.109.0" }
+ckb-util = { path = "../util", version = "= 0.109.0" }
+ckb-types = { path = "../util/types", version = "= 0.109.0" }
+ckb-channel = { path = "../util/channel", version = "= 0.109.0" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.109.0" }
+ckb-chain = { path = "../chain", version = "= 0.109.0" }
+ckb-shared = { path = "../shared", version = "= 0.109.0" }
+ckb-store = { path = "../store", version = "= 0.109.0" }
+ckb-chain-spec = {path = "../spec", version = "= 0.109.0"}
+ckb-miner = { path = "../miner", version = "= 0.109.0" }
+ckb-network = { path = "../network", version = "= 0.109.0"}
+ckb-resource = { path = "../resource", version = "= 0.109.0"}
 ctrlc = { version = "3.1", features = ["termination"] }
-ckb-instrument = { path = "../util/instrument", version = "= 0.109.0-rc3", features = ["progress_bar"] }
-ckb-build-info = { path = "../util/build-info", version = "= 0.109.0-rc3" }
-ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.109.0-rc3" }
-ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.109.0-rc3" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.109.0-rc3" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0-rc3" }
-ckb-launcher = { path = "../util/launcher", version = "= 0.109.0-rc3" }
+ckb-instrument = { path = "../util/instrument", version = "= 0.109.0", features = ["progress_bar"] }
+ckb-build-info = { path = "../util/build-info", version = "= 0.109.0" }
+ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.109.0" }
+ckb-chain-iter = { path = "../util/chain-iter", version = "= 0.109.0" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.109.0" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.109.0" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.109.0" }
 base64 = "0.21.0"
 tempfile.workspace = true
 rayon = "1.0"

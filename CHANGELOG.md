@@ -1,3 +1,38 @@
+# [v0.109.0](https://github.com/nervosnetwork/ckb/compare/v0.108.1...v0.109.0) (2023-04-19)
+
+### Features
+
+* #3927 **cli: (BREAKING)** Remove ckb db-repair subcommand (@zhangsoledad)
+* #3772 **rpc: (BREAKING)** Add soft-fork deployment since info in RPC (@zhangsoledad)
+
+    The response schema has changed in the RPC `get_deployments_info` and `get_consensus`.
+
+* #3842: Add exact search mode (@quake)
+* #3859: Add flatmemory feature for FlatMemory based machine types (@xxuejie)
+
+    This change adds a new `flatmemory` feature to ckb-script, which will use `FlatMemory` as the memory type for
+    `CoreMachine`/`CoreMachineType`. While this is not gonna be used in CKB, a FlatMemory will be quite useful in the development of surrounding tools, including ckb-debugger. Note that one option is that a debugger could maintain its own ckb-script package, but considering the fact that the change here is rather small, I would suggest we include this here feature in CKB.
+
+* #3752: Thread-safe vm (@zhangsoledad)
+
+### Bug Fixes
+
+* #3924 **rpc: (BREAKING)** Fix rpc typo: statics -> statistics (@zhangsoledad)
+
+    The RPC method `get_fee_rate_statics` is deprecated, please use `get_fee_rate_statistics` instead.
+* #3849: Omission modification (@driftluo)
+* #3840: Fix transaction rebroadcast by resubmitting (@zhangsoledad)
+* #3886: Potentially tx-pool panic after detached (@zhangsoledad)
+* #3892: Resolve the bug of `list-hashes` subcmd (@quake)
+* #3894: Fix tx-pool remove expired (@zhangsoledad)
+
+### Improvements
+
+* #3860: Improve `ScriptError::InvalidCodeHash` when code_hash can't be resolved (@eval-exec)
+* #3869: Replace opentelemetry by tikv/rust-prometheus (@eval-exec)
+* #3893: Fix CKB command line usage test case by bats-core/bats (@eval-exec)
+* #3890 **light-client:** Let the function that builds filter data to be standalone (@yangby-cryptape)
+
 # [v0.108.1](https://github.com/nervosnetwork/ckb/compare/v0.108.0...v0.108.1) (2023-04-04)
 
 ### Bug Fixes
