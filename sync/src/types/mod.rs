@@ -1023,7 +1023,7 @@ impl HeaderView {
 
     pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
     where
-        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
+        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         if self.inner.is_genesis() {
@@ -1040,16 +1040,15 @@ impl HeaderView {
             .map(|header| header.hash());
     }
 
-    // NOTE: get_header_view may change source state, for cache or for tests
     pub fn get_ancestor<F, G>(
         self,
         tip_number: BlockNumber,
         number: BlockNumber,
-        mut get_header_view: F,
+        get_header_view: F,
         fast_scanner: G,
     ) -> Option<core::HeaderView>
     where
-        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
+        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
     {
         let mut current = self;

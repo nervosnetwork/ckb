@@ -5,7 +5,10 @@ use ckb_types::{
     U256,
 };
 use rand::{thread_rng, Rng};
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::atomic::{AtomicUsize, Ordering::Relaxed},
+};
 
 use crate::types::{HeaderView, TtlFilter, FILTER_TTL};
 
@@ -51,7 +54,7 @@ fn test_get_ancestor_use_skip_list() {
 
     let mut rng = thread_rng();
     let a_to_b = |a, b, limit| {
-        let mut count = 0;
+        let count = AtomicUsize::new(0);
         let header = header_map
             .get(&hashes[&a])
             .cloned()
@@ -60,7 +63,7 @@ fn test_get_ancestor_use_skip_list() {
                 0,
                 b,
                 |hash, _| {
-                    count += 1;
+                    count.fetch_add(1, Relaxed);
                     header_map.get(hash).cloned()
                 },
                 |_, _| None,
@@ -68,7 +71,7 @@ fn test_get_ancestor_use_skip_list() {
             .unwrap();
 
         // Search must finished in <limit> steps
-        assert!(count <= limit);
+        assert!(count.load(Relaxed) <= limit);
 
         header
     };
