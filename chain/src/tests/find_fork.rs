@@ -349,7 +349,7 @@ fn repeatedly_switch_fork() {
     let parent = fork1.blocks().last().cloned().unwrap();
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&parent.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
     let new_block1 = BlockBuilder::default()
@@ -368,7 +368,7 @@ fn repeatedly_switch_fork() {
     let mut parent = fork2.blocks().last().cloned().unwrap();
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&parent.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
     let new_block2 = BlockBuilder::default()
@@ -384,7 +384,7 @@ fn repeatedly_switch_fork() {
         .unwrap();
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&parent.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
     let new_block3 = BlockBuilder::default()
@@ -402,7 +402,7 @@ fn repeatedly_switch_fork() {
     parent = new_block1;
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&parent.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
     let new_block4 = BlockBuilder::default()
@@ -419,7 +419,7 @@ fn repeatedly_switch_fork() {
     parent = new_block4;
     let epoch = shared
         .consensus()
-        .next_epoch_ext(&parent.header(), &shared.store().as_data_provider())
+        .next_epoch_ext(&parent.header(), &shared.store().borrow_as_data_loader())
         .unwrap()
         .epoch();
     let new_block5 = BlockBuilder::default()

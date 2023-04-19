@@ -1,6 +1,6 @@
 [package]
 name = "ckb-resource"
-version = "0.108.1"
+version = "0.109.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -13,15 +13,14 @@ repository = "https://github.com/nervosnetwork/ckb"
 phf = "0.8.0"
 includedir = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
-ckb-types = { path = "../util/types", version = "= 0.108.1" }
+ckb-types = { path = "../util/types", version = "= 0.109.0" }
 ckb-system-scripts = { version = "= 0.5.4" }
 
 [build-dependencies]
 includedir_codegen = "0.6.0"
 walkdir = "2.1.4"
-ckb-types = { path = "../util/types", version = "= 0.108.1" }
+ckb-types = { path = "../util/types", version = "= 0.109.0" }
 ckb-system-scripts = { version = "= 0.5.4" }
 
 [dev-dependencies]
-# Lock tempfile so wasm-build-test will use getrandom 0.1.*
-tempfile = "=3.1.0"
+tempfile.workspace = true

@@ -987,6 +987,18 @@ impl Consensus {
         versionbits.get_state(parent, cache, indexer)
     }
 
+    /// Returns the first epoch which the current state applies
+    pub fn versionbits_state_since_epoch<I: VersionbitsIndexer>(
+        &self,
+        pos: DeploymentPos,
+        parent: &HeaderView,
+        indexer: &I,
+    ) -> Option<EpochNumber> {
+        let cache = self.versionbits_caches.cache(&pos)?;
+        let versionbits = Versionbits::new(pos, self);
+        versionbits.get_state_since_epoch(parent, cache, indexer)
+    }
+
     /// If the CKB block chain specification is for an public chain.
     pub fn is_public_chain(&self) -> bool {
         matches!(
@@ -1027,6 +1039,13 @@ impl NextBlockEpoch {
 
 impl From<Consensus> for ckb_jsonrpc_types::Consensus {
     fn from(consensus: Consensus) -> Self {
+        let mut softforks = HashMap::new();
+        for (pos, deployment) in consensus.deployments {
+            softforks.insert(
+                pos.into(),
+                ckb_jsonrpc_types::SoftFork::new_rfc0043(deployment.into()),
+            );
+        }
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
@@ -1065,6 +1084,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
             hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
                 &consensus.hardfork_switch,
             ),
+            softforks,
         }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.108.1"
+version = "0.109.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,11 +11,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.67.1"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.108.1" }
+ckb-build-info = { path = "util/build-info", version = "= 0.109.0" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.108.1" }
-ckb-bin = { path = "ckb-bin", version = "= 0.108.1" }
+ckb-build-info = { path = "util/build-info", version = "= 0.109.0" }
+ckb-bin = { path = "ckb-bin", version = "= 0.109.0" }
 
 [dev-dependencies]
 
@@ -30,7 +30,6 @@ members = [
     "util/build-info",
     "util/logger",
     "util/logger-config",
-    "util/metrics",
     "util/metrics-config",
     "util/hash",
     "util/rational",
@@ -43,6 +42,7 @@ members = [
     "util/logger-service",
     "util/stop-handler",
     "util/runtime",
+    "util/metrics",
     "util/metrics-service",
     "util/fixed-hash",
     "util/occupied-capacity",
@@ -90,6 +90,9 @@ members = [
     "util/launcher",
     "ckb-bin"
 ]
+
+[workspace.dependencies]
+tempfile = "3"
 
 [profile.release]
 overflow-checks = true

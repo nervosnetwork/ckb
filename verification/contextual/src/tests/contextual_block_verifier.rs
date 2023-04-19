@@ -89,8 +89,8 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     (chain_controller, shared)
 }
 
-fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
-    VerifyContext::new(shared.store(), shared.consensus())
+fn dummy_context(shared: &Shared) -> VerifyContext<ChainDB> {
+    VerifyContext::new(Arc::new(shared.store().clone()), shared.cloned_consensus())
 }
 
 fn create_cellbase(number: BlockNumber) -> TransactionView {
@@ -154,7 +154,7 @@ pub fn test_should_have_no_output_in_cellbase_no_finalization_target() {
         resolved_dep_groups: vec![],
     };
 
-    let ret = RewardVerifier::new(&context, &[cellbase], &parent).verify();
+    let ret = RewardVerifier::new(&context, &[Arc::new(cellbase)], &parent).verify();
 
     assert_error_eq!(ret.unwrap_err(), CellbaseError::InvalidRewardTarget,);
 }

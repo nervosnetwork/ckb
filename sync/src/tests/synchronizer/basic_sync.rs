@@ -110,7 +110,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         let snapshot = shared.snapshot();
         let epoch = snapshot
             .consensus()
-            .next_epoch_ext(&block.header(), &snapshot.as_data_provider())
+            .next_epoch_ext(&block.header(), &snapshot.borrow_as_data_loader())
             .unwrap()
             .epoch();
 
@@ -144,9 +144,9 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 snapshot.as_ref(),
             )
             .unwrap();
-            let data_loader = snapshot.as_data_provider();
+            let data_loader = snapshot.borrow_as_data_loader();
             DaoCalculator::new(shared.consensus(), &data_loader)
-                .dao_field(&[resolved_cellbase], &block.header())
+                .dao_field([resolved_cellbase].iter(), &block.header())
                 .unwrap()
         };
 

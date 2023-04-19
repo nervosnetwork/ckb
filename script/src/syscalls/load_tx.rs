@@ -4,32 +4,37 @@ use crate::{
         utils::store_data, LOAD_TRANSACTION_SYSCALL_NUMBER, LOAD_TX_HASH_SYSCALL_NUMBER, SUCCESS,
     },
 };
-use ckb_types::{core::TransactionView, prelude::*};
+use ckb_types::{core::cell::ResolvedTransaction, prelude::*};
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadTx<'a> {
-    tx: &'a TransactionView,
+pub struct LoadTx {
+    rtx: Arc<ResolvedTransaction>,
 }
 
-impl<'a> LoadTx<'a> {
-    pub fn new(tx: &'a TransactionView) -> LoadTx {
-        LoadTx { tx }
+impl LoadTx {
+    pub fn new(rtx: Arc<ResolvedTransaction>) -> LoadTx {
+        LoadTx { rtx }
     }
 }
 
-impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadTx<'a> {
+impl<Mac: SupportMachine> Syscalls<Mac> for LoadTx {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
         let wrote_size = match machine.registers()[A7].to_u64() {
-            LOAD_TX_HASH_SYSCALL_NUMBER => store_data(machine, self.tx.hash().as_slice())?,
-            LOAD_TRANSACTION_SYSCALL_NUMBER => store_data(machine, self.tx.data().as_slice())?,
+            LOAD_TX_HASH_SYSCALL_NUMBER => {
+                store_data(machine, self.rtx.transaction.hash().as_slice())?
+            }
+            LOAD_TRANSACTION_SYSCALL_NUMBER => {
+                store_data(machine, self.rtx.transaction.data().as_slice())?
+            }
             _ => return Ok(false),
         };
 

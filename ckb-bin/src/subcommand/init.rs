@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{self, Read};
 
 use crate::helper::prompt;
+use base64::Engine;
 use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -177,14 +178,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             println!("create specs/{}.toml from stdin", args.chain);
             let mut encoded_content = String::new();
             io::stdin().read_to_string(&mut encoded_content)?;
-            let spec_content = base64::decode_config(
-                encoded_content.trim(),
-                base64::STANDARD.decode_allow_trailing_bits(true),
-            )
-            .map_err(|err| {
-                eprintln!("stdin must be encoded in base64: {err}");
-                ExitCode::Failure
-            })?;
+            let base64_config =
+                base64::engine::GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true);
+            let base64_engine =
+                base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, base64_config);
+            let spec_content = base64_engine.encode(encoded_content.trim());
             fs::write(target_file, spec_content)?;
         } else {
             println!("cp {} specs/{}.toml", spec_file, args.chain);

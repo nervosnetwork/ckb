@@ -163,7 +163,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let snapshot: &Snapshot = &shared.snapshot();
     let epoch = shared
         .consensus()
-        .next_epoch_ext(parent, &snapshot.as_data_provider())
+        .next_epoch_ext(parent, &snapshot.borrow_as_data_loader())
         .unwrap()
         .epoch();
     let (_, reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
@@ -174,9 +174,9 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let dao = {
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        let data_loader = shared.store().as_data_provider();
+        let data_loader = shared.store().borrow_as_data_loader();
         DaoCalculator::new(shared.consensus(), &data_loader)
-            .dao_field(&[resolved_cellbase], parent)
+            .dao_field([resolved_cellbase].iter(), parent)
             .unwrap()
     };
     BlockBuilder::default()

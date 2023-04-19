@@ -146,7 +146,7 @@ pub struct BlockTransactionsError {
     pub error: Error,
 }
 
-/// Cannot access the parent block to the cannonical chain.
+/// Cannot access the parent block to the canonical chain.
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 #[error("UnknownParentError(parent_hash: {parent_hash})")]
 pub struct UnknownParentError {

@@ -32,8 +32,6 @@ pub const CMD_GEN_SECRET: &str = "gen";
 pub const CMD_FROM_SECRET: &str = "from-secret";
 /// Subcommand `migrate`.
 pub const CMD_MIGRATE: &str = "migrate";
-/// Subcommand `db-repair`.
-pub const CMD_DB_REPAIR: &str = "db-repair";
 
 /// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
@@ -145,7 +143,6 @@ pub fn basic_app() -> Command {
         .subcommand(reset_data())
         .subcommand(peer_id())
         .subcommand(migrate())
-        .subcommand(db_repair())
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -372,10 +369,6 @@ fn migrate() -> Command {
                 .conflicts_with(ARG_MIGRATE_CHECK)
                 .help("Do migration without interactive prompt"),
         )
-}
-
-fn db_repair() -> Command {
-    Command::new(CMD_DB_REPAIR).about("Try repair ckb database")
 }
 
 fn list_hashes() -> Command {

@@ -15,7 +15,6 @@ use ckb_db_schema::{
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
-use ckb_hash::blake2b_256;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
     core::{
@@ -24,6 +23,7 @@ use ckb_types::{
     },
     packed::{self, Byte32, OutPoint},
     prelude::*,
+    utilities::calc_filter_hash,
 };
 use std::sync::Arc;
 
@@ -394,13 +394,7 @@ impl StoreTransaction {
             block_hash.as_slice(),
             filter_data.as_slice(),
         )?;
-        let current_block_filter_hash = blake2b_256(
-            [
-                parent_block_filter_hash.as_slice(),
-                filter_data.calc_raw_data_hash().as_slice(),
-            ]
-            .concat(),
-        );
+        let current_block_filter_hash = calc_filter_hash(parent_block_filter_hash, filter_data);
         self.insert_raw(
             COLUMN_BLOCK_FILTER_HASH,
             block_hash.as_slice(),

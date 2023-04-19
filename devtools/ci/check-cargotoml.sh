@@ -123,7 +123,8 @@ function check_dependencies_for() {
     for dependency_original in $(${SED} -n "/^\[${deptype}\]/,/^\[/p" "${cargo_toml}" |
       { ${GREP} -v "^\(\[\|[ ]*$\|[ ]*#\)" || true; } |
       ${SED} -n "s/\([^ =]*\).*/\1/p"); do
-      local dependency=$(printf "${dependency_original}" | tr '-' '_')
+      local workspace_suffix=".workspace"
+      local dependency=$(printf "${dependency_original}" | tr '-' '_' |  ${SED} -e s/$workspace_suffix$//)
       local tmpcnt=0
       local depcnt=0
       local srcdir=

@@ -7,7 +7,9 @@ ignore = [
     # TODO Potential segfault in the time crate; waiting for the fix from upstream (chrono)
     "RUSTSEC-2020-0071",
     # TODO Potential segfault in the chrono crate; waiting for the new release of chrono
-    "RUSTSEC-2020-0159"
+    "RUSTSEC-2020-0159",
+    # waiting https://github.com/bheisler/criterion.rs/pull/628 bump release
+    "RUSTSEC-2021-0145"
 ]
 
 [licenses]

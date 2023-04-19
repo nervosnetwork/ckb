@@ -86,7 +86,7 @@ pub fn test_capacity_outofbound() {
         .output_data(data.pack())
         .build();
 
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
@@ -97,9 +97,9 @@ pub fn test_capacity_outofbound() {
         )
         .build()],
         resolved_dep_groups: vec![],
-    };
+    });
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
-    let verifier = CapacityVerifier::new(&rtx, Some(dao_type_hash));
+    let verifier = CapacityVerifier::new(rtx, Some(dao_type_hash));
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
@@ -125,13 +125,13 @@ pub fn test_skip_dao_capacity_check() {
         .output_data(Bytes::new().pack())
         .build();
 
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![],
         resolved_dep_groups: vec![],
-    };
-    let verifier = CapacityVerifier::new(&rtx, Some(dao_type_script.calc_script_hash()));
+    });
+    let verifier = CapacityVerifier::new(rtx, Some(dao_type_script.calc_script_hash()));
 
     assert!(verifier.verify().is_ok());
 }
@@ -146,19 +146,19 @@ pub fn test_inputs_cellbase_maturity() {
     let base_epoch = EpochNumberWithFraction::new(10, 0, 10);
     let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
 
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(mock_transaction_info(30, base_epoch, 0))
             .build()],
-    };
+    });
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
     let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
     while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
-        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        let verifier = MaturityVerifier::new(Arc::clone(&rtx), current_epoch, cellbase_maturity);
         let current = current_epoch.to_rational();
         if current < threshold {
             assert_error_eq!(
@@ -197,18 +197,18 @@ fn test_ignore_genesis_cellbase_maturity() {
     let base_epoch = EpochNumberWithFraction::new(0, 0, 10);
     let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
     // Transaction use genesis cellbase
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
             .transaction_info(mock_transaction_info(0, base_epoch, 0))
             .build()],
-    };
+    });
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
     while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
-        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        let verifier = MaturityVerifier::new(Arc::clone(&rtx), current_epoch, cellbase_maturity);
         assert!(
             verifier.verify().is_ok(),
             "base_epoch = {base_epoch}, current_epoch = {current_epoch}, cellbase_maturity = {cellbase_maturity}"
@@ -238,7 +238,7 @@ pub fn test_deps_cellbase_maturity() {
     let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
 
     // The 1st dep is cellbase, the 2nd one is not.
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
@@ -250,12 +250,12 @@ pub fn test_deps_cellbase_maturity() {
         ],
         resolved_inputs: Vec::new(),
         resolved_dep_groups: vec![],
-    };
+    });
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
     let threshold = cellbase_maturity.to_rational() + base_epoch.to_rational();
     while current_epoch.number() < cellbase_maturity.number() + base_epoch.number() + 5 {
-        let verifier = MaturityVerifier::new(&rtx, current_epoch, cellbase_maturity);
+        let verifier = MaturityVerifier::new(Arc::clone(&rtx), current_epoch, cellbase_maturity);
         let current = current_epoch.to_rational();
         if current < threshold {
             assert_error_eq!(
@@ -302,7 +302,7 @@ pub fn test_capacity_invalid() {
 
     // The inputs capacity is 49 + 100 = 149,
     // is less than outputs capacity
-    let rtx = ResolvedTransaction {
+    let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![
@@ -322,9 +322,9 @@ pub fn test_capacity_invalid() {
             .build(),
         ],
         resolved_dep_groups: vec![],
-    };
+    });
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
-    let verifier = CapacityVerifier::new(&rtx, Some(dao_type_hash));
+    let verifier = CapacityVerifier::new(rtx, Some(dao_type_hash));
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
@@ -369,9 +369,9 @@ pub fn test_duplicate_header_deps() {
     );
 }
 
-fn verify_since<'a>(
-    rtx: &'a ResolvedTransaction,
-    median_time_context: &'a MockMedianTime,
+fn verify_since(
+    rtx: Arc<ResolvedTransaction>,
+    median_time_context: MockMedianTime,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
 ) -> Result<(), Error> {
@@ -431,8 +431,8 @@ fn create_tx_with_lock(since: u64) -> TransactionView {
 fn create_resolve_tx_with_transaction_info(
     tx: &TransactionView,
     transaction_info: TransactionInfo,
-) -> ResolvedTransaction {
-    ResolvedTransaction {
+) -> Arc<ResolvedTransaction> {
+    Arc::new(ResolvedTransaction {
         transaction: tx.clone(),
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
@@ -444,7 +444,7 @@ fn create_resolve_tx_with_transaction_info(
         .transaction_info(transaction_info)
         .build()],
         resolved_dep_groups: vec![],
-    }
+    })
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn test_invalid_since_verify() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(rtx, median_time_context, 5, 1).unwrap_err(),
         TransactionError::InvalidSince { index: 0 },
     );
 }
@@ -473,7 +473,7 @@ fn test_valid_zero_length_since() {
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 5, 1).is_ok(),);
+    assert!(verify_since(rtx, median_time_context, 5, 1).is_ok(),);
 }
 
 #[test]
@@ -500,7 +500,13 @@ fn test_fraction_epoch_since_verify() {
             .build();
         TxVerifyEnv::new_commit(&header)
     };
-    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
+    let result = SinceVerifier::new(
+        Arc::clone(&rtx),
+        &consensus,
+        median_time_context.clone(),
+        &tx_env,
+    )
+    .verify();
     assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
 
     let tx_env = {
@@ -512,7 +518,7 @@ fn test_fraction_epoch_since_verify() {
             .build();
         TxVerifyEnv::new_commit(&header)
     };
-    let result = SinceVerifier::new(&rtx, &consensus, &median_time_context, &tx_env).verify();
+    let result = SinceVerifier::new(rtx, &consensus, median_time_context, &tx_env).verify();
     assert!(result.is_ok());
 }
 
@@ -545,13 +551,14 @@ fn test_fraction_epoch_since_verify_v2021() {
             .hardfork_switch(hardfork_switch)
             .build();
 
-        let result = SinceVerifier::new(&rtx1, &consensus, &median_time_context, &tx_env).verify();
+        let result =
+            SinceVerifier::new(rtx1, &consensus, median_time_context.clone(), &tx_env).verify();
         assert_error_eq!(
             result.unwrap_err(),
             TransactionError::InvalidSince { index: 0 }
         );
 
-        let result = SinceVerifier::new(&rtx2, &consensus, &median_time_context, &tx_env).verify();
+        let result = SinceVerifier::new(rtx2, &consensus, median_time_context, &tx_env).verify();
         assert!(result.is_ok(), "result = {result:?}");
     }
 }
@@ -567,11 +574,11 @@ pub fn test_absolute_block_number_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(Arc::clone(&rtx), median_time_context.clone(), 5, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 10 height
-    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
+    assert!(verify_since(rtx, median_time_context, 10, 1).is_ok());
 }
 
 #[test]
@@ -585,11 +592,11 @@ pub fn test_absolute_epoch_number_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+        verify_since(Arc::clone(&rtx), median_time_context.clone(), 5, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 10 epoch
-    assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
+    assert!(verify_since(rtx, median_time_context, 100, 10).is_ok());
 }
 
 #[test]
@@ -603,7 +610,7 @@ pub fn test_relative_timestamp_lock() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(Arc::clone(&rtx), median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
 
@@ -615,7 +622,7 @@ pub fn test_relative_timestamp_lock() {
         &tx,
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
-    assert!(verify_since(&rtx, &median_time_context, 4, 1).is_ok());
+    assert!(verify_since(rtx, median_time_context, 4, 1).is_ok());
 }
 
 #[test]
@@ -629,11 +636,11 @@ pub fn test_relative_epoch() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(Arc::clone(&rtx), median_time_context.clone(), 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
+    assert!(verify_since(rtx, median_time_context, 4, 2).is_ok());
 }
 
 #[test]
@@ -658,7 +665,7 @@ pub fn test_since_both() {
     );
 
     assert_error_eq!(
-        verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
+        verify_since(Arc::clone(&rtx), median_time_context, 4, 1).unwrap_err(),
         TransactionError::Immature { index: 0 },
     );
     // spent after 1024 seconds and 10 blocks
@@ -671,7 +678,7 @@ pub fn test_since_both() {
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
 
-    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
+    assert!(verify_since(rtx, median_time_context, 10, 1).is_ok());
 }
 
 #[test]
@@ -691,7 +698,7 @@ fn test_since_overflow() {
         );
 
         assert_error_eq!(
-            verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+            verify_since(Arc::clone(&rtx), median_time_context, 5, 1).unwrap_err(),
             TransactionError::Immature { index: 0 },
         );
     }
@@ -708,7 +715,7 @@ fn test_since_overflow() {
         );
 
         assert_error_eq!(
-            verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
+            verify_since(rtx, median_time_context, 5, 1).unwrap_err(),
             TransactionError::InvalidSince { index: 0 },
         );
     }

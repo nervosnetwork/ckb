@@ -1,4 +1,3 @@
-use ckb_metrics::metrics;
 use fail::fail_point;
 use lru::LruCache;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
@@ -151,12 +150,11 @@ impl FreezerFiles {
         self.write_index(self.head_id, self.head.bytes)?;
         self.number.fetch_add(1, Ordering::SeqCst);
 
-        //Gauge for tracking the size of all frozen data
-        metrics!(
-            gauge,
-            "ckb-freezer.size",
-            data_size as i64 + INDEX_ENTRY_SIZE as i64
-        );
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_freezer_size
+                .set(data_size as i64 + INDEX_ENTRY_SIZE as i64);
+        }
         Ok(())
     }
 
@@ -203,12 +201,11 @@ impl FreezerFiles {
                 })?;
             }
 
-            // Meter for measuring the effective amount of data read
-            metrics!(
-                counter,
-                "ckb-freezer.read",
-                size as u64 + 2 * INDEX_ENTRY_SIZE
-            );
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics
+                    .ckb_freezer_read
+                    .inc_by(size as u64 + 2 * INDEX_ENTRY_SIZE);
+            }
             Ok(Some(data))
         } else {
             Ok(None)

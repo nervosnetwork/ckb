@@ -382,7 +382,7 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pending_and_proposed(
         &self,
         tx: TransactionView,
-    ) -> Result<ResolvedTransaction, Reject> {
+    ) -> Result<Arc<ResolvedTransaction>, Reject> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &proposed_provider);
@@ -395,6 +395,7 @@ impl TxPool {
             &pending_and_proposed_provider,
             snapshot,
         )
+        .map(Arc::new)
         .map_err(Reject::Resolve)
     }
 
@@ -415,11 +416,13 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_proposed(
         &self,
         tx: TransactionView,
-    ) -> Result<ResolvedTransaction, Reject> {
+    ) -> Result<Arc<ResolvedTransaction>, Reject> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot).map_err(Reject::Resolve)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot)
+            .map(Arc::new)
+            .map_err(Reject::Resolve)
     }
 
     pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
@@ -435,15 +438,21 @@ impl TxPool {
         cache_entry: CacheEntry,
         size: usize,
         timestamp: u64,
-        rtx: ResolvedTransaction,
+        rtx: Arc<ResolvedTransaction>,
     ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.snapshot();
+        let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
         self.check_rtx_from_pending_and_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
+        let verified = verify_rtx(
+            snapshot,
+            Arc::clone(&rtx),
+            &tx_env,
+            &Some(cache_entry),
+            max_cycles,
+        )?;
 
         let entry =
             TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
@@ -460,15 +469,21 @@ impl TxPool {
         cache_entry: CacheEntry,
         size: usize,
         timestamp: u64,
-        rtx: ResolvedTransaction,
+        rtx: Arc<ResolvedTransaction>,
     ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.snapshot();
+        let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
         let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
         self.check_rtx_from_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(snapshot, &rtx, &tx_env, &Some(cache_entry), max_cycles)?;
+        let verified = verify_rtx(
+            snapshot,
+            Arc::clone(&rtx),
+            &tx_env,
+            &Some(cache_entry),
+            max_cycles,
+        )?;
 
         let entry =
             TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
@@ -550,7 +565,7 @@ impl TxPool {
             .txs_to_commit(self.total_tx_size, self.total_tx_cycles)
             .0
             .into_iter()
-            .map(|tx_entry| tx_entry.rtx.transaction)
+            .map(|tx_entry| tx_entry.into_transaction())
             .collect::<Vec<_>>();
         self.proposed.clear();
         txs.append(&mut self.gap.drain());

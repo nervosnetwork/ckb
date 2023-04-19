@@ -14,7 +14,7 @@ pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
-use crate::utils::send_message_to;
+use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 
 use ckb_chain::chain::ChainController;
@@ -25,7 +25,6 @@ use ckb_constant::sync::{
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
-use ckb_metrics::metrics;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
@@ -265,14 +264,12 @@ impl Synchronizer {
         let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
-        metrics!(
-            counter,
-            "ckb.messages_bytes",
+        metric_ckb_message_bytes(
+            MetricDirection::In,
+            &SupportProtocols::Sync.name(),
+            item_name,
+            Some(status.code()),
             item_bytes,
-            "direction" => "in",
-            "protocol_id" => SupportProtocols::Sync.protocol_id().value().to_string(),
-            "item_id" => message.item_id().to_string(),
-            "status" => (status.code() as u16).to_string(),
         );
 
         if let Some(ban_time) = status.should_ban() {

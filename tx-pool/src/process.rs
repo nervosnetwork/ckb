@@ -15,6 +15,7 @@ use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
@@ -110,11 +111,11 @@ impl TxPoolService {
                     );
 
                     // destructuring assignments are not currently supported
-                    status = check_rtx(tx_pool, snapshot, &entry.rtx)?;
+                    status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
 
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    time_relative_verify(snapshot, &entry.rtx, &tx_env)?;
+                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), &tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -164,25 +165,25 @@ impl TxPoolService {
         chunk.contains_key(&tx.proposal_short_id())
     }
 
-    pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, &Snapshot) -> U>(
+    pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
         &self,
         mut f: F,
     ) -> (U, Arc<Snapshot>) {
         let tx_pool = self.tx_pool.read().await;
         let snapshot = tx_pool.cloned_snapshot();
 
-        let ret = f(&tx_pool, &snapshot);
+        let ret = f(&tx_pool, Arc::clone(&snapshot));
         (ret, snapshot)
     }
 
-    pub(crate) async fn with_tx_pool_write_lock<U, F: FnMut(&mut TxPool, &Snapshot) -> U>(
+    pub(crate) async fn with_tx_pool_write_lock<U, F: FnMut(&mut TxPool, Arc<Snapshot>) -> U>(
         &self,
         mut f: F,
     ) -> (U, Arc<Snapshot>) {
         let mut tx_pool = self.tx_pool.write().await;
         let snapshot = tx_pool.cloned_snapshot();
 
-        let ret = f(&mut tx_pool, &snapshot);
+        let ret = f(&mut tx_pool, Arc::clone(&snapshot));
         (ret, snapshot)
     }
 
@@ -199,9 +200,9 @@ impl TxPoolService {
 
                 check_txid_collision(tx_pool, tx)?;
 
-                let (rtx, status) = resolve_tx(tx_pool, snapshot, tx.clone())?;
+                let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone())?;
 
-                let fee = check_tx_fee(tx_pool, snapshot, &rtx, tx_size)?;
+                let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
 
                 Ok((tip_hash, rtx, status, fee, tx_size))
             })
@@ -525,13 +526,15 @@ impl TxPoolService {
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
 
+        let data_loader = snapshot.as_data_loader();
+
         let completed = if let Some(ref entry) = cached {
             match entry {
                 CacheEntry::Completed(completed) => {
                     let ret = TimeRelativeTransactionVerifier::new(
-                        &rtx,
+                        Arc::clone(&rtx),
                         &self.consensus,
-                        snapshot.as_ref(),
+                        data_loader,
                         &tx_env,
                     )
                     .verify()
@@ -545,12 +548,15 @@ impl TxPoolService {
             }
         } else {
             let consensus = snapshot.consensus();
-            let data_provider = snapshot.as_data_provider();
             let is_chunk_full = self.is_chunk_full().await;
 
             let ret = block_in_place(|| {
-                let verifier =
-                    ContextualTransactionVerifier::new(&rtx, consensus, &data_provider, &tx_env);
+                let verifier = ContextualTransactionVerifier::new(
+                    Arc::clone(&rtx),
+                    consensus,
+                    data_loader,
+                    &tx_env,
+                );
 
                 let (ret, fee) = verifier
                     .resumable_verify(limit_cycles)
@@ -643,7 +649,14 @@ impl TxPoolService {
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = status.with_env(tip_header);
-        let verified_ret = verify_rtx(&snapshot, &rtx, &tx_env, &verify_cache, max_cycles);
+
+        let verified_ret = verify_rtx(
+            Arc::clone(&snapshot),
+            Arc::clone(&rtx),
+            &tx_env,
+            &verify_cache,
+            max_cycles,
+        );
 
         let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
 
@@ -743,12 +756,16 @@ impl TxPoolService {
             if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
                 if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
-                    let snapshot = tx_pool.snapshot();
+                    let snapshot = tx_pool.cloned_snapshot();
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    if let Ok(verified) =
-                        verify_rtx(snapshot, &rtx, &tx_env, &verify_cache, max_cycles)
-                    {
+                    if let Ok(verified) = verify_rtx(
+                        snapshot,
+                        Arc::clone(&rtx),
+                        &tx_env,
+                        &verify_cache,
+                        max_cycles,
+                    ) {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
                             error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
@@ -785,9 +802,9 @@ impl TxPoolService {
     }
 }
 
-type PreCheckedTx = (Byte32, ResolvedTransaction, TxStatus, Capacity, usize);
+type PreCheckedTx = (Byte32, Arc<ResolvedTransaction>, TxStatus, Capacity, usize);
 
-type ResolveResult = Result<(ResolvedTransaction, TxStatus), Reject>;
+type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
 
 fn check_rtx(
     tx_pool: &TxPool,
@@ -917,7 +934,7 @@ fn _update_tx_pool_for_reorg(
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
             let tx_hash = entry.transaction().hash();
             if let Err(e) =
-                tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, entry.rtx.clone())
+                tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
             {
                 debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
@@ -930,7 +947,8 @@ fn _update_tx_pool_for_reorg(
             debug!("tx move to gap {}", entry.transaction().hash());
             let tx_hash = entry.transaction().hash();
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            if let Err(e) = tx_pool.gap_rtx(cached, entry.size, entry.timestamp, entry.rtx.clone())
+            if let Err(e) =
+                tx_pool.gap_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
             {
                 debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());

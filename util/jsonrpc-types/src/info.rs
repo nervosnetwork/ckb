@@ -1,10 +1,11 @@
 use crate::{AlertMessage, EpochNumber, EpochNumberWithFraction, Timestamp};
-use ckb_types::{H256, U256};
+use ckb_types::{core::Ratio, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Deployment name
-#[derive(Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Hash, Deserialize, Serialize, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum DeploymentPos {
     /// Dummy
     Testdummy,
@@ -14,6 +15,7 @@ pub enum DeploymentPos {
 
 /// The possible softfork deployment state
 #[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum DeploymentState {
     /// First state that each softfork starts.
     /// The 0 epoch is by definition in this state for each deployment.
@@ -55,7 +57,18 @@ pub struct DeploymentInfo {
     pub timeout: EpochNumber,
     /// specifies the epoch at which the softfork is allowed to become active.
     pub min_activation_epoch: EpochNumber,
-    /// With each epoch and softfork, we associate a deployment state. The possible states are
+    /// the length in epochs of the signalling period
+    pub period: EpochNumber,
+    /// the ratio of blocks with the version bit set required to activate the feature
+    pub threshold: Ratio,
+    /// The first epoch which the current state applies
+    pub since: EpochNumber,
+    /// With each epoch and softfork, we associate a deployment state. The possible states are:
+    /// * `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
+    /// * `STARTED` for all blocks reach or past the start_epoch.
+    /// * `LOCKED_IN` for one period after the first period with STARTED blocks of which at least threshold has the associated bit set in version.
+    /// * `ACTIVE` for all blocks after the LOCKED_IN period.
+    /// * `FAILED` for all blocks after the timeout_epoch, if LOCKED_IN was not reached.
     pub state: DeploymentState,
 }
 

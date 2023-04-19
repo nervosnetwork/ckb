@@ -2,14 +2,14 @@ use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
-    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatics, HeaderView, OutPoint,
+    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
     ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
     TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
 use ckb_traits::HeaderProvider;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
@@ -27,6 +27,7 @@ use ckb_verification::ScriptVerifier;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// RPC Module Chain for methods related to the canonical chain.
 ///
@@ -1361,6 +1362,22 @@ pub trait ChainRpc {
     ///         "secondary_epoch_reward": "0x37d0c8e28542",
     ///         "secp256k1_blake160_multisig_all_type_hash": null,
     ///         "secp256k1_blake160_sighash_all_type_hash": null,
+    ///         "softforks": {
+    ///             "testdummy": {
+    ///                 "status": "rfc0043",
+    ///                 "rfc0043": {
+    ///                     "bit": 1,
+    ///                     "min_activation_epoch": "0x0",
+    ///                     "period": "0xa",
+    ///                     "start": "0x0",
+    ///                     "threshold": {
+    ///                         "denom": 4,
+    ///                         "numer": 3
+    ///                     },
+    ///                     "timeout": "0x0"
+    ///                 }
+    ///             }
+    ///         },
     ///         "tx_proposal_window": {
     ///             "closest": "0x2",
     ///             "farthest": "0xa"
@@ -1531,8 +1548,54 @@ pub trait ChainRpc {
     ///    }
     /// }
     /// ```
+    #[deprecated(
+        since = "0.109.0",
+        note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
+    )]
     #[rpc(name = "get_fee_rate_statics")]
-    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>>;
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
+
+    /// Returns the fee_rate statistics of confirmed blocks on the chain
+    ///
+    /// ## Params
+    ///
+    /// * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+    ///  If the number is even, automatically add one. If not specified, defaults to 21
+    ///
+    /// ## Returns
+    ///
+    /// If the query finds the corresponding historical data,
+    /// the corresponding statistics are returned,
+    /// containing the mean and median, in shannons per kilo-weight.
+    /// If not, it returns null.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_fee_rate_statistics",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "mean": "0xe79d",
+    ///     "median": "0x14a8"
+    ///    }
+    /// }
+    /// ```
+    #[rpc(name = "get_fee_rate_statistics")]
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -2027,7 +2090,12 @@ impl ChainRpc for ChainRpcImpl {
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatics>> {
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
+        Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
+            .statistics(target.map(Into::into)))
+    }
+
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }
@@ -2252,12 +2320,12 @@ impl<'a> CyclesEstimator<'a> {
     }
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<EstimateCycles> {
-        let snapshot: &Snapshot = &self.shared.snapshot();
+        let snapshot = self.shared.cloned_snapshot();
         let consensus = snapshot.consensus();
         match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, &snapshot.as_data_provider())
+                match ScriptVerifier::new(Arc::new(resolved), snapshot.as_data_loader())
                     .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(EstimateCycles {
