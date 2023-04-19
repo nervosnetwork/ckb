@@ -1344,7 +1344,8 @@ impl SyncShared {
         }
     }
 
-    /// cleanup orphan_pool, remove blocks with epoch less 2 than currently epoch.
+    /// Cleanup orphan_pool,
+    /// Remove blocks whose epoch is 6 (EXPIRED_EPOCH) epochs behind the current epoch.
     pub(crate) fn periodic_clean_orphan_pool(&self) {
         let hashes = self
             .state
@@ -1884,6 +1885,10 @@ impl SyncState {
         }
     }
 
+    // Disconnect this peer and remove inflight blocks by peer
+    //
+    // TODO: record peer's connection duration (disconnect time - connect established time)
+    // and report peer's connection duration to ckb_metrics
     pub fn disconnected(&self, pi: PeerIndex) {
         self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi);
@@ -2220,6 +2225,8 @@ impl ActiveChain {
     }
 }
 
+/// The `IBDState` enum represents whether the node is currently in the IBD process (`In`) or has
+/// completed it (`Out`).
 #[derive(Clone, Copy, Debug)]
 pub enum IBDState {
     In,

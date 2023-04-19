@@ -1,3 +1,11 @@
+//! CKB node has initial block download phase (IBD mode) like Bitcoin:
+//! https://btcinformation.org/en/glossary/initial-block-download
+//!
+//! When CKB node is in IBD mode, it will respond `packed::InIBD` to `GetHeaders` and `GetBlocks` requests
+//!
+//! And CKB has a headers-first synchronization style like Bitcoin:
+//! https://btcinformation.org/en/glossary/headers-first-sync
+//!
 mod block_fetcher;
 mod block_process;
 mod get_blocks_process;
@@ -58,6 +66,13 @@ enum CanStart {
     AssumeValidNotFound,
 }
 
+// TODO: Consider converting this enum to a struct since it only has one item
+//
+// struct FetchCMD {
+//    peers: Vec<PeerIndex>,
+//    ibd_state: IBDState,
+// }
+//
 enum FetchCMD {
     Fetch((Vec<PeerIndex>, IBDState)),
 }
@@ -212,7 +227,7 @@ pub struct Synchronizer {
 impl Synchronizer {
     /// Init sync protocol handle
     ///
-    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
+    /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,

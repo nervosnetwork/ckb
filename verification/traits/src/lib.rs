@@ -13,7 +13,7 @@ pub trait Verifier {
 bitflags! {
     /// The bit flags for particular process block verify
     pub struct Switch: u32 {
-        /// None of verifier will be disable
+        /// None of verifier will be disabled
         const NONE                      = 0b00000000;
 
         /// Disable epoch verifier

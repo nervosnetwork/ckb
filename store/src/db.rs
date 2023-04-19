@@ -21,7 +21,7 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @quake
+/// A database of the chain store based on the RocksDB wrapper `RocksDB`
 #[derive(Clone)]
 pub struct ChainDB {
     db: RocksDB,
@@ -68,7 +68,7 @@ impl VersionbitsIndexer for ChainDB {
 }
 
 impl ChainDB {
-    /// TODO(doc): @quake
+    /// Allocate a new ChainDB instance with the given config
     pub fn new(db: RocksDB, config: StoreConfig) -> Self {
         let cache = StoreCache::from_config(config);
         ChainDB {
@@ -88,12 +88,12 @@ impl ChainDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Return the inner RocksDB instance
     pub fn db(&self) -> &RocksDB {
         &self.db
     }
 
-    /// TODO(doc): @quake
+    /// Converts self into a `RocksDB`
     pub fn into_inner(self) -> RocksDB {
         self.db
     }
@@ -118,7 +118,7 @@ impl ChainDB {
             .expect("db operation should be ok")
     }
 
-    /// TODO(doc): @quake
+    /// Set this snapshot at start of transaction
     pub fn begin_transaction(&self) -> StoreTransaction {
         StoreTransaction {
             inner: self.db.transaction(),
@@ -127,7 +127,7 @@ impl ChainDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Return `StoreSnapshot`
     pub fn get_snapshot(&self) -> StoreSnapshot {
         StoreSnapshot {
             inner: self.db.get_snapshot(),
@@ -136,14 +136,14 @@ impl ChainDB {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Construct `StoreWriteBatch` with default option.
     pub fn new_write_batch(&self) -> StoreWriteBatch {
         StoreWriteBatch {
             inner: self.db.new_write_batch(),
         }
     }
 
-    /// TODO(doc): @quake
+    /// Write batch into chain db.
     pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
         self.db.write(&write_batch.inner)
     }

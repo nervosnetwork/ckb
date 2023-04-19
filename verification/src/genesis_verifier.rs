@@ -11,7 +11,7 @@ use ckb_verification_traits::Verifier;
 /// The genesis verification
 ///
 /// BlockVerifier is not applicable to genesis, genesis have particular rules,
-/// it not limited by block size. it's previous hash is zero hash and it has no uncles.
+/// It's not limited by block size. Its previous hash is zero hash, and it has no uncles.
 #[derive(Clone)]
 pub struct GenesisVerifier {}
 

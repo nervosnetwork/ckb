@@ -6,18 +6,18 @@ use ckb_db_schema::{
 use ckb_error::Error;
 use ckb_types::{core::BlockNumber, packed, prelude::*};
 
-/// TODO(doc): @quake
+/// Wrapper of `RocksDBWriteBatch`, provides atomic batch of write operations.
 pub struct StoreWriteBatch {
     pub(crate) inner: RocksDBWriteBatch,
 }
 
 impl StoreWriteBatch {
-    /// TODO(doc): @quake
+    /// Write the bytes into the given column with associated key.
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
     }
 
-    /// TODO(doc): @quake
+    /// Delete the data associated with the given key and given column.
     pub fn delete(&mut self, col: Col, key: &[u8]) -> Result<(), Error> {
         self.inner.delete(col, key)
     }
@@ -27,22 +27,22 @@ impl StoreWriteBatch {
         self.inner.size_in_bytes()
     }
 
-    /// TODO(doc): @quake
+    /// Return the count of write batch.
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the write batch contains no operations.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
-    /// TODO(doc): @quake
+    /// Clear all updates buffered in this batch.
     pub fn clear(&mut self) -> Result<(), Error> {
         self.inner.clear()
     }
 
-    /// TODO(doc): @quake
+    /// Put cells into this write batch
     pub fn insert_cells(
         &mut self,
         cells: impl Iterator<
@@ -71,7 +71,7 @@ impl StoreWriteBatch {
         Ok(())
     }
 
-    /// TODO(doc): @quake
+    /// Remove cells from this write batch
     pub fn delete_cells(
         &mut self,
         out_points: impl Iterator<Item = packed::OutPoint>,

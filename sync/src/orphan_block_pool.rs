@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 pub type ParentHash = packed::Byte32;
 const SHRINK_THRESHOLD: usize = 100;
+
+// Orphan pool will remove expired blocks whose epoch is less than tip_epoch - EXPIRED_EPOCH,
 const EXPIRED_EPOCH: u64 = 6;
 
 #[derive(Default)]

@@ -44,7 +44,7 @@ impl<'a> BlockFetcher<'a> {
     }
 
     pub fn update_last_common_header(&self, best_known: &HeaderView) -> Option<core::HeaderView> {
-        // Bootstrap quickly by guessing a parent of our best tip is t
+        // Bootstrap quickly by guessing an ancestor of our best tip is forking point.
         // Guessing wrong in either direction is not a problem.
         let mut last_common =
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {

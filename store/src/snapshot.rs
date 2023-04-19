@@ -8,7 +8,7 @@ use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
 use std::sync::Arc;
 
-/// TODO(doc): @quake
+/// A snapshot of the chain store.
 pub struct StoreSnapshot {
     pub(crate) inner: RocksDBSnapshot,
     pub(crate) freezer: Option<Freezer>,
