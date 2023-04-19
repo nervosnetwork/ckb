@@ -1030,7 +1030,6 @@ impl HeaderView {
             return;
         }
         self.skip_hash = self
-            .clone()
             .get_ancestor(
                 tip_number,
                 get_skip_height(self.number()),
@@ -1041,7 +1040,7 @@ impl HeaderView {
     }
 
     pub fn get_ancestor<F, G>(
-        self,
+        &self,
         tip_number: BlockNumber,
         number: BlockNumber,
         get_header_view: F,
@@ -1051,11 +1050,11 @@ impl HeaderView {
         F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
         G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
-        let mut current = self;
-        if number > current.number() {
+        if number > self.number() {
             return None;
         }
 
+        let mut current = self.clone();
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
@@ -1994,8 +1993,7 @@ impl ActiveChain {
             |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
-                if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash)
-                {
+                if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash) {
                     self.get_block_hash(number)
                         .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
                 } else {
