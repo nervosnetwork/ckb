@@ -10,7 +10,7 @@ Did you have problems implementing CKB or do you have a feature request? We woul
 
 - **Determine where to submit**
 
-CKB projects are spread across multiple repositories. Please file your issue within the correct repository. If you're not sure which repository is the correct one, check the [list of related projects](https://www.notion.so/cryptape/Resources-10217c86ec47455d9220567bd75d180c).
+CKB projects are spread across multiple repositories. Please file your issue within the correct repository. If you're not sure which repository is the correct one, check the [list of related projects](https://github.com/IsaDSC/ckb/blob/patch-3/resource.md).
 
 - **Find existing issues**
 
