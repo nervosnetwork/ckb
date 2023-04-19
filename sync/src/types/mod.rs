@@ -1024,7 +1024,7 @@ impl HeaderView {
     pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
     where
         F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
         if self.inner.is_genesis() {
             return;
@@ -1049,7 +1049,7 @@ impl HeaderView {
     ) -> Option<core::HeaderView>
     where
         F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
         let mut current = self;
         if number > current.number() {
@@ -1077,7 +1077,7 @@ impl HeaderView {
                     number_walk -= 1;
                 }
             }
-            if let Some(target) = fast_scanner(number, &current) {
+            if let Some(target) = fast_scanner(number, (current.number(), current.hash()).into()) {
                 current = target;
                 break;
             }
@@ -1416,8 +1416,7 @@ impl SyncShared {
             |hash, store_first_opt| self.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
-                if current.number() <= snapshot.tip_number()
-                    && snapshot.is_main_chain(&current.hash())
+                if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
                 {
                     snapshot
                         .get_block_hash(number)
@@ -1995,7 +1994,7 @@ impl ActiveChain {
             |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
-                if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
+                if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash)
                 {
                     self.get_block_hash(number)
                         .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
