@@ -161,24 +161,36 @@ pub struct TransactionWithStatus {
     pub tx_status: TxStatus,
     /// The transaction verification consumed cycles
     pub cycles: Option<core::Cycle>,
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    pub time_added_to_pool: Option<u64>,
 }
 
 impl TransactionWithStatus {
     /// Build with pending status
-    pub fn with_pending(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
+    pub fn with_pending(
+        tx: Option<core::TransactionView>,
+        cycles: core::Cycle,
+        time_added_to_pool: u64,
+    ) -> Self {
         Self {
             tx_status: TxStatus::Pending,
             transaction: tx,
             cycles: Some(cycles),
+            time_added_to_pool: Some(time_added_to_pool),
         }
     }
 
     /// Build with proposed status
-    pub fn with_proposed(tx: Option<core::TransactionView>, cycles: core::Cycle) -> Self {
+    pub fn with_proposed(
+        tx: Option<core::TransactionView>,
+        cycles: core::Cycle,
+        time_added_to_pool: u64,
+    ) -> Self {
         Self {
             tx_status: TxStatus::Proposed,
             transaction: tx,
             cycles: Some(cycles),
+            time_added_to_pool: Some(time_added_to_pool),
         }
     }
 
@@ -192,6 +204,7 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Committed(hash),
             transaction: tx,
             cycles,
+            time_added_to_pool: None,
         }
     }
 
@@ -201,6 +214,7 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
             cycles: None,
+            time_added_to_pool: None,
         }
     }
 
@@ -210,6 +224,7 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Unknown,
             transaction: None,
             cycles: None,
+            time_added_to_pool: None,
         }
     }
 
@@ -219,6 +234,7 @@ impl TransactionWithStatus {
             tx_status,
             transaction: None,
             cycles,
+            time_added_to_pool: None,
         }
     }
 

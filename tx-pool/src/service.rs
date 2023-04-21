@@ -900,11 +900,13 @@ async fn process(mut service: TxPoolService, message: Message) {
                 Ok(TransactionWithStatus::with_proposed(
                     Some(entry.transaction().clone()),
                     entry.cycles,
+                    entry.timestamp,
                 ))
             } else if let Some(entry) = tx_pool.get_entry_from_pending_or_gap(&id) {
                 Ok(TransactionWithStatus::with_pending(
                     Some(entry.transaction().clone()),
                     entry.cycles,
+                    entry.timestamp,
                 ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
