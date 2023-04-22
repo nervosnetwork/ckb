@@ -3134,7 +3134,7 @@ Response
     * `target_tip_hash`: [`H256`](#type-h256)
 * result: `null`
 
-Truncate chain to specified tip hash.
+Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
 
 ###### Params
 
