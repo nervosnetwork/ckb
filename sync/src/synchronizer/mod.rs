@@ -372,7 +372,7 @@ impl Synchronizer {
                         continue;
                     }
                 } else {
-                    active_chain.send_getheaders_to_peer(nc, *peer, &better_tip_header);
+                    active_chain.send_getheaders_to_peer(nc, *peer, (&better_tip_header).into());
                 }
             }
 
@@ -433,11 +433,12 @@ impl Synchronizer {
                         active_chain.send_getheaders_to_peer(
                             nc,
                             *peer,
-                            &state
+                            state
                                 .chain_sync
                                 .work_header
-                                .clone()
-                                .expect("work_header be assigned"),
+                                .as_ref()
+                                .expect("work_header be assigned")
+                                .into(),
                         );
                     }
                 }
@@ -493,7 +494,7 @@ impl Synchronizer {
             }
 
             debug!("start sync peer={}", peer);
-            active_chain.send_getheaders_to_peer(nc, peer, &tip);
+            active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
         }
     }
 

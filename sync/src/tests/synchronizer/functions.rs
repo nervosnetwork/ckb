@@ -158,7 +158,7 @@ fn test_locator() {
     let locator = synchronizer
         .shared
         .active_chain()
-        .get_locator(shared.snapshot().tip_header());
+        .get_locator(shared.snapshot().tip_header().into());
 
     let mut expect = Vec::new();
 
@@ -189,7 +189,7 @@ fn test_locate_latest_common_block() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     let latest_common = synchronizer2
         .shared
@@ -261,7 +261,7 @@ fn test_locate_latest_common_block2() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     let latest_common = synchronizer2
         .shared
@@ -590,7 +590,7 @@ fn test_sync_process() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     for i in 1..=num {
         let j = if i > 192 { i + 1 } else { i };

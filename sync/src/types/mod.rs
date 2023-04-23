@@ -410,11 +410,34 @@ pub struct BlockNumberAndHash {
     pub hash: Byte32,
 }
 
+impl BlockNumberAndHash {
+    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
+        Self { number, hash }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+}
+
 impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
     fn from(inner: (BlockNumber, Byte32)) -> Self {
         Self {
             number: inner.0,
             hash: inner.1,
+        }
+    }
+}
+
+impl From<&core::HeaderView> for BlockNumberAndHash {
+    fn from(header: &core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
         }
     }
 }
@@ -2007,7 +2030,7 @@ impl ActiveChain {
         )
     }
 
-    pub fn get_locator(&self, start: &core::HeaderView) -> Vec<Byte32> {
+    pub fn get_locator(&self, start: BlockNumberAndHash) -> Vec<Byte32> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
@@ -2019,7 +2042,7 @@ impl ActiveChain {
                 .unwrap_or_else(|| {
                     panic!(
                         "index calculated in get_locator: \
-                         start: {}, base: {}, step: {}, locators({}): {:?}.",
+                         start: {:?}, base: {}, step: {}, locators({}): {:?}.",
                         start,
                         base,
                         step,
@@ -2153,13 +2176,13 @@ impl ActiveChain {
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        header: &core::HeaderView,
+        block_number_and_hash: BlockNumberAndHash,
     ) {
         if let Some(last_time) = self
             .state
             .pending_get_headers
             .write()
-            .get(&(peer, header.hash()))
+            .get(&(peer, block_number_and_hash.hash()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -2177,14 +2200,14 @@ impl ActiveChain {
         self.state
             .pending_get_headers
             .write()
-            .put((peer, header.hash()), Instant::now());
+            .put((peer, block_number_and_hash.hash()), Instant::now());
 
         debug!(
             "send_getheaders_to_peer peer={}, hash={}",
             peer,
-            header.hash()
+            block_number_and_hash.hash()
         );
-        let locator_hash = self.get_locator(header);
+        let locator_hash = self.get_locator(block_number_and_hash);
         let content = packed::GetHeaders::new_builder()
             .block_locator_hashes(locator_hash.pack())
             .hash_stop(packed::Byte32::zero())
