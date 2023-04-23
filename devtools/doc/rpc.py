@@ -824,7 +824,7 @@ class RPCDoc(object):
 
 def main():
     if not os.path.exists("target/doc/ckb_rpc/module/index.html"):
-        print("Please run cargo doc first:\n  cargo doc -p ckb-rpc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-jsonrpc-types --no-deps", file=sys.stderr)
+        print("Please run cargo doc first:\n  cargo doc --workspace", file=sys.stderr)
         sys.exit(128)
 
     doc = RPCDoc()

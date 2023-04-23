@@ -1,7 +1,7 @@
 //! # The Sync module
 //!
 //! Sync module implement ckb sync protocol as specified here:
-//! https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md
+//! <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md>
 
 mod block_status;
 mod filter;

@@ -2,7 +2,7 @@
 //!
 //! Because the limitation of toml library,
 //! we must put nested config struct in the tail to make it serializable,
-//! details https://docs.rs/toml/0.5.0/toml/ser/index.html
+//! details <https://docs.rs/toml/0.5.0/toml/ser/index.html>
 
 use path_clean::PathClean;
 use std::fs;
