@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 /// RocksDB wrapper base on OptimisticTransactionDB
 ///
-/// https://github.com/facebook/rocksdb/wiki/Transactions#optimistictransactiondb
+/// <https://github.com/facebook/rocksdb/wiki/Transactions#optimistictransactiondb>
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
