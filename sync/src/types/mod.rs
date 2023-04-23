@@ -273,7 +273,7 @@ pub struct PeerState {
     pub peer_flags: PeerFlags,
     pub chain_sync: ChainSyncState,
     // The best known block we know this peer has announced
-    pub best_known_header: Option<HeaderView>,
+    pub best_known_header: Option<HeaderIndex>,
     // The last block we both stored
     pub last_common_header: Option<BlockNumberAndHash>,
     // use on ibd concurrent block download
@@ -898,20 +898,20 @@ impl Peers {
             .or_insert_with(|| PeerState::new(PeerFlags::default()));
     }
 
-    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
+    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderIndex> {
         self.state
             .get(&pi)
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_index: HeaderIndex) {
         if let Some(mut peer_state) = self.state.get_mut(&peer) {
-            if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view);
+            if let Some(ref known) = peer_state.best_known_header {
+                if header_index.is_better_chain(known) {
+                    peer_state.best_known_header = Some(header_index);
                 }
             } else {
-                peer_state.best_known_header = Some(header_view);
+                peer_state.best_known_header = Some(header_index);
             }
         }
     }
@@ -989,10 +989,12 @@ impl Peers {
                 if !state.unknown_header_list.is_empty() {
                     return None;
                 }
-                match state.best_known_header {
-                    Some(ref header) if header.number() < tip => Some(*peer_index),
-                    _ => None,
+                if let Some(ref header) = state.best_known_header {
+                    if header.number() < tip {
+                        return Some(*peer_index);
+                    }
                 }
+                None
             })
             .collect()
     }
@@ -1171,6 +1173,51 @@ impl HeaderView {
         v.extend_from_slice(total_difficulty.as_slice());
         v.extend_from_slice(skip_hash.as_slice());
         v
+    }
+
+    pub fn as_header_index(&self) -> HeaderIndex {
+        HeaderIndex::new(self.number(), self.hash(), self.total_difficulty().clone())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeaderIndex {
+    number: BlockNumber,
+    hash: Byte32,
+    total_difficulty: U256,
+}
+
+impl HeaderIndex {
+    pub fn new(number: BlockNumber, hash: Byte32, total_difficulty: U256) -> Self {
+        HeaderIndex {
+            number,
+            hash,
+            total_difficulty,
+        }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
+    }
+
+    pub fn number_and_hash(&self) -> BlockNumberAndHash {
+        (self.number(), self.hash()).into()
+    }
+
+    pub fn is_better_chain(&self, other: &Self) -> bool {
+        self.is_better_than(other.total_difficulty())
+    }
+
+    pub fn is_better_than(&self, other_total_difficulty: &U256) -> bool {
+        self.total_difficulty() > other_total_difficulty
     }
 }
 
@@ -1460,7 +1507,7 @@ impl SyncShared {
         self.state.header_map.insert(header_view.clone());
         self.state
             .peers()
-            .may_set_best_known_header(peer, header_view.clone());
+            .may_set_best_known_header(peer, header_view.as_header_index());
         self.state.may_set_shared_best_header(header_view);
     }
 
@@ -1933,7 +1980,8 @@ impl SyncState {
             // so here you discard and exit early
             for hash in header_list {
                 if let Some(header) = self.header_map.get(&hash) {
-                    self.peers.may_set_best_known_header(pi, header);
+                    self.peers
+                        .may_set_best_known_header(pi, header.as_header_index());
                     break;
                 } else {
                     self.peers.insert_unknown_header_hash(pi, hash)

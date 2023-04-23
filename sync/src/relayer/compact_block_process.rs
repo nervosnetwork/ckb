@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::types::{ActiveChain, PendingCompactBlockMap};
+use crate::types::{ActiveChain, HeaderIndex, PendingCompactBlockMap};
 use crate::utils::send_message_to;
 use crate::SyncShared;
 use crate::{attempt, Status, StatusCode};
@@ -10,10 +10,11 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderProvider;
-use ckb_types::core::HeaderView;
-use ckb_types::packed::Byte32;
-use ckb_types::packed::CompactBlock;
-use ckb_types::{core, packed, prelude::*};
+use ckb_types::{
+    core::{EpochNumberWithFraction, HeaderView},
+    packed::{self, Byte32, CompactBlock},
+    prelude::*,
+};
 use ckb_util::shrink_to_fit;
 use ckb_util::MutexGuard;
 use ckb_verification::{HeaderError, HeaderVerifier};
@@ -108,10 +109,8 @@ impl<'a> CompactBlockProcess<'a> {
                 // use epoch as the judgment condition because we accept
                 // all block in current epoch as uncle block
                 pending_compact_blocks.retain(|_, (v, _, _)| {
-                    Unpack::<core::EpochNumberWithFraction>::unpack(
-                        &v.header().as_reader().raw().epoch(),
-                    )
-                    .number()
+                    Unpack::<EpochNumberWithFraction>::unpack(&v.header().as_reader().raw().epoch())
+                        .number()
                         >= block.epoch().number()
                 });
                 shrink_to_fit!(pending_compact_blocks, 20);
@@ -168,11 +167,11 @@ impl<'a> CompactBlockProcess<'a> {
 }
 
 struct CompactBlockMedianTimeView<'a> {
-    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
+    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<HeaderView> + 'a>,
 }
 
 impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {
-    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
         // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
         (self.fn_get_pending_header)(hash.to_owned())
     }
@@ -236,13 +235,14 @@ fn contextual_check(
         let parent = shared
             .get_header_view(&compact_block_header.data().raw().parent_hash(), Some(true))
             .expect("parent block must exist");
-        let header_view = {
-            let total_difficulty = parent.total_difficulty() + compact_block_header.difficulty();
-            crate::types::HeaderView::new(compact_block_header.clone(), total_difficulty)
-        };
 
+        let header_index = HeaderIndex::new(
+            compact_block_header.number(),
+            block_hash.clone(),
+            parent.total_difficulty() + compact_block_header.difficulty(),
+        );
         let state = shared.state().peers();
-        state.may_set_best_known_header(peer, header_view);
+        state.may_set_best_known_header(peer, header_index);
 
         return StatusCode::CompactBlockAlreadyStored.with_context(block_hash);
     } else if status.contains(BlockStatus::BLOCK_RECEIVED) {

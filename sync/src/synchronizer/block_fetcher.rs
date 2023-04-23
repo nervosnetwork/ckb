@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::{ActiveChain, BlockNumberAndHash, HeaderView, IBDState};
+use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, IBDState};
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
 };
@@ -35,11 +35,7 @@ impl<'a> BlockFetcher<'a> {
         inflight.peer_can_fetch_count(self.peer) == 0
     }
 
-    pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(self.active_chain.total_difficulty())
-    }
-
-    pub fn peer_best_known_header(&self) -> Option<HeaderView> {
+    pub fn peer_best_known_header(&self) -> Option<HeaderIndex> {
         self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
@@ -91,7 +87,14 @@ impl<'a> BlockFetcher<'a> {
                 // Here we need to first try search from headermap, if not, fallback to search from the db.
                 // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
                 if let Some(header) = self.synchronizer.shared.get_header_view(&hash, None) {
-                    state.peers().may_set_best_known_header(self.peer, header);
+                    let header_index = HeaderIndex::new(
+                        header.number(),
+                        header.hash(),
+                        header.total_difficulty().clone(),
+                    );
+                    state
+                        .peers()
+                        .may_set_best_known_header(self.peer, header_index);
                 } else {
                     state.peers().insert_unknown_header_hash(self.peer, hash);
                     break;
@@ -101,7 +104,7 @@ impl<'a> BlockFetcher<'a> {
 
         // This peer has nothing interesting.
         let best_known = self.peer_best_known_header()?;
-        if !self.is_better_chain(&best_known) {
+        if !best_known.is_better_than(self.active_chain.total_difficulty()) {
             // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
             // However, RPC `get_peers`, returns peers information which includes
             // last_common_header, is expected to provide a more realistic picture. Hence here we
@@ -110,13 +113,13 @@ impl<'a> BlockFetcher<'a> {
             if self.active_chain.is_main_chain(&best_known.hash()) {
                 self.synchronizer
                     .peers()
-                    .set_last_common_header(self.peer, best_known.inner().into());
+                    .set_last_common_header(self.peer, best_known.number_and_hash());
             }
 
             return None;
         }
 
-        let best_known = best_known.inner().into();
+        let best_known = best_known.number_and_hash();
         let last_common = self.update_last_common_header(&best_known)?;
         if last_common == best_known {
             return None;
