@@ -1133,13 +1133,13 @@ fn test_fix_last_common_header() {
             HeaderView::new(header, total_difficulty)
         };
         if let Some(mut state) = synchronizer.shared.state().peers().state.get_mut(&peer) {
-            state.last_common_header = last_common_header;
+            state.last_common_header = last_common_header.map(Into::into);
             state.best_known_header = Some(best_known_header.clone());
         }
 
         let expected = fix_last_common.map(|mark| mark.to_string());
         let actual = BlockFetcher::new(&synchronizer, peer, IBDState::In)
-            .update_last_common_header(&best_known_header)
+            .update_last_common_header(&best_known_header.inner().into())
             .map(|header| {
                 if graph
                     .get(&m_(header.number()))

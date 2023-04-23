@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::{ActiveChain, HeaderView, IBDState};
+use crate::types::{ActiveChain, BlockNumberAndHash, HeaderView, IBDState};
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
 };
@@ -43,7 +43,10 @@ impl<'a> BlockFetcher<'a> {
         self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
-    pub fn update_last_common_header(&self, best_known: &HeaderView) -> Option<core::HeaderView> {
+    pub fn update_last_common_header(
+        &self,
+        best_known: &BlockNumberAndHash,
+    ) -> Option<BlockNumberAndHash> {
         // Bootstrap quickly by guessing a parent of our best tip is t
         // Guessing wrong in either direction is not a problem.
         let mut last_common =
@@ -53,14 +56,14 @@ impl<'a> BlockFetcher<'a> {
                 let tip_header = self.active_chain.tip_header();
                 let guess_number = min(tip_header.number(), best_known.number());
                 let guess_hash = self.active_chain.get_block_hash(guess_number)?;
-                self.active_chain.get_block_header(&guess_hash)?
+                (guess_number, guess_hash).into()
             };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
         last_common = self
             .active_chain
-            .last_common_ancestor(&last_common, best_known.inner())?;
+            .last_common_ancestor(&last_common, best_known)?;
 
         self.synchronizer
             .peers()
@@ -105,17 +108,17 @@ impl<'a> BlockFetcher<'a> {
             // specially advance this peer's last_common_header at the case of both us on the same
             // active chain.
             if self.active_chain.is_main_chain(&best_known.hash()) {
-                let last_common = best_known;
                 self.synchronizer
                     .peers()
-                    .set_last_common_header(self.peer, last_common.into_inner());
+                    .set_last_common_header(self.peer, best_known.inner().into());
             }
 
             return None;
         }
 
+        let best_known = best_known.inner().into();
         let last_common = self.update_last_common_header(&best_known)?;
-        if &last_common == best_known.inner() {
+        if last_common == best_known {
             return None;
         }
 
@@ -149,7 +152,7 @@ impl<'a> BlockFetcher<'a> {
                     // So we can skip the search of this space directly
                     self.synchronizer
                         .peers()
-                        .set_last_common_header(self.peer, header.clone());
+                        .set_last_common_header(self.peer, (&header).into());
                     end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
