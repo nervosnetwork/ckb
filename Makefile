@@ -98,17 +98,16 @@ integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integrat
 ##@ Document
 .PHONY: doc
 doc: ## Build the documentation for the local package.
-	cargo doc --all --no-deps
+	cargo doc --workspace --no-deps
 
 .PHONY: doc-deps
 doc-deps: ## Build the documentation for the local package and all dependencies.
-	cargo doc --all
+	cargo doc --workspace
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
 	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
-	cargo doc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core --no-deps
-	cargo doc -p ckb-types -p ckb-fixed-hash -p ckb-fixed-hash-core -p ckb-rpc -p ckb-jsonrpc-types --no-deps
+	cargo doc --workspace
 	ln -nsf "${CARGO_TARGET_DIR}" "target"
 	if command -v python3 &> /dev/null; then \
 		python3 ./devtools/doc/rpc.py > rpc/README.md; \
