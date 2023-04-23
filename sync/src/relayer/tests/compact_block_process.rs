@@ -136,7 +136,7 @@ fn test_unknow_parent() {
 
     let active_chain = relayer.shared.active_chain();
     let header = active_chain.tip_header();
-    let locator_hash = active_chain.get_locator(&header);
+    let locator_hash = active_chain.get_locator((&header).into());
 
     let content = packed::GetHeaders::new_builder()
         .block_locator_hashes(locator_hash.pack())

@@ -175,7 +175,7 @@ impl<'a> HeadersProcess<'a> {
         self.debug();
 
         if headers.len() == MAX_HEADERS_LEN {
-            let start = headers.last().expect("empty checked");
+            let start = headers.last().expect("empty checked").into();
             self.active_chain
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         } else if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {

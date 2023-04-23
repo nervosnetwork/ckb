@@ -264,7 +264,7 @@ fn contextual_check(
             block_hash,
             peer
         );
-        active_chain.send_getheaders_to_peer(nc.as_ref(), peer, &tip);
+        active_chain.send_getheaders_to_peer(nc.as_ref(), peer, (&tip).into());
         return StatusCode::CompactBlockRequiresParent.with_context(format!(
             "{} parent: {}",
             block_hash,
