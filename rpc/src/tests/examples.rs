@@ -625,6 +625,10 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
             response.result["current_time"] = example.response.result["current_time"].clone();
             response.result["work_id"] = example.response.result["work_id"].clone();
         }
+        "get_transaction" => {
+            response.result["time_added_to_pool"] =
+                example.response.result["time_added_to_pool"].clone();
+        }
         "tx_pool_info" => {
             response.result["last_txs_updated_at"] =
                 example.response.result["last_txs_updated_at"].clone()
