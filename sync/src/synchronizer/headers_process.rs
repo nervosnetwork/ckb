@@ -6,7 +6,7 @@ use ckb_constant::sync::MAX_HEADERS_LEN;
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_traits::HeaderProvider;
+use ckb_traits::HeaderFieldsProvider;
 use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
@@ -209,14 +209,14 @@ impl<'a> HeadersProcess<'a> {
     }
 }
 
-pub struct HeaderAcceptor<'a, DL: HeaderProvider> {
+pub struct HeaderAcceptor<'a, DL: HeaderFieldsProvider> {
     header: &'a core::HeaderView,
     active_chain: ActiveChain,
     peer: PeerIndex,
     verifier: HeaderVerifier<'a, DL>,
 }
 
-impl<'a, DL: HeaderProvider> HeaderAcceptor<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
     pub fn new(
         header: &'a core::HeaderView,
         peer: PeerIndex,
@@ -283,15 +283,16 @@ impl<'a, DL: HeaderProvider> HeaderAcceptor<'a, DL> {
         // type should we return?
         let status = self.active_chain.get_block_status(&self.header.hash());
         if status.contains(BlockStatus::HEADER_VALID) {
-            let header_view = shared
-                .get_header_view(
+            let header_index = shared
+                .get_header_index_view(
                     &self.header.hash(),
-                    Some(status.contains(BlockStatus::BLOCK_STORED)),
+                    status.contains(BlockStatus::BLOCK_STORED),
                 )
-                .expect("header with HEADER_VALID should exist");
+                .expect("header with HEADER_VALID should exist")
+                .as_header_index();
             state
                 .peers()
-                .may_set_best_known_header(self.peer, header_view.as_header_index());
+                .may_set_best_known_header(self.peer, header_index);
             return result;
         }
 

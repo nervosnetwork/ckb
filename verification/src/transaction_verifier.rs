@@ -6,7 +6,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
-use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, EpochProvider, HeaderFieldsProvider, HeaderProvider};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
@@ -28,7 +28,7 @@ pub struct TimeRelativeTransactionVerifier<'a, M> {
     pub(crate) since: SinceVerifier<'a, M>,
 }
 
-impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> TimeRelativeTransactionVerifier<'a, DL> {
     /// Creates a new TimeRelativeTransactionVerifier
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
@@ -110,7 +110,14 @@ pub struct ContextualTransactionVerifier<'a, DL> {
 
 impl<'a, DL> ContextualTransactionVerifier<'a, DL>
 where
-    DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider
+        + HeaderProvider
+        + HeaderFieldsProvider
+        + EpochProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     /// Creates a new ContextualTransactionVerifier
     pub fn new(
@@ -628,7 +635,7 @@ pub struct SinceVerifier<'a, DL> {
     tx_env: &'a TxVerifyEnv,
 }
 
-impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> SinceVerifier<'a, DL> {
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
         consensus: &'a Consensus,
@@ -644,8 +651,11 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
     }
 
     fn parent_median_time(&self, block_hash: &Byte32) -> u64 {
-        let (_, _, parent_hash) = self.data_loader.timestamp_and_parent(block_hash);
-        self.block_median_time(&parent_hash)
+        let header_fields = self
+            .data_loader
+            .get_header_fields(block_hash)
+            .expect("parent block exist");
+        self.block_median_time(&header_fields.parent_hash)
     }
 
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
@@ -731,9 +741,9 @@ impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
                         .is_block_ts_as_relative_since_start_enabled(epoch_number)
                     {
                         self.data_loader
-                            .get_header(&info.block_hash)
+                            .get_header_fields(&info.block_hash)
                             .expect("header exist")
-                            .timestamp()
+                            .timestamp
                     } else {
                         self.parent_median_time(&info.block_hash)
                     };
@@ -814,7 +824,14 @@ pub struct ContextualWithoutScriptTransactionVerifier<'a, DL> {
 
 impl<'a, DL> ContextualWithoutScriptTransactionVerifier<'a, DL>
 where
-    DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider
+        + HeaderProvider
+        + HeaderFieldsProvider
+        + EpochProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     /// Creates a new ContextualWithoutScriptTransactionVerifier
     pub fn new(

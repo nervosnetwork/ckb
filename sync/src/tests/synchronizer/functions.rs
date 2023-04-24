@@ -308,13 +308,14 @@ fn test_get_ancestor() {
     assert!(tip.is_some());
     assert!(header.is_some());
     assert!(noop.is_none());
-    assert_eq!(tip.unwrap(), shared.snapshot().tip_header().to_owned());
+    assert_eq!(tip.unwrap().hash(), shared.snapshot().tip_header().hash());
     assert_eq!(
-        header.unwrap(),
+        header.unwrap().hash(),
         shared
             .store()
             .get_block_header(&shared.store().get_block_hash(100).unwrap())
             .unwrap()
+            .hash()
     );
 }
 

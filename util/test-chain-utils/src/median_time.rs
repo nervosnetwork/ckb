@@ -1,4 +1,4 @@
-use ckb_traits::HeaderProvider;
+use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
     core::{BlockNumber, EpochNumberWithFraction, HeaderBuilder, HeaderView, TransactionInfo},
     packed::Byte32,
@@ -24,16 +24,15 @@ pub const MOCK_MEDIAN_TIME_COUNT: usize = 11;
 #[doc(hidden)]
 pub const MOCK_EPOCH_LENGTH: BlockNumber = 1000;
 
-impl HeaderProvider for MockMedianTime {
-    fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
-        self.headers.get(hash).cloned()
-    }
-
-    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
-        self.headers
-            .get(block_hash)
-            .map(|header| (header.timestamp(), header.number(), header.hash()))
-            .unwrap()
+impl HeaderFieldsProvider for MockMedianTime {
+    fn get_header_fields(&self, hash: &Byte32) -> Option<HeaderFields> {
+        self.headers.get(hash).cloned().map(|header| HeaderFields {
+            hash: header.hash(),
+            number: header.number(),
+            epoch: header.epoch(),
+            timestamp: header.timestamp(),
+            parent_hash: header.parent_hash(),
+        })
     }
 }
 
@@ -41,6 +40,7 @@ impl MockMedianTime {
     /// Create a new `MockMedianTime`.
     #[doc(hidden)]
     pub fn new(timestamps: Vec<u64>) -> Self {
+        let mut parent_hash = Byte32::zero();
         Self {
             headers: Arc::new(
                 timestamps
@@ -59,7 +59,9 @@ impl MockMedianTime {
                                 )
                                 .pack(),
                             )
+                            .parent_hash(parent_hash.clone())
                             .build();
+                        parent_hash = header.hash();
                         (header.hash(), header)
                     })
                     .collect(),

@@ -10,13 +10,13 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
-use crate::types::{HeaderView, TtlFilter, FILTER_TTL};
+use crate::types::{HeaderIndexView, TtlFilter, FILTER_TTL};
 
 const SKIPLIST_LENGTH: u64 = 10_000;
 
 #[test]
 fn test_get_ancestor_use_skip_list() {
-    let mut header_map: HashMap<Byte32, HeaderView> = HashMap::default();
+    let mut header_map: HashMap<Byte32, HeaderIndexView> = HashMap::default();
     let mut hashes: BTreeMap<BlockNumber, Byte32> = BTreeMap::default();
 
     let mut parent_hash = None;
@@ -31,7 +31,7 @@ fn test_get_ancestor_use_skip_list() {
         hashes.insert(number, header.hash());
         parent_hash = Some(header.hash());
 
-        let mut view = HeaderView::new(header, U256::zero());
+        let mut view: HeaderIndexView = (header, U256::zero()).into();
         view.build_skip(0, |hash, _| header_map.get(hash).cloned(), |_, _| None);
         header_map.insert(view.hash(), view);
     }
@@ -40,7 +40,7 @@ fn test_get_ancestor_use_skip_list() {
         if *number > 0 {
             let skip_view = header_map
                 .get(hash)
-                .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
+                .and_then(|view| header_map.get(view.skip_hash().unwrap()))
                 .unwrap();
             assert_eq!(
                 Some(skip_view.hash()).as_ref(),
@@ -48,7 +48,7 @@ fn test_get_ancestor_use_skip_list() {
             );
             assert!(skip_view.number() < *number);
         } else {
-            assert!(header_map[hash].skip_hash.is_none());
+            assert!(header_map[hash].skip_hash().is_none());
         }
     }
 
