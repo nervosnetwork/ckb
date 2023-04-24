@@ -23,18 +23,18 @@ use std::sync::Arc;
 /// Contains:
 /// [`MaturityVerifier`](./struct.MaturityVerifier.html)
 /// [`SinceVerifier`](./struct.SinceVerifier.html)
-pub struct TimeRelativeTransactionVerifier<'a, M> {
+pub struct TimeRelativeTransactionVerifier<M> {
     pub(crate) maturity: MaturityVerifier,
-    pub(crate) since: SinceVerifier<'a, M>,
+    pub(crate) since: SinceVerifier<M>,
 }
 
-impl<'a, DL: HeaderProvider> TimeRelativeTransactionVerifier<'a, DL> {
+impl<DL: HeaderProvider> TimeRelativeTransactionVerifier<DL> {
     /// Creates a new TimeRelativeTransactionVerifier
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
-        consensus: &'a Consensus,
+        consensus: Arc<Consensus>,
         data_loader: DL,
-        tx_env: &'a TxVerifyEnv,
+        tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         TimeRelativeTransactionVerifier {
             maturity: MaturityVerifier::new(
@@ -101,32 +101,37 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
-pub struct ContextualTransactionVerifier<'a, DL> {
-    pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
+pub struct ContextualTransactionVerifier<DL> {
+    pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
     pub(crate) script: ScriptVerifier<DL>,
-    pub(crate) fee_calculator: FeeCalculator<'a, DL>,
+    pub(crate) fee_calculator: FeeCalculator<DL>,
 }
 
-impl<'a, DL> ContextualTransactionVerifier<'a, DL>
+impl<DL> ContextualTransactionVerifier<DL>
 where
     DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
 {
     /// Creates a new ContextualTransactionVerifier
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
-        consensus: &'a Consensus,
+        consensus: Arc<Consensus>,
         data_loader: DL,
-        tx_env: &'a TxVerifyEnv,
+        tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
-                consensus,
+                Arc::clone(&consensus),
                 data_loader.clone(),
-                tx_env,
+                Arc::clone(&tx_env),
             ),
-            script: ScriptVerifier::new(Arc::clone(&rtx), data_loader.clone()),
+            script: ScriptVerifier::new(
+                Arc::clone(&rtx),
+                data_loader.clone(),
+                Arc::clone(&consensus),
+                Arc::clone(&tx_env),
+            ),
             capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
         }
@@ -210,16 +215,16 @@ where
 //     }
 // }
 
-pub struct FeeCalculator<'a, DL> {
+pub struct FeeCalculator<DL> {
     transaction: Arc<ResolvedTransaction>,
-    consensus: &'a Consensus,
+    consensus: Arc<Consensus>,
     data_loader: DL,
 }
 
-impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a, DL> {
+impl<DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<DL> {
     fn new(
         transaction: Arc<ResolvedTransaction>,
-        consensus: &'a Consensus,
+        consensus: Arc<Consensus>,
         data_loader: DL,
     ) -> Self {
         Self {
@@ -234,7 +239,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<'a
         if self.transaction.is_cellbase() {
             Ok(Capacity::zero())
         } else {
-            DaoCalculator::new(self.consensus, &self.data_loader).transaction_fee(&self.transaction)
+            DaoCalculator::new(self.consensus.as_ref(), &self.data_loader)
+                .transaction_fee(&self.transaction)
         }
     }
 }
@@ -302,9 +308,19 @@ pub struct ScriptVerifier<DL> {
 
 impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static> ScriptVerifier<DL> {
     /// Creates a new ScriptVerifier
-    pub fn new(resolved_transaction: Arc<ResolvedTransaction>, data_loader: DL) -> Self {
+    pub fn new(
+        resolved_transaction: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+    ) -> Self {
         ScriptVerifier {
-            inner: TransactionScriptsVerifier::new(resolved_transaction, data_loader),
+            inner: TransactionScriptsVerifier::new(
+                resolved_transaction,
+                data_loader,
+                consensus,
+                tx_env,
+            ),
         }
     }
 
@@ -621,19 +637,19 @@ impl Since {
 ///
 /// Rules detail see:
 /// [tx-since-specification](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
-pub struct SinceVerifier<'a, DL> {
+pub struct SinceVerifier<DL> {
     rtx: Arc<ResolvedTransaction>,
-    consensus: &'a Consensus,
+    consensus: Arc<Consensus>,
     data_loader: DL,
-    tx_env: &'a TxVerifyEnv,
+    tx_env: Arc<TxVerifyEnv>,
 }
 
-impl<'a, DL: HeaderProvider> SinceVerifier<'a, DL> {
+impl<DL: HeaderProvider> SinceVerifier<DL> {
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
-        consensus: &'a Consensus,
+        consensus: Arc<Consensus>,
         data_loader: DL,
-        tx_env: &'a TxVerifyEnv,
+        tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         SinceVerifier {
             rtx,
@@ -807,27 +823,27 @@ impl<'a> OutputsDataVerifier<'a> {
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
-pub struct ContextualWithoutScriptTransactionVerifier<'a, DL> {
-    pub(crate) time_relative: TimeRelativeTransactionVerifier<'a, DL>,
+pub struct ContextualWithoutScriptTransactionVerifier<DL> {
+    pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
-    pub(crate) fee_calculator: FeeCalculator<'a, DL>,
+    pub(crate) fee_calculator: FeeCalculator<DL>,
 }
 
-impl<'a, DL> ContextualWithoutScriptTransactionVerifier<'a, DL>
+impl<DL> ContextualWithoutScriptTransactionVerifier<DL>
 where
     DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
 {
     /// Creates a new ContextualWithoutScriptTransactionVerifier
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
-        consensus: &'a Consensus,
+        consensus: Arc<Consensus>,
         data_loader: DL,
-        tx_env: &'a TxVerifyEnv,
+        tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualWithoutScriptTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
-                consensus,
+                Arc::clone(&consensus),
                 data_loader.clone(),
                 tx_env,
             ),

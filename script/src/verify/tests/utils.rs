@@ -1,3 +1,4 @@
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_BYTES;
 use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
 use ckb_db::RocksDB;
@@ -13,7 +14,10 @@ use ckb_test_chain_utils::{
 };
 use ckb_types::{
     core::{
-        capacity_bytes, cell::CellMetaBuilder, Capacity, Cycle, DepType, ScriptHashType,
+        capacity_bytes,
+        cell::CellMetaBuilder,
+        hardfork::{HardForks, CKB2021, CKB2023},
+        Capacity, Cycle, DepType, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
         TransactionBuilder, TransactionInfo,
     },
     h256,
@@ -32,6 +36,7 @@ use crate::verify::*;
 
 pub(crate) const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 pub(crate) const CYCLE_BOUND: Cycle = 200_000;
+pub(crate) const V2_CYCLE_BOUND: Cycle = 300_000;
 
 fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
     use tiny_keccak::{Hasher, Sha3};
@@ -120,6 +125,8 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
     //
     // Ref: https://doc.rust-lang.org/reference/destructors.html
     store: Arc<ChainDB>,
+    consensus: Arc<Consensus>,
+    version_2_enabled_at: EpochNumber,
     _tmp_dir: TempDir,
 }
 
@@ -128,8 +135,25 @@ impl TransactionScriptsVerifierWithEnv {
         let tmp_dir = TempDir::new().unwrap();
         let db = RocksDB::open_in(&tmp_dir, COLUMNS);
         let store = Arc::new(ChainDB::new(db, Default::default()));
+        let version_2_enabled_at = 10;
+
+        let hardfork_switch = HardForks {
+            ckb2021: CKB2021::new_mirana(),
+            ckb2023: CKB2023::new_mirana()
+                .as_builder()
+                .rfc_0148(version_2_enabled_at)
+                .build()
+                .unwrap(),
+        };
+        let consensus = Arc::new(
+            ConsensusBuilder::default()
+                .hardfork_switch(hardfork_switch)
+                .build(),
+        );
         Self {
             store,
+            version_2_enabled_at,
+            consensus,
             _tmp_dir: tmp_dir,
         }
     }
@@ -203,7 +227,7 @@ impl TransactionScriptsVerifierWithEnv {
 
     pub(crate) fn verify_map<R, F>(
         &self,
-        _version: ScriptVersion,
+        version: ScriptVersion,
         rtx: &ResolvedTransaction,
         mut verify_func: F,
     ) -> R
@@ -211,7 +235,21 @@ impl TransactionScriptsVerifierWithEnv {
         F: FnMut(TransactionScriptsVerifier<DataLoaderWrapper<ChainDB>>) -> R,
     {
         let data_loader = self.store.as_data_loader();
-        let verifier = TransactionScriptsVerifier::new(Arc::new(rtx.clone()), data_loader);
+        let epoch = match version {
+            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V1 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
+        };
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
+        let verifier = TransactionScriptsVerifier::new(
+            Arc::new(rtx.clone()),
+            data_loader,
+            Arc::clone(&self.consensus),
+            tx_env,
+        );
         verify_func(verifier)
     }
 }

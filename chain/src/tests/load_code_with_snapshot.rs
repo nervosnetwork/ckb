@@ -243,7 +243,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
             .rfc_0032(0)
             .build()
             .unwrap(),
-        ckb2023: CKB2023::new_builder().build().unwrap(),
+        ckb2023: CKB2023::new_mirana().as_builder().build().unwrap(),
     };
     let consensus = ConsensusBuilder::default()
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))

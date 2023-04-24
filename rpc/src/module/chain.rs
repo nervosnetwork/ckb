@@ -24,6 +24,7 @@ use ckb_types::{
     H256,
 };
 use ckb_verification::ScriptVerifier;
+use ckb_verification::TxVerifyEnv;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -2324,12 +2325,19 @@ impl<'a> CyclesEstimator<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<EstimateCycles> {
         let snapshot = self.shared.cloned_snapshot();
-        let consensus = snapshot.consensus();
+        let consensus = snapshot.cloned_consensus();
         match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(Arc::new(resolved), snapshot.as_data_loader())
-                    .verify(max_cycles)
+                let tip_header = snapshot.tip_header();
+                let tx_env = TxVerifyEnv::new_submit(tip_header);
+                match ScriptVerifier::new(
+                    Arc::new(resolved),
+                    snapshot.as_data_loader(),
+                    consensus,
+                    Arc::new(tx_env),
+                )
+                .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(EstimateCycles {
                         cycles: cycles.into(),

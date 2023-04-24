@@ -442,14 +442,14 @@ impl TxPool {
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
+        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 0));
         self.check_rtx_from_pending_and_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(
             snapshot,
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &Some(cache_entry),
             max_cycles,
         )?;
@@ -473,14 +473,14 @@ impl TxPool {
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
+        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 1));
         self.check_rtx_from_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(
             snapshot,
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &Some(cache_entry),
             max_cycles,
         )?;

@@ -115,7 +115,7 @@ impl TxPoolService {
 
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), &tx_env)?;
+                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -323,16 +323,15 @@ impl TxPoolService {
         // The network protocol is switched after tx-pool confirms the cache,
         // there will be no problem with the current state as the choice of the broadcast protocol.
         let with_vm_2023 = {
-            let _epoch = snapshot
+            let epoch = snapshot
                 .tip_header()
                 .epoch()
                 .minimum_epoch_number_after_n_blocks(1);
-            false
 
-            // FIXME: After RFC configuration confirmation
-            // self.consensus
-            //     .hardfork_switch
-            //     .is_vm_version_1_and_syscalls_2_enabled(epoch)
+            self.consensus
+                .hardfork_switch
+                .ckb2023
+                .is_vm_version_2_and_syscalls_3_enabled(epoch)
         };
 
         // log tx verification result for monitor node
@@ -456,16 +455,15 @@ impl TxPoolService {
                     match ret {
                         Ok(_) => {
                             let with_vm_2023 = {
-                                let _epoch = snapshot
+                                let epoch = snapshot
                                     .tip_header()
                                     .epoch()
                                     .minimum_epoch_number_after_n_blocks(1);
-                                false
 
-                                // FIXME: After RFC configuration confirmation
-                                // self.consensus
-                                //     .hardfork_switch
-                                //     .is_vm_version_1_and_syscalls_2_enabled(epoch)
+                                self.consensus
+                                    .hardfork_switch
+                                    .ckb2023
+                                    .is_vm_version_2_and_syscalls_3_enabled(epoch)
                             };
                             self.send_result_to_relayer(TxVerificationResult::Ok {
                                 original_peer: Some(orphan.peer),
@@ -555,7 +553,7 @@ impl TxPoolService {
 
         let cached = self.fetch_tx_verify_cache(&tx_hash).await;
         let tip_header = snapshot.tip_header();
-        let tx_env = status.with_env(tip_header);
+        let tx_env = Arc::new(status.with_env(tip_header));
 
         let data_loader = snapshot.as_data_loader();
 
@@ -564,9 +562,9 @@ impl TxPoolService {
                 CacheEntry::Completed(completed) => {
                     let ret = TimeRelativeTransactionVerifier::new(
                         Arc::clone(&rtx),
-                        &self.consensus,
+                        Arc::clone(&self.consensus),
                         data_loader,
-                        &tx_env,
+                        tx_env,
                     )
                     .verify()
                     .map_err(Reject::Verification);
@@ -578,15 +576,14 @@ impl TxPoolService {
                 }
             }
         } else {
-            let consensus = snapshot.consensus();
             let is_chunk_full = self.is_chunk_full().await;
 
             let ret = block_in_place(|| {
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(&rtx),
-                    consensus,
+                    Arc::clone(&self.consensus),
                     data_loader,
-                    &tx_env,
+                    tx_env,
                 );
 
                 let (ret, fee) = verifier
@@ -679,12 +676,12 @@ impl TxPoolService {
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
-        let tx_env = status.with_env(tip_header);
+        let tx_env = Arc::new(status.with_env(tip_header));
 
         let verified_ret = verify_rtx(
             Arc::clone(&snapshot),
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &verify_cache,
             max_cycles,
         );
@@ -730,7 +727,7 @@ impl TxPoolService {
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
 
-        let _epoch_of_next_block = snapshot
+        let epoch_of_next_block = snapshot
             .tip_header()
             .epoch()
             .minimum_epoch_number_after_n_blocks(1);
@@ -768,11 +765,12 @@ impl TxPoolService {
             //
             // This operation should be ahead of any transaction which is processed with new
             // hardfork features.
-            if !self.network.load_ckb2023() && false
-            // FIXME: After RFC configuration confirmation
-            // self.consensus
-            //     .hardfork_switch
-            //     .is_vm_version_1_and_syscalls_2_enabled(epoch_of_next_block)
+            if !self.network.load_ckb2023()
+                && self
+                    .consensus
+                    .hardfork_switch
+                    .ckb2023
+                    .is_vm_version_2_and_syscalls_3_enabled(epoch_of_next_block)
             {
                 self.network.init_ckb2023()
             }
@@ -807,11 +805,11 @@ impl TxPoolService {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
                     let tip_header = snapshot.tip_header();
-                    let tx_env = status.with_env(tip_header);
+                    let tx_env = Arc::new(status.with_env(tip_header));
                     if let Ok(verified) = verify_rtx(
                         snapshot,
                         Arc::clone(&rtx),
-                        &tx_env,
+                        tx_env,
                         &verify_cache,
                         max_cycles,
                     ) {

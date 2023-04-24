@@ -37,7 +37,7 @@ impl CKB2023 {
     }
 
     /// Creates a new mirana instance.
-    pub fn new() -> Self {
+    pub fn new_mirana() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
             .rfc_0146(hardfork::mainnet::CKB2023_START_EPOCH)
