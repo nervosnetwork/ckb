@@ -12,8 +12,9 @@ use crate::{
         CoreMachine, DebugPrinter, Indices, Machine, ResumableMachine, ScriptGroup,
         ScriptGroupType, ScriptVersion, TransactionSnapshot, TransactionState, VerifyResult,
     },
+    verify_env::TxVerifyEnv,
 };
-use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
+use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
@@ -324,6 +325,9 @@ pub struct TransactionScriptsVerifier<DL> {
 
     #[cfg(test)]
     skip_pause: Arc<AtomicBool>,
+
+    consensus: Arc<Consensus>,
+    tx_env: Arc<TxVerifyEnv>,
 }
 
 impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
@@ -335,7 +339,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     ///
     /// * `rtx` - transaction which cell out points have been resolved.
     /// * `data_loader` - used to load cell data.
-    pub fn new(rtx: Arc<ResolvedTransaction>, data_loader: DL) -> TransactionScriptsVerifier<DL> {
+    pub fn new(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+    ) -> TransactionScriptsVerifier<DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
         let resolved_inputs = &rtx.resolved_inputs;
@@ -421,6 +430,8 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
             ),
             #[cfg(test)]
             skip_pause: Arc::new(AtomicBool::new(false)),
+            consensus,
+            tx_env,
         }
     }
 
@@ -474,15 +485,34 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         }
     }
 
+    fn is_vm_version_2_and_syscalls_3_enabled(&self) -> bool {
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        hardfork_switch
+            .ckb2023
+            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
+    }
+
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
+        let is_vm_version_2_and_syscalls_3_enabled = self.is_vm_version_2_and_syscalls_3_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
             ScriptHashType::Data1 => Ok(ScriptVersion::V1),
             ScriptHashType::Data2 => Ok(ScriptVersion::V2),
-            ScriptHashType::Type => Ok(ScriptVersion::V1),
+            ScriptHashType::Type => {
+                if is_vm_version_2_and_syscalls_3_enabled {
+                    Ok(ScriptVersion::V2)
+                } else {
+                    Ok(ScriptVersion::V1)
+                }
+            }
         }
     }
 

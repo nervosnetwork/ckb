@@ -138,6 +138,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `EstimateCycles`](#type-estimatecycles)
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
+    * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `HardForks`](#type-hardforks)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
@@ -5898,10 +5899,30 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 
 The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
 
+### Type `HardForkFeature`
+
+The information about one hardfork feature.
+
+#### Fields
+
+`HardForkFeature` is a JSON object with the following fields.
+
+*   `rfc`: `string` - The related RFC ID.
+
+*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
+
+
 ### Type `HardForks`
 
-Returns a list of hardfork features from a hardfork switch.
+Hardfork information
 
+#### Fields
+
+`HardForks` is a JSON object with the following fields.
+
+*   `ckb2021`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - ckb2021 information
+
+*   `ckb2023`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - ckb2023 information
 
 
 ### Type `Header`

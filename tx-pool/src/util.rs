@@ -76,11 +76,11 @@ pub(crate) fn non_contextual_verify(
 pub(crate) fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
-    tx_env: &TxVerifyEnv,
+    tx_env: Arc<TxVerifyEnv>,
     cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
 ) -> Result<Completed, Reject> {
-    let consensus = snapshot.consensus();
+    let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
     if let Some(ref cached) = cache_entry {
@@ -109,12 +109,17 @@ pub(crate) fn verify_rtx(
 pub(crate) fn time_relative_verify(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
-    tx_env: &TxVerifyEnv,
+    tx_env: TxVerifyEnv,
 ) -> Result<(), Reject> {
-    let consensus = snapshot.consensus();
-    TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot.as_data_loader(), tx_env)
-        .verify()
-        .map_err(Reject::Verification)
+    let consensus = snapshot.cloned_consensus();
+    TimeRelativeTransactionVerifier::new(
+        rtx,
+        consensus,
+        snapshot.as_data_loader(),
+        Arc::new(tx_env),
+    )
+    .verify()
+    .map_err(Reject::Verification)
 }
 
 pub(crate) fn is_missing_input(reject: &Reject) -> bool {

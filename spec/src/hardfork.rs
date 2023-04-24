@@ -40,7 +40,7 @@ impl HardForkConfig {
 
         Ok(HardForks {
             ckb2021: ckb2021.build()?,
-            ckb2023: CKB2023::new_builder().build()?,
+            ckb2023: CKB2023::new_mirana().as_builder().build()?,
         })
     }
 
@@ -56,7 +56,7 @@ impl HardForkConfig {
 
         Ok(HardForks {
             ckb2021: ckb2021.build()?,
-            ckb2023: CKB2023::new_builder().build()?,
+            ckb2023: CKB2023::new_mirana(),
         })
     }
 

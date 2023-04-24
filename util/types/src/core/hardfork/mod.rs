@@ -22,7 +22,7 @@ impl HardForks {
     pub fn new_mirana() -> HardForks {
         HardForks {
             ckb2021: CKB2021::new_mirana(),
-            ckb2023: CKB2023::new(),
+            ckb2023: CKB2023::new_mirana(),
         }
     }
 }

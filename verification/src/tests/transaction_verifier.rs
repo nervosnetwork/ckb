@@ -376,9 +376,11 @@ fn verify_since(
     epoch_number: EpochNumber,
 ) -> Result<(), Error> {
     let parent_hash = Arc::new(median_time_context.get_last_block_hash());
-    let consensus = ConsensusBuilder::default()
-        .median_time_block_count(11)
-        .build();
+    let consensus = Arc::new(
+        ConsensusBuilder::default()
+            .median_time_block_count(11)
+            .build(),
+    );
     let tx_env = {
         let epoch = EpochNumberWithFraction::new(epoch_number, 0, 10);
         let header = HeaderView::new_advanced_builder()
@@ -386,9 +388,9 @@ fn verify_since(
             .epoch(epoch.pack())
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
-        TxVerifyEnv::new_commit(&header)
+        Arc::new(TxVerifyEnv::new_commit(&header))
     };
-    SinceVerifier::new(rtx, &consensus, median_time_context, &tx_env).verify()
+    SinceVerifier::new(rtx, consensus, median_time_context, tx_env).verify()
 }
 
 #[test]
@@ -484,9 +486,11 @@ fn test_fraction_epoch_since_verify() {
         &tx,
         median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
     );
-    let consensus = ConsensusBuilder::default()
-        .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
-        .build();
+    let consensus = Arc::new(
+        ConsensusBuilder::default()
+            .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
+            .build(),
+    );
 
     let block_number = 11;
     let parent_hash = Arc::new(median_time_context.get_block_hash(block_number - 1));
@@ -498,13 +502,13 @@ fn test_fraction_epoch_since_verify() {
             .epoch(epoch.pack())
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
-        TxVerifyEnv::new_commit(&header)
+        Arc::new(TxVerifyEnv::new_commit(&header))
     };
     let result = SinceVerifier::new(
         Arc::clone(&rtx),
-        &consensus,
+        Arc::clone(&consensus),
         median_time_context.clone(),
-        &tx_env,
+        tx_env,
     )
     .verify();
     assert_error_eq!(result.unwrap_err(), TransactionError::Immature { index: 0 });
@@ -516,9 +520,10 @@ fn test_fraction_epoch_since_verify() {
             .epoch(epoch.pack())
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
-        TxVerifyEnv::new_commit(&header)
+        Arc::new(TxVerifyEnv::new_commit(&header))
     };
-    let result = SinceVerifier::new(rtx, &consensus, median_time_context, &tx_env).verify();
+    let result =
+        SinceVerifier::new(rtx, Arc::clone(&consensus), median_time_context, tx_env).verify();
     assert!(result.is_ok());
 }
 
@@ -541,24 +546,31 @@ fn test_fraction_epoch_since_verify_v2021() {
             .epoch(epoch.pack())
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
-        TxVerifyEnv::new_commit(&header)
+        Arc::new(TxVerifyEnv::new_commit(&header))
     };
     {
         // Test CKB v2021
         let hardfork_switch = HardForks::new_mirana();
-        let consensus = ConsensusBuilder::default()
-            .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
-            .hardfork_switch(hardfork_switch)
-            .build();
+        let consensus = Arc::new(
+            ConsensusBuilder::default()
+                .median_time_block_count(MOCK_MEDIAN_TIME_COUNT)
+                .hardfork_switch(hardfork_switch)
+                .build(),
+        );
 
-        let result =
-            SinceVerifier::new(rtx1, &consensus, median_time_context.clone(), &tx_env).verify();
+        let result = SinceVerifier::new(
+            rtx1,
+            Arc::clone(&consensus),
+            median_time_context.clone(),
+            Arc::clone(&tx_env),
+        )
+        .verify();
         assert_error_eq!(
             result.unwrap_err(),
             TransactionError::InvalidSince { index: 0 }
         );
 
-        let result = SinceVerifier::new(rtx2, &consensus, median_time_context, &tx_env).verify();
+        let result = SinceVerifier::new(rtx2, consensus, median_time_context, tx_env).verify();
         assert!(result.is_ok(), "result = {result:?}");
     }
 }
