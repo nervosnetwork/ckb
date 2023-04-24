@@ -275,7 +275,7 @@ pub struct PeerState {
     // The best known block we know this peer has announced
     pub best_known_header: Option<HeaderView>,
     // The last block we both stored
-    pub last_common_header: Option<core::HeaderView>,
+    pub last_common_header: Option<BlockNumberAndHash>,
     // use on ibd concurrent block download
     // save `get_headers` locator hashes here
     pub unknown_header_list: Vec<Byte32>,
@@ -435,6 +435,15 @@ impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
 
 impl From<&core::HeaderView> for BlockNumberAndHash {
     fn from(header: &core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
+        }
+    }
+}
+
+impl From<core::HeaderView> for BlockNumberAndHash {
+    fn from(header: core::HeaderView) -> Self {
         Self {
             number: header.number(),
             hash: header.hash(),
@@ -907,13 +916,13 @@ impl Peers {
         }
     }
 
-    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
+    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<BlockNumberAndHash> {
         self.state
             .get(&pi)
             .and_then(|peer_state| peer_state.last_common_header.clone())
     }
 
-    pub fn set_last_common_header(&self, pi: PeerIndex, header: core::HeaderView) {
+    pub fn set_last_common_header(&self, pi: PeerIndex, header: BlockNumberAndHash) {
         self.state
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
@@ -2081,24 +2090,28 @@ impl ActiveChain {
 
     pub fn last_common_ancestor(
         &self,
-        pa: &core::HeaderView,
-        pb: &core::HeaderView,
-    ) -> Option<core::HeaderView> {
+        pa: &BlockNumberAndHash,
+        pb: &BlockNumberAndHash,
+    ) -> Option<BlockNumberAndHash> {
         let (mut m_left, mut m_right) = if pa.number() > pb.number() {
             (pb.clone(), pa.clone())
         } else {
             (pa.clone(), pb.clone())
         };
 
-        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?.into();
         if m_left == m_right {
             return Some(m_left);
         }
         debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
-            m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
-            m_right = self.get_ancestor(&m_right.hash(), m_right.number() - 1)?;
+            m_left = self
+                .get_ancestor(&m_left.hash(), m_left.number() - 1)?
+                .into();
+            m_right = self
+                .get_ancestor(&m_right.hash(), m_right.number() - 1)?
+                .into();
         }
         Some(m_left)
     }
