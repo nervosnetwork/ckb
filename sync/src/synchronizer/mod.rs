@@ -13,7 +13,7 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 
@@ -393,8 +393,10 @@ impl Synchronizer {
                         active_chain.total_difficulty().to_owned(),
                     )
                 };
-                if best_known_header.map(HeaderView::total_difficulty)
-                    >= Some(&local_total_difficulty)
+                if best_known_header
+                    .map(|header_index| header_index.total_difficulty().clone())
+                    .unwrap_or_default()
+                    >= local_total_difficulty
                 {
                     if state.chain_sync.timeout != 0 {
                         state.chain_sync.timeout = 0;
@@ -404,8 +406,9 @@ impl Synchronizer {
                     }
                 } else if state.chain_sync.timeout == 0
                     || (best_known_header.is_some()
-                        && best_known_header.map(HeaderView::total_difficulty)
-                            >= state.chain_sync.total_difficulty.as_ref())
+                        && best_known_header
+                            .map(|header_index| header_index.total_difficulty().clone())
+                            >= state.chain_sync.total_difficulty)
                 {
                     // Our best block known by this peer is behind our tip, and we're either noticing
                     // that for the first time, OR this peer was able to catch up to some earlier point

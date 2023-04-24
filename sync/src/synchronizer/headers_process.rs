@@ -291,7 +291,7 @@ impl<'a, DL: HeaderProvider> HeaderAcceptor<'a, DL> {
                 .expect("header with HEADER_VALID should exist");
             state
                 .peers()
-                .may_set_best_known_header(self.peer, header_view);
+                .may_set_best_known_header(self.peer, header_view.as_header_index());
             return result;
         }
 
