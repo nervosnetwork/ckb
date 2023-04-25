@@ -27,7 +27,7 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-/// TODO(doc): @quake
+/// A Transaction DB
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) freezer: Option<Freezer>,

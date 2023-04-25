@@ -123,6 +123,8 @@ impl<'a, DL: HeaderProvider> TimestampVerifier<'a, DL> {
     }
 }
 
+/// Checks if the block number of the given header matches the expected number,
+/// which is the parent block's number + 1.
 pub struct NumberVerifier<'a> {
     parent: &'a HeaderView,
     header: &'a HeaderView,

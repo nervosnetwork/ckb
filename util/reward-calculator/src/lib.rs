@@ -74,6 +74,11 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         self.block_reward_internal(target, &parent)
     }
 
+    /// Calculates the block reward and returns the reward distribution as well as the lock script
+    /// for the target block. Returns a `DaoError` if the calculation fails for any reason.
+    ///
+    /// Panics if the target cellbase does not exist or if the target witness does not exist, or if
+    /// the cellbase loaded from store has an empty witness.
     fn block_reward_internal(
         &self,
         target: &HeaderView,
@@ -157,7 +162,11 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
     ///        \   \__________/___/
     ///         \____________/
     ///
-
+    /// Note on `fn proposal_reward` implementation:
+    ///
+    /// On mainnet, for block 1~11, the reward target is genesis block.
+    /// Genesis block must have the lock serialized in the cellbase witness,
+    /// which is set to `genesis.bootstrap_lock`.
     fn proposal_reward(
         &self,
         parent: &HeaderView,
