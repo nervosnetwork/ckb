@@ -329,7 +329,7 @@ impl Launcher {
         }
 
         if support_protocols.contains(&SupportProtocol::LightClient) {
-            let light_client = LightClientProtocol::new(Arc::clone(&sync_shared));
+            let light_client = LightClientProtocol::new(shared.clone());
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::LightClient,
                 Box::new(light_client),

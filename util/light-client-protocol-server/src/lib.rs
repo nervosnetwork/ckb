@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
-use ckb_sync::SyncShared;
+use ckb_shared::Shared;
+use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*};
 
 use crate::prelude::*;
@@ -24,12 +25,12 @@ pub use status::{Status, StatusCode};
 /// Light client protocol handler.
 pub struct LightClientProtocol {
     /// Sync shared state.
-    pub shared: Arc<SyncShared>,
+    pub shared: Shared,
 }
 
 impl LightClientProtocol {
     /// Create a new light client protocol handler.
-    pub fn new(shared: Arc<SyncShared>) -> Self {
+    pub fn new(shared: Shared) -> Self {
         Self { shared }
     }
 }
@@ -116,16 +117,15 @@ impl LightClientProtocol {
     }
 
     pub(crate) fn get_verifiable_tip_header(&self) -> Result<packed::VerifiableHeader, String> {
-        let active_chain = self.shared.active_chain();
+        let snapshot = self.shared.snapshot();
 
-        let tip_hash = active_chain.tip_hash();
-        let tip_block = active_chain
+        let tip_hash = snapshot.tip_hash();
+        let tip_block = snapshot
             .get_block(&tip_hash)
             .expect("checked: tip block should be existed");
         let parent_chain_root = if tip_block.is_genesis() {
             Default::default()
         } else {
-            let snapshot = self.shared.shared().snapshot();
             let mmr = snapshot.chain_root_mmr(tip_block.number() - 1);
             match mmr.get_root() {
                 Ok(root) => root,
@@ -181,7 +181,7 @@ impl LightClientProtocol {
         <<T as Entity>::Builder as Builder>::Entity: Into<packed::LightClientMessageUnion>,
     {
         let (parent_chain_root, proof) = {
-            let snapshot = self.shared.shared().snapshot();
+            let snapshot = self.shared.snapshot();
             let mmr = snapshot.chain_root_mmr(last_block.number() - 1);
             let parent_chain_root = match mmr.get_root() {
                 Ok(root) => root,

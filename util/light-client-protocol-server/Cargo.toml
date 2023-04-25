@@ -10,7 +10,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 ckb-network = { path = "../../network", version = "= 0.110.0-pre" }
-ckb-sync = { path = "../../sync", version = "= 0.110.0-pre" }
 ckb-shared = { path = "../../shared", version = "= 0.110.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.110.0-pre" }
 ckb-types = { path = "../types", version = "= 0.110.0-pre" }

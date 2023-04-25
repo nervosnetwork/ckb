@@ -38,18 +38,16 @@ impl<'a> GetTransactionsProofProcess<'a> {
             return StatusCode::MalformedProtocolMessage.with_context("too many transactions");
         }
 
-        let active_chain = self.protocol.shared.active_chain();
+        let snapshot = self.protocol.shared.snapshot();
 
         let last_hash = self.message.last_hash().to_entity();
-        let last_block = if let Some(block) = active_chain.get_block(&last_hash) {
+        let last_block = if let Some(block) = snapshot.get_block(&last_hash) {
             block
         } else {
             return self
                 .protocol
                 .reply_tip_state::<packed::SendTransactionsProof>(self.peer, self.nc);
         };
-
-        let snapshot = self.protocol.shared.shared().snapshot();
 
         let (txs_in_blocks, missing_txs) = self
             .message
@@ -78,13 +76,13 @@ impl<'a> GetTransactionsProofProcess<'a> {
         let (positions, filtered_blocks, missing_txs) = txs_in_blocks
             .into_iter()
             .map(|(block_hash, txs_and_tx_indices)| {
-                active_chain
+                snapshot
                     .get_block_header(&block_hash)
                     .map(|header| header.number())
                     .filter(|number| *number != last_block.number())
-                    .and_then(|number| active_chain.get_ancestor(&last_hash, number))
+                    .and_then(|number| snapshot.get_ancestor(&last_hash, number))
                     .filter(|header| header.hash() == block_hash)
-                    .and_then(|_| active_chain.get_block(&block_hash))
+                    .and_then(|_| snapshot.get_block(&block_hash))
                     .map(|block| (block, txs_and_tx_indices.clone()))
                     .ok_or_else(|| {
                         txs_and_tx_indices

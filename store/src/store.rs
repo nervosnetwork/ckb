@@ -575,6 +575,21 @@ pub trait ChainStore: Send + Sync + Sized {
                 reader.to_entity()
             })
     }
+
+    /// Gets ancestor block header by a base block hash and number
+    fn get_ancestor(&self, base: &packed::Byte32, number: BlockNumber) -> Option<HeaderView> {
+        let header = self.get_block_header(base)?;
+        if number > header.number() {
+            None
+        } else if number == header.number() {
+            Some(header)
+        } else if self.is_main_chain(base) {
+            self.get_block_hash(number)
+                .and_then(|hash| self.get_block_header(&hash))
+        } else {
+            self.get_ancestor(&header.parent_hash(), number)
+        }
+    }
 }
 
 fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryReader) -> CellMeta {
