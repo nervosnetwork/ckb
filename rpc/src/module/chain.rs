@@ -614,6 +614,7 @@ pub trait ChainRpc {
     ///       "witnesses": []
     ///     },
     ///     "cycles": "0x219",
+    ///     "time_added_to_pool" : "0x187b3d137a1",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",

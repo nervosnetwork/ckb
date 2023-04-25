@@ -878,6 +878,7 @@ Response
       "witnesses": []
     },
     "cycles": "0x219",
+    "time_added_to_pool" : "0x187b3d137a1",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -6935,6 +6936,8 @@ The JSON view of a transaction as well as its status.
 *   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
 
 *   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
+
+*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
