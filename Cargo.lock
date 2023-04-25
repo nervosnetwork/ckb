@@ -846,7 +846,6 @@ dependencies = [
  "ckb-network",
  "ckb-shared",
  "ckb-store",
- "ckb-sync",
  "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-tx-pool",

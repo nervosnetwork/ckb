@@ -11,7 +11,6 @@ use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
 use ckb_network::{DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::Shared;
-use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_tx_pool::TxPoolController;
@@ -26,7 +25,7 @@ use crate::{tests::prelude::*, LightClientProtocol};
 
 pub(crate) struct MockChain {
     chain_controller: ChainController,
-    sync_shared: Arc<SyncShared>,
+    shared: Shared,
     always_success_cell_dep: packed::CellDep,
 }
 
@@ -92,15 +91,9 @@ impl MockChain {
         let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
         let chain_controller = chain_service.start::<&str>(None);
 
-        let sync_shared = Arc::new(SyncShared::new(
-            shared,
-            Default::default(),
-            pack.take_relay_tx_receiver(),
-        ));
-
         Self {
             chain_controller,
-            sync_shared,
+            shared,
             always_success_cell_dep,
         }
     }
@@ -110,7 +103,7 @@ impl MockChain {
     }
 
     pub(crate) fn shared(&self) -> &Shared {
-        self.sync_shared.shared()
+        &self.shared
     }
 
     pub(crate) fn tx_pool(&self) -> &TxPoolController {
@@ -122,8 +115,7 @@ impl MockChain {
     }
 
     pub(crate) fn create_light_client_protocol(&self) -> LightClientProtocol {
-        let shared = Arc::clone(&self.sync_shared);
-        LightClientProtocol::new(shared)
+        LightClientProtocol::new(self.shared.clone())
     }
 
     pub(crate) fn mine_to(&self, block_number: BlockNumber) {
