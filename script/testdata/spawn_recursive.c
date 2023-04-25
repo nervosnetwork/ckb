@@ -4,10 +4,16 @@
 #include "ckb_syscalls.h"
 
 int main() {
-  int8_t exit_code = 255;
-  uint64_t success = ckb_spawn(8, 0, 3, 0, 0, NULL, &exit_code, NULL, NULL);
+  int8_t spawn_exit_code = 255;
+  spawn_args_t spgs = {
+      .memory_limit = 8,
+      .exit_code = &spawn_exit_code,
+      .content = NULL,
+      .content_length = NULL,
+  };
+  uint64_t success = ckb_spawn(0, 3, 0, 0, NULL, &spgs);
   if (success != 0) {
     return success;
   }
-  return exit_code;
+  return spawn_exit_code;
 }

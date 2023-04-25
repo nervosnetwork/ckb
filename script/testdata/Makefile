@@ -151,4 +151,6 @@ spawn_caller_set_content: spawn_caller_set_content.c
 spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c
 spawn_caller_strcat: spawn_caller_strcat.c
 spawn_caller_strcat_data_hash: spawn_caller_strcat_data_hash.c
+spawn_peak_memory_2m_to_32m: spawn_peak_memory_2m_to_32m.c
+spawn_peak_memory_4m_to_32m: spawn_peak_memory_4m_to_32m.c
 spawn_recursive: spawn_recursive.c
