@@ -147,6 +147,9 @@ impl TxPool {
 
     /// Add tx which proposed but still uncommittable to gap pool
     pub fn add_gap(&mut self, entry: TxEntry) -> bool {
+        if self.proposed.contains_key(&entry.proposal_short_id()) {
+            return false;
+        }
         trace!("add_gap {}", entry.transaction().hash());
         self.gap.add_entry(entry)
     }
