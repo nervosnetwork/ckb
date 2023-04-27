@@ -540,6 +540,7 @@ pub trait ChainRpc {
     ///
     /// * `tx_hash` - Hash of a transaction
     /// * `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+    /// * `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
     ///
     /// ## Returns
     ///
@@ -648,6 +649,7 @@ pub trait ChainRpc {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
+        only_committed: Option<bool>,
     ) -> Result<TransactionWithStatusResponse>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
@@ -1729,26 +1731,29 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
+        only_committed: Option<bool>,
     ) -> Result<TransactionWithStatusResponse> {
         let tx_hash = tx_hash.pack();
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
 
+        let only_committed: bool = only_committed.unwrap_or(false);
+
         if verbosity == 0 {
             // when verbosity=0, it's response value is as same as verbosity=2, but it
             // return a 0x-prefixed hex encoded molecule packed::Transaction` on `transaction` field
-            self.get_transaction_verbosity2(tx_hash)
+            self.get_transaction_verbosity2(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Hex))
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
-            self.get_transaction_verbosity1(tx_hash)
+            self.get_transaction_verbosity1(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
-            self.get_transaction_verbosity2(tx_hash)
+            self.get_transaction_verbosity2(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
@@ -2103,7 +2108,11 @@ impl ChainRpc for ChainRpcImpl {
 }
 
 impl ChainRpcImpl {
-    fn get_transaction_verbosity1(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
+    fn get_transaction_verbosity1(
+        &self,
+        tx_hash: packed::Byte32,
+        only_committed: bool,
+    ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
@@ -2125,6 +2134,10 @@ impl ChainRpcImpl {
             ));
         }
 
+        if only_committed {
+            return Ok(TransactionWithStatus::with_unknown());
+        }
+
         let tx_pool = self.shared.tx_pool_controller();
         let tx_status = tx_pool.get_tx_status(tx_hash);
         if let Err(e) = tx_status {
@@ -2141,7 +2154,11 @@ impl ChainRpcImpl {
         Ok(TransactionWithStatus::omit_transaction(tx_status, cycles))
     }
 
-    fn get_transaction_verbosity2(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
+    fn get_transaction_verbosity2(
+        &self,
+        tx_hash: packed::Byte32,
+        only_committed: bool,
+    ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
@@ -2161,6 +2178,10 @@ impl ChainRpcImpl {
                 tx_info.block_hash.unpack(),
                 cycles,
             ));
+        }
+
+        if only_committed {
+            return Ok(TransactionWithStatus::with_unknown());
         }
 
         let tx_pool = self.shared.tx_pool_controller();

@@ -785,9 +785,10 @@ The response looks like below when the block have block filter.
 
 
 #### Method `get_transaction`
-* `get_transaction(tx_hash, verbosity)`
+* `get_transaction(tx_hash, verbosity, only_committed)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+    * `only_committed`: `boolean` `|` `null`
 * result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
 Returns the information about a transaction requested by transaction hash.
@@ -803,6 +804,8 @@ If the transaction is in the chain, the block hash is also returned.
 *   `tx_hash` - Hash of a transaction
 
 *   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+
+*   `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
 
 ###### Returns
 
