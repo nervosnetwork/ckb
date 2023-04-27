@@ -6,13 +6,14 @@ use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
-    check_tx_fee, check_txid_collision, is_missing_input, non_contextual_verify,
-    time_relative_verify, verify_rtx,
+    after_delay_window, check_tx_fee, check_txid_collision, is_missing_input,
+    non_contextual_verify, time_relative_verify, verify_rtx,
 };
+use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
-use ckb_logger::{debug, error, log_enabled_target, trace_target};
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
@@ -32,6 +33,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::block_in_place;
+
+const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -551,6 +554,14 @@ impl TxPoolService {
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
+
         let cached = self.fetch_tx_verify_cache(&tx_hash).await;
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));
@@ -673,6 +684,14 @@ impl TxPoolService {
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
+
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
@@ -732,6 +751,9 @@ impl TxPoolService {
             .epoch()
             .minimum_epoch_number_after_n_blocks(1);
 
+        let new_tip_after_delay = after_delay_window(&snapshot);
+        let is_in_delay_window = self.is_in_delay_window(&snapshot);
+
         let detached_headers: HashSet<Byte32> = detached_blocks
             .iter()
             .map(|blk| blk.header().hash())
@@ -746,11 +768,30 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
+        let fetched_cache = if is_in_delay_window {
+            // If in delay_window, don't use the cache.
+            HashMap::new()
+        } else {
+            self.fetch_txs_verify_cache(retain.iter()).await
+        };
 
-        {
+        // If there are any transactions requires re-process, return them.
+        //
+        // At present, there is only one situation:
+        // - If the hardfork was happened, then re-process all transactions.
+        let txs_opt = {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
+
+            let txs_opt = if is_in_delay_window {
+                {
+                    self.chunk.write().await.clear();
+                }
+                Some(tx_pool.drain_all_transactions())
+            } else {
+                None
+            };
+
             _update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
@@ -777,6 +818,40 @@ impl TxPoolService {
 
             // notice: readd_detached_tx don't update cache
             self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
+
+            txs_opt
+        };
+
+        if let Some(txs) = txs_opt {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                for tx in txs {
+                    delay.insert(tx.proposal_short_id(), tx);
+                }
+            }
+        }
+
+        {
+            let delay_txs = if !self.after_delay() && new_tip_after_delay {
+                let limit = MAX_BLOCK_PROPOSALS_LIMIT as usize;
+                let mut txs = Vec::with_capacity(limit);
+                let mut delay = self.delay.write().await;
+                let keys: Vec<_> = { delay.keys().take(limit).cloned().collect() };
+                for k in keys {
+                    if let Some(v) = delay.remove(&k) {
+                        txs.push(v);
+                    }
+                }
+                if delay.is_empty() {
+                    self.set_after_delay_true();
+                }
+                Some(txs)
+            } else {
+                None
+            };
+            if let Some(txs) = delay_txs {
+                self.try_process_txs(txs).await;
+            }
         }
 
         {
@@ -846,6 +921,32 @@ impl TxPoolService {
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
         }
+    }
+
+    // # Notice
+    //
+    // This method assumes that the inputs transactions are sorted.
+    async fn try_process_txs(&self, txs: Vec<TransactionView>) {
+        if txs.is_empty() {
+            return;
+        }
+        let total = txs.len();
+        let mut count = 0usize;
+        for tx in txs {
+            let tx_hash = tx.hash();
+            if let Err(err) = self.process_tx(tx, None).await {
+                error!("failed to process {:#x}, error: {:?}", tx_hash, err);
+                count += 1;
+            }
+        }
+        if count != 0 {
+            info!("{}/{} transactions are failed to process", count, total);
+        }
+    }
+
+    pub(crate) fn is_in_delay_window(&self, snapshot: &Snapshot) -> bool {
+        let epoch = snapshot.tip_header().epoch();
+        self.consensus.is_in_delay_window(&epoch)
     }
 }
 

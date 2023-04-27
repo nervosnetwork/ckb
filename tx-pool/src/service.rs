@@ -6,6 +6,7 @@ use crate::chunk_process::ChunkCommand;
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
+use crate::util::after_delay_window;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -25,7 +26,7 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_util::LinkedHashSet;
+use ckb_util::{LinkedHashMap, LinkedHashSet};
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -472,8 +473,9 @@ impl TxPoolServiceBuilder {
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
-        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
+        let after_delay_window = after_delay_window(&self.snapshot);
 
+        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
             Err(e) => {
@@ -496,6 +498,8 @@ impl TxPoolServiceBuilder {
             chunk: self.chunk,
             network,
             consensus,
+            delay: Arc::new(RwLock::new(LinkedHashMap::new())),
+            after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
         let signal_receiver = self.signal_receiver.clone();
@@ -635,6 +639,8 @@ pub(crate) struct TxPoolService {
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
+    pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
+    pub(crate) after_delay: Arc<AtomicBool>,
 }
 
 /// tx verification result
@@ -1000,5 +1006,13 @@ impl TxPoolService {
                 }
             };
         }
+    }
+
+    pub fn after_delay(&self) -> bool {
+        self.after_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_after_delay_true(&self) {
+        self.after_delay.store(true, Ordering::Relaxed);
     }
 }
