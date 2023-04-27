@@ -31,6 +31,14 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
+    ///descendants txs size
+    pub descendants_size: usize,
+    ///descendants txs fee
+    pub descendants_fee: Capacity,
+    ///descendants txs cycles
+    pub descendants_cycles: Cycle,
+    ///descendants txs count
+    pub descendants_count: usize,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
 }
@@ -59,6 +67,10 @@ impl TxEntry {
             ancestors_fee: fee,
             ancestors_cycles: cycles,
             ancestors_count: 1,
+            descendants_size: size,
+            descendants_fee: fee,
+            descendants_cycles: cycles,
+            descendants_count: 1,
         }
     }
 
@@ -116,6 +128,7 @@ impl TxEntry {
                 .saturating_add(entry.fee.as_u64()),
         );
     }
+
     /// Update ancestor state for remove an entry
     pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(1);
@@ -125,6 +138,32 @@ impl TxEntry {
             self.ancestors_fee
                 .as_u64()
                 .saturating_sub(entry.fee.as_u64()),
+        );
+    }
+
+    /// Update descendant state for add an entry
+    pub fn add_entry_descendant_weight(&mut self, entry: &TxEntry) {
+        self.descendants_count = self.ancestors_count.saturating_add(1);
+        self.descendants_size = self.ancestors_size.saturating_add(entry.descendants_size);
+        self.descendants_cycles = self
+            .descendants_cycles
+            .saturating_add(entry.descendants_cycles);
+        self.descendants_fee = Capacity::shannons(
+            self.descendants_fee
+                .as_u64()
+                .saturating_add(entry.descendants_fee.as_u64()),
+        );
+    }
+
+    /// Update descendant state for remove an entry
+    pub fn sub_entry_descendant_weight(&mut self, entry: &TxEntry) {
+        self.descendants_count = self.descendants_count.saturating_sub(1);
+        self.descendants_size = self.descendants_size.saturating_sub(entry.size);
+        self.descendants_cycles = self.descendants_cycles.saturating_sub(entry.cycles);
+        self.descendants_fee = Capacity::shannons(
+            self.descendants_fee
+                .as_u64()
+                .saturating_sub(entry.descendants_fee.as_u64()),
         );
     }
 
@@ -198,6 +237,7 @@ impl Ord for TxEntry {
 pub struct EvictKey {
     fee_rate: FeeRate,
     timestamp: u64,
+    descendants_fee: Capacity,
 }
 
 impl From<&TxEntry> for EvictKey {
@@ -205,6 +245,7 @@ impl From<&TxEntry> for EvictKey {
         EvictKey {
             fee_rate: entry.fee_rate(),
             timestamp: entry.timestamp,
+            descendants_fee: entry.descendants_fee,
         }
     }
 }
@@ -218,6 +259,9 @@ impl PartialOrd for EvictKey {
 impl Ord for EvictKey {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.fee_rate == other.fee_rate {
+            if self.descendants_fee != other.descendants_fee {
+                return self.descendants_fee.cmp(&other.descendants_fee);
+            }
             self.timestamp.cmp(&other.timestamp).reverse()
         } else {
             self.fee_rate.cmp(&other.fee_rate)

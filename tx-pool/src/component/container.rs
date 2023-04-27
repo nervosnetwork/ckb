@@ -276,6 +276,12 @@ impl SortedTxMap {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
+        // update parent's descendants references
+        for parent in &ancestors {
+            let parent = self.entries.get_mut(parent).expect("pool consistent");
+            parent.add_entry_descendant_weight(&entry);
+        }
+
         for cell_dep in entry.transaction().cell_deps() {
             let dep_pt = cell_dep.out_point();
             // insert dep-ref map
@@ -295,6 +301,9 @@ impl SortedTxMap {
             children: Default::default(),
         };
         self.links.inner.insert(short_id.clone(), links);
+
+        // TODO: since we update all the parents' descendants state, we need to also
+        // update the sorted_index, but we can do it in a more efficient way.
         self.sorted_index.insert(entry.as_sorted_key());
         self.entries.insert(short_id, entry);
         Ok(true)
@@ -404,6 +413,7 @@ impl SortedTxMap {
     // otherwise `links` will differ from the set of parents we'd calculate by searching
     pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         let descendants = self.calc_descendants(id);
+        let ancestors = self.calc_ancestors(id);
         self.remove_unchecked(id).map(|entry| {
             // We're not recursively removing a tx and all its descendants
             // So we need update statistics state
@@ -413,6 +423,16 @@ impl SortedTxMap {
                     debug_assert!(deleted, "pool inconsistent");
                     desc_entry.sub_entry_weight(&entry);
                     self.sorted_index.insert(desc_entry.as_sorted_key());
+                }
+            }
+
+            // update all the parent's descendants state
+            for anc_id in &ancestors {
+                if let Some(anc_entry) = self.entries.get_mut(anc_id) {
+                    let deleted = self.sorted_index.remove(&anc_entry.as_sorted_key());
+                    debug_assert!(deleted, "pool inconsistent");
+                    anc_entry.sub_entry_descendant_weight(&entry);
+                    self.sorted_index.insert(anc_entry.as_sorted_key());
                 }
             }
             self.update_parents_for_remove(id);

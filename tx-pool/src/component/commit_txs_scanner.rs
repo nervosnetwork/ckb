@@ -193,6 +193,7 @@ impl<'a> CommitTxsScanner<'a> {
 
     /// Add descendants of given transactions to `modified_entries` with ancestor
     /// state updated assuming given transactions are inBlock.
+    /// TODO： we don't need to update the descendants state of entries?
     fn update_modified_entries(&mut self, already_added: &LinkedHashMap<ProposalShortId, TxEntry>) {
         for (id, entry) in already_added {
             let descendants = self.proposed_pool.calc_descendants(id);
