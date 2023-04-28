@@ -7,11 +7,12 @@ use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
-    BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
-    HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
-    MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN, MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT,
-    MAX_UNKNOWN_TX_HASHES_SIZE, MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER, POW_INTERVAL,
-    RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
+    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, HEADERS_DOWNLOAD_HEADERS_PER_SECOND,
+    HEADERS_DOWNLOAD_INSPECT_WINDOW, HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, MAX_UNKNOWN_TX_HASHES_SIZE,
+    MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER, POW_INTERVAL, RETRY_ASK_TX_TIMEOUT_INCREASE,
+    SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, trace};
@@ -708,13 +709,29 @@ impl InflightBlocks {
         let mut remove_key = Vec::new();
         // Since this is a btreemap, with the data already sorted,
         // we don't have to worry about missing points, and we don't need to
-        // iterate through all the data each time, just check within tip + 20,
+        // iterate through all the data each time,
+        // check within tip + 20 and 20 inflight blocks after tip + 20,
         // with the checkpoint marking possible blocking points, it's enough
         let end = tip + 20;
-        for (key, value) in states.iter() {
-            if key.number > end {
-                break;
+        let mut end_idx: Option<usize> = None;
+        for (enumerate_index, (key, value)) in states.iter().enumerate() {
+            if end_idx.is_none() && key.number > end {
+                end_idx = Some(enumerate_index);
             }
+            if let Some(end_idx) = end_idx {
+                if enumerate_index > end_idx + 20
+                    || key.number
+                        > states
+                            .first_key_value()
+                            .expect("states should not be empty")
+                            .0
+                            .number
+                            + BLOCK_DOWNLOAD_WINDOW / 2
+                {
+                    break;
+                }
+            }
+
             if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
                 if let Some(set) = download_schedulers.get_mut(&value.peer) {
                     set.hashes.remove(key);
@@ -726,6 +743,13 @@ impl InflightBlocks {
                     trace.remove(key);
                 }
                 remove_key.push(key.clone());
+
+                debug!(
+                    "InflightBlocks prune block {}-{}, because it has {}ms timeout",
+                    key.number,
+                    key.hash,
+                    now - value.timestamp
+                );
             }
         }
 
