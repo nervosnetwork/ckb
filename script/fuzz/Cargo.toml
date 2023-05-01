@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script-fuzz"
-version = "0.110.0-pre"
+version = "0.111.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -15,10 +15,10 @@ cargo-fuzz = true
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = { version="0.4.0", features=["arbitrary-derive"] }
-ckb-traits = { path = "../../traits", version = "= 0.110.0-pre" }
-ckb-types = { path = "../../util/types", version = "= 0.110.0-pre" }
-ckb-script = { path = "../../script", version = "= 0.110.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.110.0-pre" }
+ckb-traits = { path = "../../traits", version = "= 0.111.0-pre" }
+ckb-types = { path = "../../util/types", version = "= 0.111.0-pre" }
+ckb-script = { path = "../../script", version = "= 0.111.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.111.0-pre" }
 
 # Prevent this from interfering with workspaces
 [workspace]
