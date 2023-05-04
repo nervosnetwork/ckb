@@ -54,12 +54,12 @@ impl Ord for AncestorsScoreSortKey {
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor weight
             if self.ancestors_weight == other.ancestors_weight {
-                self.id.raw_data().cmp(&other.id.raw_data())
+                other.id.raw_data().cmp(&self.id.raw_data())
             } else {
-                self.ancestors_weight.cmp(&other.ancestors_weight)
+                other.ancestors_weight.cmp(&self.ancestors_weight)
             }
         } else {
-            self_weight.cmp(&other_weight)
+            other_weight.cmp(&self_weight)
         }
     }
 }
@@ -501,10 +501,8 @@ impl SortedTxMap {
     pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
         // Note: multi_index don't support reverse order iteration now
         // so we need to collect and reverse
-        let index = self.sorted_index.iter_by_score().collect::<Vec<_>>();
-        index
-            .into_iter()
-            .rev()
+        self.sorted_index
+            .iter_by_score()
             .map(move |key| self.entries.get(&key.id).expect("consistent"))
     }
 
