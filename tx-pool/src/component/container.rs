@@ -499,6 +499,8 @@ impl SortedTxMap {
 
     /// sorted by ancestor score from higher to lower
     pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
+        // Note: multi_index don't support reverse order iteration now
+        // so we need to collect and reverse
         let index = self.sorted_index.iter_by_score().collect::<Vec<_>>();
         index
             .into_iter()
