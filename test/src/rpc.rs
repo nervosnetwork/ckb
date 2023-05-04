@@ -85,7 +85,7 @@ impl RpcClient {
         verbosity: u32,
     ) -> TransactionWithStatusResponse {
         self.inner
-            .get_transaction(hash.unpack(), Some(verbosity.into()))
+            .get_transaction(hash.unpack(), Some(verbosity.into()), None)
             .expect("rpc call get_transaction")
     }
 
@@ -306,7 +306,7 @@ jsonrpc!(pub struct Inner {
     pub fn get_header(&self, _hash: H256) -> Option<HeaderView>;
     pub fn get_header_by_number(&self, _number: BlockNumber) -> Option<HeaderView>;
     pub fn get_block_filter(&self, _hash: H256) -> Option<BlockFilter>;
-    pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>) -> TransactionWithStatusResponse;
+    pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>, only_commited: Option<bool>) -> TransactionWithStatusResponse;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;
