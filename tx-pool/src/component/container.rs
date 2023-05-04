@@ -6,10 +6,11 @@ use ckb_types::{
     core::Capacity,
     packed::{OutPoint, ProposalShortId},
 };
+use multi_index_map::MultiIndexMap;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry as HashMapEntry;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// A struct to use as a sorted key
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -196,10 +197,23 @@ impl TxLinksMap {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(MultiIndexMap, Clone, Debug)]
+pub struct IndexKey {
+    #[multi_index(hashed_unique)]
+    pub id: ProposalShortId,
+    #[multi_index(ordered_non_unique)]
+    pub score: AncestorsScoreSortKey,
+}
+
+pub enum Action {
+    Add,
+    Remove,
+}
+
+#[derive(Clone)]
 pub(crate) struct SortedTxMap {
     entries: HashMap<ProposalShortId, TxEntry>,
-    pub(crate) sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    pub(crate) sorted_index: MultiIndexIndexKeyMap,
     deps: HashMap<OutPoint, HashSet<ProposalShortId>>,
     /// A map track transaction ancestors and descendants
     pub(crate) links: TxLinksMap,
@@ -210,7 +224,7 @@ impl SortedTxMap {
     pub fn new(max_ancestors_count: usize) -> Self {
         SortedTxMap {
             entries: Default::default(),
-            sorted_index: Default::default(),
+            sorted_index: MultiIndexIndexKeyMap::default(),
             links: TxLinksMap::new(),
             deps: Default::default(),
             max_ancestors_count,
@@ -223,6 +237,35 @@ impl SortedTxMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (&ProposalShortId, &TxEntry)> {
         self.entries.iter()
+    }
+
+    pub fn insert_index_key(&mut self, entry: &TxEntry) {
+        self.sorted_index.insert(IndexKey {
+            id: entry.proposal_short_id(),
+            score: entry.as_sorted_key(),
+        });
+    }
+
+    pub fn update_index_key(&mut self, prop_id: &ProposalShortId, entry: &TxEntry, action: Action) {
+        if let Some(desc_entry) = self.entries.get_mut(prop_id) {
+            let deleted = self
+                .sorted_index
+                .remove_by_id(&desc_entry.proposal_short_id());
+            debug_assert!(deleted.is_some(), "pool inconsistent");
+
+            match action {
+                Action::Remove => {
+                    desc_entry.sub_entry_weight(&entry);
+                }
+                Action::Add => {
+                    desc_entry.add_entry_weight(&entry);
+                }
+            }
+            self.sorted_index.insert(IndexKey {
+                id: desc_entry.proposal_short_id(),
+                score: desc_entry.as_sorted_key(),
+            });
+        }
     }
 
     // Usually when a new transaction is added to the pool, it has no in-pool
@@ -304,7 +347,8 @@ impl SortedTxMap {
 
         // TODO: since we update all the parents' descendants state, we need to also
         // update the sorted_index, but we can do it in a more efficient way.
-        self.sorted_index.insert(entry.as_sorted_key());
+        //self.sorted_index.insert(entry.as_sorted_key());
+        self.insert_index_key(&entry);
         self.entries.insert(short_id, entry);
         Ok(true)
     }
@@ -328,12 +372,7 @@ impl SortedTxMap {
 
             let descendants = self.calc_descendants(id);
             for desc_id in &descendants {
-                if let Some(desc_entry) = self.entries.get_mut(desc_id) {
-                    let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
-                    debug_assert!(deleted, "pool inconsistent");
-                    desc_entry.add_entry_weight(&entry);
-                    self.sorted_index.insert(desc_entry.as_sorted_key());
-                }
+                self.update_index_key(desc_id, &entry, Action::Add);
             }
         }
     }
@@ -381,7 +420,8 @@ impl SortedTxMap {
 
     fn remove_unchecked(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove(id).map(|entry| {
-            self.sorted_index.remove(&entry.as_sorted_key());
+            eprintln!("removeing : {:?}", entry.proposal_short_id());
+            self.sorted_index.remove_by_id(&entry.proposal_short_id());
             self.update_deps_for_remove(&entry);
             entry
         })
@@ -413,28 +453,23 @@ impl SortedTxMap {
     // otherwise `links` will differ from the set of parents we'd calculate by searching
     pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         let descendants = self.calc_descendants(id);
-        let ancestors = self.calc_ancestors(id);
+        //let ancestors = self.calc_ancestors(id);
         self.remove_unchecked(id).map(|entry| {
             // We're not recursively removing a tx and all its descendants
             // So we need update statistics state
             for desc_id in &descendants {
-                if let Some(desc_entry) = self.entries.get_mut(desc_id) {
-                    let deleted = self.sorted_index.remove(&desc_entry.as_sorted_key());
-                    debug_assert!(deleted, "pool inconsistent");
-                    desc_entry.sub_entry_weight(&entry);
-                    self.sorted_index.insert(desc_entry.as_sorted_key());
-                }
+                self.update_index_key(desc_id, &entry, Action::Remove);
             }
 
             // update all the parent's descendants state
-            for anc_id in &ancestors {
+            /*    for anc_id in &ancestors {
                 if let Some(anc_entry) = self.entries.get_mut(anc_id) {
-                    let deleted = self.sorted_index.remove(&anc_entry.as_sorted_key());
-                    debug_assert!(deleted, "pool inconsistent");
+                    let deleted = self.sorted_index.remove_by_id(&anc_id);
+                    debug_assert!(deleted.is_some(), "pool inconsistent");
                     anc_entry.sub_entry_descendant_weight(&entry);
-                    self.sorted_index.insert(anc_entry.as_sorted_key());
+                    self.insert_index_key(&anc_entry);
                 }
-            }
+            } */
             self.update_parents_for_remove(id);
             self.update_children_for_remove(id);
             self.links.remove(id);
@@ -464,8 +499,9 @@ impl SortedTxMap {
 
     /// sorted by ancestor score from higher to lower
     pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        self.sorted_index
-            .iter()
+        let index = self.sorted_index.iter_by_score().collect::<Vec<_>>();
+        index
+            .into_iter()
             .rev()
             .map(move |key| self.entries.get(&key.id).expect("consistent"))
     }
