@@ -287,7 +287,7 @@ impl TxPool {
         }
     }
 
-    //  Expire all transaction (and their dependencies) in the pool.
+    // Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let expired =

@@ -82,7 +82,7 @@ fn test_ancestors_sorted_key_order() {
         }
     })
     .collect::<Vec<_>>();
-    keys.sort_by(|a, b| b.cmp(a));
+    keys.sort();
     assert_eq!(
         keys.into_iter().map(|k| k.id).collect::<Vec<_>>(),
         [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
