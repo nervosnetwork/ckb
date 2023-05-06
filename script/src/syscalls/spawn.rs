@@ -10,7 +10,7 @@ use crate::types::Indices;
 use crate::types::{set_vm_max_cycles, CoreMachineType, Machine};
 use crate::TransactionScriptsSyscallsGenerator;
 use crate::{ScriptGroup, ScriptVersion};
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
 use ckb_vm::{
     cost_model::estimate_cycles,
@@ -94,7 +94,7 @@ impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spaw
 impl<Mac, DL> Syscalls<Mac> for Spawn<DL>
 where
     Mac: SupportMachine,
-    DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())

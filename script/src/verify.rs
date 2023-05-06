@@ -4,8 +4,9 @@ use crate::{
     cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
     syscalls::{
-        CurrentCycles, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData, LoadHeader,
-        LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, SetContent, Spawn, VMVersion,
+        CurrentCycles, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData, LoadExtension,
+        LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, SetContent, Spawn,
+        VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{
@@ -18,7 +19,7 @@ use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -130,7 +131,7 @@ pub struct TransactionScriptsSyscallsGenerator<DL> {
     skip_pause: Arc<AtomicBool>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
     TransactionScriptsSyscallsGenerator<DL>
 {
     /// Build syscall: current_cycles
@@ -198,6 +199,15 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     /// Build syscall: load_header
     pub fn build_load_header(&self, group_inputs: Indices) -> LoadHeader<DL> {
         LoadHeader::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            group_inputs,
+        )
+    }
+
+    /// Build syscall: load_extension
+    pub fn build_load_extension(&self, group_inputs: Indices) -> LoadExtension<DL> {
+        LoadExtension::new(
             self.data_loader.clone(),
             Arc::clone(&self.rtx),
             group_inputs,
@@ -272,6 +282,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
                 )),
             ]);
         }
+
+        if script_version >= ScriptVersion::V2 {
+            syscalls.push(Box::new(
+                self.build_load_extension(Arc::clone(&script_group_input_indices)),
+            ));
+        }
         syscalls
     }
 
@@ -330,7 +346,7 @@ pub struct TransactionScriptsVerifier<DL> {
     tx_env: Arc<TxVerifyEnv>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
     TransactionScriptsVerifier<DL>
 {
     /// Creates a script verifier for the transaction.

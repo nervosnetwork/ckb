@@ -1,10 +1,10 @@
 //! TODO(doc): @quake
 use crate::ChainStore;
-use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, EpochProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{BlockExt, BlockNumber, EpochExt, HeaderView},
-    packed::{Byte32, OutPoint},
+    packed::{self, Byte32, OutPoint},
 };
 use std::sync::Arc;
 
@@ -78,6 +78,15 @@ where
     }
 }
 
+impl<T> ExtensionProvider for DataLoaderWrapper<T>
+where
+    T: ChainStore,
+{
+    fn get_block_extension(&self, hash: &Byte32) -> Option<packed::Bytes> {
+        ChainStore::get_block_extension(self.0.as_ref(), hash)
+    }
+}
+
 /// Borrowed DataLoaderWrapper with lifetime
 pub struct BorrowedDataLoaderWrapper<'a, T>(&'a T);
 impl<'a, T: ChainStore> BorrowedDataLoaderWrapper<'a, T> {
@@ -119,5 +128,11 @@ impl<'a, T: ChainStore> EpochProvider for BorrowedDataLoaderWrapper<'a, T> {
 
     fn get_block_header(&self, hash: &Byte32) -> Option<HeaderView> {
         ChainStore::get_block_header(self.0, hash)
+    }
+}
+
+impl<'a, T: ChainStore> ExtensionProvider for BorrowedDataLoaderWrapper<'a, T> {
+    fn get_block_extension(&self, hash: &Byte32) -> Option<packed::Bytes> {
+        ChainStore::get_block_extension(self.0, hash)
     }
 }

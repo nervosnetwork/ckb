@@ -6,7 +6,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
-use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, EpochProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
@@ -110,7 +110,14 @@ pub struct ContextualTransactionVerifier<DL> {
 
 impl<DL> ContextualTransactionVerifier<DL>
 where
-    DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider
+        + HeaderProvider
+        + ExtensionProvider
+        + EpochProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     /// Creates a new ContextualTransactionVerifier
     pub fn new(
@@ -221,7 +228,7 @@ pub struct FeeCalculator<DL> {
     data_loader: DL,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + EpochProvider> FeeCalculator<DL> {
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + EpochProvider> FeeCalculator<DL> {
     fn new(
         transaction: Arc<ResolvedTransaction>,
         consensus: Arc<Consensus>,
@@ -306,7 +313,9 @@ pub struct ScriptVerifier<DL> {
     inner: TransactionScriptsVerifier<DL>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static> ScriptVerifier<DL> {
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
+    ScriptVerifier<DL>
+{
     /// Creates a new ScriptVerifier
     pub fn new(
         resolved_transaction: Arc<ResolvedTransaction>,
@@ -831,7 +840,14 @@ pub struct ContextualWithoutScriptTransactionVerifier<DL> {
 
 impl<DL> ContextualWithoutScriptTransactionVerifier<DL>
 where
-    DL: CellDataProvider + HeaderProvider + EpochProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider
+        + HeaderProvider
+        + EpochProvider
+        + ExtensionProvider
+        + Send
+        + Sync
+        + Clone
+        + 'static,
 {
     /// Creates a new ContextualWithoutScriptTransactionVerifier
     pub fn new(

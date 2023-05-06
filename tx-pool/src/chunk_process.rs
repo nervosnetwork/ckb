@@ -6,7 +6,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
     packed::Byte32,
@@ -121,7 +121,9 @@ impl ChunkProcess {
         }
     }
 
-    fn loop_resume<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>(
+    fn loop_resume<
+        DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    >(
         &mut self,
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
@@ -337,7 +339,7 @@ impl ChunkProcess {
 }
 
 fn exceeded_maximum_cycles_error<
-    DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 >(
     verifier: &ScriptVerifier<DL>,
     max_cycles: Cycle,
