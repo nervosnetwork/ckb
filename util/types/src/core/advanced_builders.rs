@@ -187,6 +187,56 @@ macro_rules! def_setter_for_vector {
     };
 }
 
+macro_rules! def_dedup_setter_for_vector {
+    (
+        $prefix:ident, $field:ident, $type:ident,
+        $func_push:ident, $func_extend:ident,
+        $comment_push:expr, $comment_extend:expr,
+    ) => {
+        #[doc = $comment_push]
+        pub fn $func_push(mut self, v: $prefix::$type) -> Self {
+            if !self.$field.contains(&v) {
+                self.$field.push(v);
+            }
+            self
+        }
+        #[doc = $comment_extend]
+        pub fn $func_extend<T>(mut self, v: T) -> Self
+        where
+            T: ::std::iter::IntoIterator<Item = $prefix::$type>,
+        {
+            v.into_iter().for_each(|item| {
+                if !self.$field.contains(&item) {
+                    self.$field.push(item);
+                }
+            });
+            self
+        }
+    };
+    ($prefix:ident, $field:ident, $type:ident, $func_push:ident, $func_extend:ident) => {
+        def_dedup_setter_for_vector!(
+            $prefix,
+            $field,
+            $type,
+            $func_push,
+            $func_extend,
+            concat!(
+                "Pushes an item into `",
+                stringify!($field),
+                "` only if the same item is not already in."
+            ),
+            concat!(
+                "Extends `",
+                stringify!($field),
+                "` with the contents of an iterator, skip already exist ones."
+            ),
+        );
+    };
+    ($field:ident, $type:ident, $func_push:ident, $func_extend:ident) => {
+        def_dedup_setter_for_vector!(packed, $field, $type, $func_push, $func_extend);
+    };
+}
+
 macro_rules! def_setter_for_view_vector {
     ($field:ident, $type:ident, $func_push:ident, $func_extend:ident, $func_set:ident) => {
         def_setter_for_vector!(core, $field, $type, $func_push, $func_extend, $func_set);
@@ -196,6 +246,7 @@ macro_rules! def_setter_for_view_vector {
 impl TransactionBuilder {
     def_setter_simple!(version, Uint32);
     def_setter_for_vector!(cell_deps, CellDep, cell_dep, cell_deps, set_cell_deps);
+    def_dedup_setter_for_vector!(cell_deps, CellDep, dedup_cell_dep, dedup_cell_deps);
     def_setter_for_vector!(
         header_deps,
         Byte32,
@@ -203,6 +254,8 @@ impl TransactionBuilder {
         header_deps,
         set_header_deps
     );
+
+    def_dedup_setter_for_vector!(header_deps, Byte32, dedup_header_dep, dedup_header_deps);
     def_setter_for_vector!(inputs, CellInput, input, inputs, set_inputs);
     def_setter_for_vector!(outputs, CellOutput, output, outputs, set_outputs);
     def_setter_for_vector!(witnesses, Bytes, witness, witnesses, set_witnesses);

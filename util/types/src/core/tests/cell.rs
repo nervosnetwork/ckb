@@ -1,4 +1,5 @@
 use ckb_error::assert_error_eq;
+use ckb_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -404,4 +405,61 @@ fn resolve_transaction_should_reject_dep_cell_consumed_by_previous_input() {
 
         assert_error_eq!(result2.unwrap_err(), OutPointError::Dead(out_point));
     }
+}
+
+#[test]
+fn test_builder_dedup_dep() {
+    let range = 1..4;
+    let map_dep = |i| {
+        let tx_hash = format!("{:x}", i);
+        CellDep::new_builder()
+            .out_point(OutPoint::new(
+                H256::from_trimmed_str(&tx_hash).unwrap().pack(),
+                i,
+            ))
+            .build()
+    };
+    let repeat = range.clone().chain(range.clone()).chain(range.clone());
+    let deps = range.map(map_dep).collect::<Vec<_>>();
+    let repeat_deps = repeat.map(map_dep).collect::<Vec<_>>();
+
+    let header_range = 10..15;
+
+    let header_map = |i| {
+        let tx_hash = format!("{:x}", i);
+        H256::from_trimmed_str(&tx_hash).unwrap().pack()
+    };
+    let headers = header_range.clone().map(header_map).collect::<Vec<_>>();
+    let header_repeat = header_range
+        .clone()
+        .chain(header_range.clone())
+        .chain(header_range);
+    let repeat_headers = header_repeat.map(header_map).collect::<Vec<_>>();
+
+    let build1 = deps
+        .into_iter()
+        .fold(TransactionBuilder::default(), |builder, dep| {
+            builder.cell_dep(dep)
+        });
+    let build1 = headers
+        .into_iter()
+        .fold(build1, |builder, header| builder.header_dep(header));
+    let tx1 = build1.build();
+
+    let build2 = repeat_deps
+        .clone()
+        .into_iter()
+        .fold(TransactionBuilder::default(), |builder, dep| {
+            builder.dedup_cell_dep(dep)
+        })
+        .dedup_cell_deps(repeat_deps);
+    let build2 = repeat_headers
+        .clone()
+        .into_iter()
+        .fold(build2, |builder, header| builder.dedup_header_dep(header))
+        .dedup_header_deps(repeat_headers);
+
+    let tx2 = build2.build();
+
+    assert_eq!(tx1.hash(), tx2.hash())
 }
