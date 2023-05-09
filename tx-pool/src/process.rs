@@ -18,7 +18,11 @@ use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
+    core::{
+        cell::ResolvedTransaction,
+        partial_resolve::{complete_resolve_transaction, PartialResolvedTransaction},
+        BlockView, Capacity, Cycle, HeaderView, TransactionView,
+    },
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
@@ -197,18 +201,29 @@ impl TxPoolService {
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
-
                 check_txid_collision(tx_pool, tx)?;
-
-                let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone())?;
-
-                let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-
-                Ok((tip_hash, rtx, status, fee, tx_size))
+                let (partial_rtx, status) = partial_resolve_tx(tx_pool, &snapshot, tx.clone())?;
+                Ok((tip_hash, partial_rtx, status, tx_size))
             })
             .await;
 
-        (ret, snapshot)
+        if let Err(e) = ret {
+            return (Err(e), snapshot);
+        }
+
+        let (tip_hash, partial_rtx, status, tx_size) = ret.unwrap();
+        let resolved = block_in_place(|| {
+            complete_resolve_transaction(partial_rtx, snapshot.as_ref(), snapshot.as_ref())
+        });
+        if let Err(e) = resolved {
+            return (Err(Reject::Resolve(e)), snapshot);
+        }
+        let rtx = Arc::new(resolved.unwrap());
+        let fee = check_tx_fee(self.tx_pool_config.min_fee_rate, &snapshot, &rtx, tx_size);
+        if let Err(e) = fee {
+            return (Err(e), snapshot);
+        }
+        (Ok((tip_hash, rtx, status, fee.unwrap(), tx_size)), snapshot)
     }
 
     pub(crate) fn non_contextual_verify(
@@ -750,11 +765,12 @@ impl TxPoolService {
         fetched_cache: HashMap<Byte32, CacheEntry>,
     ) {
         let max_cycles = self.tx_pool_config.max_tx_verify_cycles;
+        let min_fee_rate = self.tx_pool_config.min_fee_rate;
         for tx in txs {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
             if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
-                if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
+                if let Ok(fee) = check_tx_fee(min_fee_rate, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
                     let tip_header = snapshot.tip_header();
@@ -806,6 +822,8 @@ type PreCheckedTx = (Byte32, Arc<ResolvedTransaction>, TxStatus, Capacity, usize
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
 
+type PartialResolveResult = Result<(PartialResolvedTransaction, TxStatus), Reject>;
+
 fn check_rtx(
     tx_pool: &TxPool,
     snapshot: &Snapshot,
@@ -842,6 +860,28 @@ fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> Res
         };
         tx_pool
             .resolve_tx_from_pending_and_proposed(tx)
+            .map(|rtx| (rtx, tx_status))
+    }
+}
+
+fn partial_resolve_tx(
+    tx_pool: &TxPool,
+    snapshot: &Snapshot,
+    tx: TransactionView,
+) -> PartialResolveResult {
+    let short_id = tx.proposal_short_id();
+    if snapshot.proposals().contains_proposed(&short_id) {
+        tx_pool
+            .partial_resolve_tx_from_proposed(tx)
+            .map(|rtx| (rtx, TxStatus::Proposed))
+    } else {
+        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
+            TxStatus::Gap
+        } else {
+            TxStatus::Fresh
+        };
+        tx_pool
+            .partial_resolve_tx_from_pending_and_proposed(tx)
             .map(|rtx| (rtx, tx_status))
     }
 }

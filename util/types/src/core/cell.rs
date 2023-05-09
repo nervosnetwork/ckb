@@ -27,7 +27,7 @@ pub type SystemCellMap = HashMap<CellDep, ResolvedDep>;
 /// system cell memory map cache
 pub static SYSTEM_CELL: OnceCell<SystemCellMap> = OnceCell::new();
 
-const MAX_DEP_EXPANSION_LIMIT: usize = 2048;
+pub(crate) const MAX_DEP_EXPANSION_LIMIT: usize = 2048;
 
 /// TODO(doc): @quake
 #[derive(Clone, Eq, PartialEq, Default)]
@@ -633,7 +633,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
     )
 }
 
-fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
+pub(crate) fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     if slice.is_empty() {
         Err("data is empty".to_owned())
     } else {

@@ -13,6 +13,7 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
+        partial_resolve::{partial_resolve_transaction, PartialResolvedTransaction},
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Cycle, TransactionView, UncleBlockView,
     },
@@ -399,6 +400,18 @@ impl TxPool {
         .map_err(Reject::Resolve)
     }
 
+    pub(crate) fn partial_resolve_tx_from_pending_and_proposed(
+        &self,
+        tx: TransactionView,
+    ) -> Result<PartialResolvedTransaction, Reject> {
+        let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &self.proposed);
+        let pending_and_proposed_provider =
+            OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
+        let mut seen_inputs = HashSet::new();
+        partial_resolve_transaction(tx, &mut seen_inputs, &pending_and_proposed_provider)
+            .map_err(Reject::Resolve)
+    }
+
     pub(crate) fn check_rtx_from_pending_and_proposed(
         &self,
         rtx: &ResolvedTransaction,
@@ -423,6 +436,14 @@ impl TxPool {
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot)
             .map(Arc::new)
             .map_err(Reject::Resolve)
+    }
+
+    pub(crate) fn partial_resolve_tx_from_proposed(
+        &self,
+        tx: TransactionView,
+    ) -> Result<PartialResolvedTransaction, Reject> {
+        let mut seen_inputs = HashSet::new();
+        partial_resolve_transaction(tx, &mut seen_inputs, &self.proposed).map_err(Reject::Resolve)
     }
 
     pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {

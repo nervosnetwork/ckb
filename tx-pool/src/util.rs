@@ -6,7 +6,8 @@ use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::{
-    cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT, Capacity, Cycle, TransactionView,
+    cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT, Capacity, Cycle, FeeRate,
+    TransactionView,
 };
 use ckb_verification::{
     cache::{CacheEntry, Completed},
@@ -25,7 +26,7 @@ pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Re
 }
 
 pub(crate) fn check_tx_fee(
-    tx_pool: &TxPool,
+    min_fee_rate: FeeRate,
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,
     tx_size: usize,
@@ -36,11 +37,10 @@ pub(crate) fn check_tx_fee(
     // Theoretically we cannot use size as weight directly to calculate fee_rate,
     // here min fee rate is used as a cheap check,
     // so we will use size to calculate fee_rate directly
-    let min_fee = tx_pool.config.min_fee_rate.fee(tx_size as u64);
+    let min_fee = min_fee_rate.fee(tx_size as u64);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
-        let reject =
-            Reject::LowFeeRate(tx_pool.config.min_fee_rate, min_fee.as_u64(), fee.as_u64());
+        let reject = Reject::LowFeeRate(min_fee_rate, min_fee.as_u64(), fee.as_u64());
         ckb_logger::debug!("reject tx {}", reject);
         return Err(reject);
     }
