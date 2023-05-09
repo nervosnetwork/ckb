@@ -6,8 +6,10 @@ use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier 
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
 use std::sync::Arc;
+use jsonrpc_utils::rpc;
+use async_trait::async_trait;
+
 
 /// RPC Module Alert for network alerts.
 ///
@@ -15,7 +17,8 @@ use std::sync::Arc;
 ///
 /// The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
 /// and belong to early CKB developers.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait AlertRpc {
     /// Sends an alert.
     ///
@@ -67,9 +70,10 @@ pub trait AlertRpc {
     /// }
     /// ```
     #[rpc(name = "send_alert")]
-    fn send_alert(&self, alert: Alert) -> Result<()>;
+    async fn send_alert(&self, alert: Alert) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub(crate) struct AlertRpcImpl {
     network_controller: NetworkController,
     verifier: Arc<AlertVerifier>,
@@ -90,8 +94,9 @@ impl AlertRpcImpl {
     }
 }
 
+#[async_trait]
 impl AlertRpc for AlertRpcImpl {
-    fn send_alert(&self, alert: Alert) -> Result<()> {
+    async fn send_alert(&self, alert: Alert) -> Result<()> {
         let alert: packed::Alert = alert.into();
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let notice_until: u64 = alert.raw().notice_until().unpack();

@@ -1,12 +1,17 @@
+use async_trait::async_trait;
 use ckb_jsonrpc_types::Topic;
 use ckb_notify::NotifyController;
 
 use jsonrpc_core::{Metadata, Result};
-use jsonrpc_derive::rpc;
+//use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{
     typed::{Sink, Subscriber},
-    PubSubMetadata, Session, SubscriptionId,
+    SubscriptionId,
 };
+use jsonrpc_utils::rpc;
+
+use jsonrpc_utils::{axum_utils::handle_jsonrpc, pub_sub::Session};
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -18,7 +23,7 @@ use tokio::runtime::Handle;
 
 const SUBSCRIBER_NAME: &str = "TcpSubscription";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SubscriptionSession {
     pub(crate) subscription_ids: Arc<RwLock<HashSet<SubscriptionId>>>,
     pub(crate) session: Arc<Session>,
@@ -34,12 +39,6 @@ impl SubscriptionSession {
 }
 
 impl Metadata for SubscriptionSession {}
-
-impl PubSubMetadata for SubscriptionSession {
-    fn session(&self) -> Option<Arc<Session>> {
-        Some(Arc::clone(&self.session))
-    }
-}
 
 /// RPC Module Subscription that CKB node will push new messages to subscribers.
 ///
@@ -78,7 +77,8 @@ impl PubSubMetadata for SubscriptionSession {
 /// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 /// ```
 #[allow(clippy::needless_return)]
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait SubscriptionRpc {
     /// Context to implement the subscription RPC.
     type Metadata;
