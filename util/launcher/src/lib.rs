@@ -30,6 +30,9 @@ use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
+use jsonrpc_utils::{
+    axum_utils::jsonrpc_router, pub_sub::PublishMsg, rpc, stream::StreamServerConfig,
+};
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -253,13 +256,13 @@ impl Launcher {
     }
 
     /// Start network service and rpc serve
-    pub fn start_network_and_rpc(
+    pub async fn start_network_and_rpc(
         &self,
         shared: &Shared,
         chain_controller: ChainController,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
-    ) -> (NetworkController, RpcServer) {
+    ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
             self.args.config.network.sync.clone(),
@@ -375,47 +378,48 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config)
-            .enable_chain(shared.clone())
-            .enable_pool(
-                shared.clone(),
-                rpc_config
-                    .extra_well_known_lock_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-                rpc_config
-                    .extra_well_known_type_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-            )
-            .enable_miner(
-                shared.clone(),
-                network_controller.clone(),
-                chain_controller.clone(),
-                miner_enable,
-            )
-            .enable_net(network_controller.clone(), sync_shared)
-            .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
-            .enable_experiment(shared.clone())
-            .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-            .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
-            .enable_indexer(
-                shared.clone(),
-                &self.args.config.db,
-                &self.args.config.indexer,
-            )
-            .enable_debug();
+        let builder = ServiceBuilder::new(&rpc_config).enable_chain(shared.clone());
+        // .enable_pool(
+        //     shared.clone(),
+        //     rpc_config
+        //         .extra_well_known_lock_scripts
+        //         .iter()
+        //         .map(|script| script.clone().into())
+        //         .collect(),
+        //     rpc_config
+        //         .extra_well_known_type_scripts
+        //         .iter()
+        //         .map(|script| script.clone().into())
+        //         .collect(),
+        // )
+        // .enable_miner(
+        //     shared.clone(),
+        //     network_controller.clone(),
+        //     chain_controller.clone(),
+        //     miner_enable,
+        // )
+        // .enable_net(network_controller.clone(), sync_shared)
+        // .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
+        // .enable_experiment(shared.clone())
+        // .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
+        // .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+        // .enable_indexer(
+        //     shared.clone(),
+        //     &self.args.config.db,
+        //     &self.args.config.indexer,
+        // )
+        //.enable_debug();
         let io_handler = builder.build();
 
-        let rpc_server = RpcServer::new(
+        RpcServer::start_jsonrpc_server(
             rpc_config.clone(),
             io_handler,
             shared.notify_controller(),
             self.async_handle.clone().into_inner(),
-        );
+        )
+        .await
+        .expect("Start rpc server failed");
 
-        (network_controller, rpc_server)
+        network_controller
     }
 }

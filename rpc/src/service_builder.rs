@@ -1,10 +1,11 @@
 #![allow(deprecated)]
 use crate::error::RPCError;
-use crate::module::SubscriptionSession;
+//use crate::module::SubscriptionSession;
 use crate::module::{
-    AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
-    ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
-    MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    add_alert_rpc_methods, add_chain_rpc_methods, add_integration_test_rpc_methods, AlertRpcImpl,
+    ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc,
+    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -17,6 +18,7 @@ use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use ckb_util::Mutex;
+use jsonrpc_core::MetaIoHandler;
 use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
 
@@ -26,6 +28,7 @@ const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 pub struct ServiceBuilder<'a> {
     config: &'a RpcConfig,
     io_handler: IoHandler,
+    rpc_hander: MetaIoHandler<std::option::Option<jsonrpc_utils::pub_sub::Session>>,
 }
 
 impl<'a> ServiceBuilder<'a> {
@@ -34,20 +37,20 @@ impl<'a> ServiceBuilder<'a> {
         Self {
             config,
             io_handler: IoHandler::default(),
+            rpc_hander: MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
         }
     }
 
     /// Mounts methods from module Chain if it is enabled in the config.
     pub fn enable_chain(mut self, shared: Shared) -> Self {
-        let rpc_methods = ChainRpcImpl { shared }.to_delegate();
         if self.config.chain_enable() {
-            self.add_methods(rpc_methods);
-        } else {
-            self.update_disabled_methods("Chain", rpc_methods);
+            let methods = ChainRpcImpl { shared };
+            add_chain_rpc_methods(&mut self.rpc_hander, methods);
         }
         self
     }
 
+    /*
     /// Mounts methods from module Pool if it is enabled in the config.
     pub fn enable_pool(
         mut self,
@@ -147,24 +150,21 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         chain: ChainController,
     ) -> Self {
-        let rpc_methods = IntegrationTestRpcImpl {
-            shared: shared.clone(),
-            network_controller,
-            chain,
-        }
-        .to_delegate();
-
         if self.config.integration_test_enable() {
             // IntegrationTest only on Dummy PoW chain
+            /*
             assert_eq!(
                 shared.consensus().pow,
                 Pow::Dummy,
                 "Only run integration test on Dummy PoW chain"
             );
-
-            self.add_methods(rpc_methods);
-        } else {
-            self.update_disabled_methods("IntegrationTest", rpc_methods);
+            */
+            let methods = IntegrationTestRpcImpl {
+                shared: shared.clone(),
+                network_controller,
+                chain,
+            };
+            add_integration_test_rpc_methods(&mut self.rpc_hander, methods);
         }
         self
     }
@@ -176,12 +176,9 @@ impl<'a> ServiceBuilder<'a> {
         alert_notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
     ) -> Self {
-        let rpc_methods =
-            AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller).to_delegate();
         if self.config.alert_enable() {
-            self.add_methods(rpc_methods);
-        } else {
-            self.update_disabled_methods("Alert", rpc_methods);
+            let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
+            add_alert_rpc_methods(&mut self.rpc_hander, methods);
         }
         self
     }
@@ -252,6 +249,7 @@ impl<'a> ServiceBuilder<'a> {
                 }
             }));
     }
+    */
 
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {

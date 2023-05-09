@@ -1,6 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::Handle;
+use ckb_async_runtime::{tokio, Handle};
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
@@ -45,12 +45,15 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.start_block_filter(&shared);
 
-    let (network_controller, _rpc_server) = launcher.start_network_and_rpc(
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let network_controller = launcher.start_network_and_rpc(
         &shared,
         chain_controller.clone(),
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
+    let network_controller = rt.block_on(network_controller);
 
     let tx_pool_builder = pack.take_tx_pool_builder();
     tx_pool_builder.start(network_controller.clone());

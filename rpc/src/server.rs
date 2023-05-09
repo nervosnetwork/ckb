@@ -1,20 +1,17 @@
-use crate::module::{SubscriptionRpc, SubscriptionRpcImpl, SubscriptionSession};
 use crate::IoHandler;
 use ckb_app_config::RpcConfig;
-use ckb_logger::info;
 use ckb_notify::NotifyController;
-use jsonrpc_pubsub::Session;
-use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
-use jsonrpc_server_utils::hosts::DomainsValidation;
-use std::net::{SocketAddr, ToSocketAddrs};
+use futures_util::{SinkExt, TryStreamExt};
+use jsonrpc_core::MetaIoHandler;
+use jsonrpc_utils::axum_utils::jsonrpc_router;
+use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
+use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::runtime::Handle;
+use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 
 #[doc(hidden)]
-pub struct RpcServer {
-    pub(crate) http: jsonrpc_http_server::Server,
-    pub(crate) _tcp: Option<jsonrpc_tcp_server::Server>,
-    pub(crate) _ws: Option<jsonrpc_ws_server::Server>,
-}
+pub struct RpcServer {}
 
 impl RpcServer {
     /// Creates an RPC server.
@@ -24,95 +21,56 @@ impl RpcServer {
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `notify_controller` - Controller emitting notifications.
-    pub fn new(
+    pub async fn start_jsonrpc_server(
         config: RpcConfig,
         io_handler: IoHandler,
         notify_controller: &NotifyController,
         handle: Handle,
-    ) -> RpcServer {
-        let http = jsonrpc_http_server::ServerBuilder::new(io_handler.clone())
-            .cors(DomainsValidation::AllowOnly(vec![
-                AccessControlAllowOrigin::Null,
-                AccessControlAllowOrigin::Any,
-            ]))
-            .event_loop_executor(handle.clone())
-            .max_request_body_size(config.max_request_body_size)
-            .health_api(("/ping", "ping"))
-            .start_http(
-                &config
-                    .listen_address
-                    .to_socket_addrs()
-                    .expect("config listen_address parsed")
-                    .next()
-                    .expect("config listen_address parsed"),
-            )
-            .expect("Start Jsonrpc HTTP service");
-        info!(
-            "Listen HTTP RPC server on address {}",
-            config.listen_address
-        );
+    ) -> Result<(), String> {
+        let rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
 
-        let _tcp = config
-            .tcp_listen_address
-            .as_ref()
-            .map(|tcp_listen_address| {
-                let subscription_rpc_impl =
-                    SubscriptionRpcImpl::new(notify_controller.clone(), handle.clone());
-                let mut handler = io_handler.clone();
-                if config.subscription_enable() {
-                    handler.extend_with(subscription_rpc_impl.to_delegate());
-                }
-                let tcp_server = jsonrpc_tcp_server::ServerBuilder::with_meta_extractor(
-                    handler,
-                    |context: &jsonrpc_tcp_server::RequestContext| {
-                        Some(SubscriptionSession::new(Session::new(
-                            context.sender.clone(),
-                        )))
-                    },
-                )
-                .start(
-                    &tcp_listen_address
-                        .to_socket_addrs()
-                        .expect("config tcp_listen_address parsed")
-                        .next()
-                        .expect("config tcp_listen_address parsed"),
-                )
-                .expect("Start Jsonrpc TCP service");
-                info!("Listen TCP RPC server on address {}", tcp_listen_address);
+        let rpc = Arc::new(rpc);
+        let stream_config = StreamServerConfig::default()
+            .with_channel_size(4)
+            .with_pipeline_size(4);
 
-                tcp_server
-            });
-
-        let _ws = config.ws_listen_address.as_ref().map(|ws_listen_address| {
-            let subscription_rpc_impl = SubscriptionRpcImpl::new(notify_controller.clone(), handle);
-            let mut handler = io_handler.clone();
-            if config.subscription_enable() {
-                handler.extend_with(subscription_rpc_impl.to_delegate());
-            }
-            let ws_server = jsonrpc_ws_server::ServerBuilder::with_meta_extractor(
-                handler,
-                |context: &jsonrpc_ws_server::RequestContext| {
-                    Some(SubscriptionSession::new(Session::new(context.sender())))
-                },
-            )
-            .start(
-                &ws_listen_address
-                    .to_socket_addrs()
-                    .expect("config ws_listen_address parsed")
-                    .next()
-                    .expect("config ws_listen_address parsed"),
-            )
-            .expect("Start Jsonrpc WebSocket service");
-            info!("Listen WS RPC server on address {}", ws_listen_address);
-
-            ws_server
+        // HTTP and WS server.
+        let ws_config = stream_config.clone().with_keep_alive(true);
+        let app = jsonrpc_router("/", rpc.clone(), ws_config);
+        // You can use additional tower-http middlewares to add e.g. CORS.
+        let http = tokio::spawn(async move {
+            axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+                .serve(app.into_make_service())
+                .await
+                .unwrap();
         });
 
-        RpcServer { http, _tcp, _ws }
-    }
+        // TCP server.
 
-    /// Gets the HTTP RPC endpoint.
-    pub fn http_address(&self) -> &SocketAddr {
-        self.http.address()
+        // TCP server with line delimited json codec.
+        //
+        // You can also use other transports (e.g. TLS, unix socket) and codecs
+        // (e.g. netstring, JSON splitter).
+        let listener = TcpListener::bind("0.0.0.0:3001").await.unwrap();
+        let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
+        while let Ok((s, _)) = listener.accept().await {
+            let rpc = rpc.clone();
+            let stream_config = stream_config.clone();
+            let codec = codec.clone();
+            tokio::spawn(async move {
+                let (r, w) = s.into_split();
+                let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
+                let w = FramedWrite::new(w, codec).with(|msg| async move {
+                    Ok::<_, LinesCodecError>(match msg {
+                        StreamMsg::Str(msg) => msg,
+                        _ => "".into(),
+                    })
+                });
+                tokio::pin!(w);
+                drop(serve_stream_sink(&rpc, w, r, stream_config).await);
+            });
+        }
+
+        Ok(())
     }
 }
