@@ -98,6 +98,21 @@ impl CKB2021 {
             .unwrap()
     }
 
+    /// Creates a new dev instance.
+    pub fn new_dev() -> Self {
+        // Use a builder to ensure all features are set manually.
+        Self::new_builder()
+            .rfc_0028(0)
+            .rfc_0029(0)
+            .rfc_0030(0)
+            .rfc_0031(0)
+            .rfc_0032(0)
+            .rfc_0036(0)
+            .rfc_0038(0)
+            .build()
+            .unwrap()
+    }
+
     /// Returns a vector of epoch numbers, and there are new features which
     /// require refresh tx-pool caches will be enabled at those epochs.
     pub fn script_result_changed_at(&self) -> Vec<EpochNumber> {

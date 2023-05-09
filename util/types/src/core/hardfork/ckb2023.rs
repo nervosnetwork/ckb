@@ -45,6 +45,12 @@ impl CKB2023 {
             .build()
             .unwrap()
     }
+
+    /// Creates a new dev instance.
+    pub fn new_dev() -> Self {
+        // Use a builder to ensure all features are set manually.
+        Self::new_builder().rfc_0146(0).rfc_0148(0).build().unwrap()
+    }
 }
 
 define_methods!(

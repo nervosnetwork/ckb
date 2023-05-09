@@ -30,20 +30,6 @@ impl Spec for RpcSubmitBlock {
             "Submit block with wrong block number should return 'NumberError'"
         );
 
-        // build block with wrong block version
-        let block = node0
-            .new_block_builder(None, None, None)
-            .version((42_u32).pack())
-            .build();
-        let block_err = node0
-            .rpc_client()
-            .submit_block("".to_owned(), block.data().into())
-            .unwrap_err();
-        assert!(
-            block_err.to_string().contains("BlockVersionError"),
-            "Submit block with wrong block version should return 'BlockVersionError'"
-        );
-
         // build block with wrong epoch
         let tip_header: HeaderView = node0.rpc_client().get_tip_header().into();
         let tip_epoch = tip_header.epoch();

@@ -79,8 +79,8 @@ impl HardForkConfig {
 
     /// Converts to a hard fork switch.
     ///
-    /// Enable features which are set to `None` at the user provided epoch.
-    pub fn complete_with_default(&self, _default: EpochNumber) -> Result<HardForks, String> {
-        Ok(HardForks::new_mirana())
+    /// Enable features which are set to `None` at the dev default config.
+    pub fn complete_with_dev_default(&self) -> Result<HardForks, String> {
+        Ok(HardForks::new_dev())
     }
 }
