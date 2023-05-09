@@ -45,6 +45,10 @@ ckb-hash = { path = "../hash", version = "= 0.112.0-pre" }
 num_cpus = "1.10"
 once_cell = "1.8.0"
 tempfile.workspace = true
+quote = "1.0.27"
+async-trait = "0.1"
+http-body = "0.4.5"
+jsonrpc-utils = { version = "0.2.0", features = ["server", "macros", "axum"] }
 
 [dev-dependencies]
 ckb-systemtime = {path = "../systemtime", version = "= 0.112.0-pre", features = ["enable_faketime"]  }
