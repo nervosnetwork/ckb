@@ -107,7 +107,7 @@ impl Edges {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges,
     inner: SortedTxMap,
@@ -246,7 +246,7 @@ impl ProposedPool {
     }
 
     // In the event of a reorg, the assumption that a newly added tx has no
-    // in-pool children is false.  In particular, the pool is in an
+    // in-pool children is false. In particular, the pool is in an
     // inconsistent state while new transactions are being added, because there may
     // be descendant transactions of a tx coming from a disconnected block that are
     // unreachable from just looking at transactions in the pool (the linking
