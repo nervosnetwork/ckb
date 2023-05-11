@@ -51,7 +51,7 @@ pub enum ScriptVersion {
     V0 = 0,
     /// CKB VM 1 with Syscall version 1 and version 2.
     V1 = 1,
-    /// /// CKB VM 1 with Syscall version 1, version 2 and version 3.
+    /// CKB VM 2 with Syscall version 1, version 2 and version 3.
     V2 = 2,
 }
 
