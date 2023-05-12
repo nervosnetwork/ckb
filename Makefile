@@ -195,6 +195,10 @@ check-licenses: ## Use cargo-deny to check licenses for all dependencies.
 bench-test:
 	cd benches && cargo bench --features ${CKB_BENCH_FEATURES} -- --test
 
+.PHONY: clean
+clean:
+	cargo clean
+
 ##@ Continuous Integration
 
 .PHONY: ci

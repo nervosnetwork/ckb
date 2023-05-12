@@ -106,6 +106,7 @@ opt-level = 3
 [profile.prod]
 inherits = "release"
 lto = true
+strip = true
 codegen-units = 1
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
