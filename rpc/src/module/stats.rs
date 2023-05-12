@@ -87,8 +87,8 @@ pub trait StatsRpc {
     ///                "state": "failed",
     ///                "timeout": "0x0",
     ///                "threshold": {
-    ///                     "numer": 3,
-    ///                     "denom": 4
+    ///                     "numer": "0x3",
+    ///                     "denom": "0x4"
     ///                 }
     ///            }
     ///        }
