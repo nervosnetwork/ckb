@@ -21,7 +21,7 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
-use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeaderIndexView, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 
@@ -305,7 +305,7 @@ impl Synchronizer {
         self.shared().state().peers()
     }
 
-    fn better_tip_header(&self) -> core::HeaderView {
+    fn better_tip_header(&self) -> HeaderIndexView {
         let (header, total_difficulty) = {
             let active_chain = self.shared.active_chain();
             (
@@ -316,9 +316,9 @@ impl Synchronizer {
         let best_known = self.shared.state().shared_best_header();
         // is_better_chain
         if total_difficulty > *best_known.total_difficulty() {
-            header
+            (header, total_difficulty).into()
         } else {
-            best_known.into_inner()
+            best_known
         }
     }
 
@@ -387,7 +387,11 @@ impl Synchronizer {
                         continue;
                     }
                 } else {
-                    active_chain.send_getheaders_to_peer(nc, *peer, (&better_tip_header).into());
+                    active_chain.send_getheaders_to_peer(
+                        nc,
+                        *peer,
+                        better_tip_header.number_and_hash(),
+                    );
                 }
             }
 
@@ -512,7 +516,7 @@ impl Synchronizer {
             }
 
             debug!("start sync peer={}", peer);
-            active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
+            active_chain.send_getheaders_to_peer(nc, peer, tip.number_and_hash());
         }
     }
 

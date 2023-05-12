@@ -404,9 +404,9 @@ fn test_accept_block() {
 fn test_ignore_a_too_old_block() {
     let (relayer, _) = build_chain(1804);
 
-    let active_chain = relayer.shared.active_chain();
-    let parent = active_chain.tip_header();
-    let parent = active_chain.get_ancestor(&parent.hash(), 2).unwrap();
+    let snapshot = relayer.shared.shared().snapshot();
+    let parent = snapshot.tip_header();
+    let parent = snapshot.get_ancestor(&parent.hash(), 2).unwrap();
 
     let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
 
