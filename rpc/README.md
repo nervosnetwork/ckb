@@ -1692,8 +1692,8 @@ Response
                     "period": "0xa",
                     "start": "0x0",
                     "threshold": {
-                        "denom": 4,
-                        "numer": 3
+                        "denom": "0x4",
+                        "numer": "0x3"
                     },
                     "timeout": "0x0"
                 }
@@ -4730,8 +4730,8 @@ Response
                "state": "failed",
                "timeout": "0x0",
                "threshold": {
-                    "numer": 3,
-                    "denom": 4
+                    "numer": "0x3",
+                    "denom": "0x4"
                 }
            }
        }
@@ -6494,6 +6494,13 @@ A non-cellbase transaction is committed at height h_c if all of the following co
 
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both unsigned 64-bit integers.
 
+#### Fields
+
+`Ratio` is a JSON object with the following fields.
+
+*   `numer`: [`Uint64`](#type-uint64) - Numerator.
+
+*   `denom`: [`Uint64`](#type-uint64) - Denominator.
 
 
 ### Type `RationalU256`
