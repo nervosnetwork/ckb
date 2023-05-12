@@ -1,5 +1,5 @@
-use crate::{AlertMessage, EpochNumber, EpochNumberWithFraction, Timestamp};
-use ckb_types::{core::Ratio, H256, U256};
+use crate::{AlertMessage, EpochNumber, EpochNumberWithFraction, Ratio, Timestamp};
+use ckb_types::{H256, U256};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

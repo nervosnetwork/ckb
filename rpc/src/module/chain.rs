@@ -1374,8 +1374,8 @@ pub trait ChainRpc {
     ///                     "period": "0xa",
     ///                     "start": "0x0",
     ///                     "threshold": {
-    ///                         "denom": 4,
-    ///                         "numer": 3
+    ///                         "denom": "0x4",
+    ///                         "numer": "0x3"
     ///                     },
     ///                     "timeout": "0x0"
     ///                 }

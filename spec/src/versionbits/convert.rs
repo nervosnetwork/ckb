@@ -23,7 +23,7 @@ impl From<Deployment> for DeploymentInfo {
             timeout: deployment.timeout.into(),
             min_activation_epoch: deployment.min_activation_epoch.into(),
             period: deployment.period.into(),
-            threshold: deployment.threshold,
+            threshold: deployment.threshold.into(),
             state: DeploymentState::Defined,
             since: 0.into(),
         }
@@ -38,7 +38,7 @@ impl From<Deployment> for ckb_jsonrpc_types::Deployment {
             timeout: deployment.timeout.into(),
             min_activation_epoch: deployment.min_activation_epoch.into(),
             period: deployment.period.into(),
-            threshold: deployment.threshold,
+            threshold: deployment.threshold.into(),
         }
     }
 }
