@@ -53,13 +53,13 @@ impl PubSubMetadata for SubscriptionSession {
 /// ```text
 /// telnet localhost 18114
 /// > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
-/// < {"jsonrpc":"2.0","result":0,"id":2}
+/// < {"jsonrpc":"2.0","result":"0x0","id":2}
 /// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 ///"subscription":0}}
 /// < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 ///"subscription":0}}
 /// < ...
-/// > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
+/// > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}
 /// < {"jsonrpc":"2.0","result":true,"id":2}
 /// ```
 ///
@@ -74,7 +74,7 @@ impl PubSubMetadata for SubscriptionSession {
 ///
 /// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
 ///
-/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
+/// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 /// ```
 #[allow(clippy::needless_return)]
 #[rpc(server)]
