@@ -40,12 +40,9 @@ The official binary releases are also provided for the Tier 2 platforms.
 | Arch Linux | x64 | ASM |
 | CentOS 7 | x64 | ASM |
 | Ubuntu 20.04 | AArch64 | ASM |
-
-> \* AArch64 support is experimental.
+| macOS | AArch64 | ASM |
 
 The Tier 2 requires CPU to support following instructions: call (MODE64), cmovbe (CMOV), xorps (SSE1), movq (SSE2). The provided binaries cannot run on the platforms without these instructions.
-
-Since this is early days of the AArch64 port, you might experience quirks or slowdowns, we are still working on optimizing the AArch64 port.
 
 ## Tier 3
 
