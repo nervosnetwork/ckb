@@ -1,10 +1,10 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::tests::helper::MockProtocolContext;
 use crate::relayer::CompactBlockProcess;
 use crate::synchronizer::HeadersProcess;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::{Relayer, Status, SyncShared, Synchronizer};
 use ckb_chain::chain::ChainService;
+use ckb_shared::block_status::BlockStatus;
 use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
@@ -233,6 +233,16 @@ fn test_sync_relay_collaboration() {
     let status = compact_block_process.execute();
 
     assert!(status.is_ok());
+
+    {
+        let now = std::time::Instant::now();
+        while sync_shared.active_chain().tip_number() != new_block.number() {
+            if now.elapsed().as_secs() > 10 {
+                panic!("wait 10 seconds, but not sync yet.");
+            }
+        }
+    }
+
     assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
 
     let status = header_process.execute();
@@ -307,6 +317,16 @@ fn test_sync_relay_collaboration2() {
     let status = compact_block_process.execute();
 
     assert!(status.is_ok());
+
+    {
+        let now = std::time::Instant::now();
+        while sync_shared.active_chain().tip_number() != new_block.number() {
+            if now.elapsed().as_secs() > 10 {
+                panic!("wait 10 seconds, but not sync yet.");
+            }
+        }
+    }
+
     assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
 
     let compact_block_process = CompactBlockProcess::new(
@@ -319,6 +339,16 @@ fn test_sync_relay_collaboration2() {
     let status = compact_block_process.execute();
 
     assert_eq!(status, Status::ok());
+
+    {
+        let now = std::time::Instant::now();
+        while sync_shared.active_chain().tip_number() != new_block.number() {
+            if now.elapsed().as_secs() > 10 {
+                panic!("wait 10 seconds, but not sync yet.");
+            }
+        }
+    }
+
     assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
 
     let status = header_process.execute();
