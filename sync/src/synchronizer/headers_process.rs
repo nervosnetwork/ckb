@@ -1,4 +1,3 @@
-use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode};
@@ -6,6 +5,7 @@ use ckb_constant::sync::MAX_HEADERS_LEN;
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_shared::block_status::BlockStatus;
 use ckb_traits::HeaderFieldsProvider;
 use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier};

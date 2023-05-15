@@ -20,10 +20,10 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::block_status::BlockStatus;
 use crate::types::{HeaderIndexView, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
+use ckb_shared::block_status::BlockStatus;
 
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
