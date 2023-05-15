@@ -2,6 +2,7 @@ use crate::component::{container::AncestorsScoreSortKey, entry::TxEntry, propose
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use crate::pool::MultiIndexPoolEntryMap;
 
 // A template data struct used to store modified entries when package txs
 #[derive(Default)]
@@ -49,6 +50,7 @@ const MAX_CONSECUTIVE_FAILURES: usize = 500;
 /// find txs to package into commitment
 pub struct CommitTxsScanner<'a> {
     proposed_pool: &'a ProposedPool,
+    pool_entries: &'a MultiIndexPoolEntryMap,
     entries: Vec<TxEntry>,
     // modified_entries will store sorted packages after they are modified
     // because some of their txs are already in the block
@@ -60,10 +62,11 @@ pub struct CommitTxsScanner<'a> {
 }
 
 impl<'a> CommitTxsScanner<'a> {
-    pub fn new(proposed_pool: &'a ProposedPool) -> CommitTxsScanner<'a> {
+    pub fn new(proposed_pool: &'a ProposedPool, pool_entries: &'a MultiIndexPoolEntryMap) -> CommitTxsScanner<'a> {
         CommitTxsScanner {
             proposed_pool,
             entries: Vec::new(),
+            pool_entries: pool_entries,
             modified_entries: TxModifiedEntries::default(),
             fetched_txs: HashSet::default(),
             failed_txs: HashSet::default(),
@@ -80,7 +83,7 @@ impl<'a> CommitTxsScanner<'a> {
         let mut cycles: Cycle = 0;
         let mut consecutive_failed = 0;
 
-        let mut iter = self.proposed_pool.score_sorted_iter().peekable();
+        let mut iter = self.pool_entries.score_sorted_iter().peekable();
         loop {
             let mut using_modified = false;
 
