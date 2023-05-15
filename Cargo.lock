@@ -1435,6 +1435,7 @@ version = "0.114.0-pre"
 dependencies = [
  "arc-swap",
  "ckb-app-config",
+ "bitflags",
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-channel",
@@ -1515,7 +1516,6 @@ dependencies = [
 name = "ckb-sync"
 version = "0.114.0-pre"
 dependencies = [
- "bitflags 1.3.2",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-chain",
