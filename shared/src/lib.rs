@@ -7,3 +7,4 @@ pub mod shared_builder;
 pub use ckb_snapshot::{Snapshot, SnapshotMgr};
 pub use shared::Shared;
 pub use shared_builder::{SharedBuilder, SharedPackage};
+pub mod block_status;

@@ -1,4 +1,3 @@
-use crate::block_status::BlockStatus;
 use crate::orphan_block_pool::OrphanBlockPool;
 use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
@@ -16,6 +15,7 @@ use ckb_constant::sync::{
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, trace};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
+use ckb_shared::block_status::BlockStatus;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
