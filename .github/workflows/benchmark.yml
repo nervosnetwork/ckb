@@ -62,23 +62,8 @@ jobs:
       - name: Set test state when benchmark failed.
         if: ${{ failure() }}
         run: echo "GITHUB_RUN_STATE=1" >> $GITHUB_ENV
-      - name: insert report to postgres
-        if: ${{ always() }}
-        env:
-          JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
-          PGHOST: ${{ secrets.PGHOST }}
-          PGPORT: ${{ secrets.PGPORT }}
-          PGUSER: ${{ secrets.PGUSER }}
-          PGPASSWORD: ${{ secrets.PGPASSWORD }}
-          PGDATABASE: ckbtest
-        run: |
-           [ -z "${PGHOST}" ] || ./ckb-bench/devtools/ci/script/benchmark.sh insert_report_to_postgres
       - name: Clean Up
         if: ${{ always() }}
         env:
           JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
         run: ./ckb-bench/devtools/ci/script/benchmark.sh clean
-      - uses: actions/upload-artifact@v2
-        with:
-          name: ckb-bench.log
-          path: ${{ env.ANSIBLE_DIR }}/ckb-bench.log
