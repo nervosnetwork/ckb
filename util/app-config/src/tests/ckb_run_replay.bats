@@ -10,8 +10,8 @@ _ckb_run() {
   tail -n 50 ${TMP_DIR}/ckb_run.log
 }
 _ckb_replay() {
-  # from 1 to 2000 enough to trigger profile action
-  CKB_LOG=err ckb replay -C ${CKB_DIRNAME} --tmp-target ${TMP_DIR} --profile 1 2000
+  # from 1 to 2500 enough to trigger profile action
+  CKB_LOG=err ckb replay -C ${CKB_DIRNAME} --tmp-target ${TMP_DIR} --profile 1 2500
 }
 
 function ckb_run { #@test
