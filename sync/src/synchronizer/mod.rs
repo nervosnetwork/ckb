@@ -20,7 +20,7 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::types::{HeaderIndexView, HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
@@ -38,6 +38,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{

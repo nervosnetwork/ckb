@@ -33,6 +33,7 @@ use ckb_network::{
     SupportProtocols, TargetSession,
 };
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::Shared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::BlockNumberAndHash;

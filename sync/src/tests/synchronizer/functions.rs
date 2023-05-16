@@ -8,6 +8,7 @@ use ckb_network::{
     SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
+use ckb_shared::types::HeaderIndex;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -36,7 +37,7 @@ use std::{
 
 use crate::{
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    types::{HeaderIndex, HeadersSyncController, IBDState, PeerState},
+    types::{HeadersSyncController, IBDState, PeerState},
     Status, StatusCode, SyncShared,
 };
 
