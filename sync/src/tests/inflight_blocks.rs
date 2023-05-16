@@ -1,5 +1,6 @@
-use crate::types::{BlockNumberAndHash, InflightBlocks};
+use crate::types::InflightBlocks;
 use ckb_constant::sync::BLOCK_DOWNLOAD_TIMEOUT;
+use ckb_shared::types::BlockNumberAndHash;
 use ckb_types::h256;
 use ckb_types::prelude::*;
 use std::collections::HashSet;
