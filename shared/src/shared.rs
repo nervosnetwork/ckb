@@ -1,5 +1,5 @@
 //! TODO(doc): @quake
-use crate::{Snapshot, SnapshotMgr};
+use crate::{HeaderMap, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -54,6 +54,8 @@ pub struct Shared {
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
+
+    pub(crate) header_map: Arc<HeaderMap>,
 }
 
 impl Shared {
@@ -68,6 +70,7 @@ impl Shared {
         snapshot_mgr: Arc<SnapshotMgr>,
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
+        header_map: Arc<HeaderMap>,
     ) -> Shared {
         Shared {
             store,
@@ -78,6 +81,7 @@ impl Shared {
             snapshot_mgr,
             async_handle,
             ibd_finished,
+            header_map,
         }
     }
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
