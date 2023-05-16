@@ -1525,9 +1525,12 @@ dependencies = [
  "ckb-systemtime",
  "ckb-tx-pool",
  "ckb-types",
+ "ckb-util",
  "ckb-verification",
  "once_cell",
+ "sled",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1623,7 +1626,6 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "sentry",
- "sled",
  "tempfile",
  "tokio",
 ]
