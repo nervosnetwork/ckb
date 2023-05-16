@@ -6,10 +6,7 @@ use ckb_types::{
 };
 use std::mem::size_of;
 
-use crate::component::{
-    container::{AncestorsScoreSortKey, SortedTxMap},
-    entry::TxEntry,
-};
+use crate::component::{entry::TxEntry, pool_map::PoolMap, score_key::AncestorsScoreSortKey};
 
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 
@@ -98,7 +95,7 @@ fn test_ancestors_sorted_key_order() {
 
 #[test]
 fn test_remove_entry() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
@@ -144,9 +141,9 @@ fn test_remove_entry() {
     let tx1_id = tx1.proposal_short_id();
     let tx2_id = tx2.proposal_short_id();
     let tx3_id = tx3.proposal_short_id();
-    map.add_entry(tx1).unwrap();
-    map.add_entry(tx2).unwrap();
-    map.add_entry(tx3).unwrap();
+    map.add_proposed(tx1).unwrap();
+    map.add_proposed(tx2).unwrap();
+    map.add_proposed(tx3).unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));
@@ -171,7 +168,7 @@ fn test_remove_entry() {
 
 #[test]
 fn test_remove_entry_and_descendants() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
@@ -217,9 +214,9 @@ fn test_remove_entry_and_descendants() {
     let tx1_id = tx1.proposal_short_id();
     let tx2_id = tx2.proposal_short_id();
     let tx3_id = tx3.proposal_short_id();
-    map.add_entry(tx1).unwrap();
-    map.add_entry(tx2).unwrap();
-    map.add_entry(tx3).unwrap();
+    map.add_proposed(tx1).unwrap();
+    map.add_proposed(tx2).unwrap();
+    map.add_proposed(tx3).unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));

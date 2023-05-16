@@ -1,6 +1,7 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
+use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
@@ -51,6 +52,7 @@ pub enum TxStatus {
     Proposed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessResult {
     Suspended,
     Completed(Completed),
@@ -122,7 +124,6 @@ impl TxPoolService {
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
-
                 Ok(())
             })
             .await;
@@ -276,7 +277,6 @@ impl TxPoolService {
 
         if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
             self.after_process(tx, remote, &snapshot, &ret).await;
-
             ret
         } else {
             // currently, the returned cycles is not been used, mock 0 if delay
@@ -360,7 +360,6 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} reject: {} ", tx_hash, reject);
                     if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
@@ -551,7 +550,6 @@ impl TxPoolService {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
-
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
@@ -640,7 +638,6 @@ impl TxPoolService {
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
-
         if cached.is_none() {
             // update cache
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
@@ -962,38 +959,36 @@ fn check_rtx(
     rtx: &ResolvedTransaction,
 ) -> Result<TxStatus, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
-    if snapshot.proposals().contains_proposed(&short_id) {
-        tx_pool
-            .check_rtx_from_proposed(rtx)
-            .map(|_| TxStatus::Proposed)
+    let tx_status = if snapshot.proposals().contains_proposed(&short_id) {
+        TxStatus::Proposed
+    } else if snapshot.proposals().contains_gap(&short_id) {
+        TxStatus::Gap
     } else {
-        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
-            TxStatus::Gap
-        } else {
-            TxStatus::Fresh
-        };
-        tx_pool
-            .check_rtx_from_pending_and_proposed(rtx)
-            .map(|_| tx_status)
+        TxStatus::Fresh
+    };
+    if tx_status == TxStatus::Proposed {
+        tx_pool.check_rtx_from_proposed(rtx)
+    } else {
+        tx_pool.check_rtx_from_pending_and_proposed(rtx)
     }
+    .map(|_| tx_status)
 }
 
 fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> ResolveResult {
     let short_id = tx.proposal_short_id();
-    if snapshot.proposals().contains_proposed(&short_id) {
-        tx_pool
-            .resolve_tx_from_proposed(tx)
-            .map(|rtx| (rtx, TxStatus::Proposed))
+    let tx_status = if snapshot.proposals().contains_proposed(&short_id) {
+        TxStatus::Proposed
+    } else if snapshot.proposals().contains_gap(&short_id) {
+        TxStatus::Gap
     } else {
-        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
-            TxStatus::Gap
-        } else {
-            TxStatus::Fresh
-        };
-        tx_pool
-            .resolve_tx_from_pending_and_proposed(tx)
-            .map(|rtx| (rtx, tx_status))
+        TxStatus::Fresh
+    };
+    if tx_status == TxStatus::Proposed {
+        tx_pool.resolve_tx_from_proposed(tx)
+    } else {
+        tx_pool.resolve_tx_from_pending_and_proposed(tx)
     }
+    .map(|rtx| (rtx, tx_status))
 }
 
 fn _submit_entry(
@@ -1005,16 +1000,15 @@ fn _submit_entry(
     let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
-            if tx_pool.add_pending(entry.clone()) {
-                debug!("submit_entry pending {}", tx_hash);
+            if tx_pool.add_pending(entry.clone()).unwrap_or(false) {
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
             }
         }
+
         TxStatus::Gap => {
-            if tx_pool.add_gap(entry.clone()) {
-                debug!("submit_entry gap {}", tx_hash);
+            if tx_pool.add_gap(entry.clone()).unwrap_or(false) {
                 callbacks.call_pending(tx_pool, &entry);
             } else {
                 return Err(Reject::Duplicated(tx_hash));
@@ -1022,10 +1016,7 @@ fn _submit_entry(
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
-                debug!("submit_entry proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
     }
@@ -1055,38 +1046,39 @@ fn _update_tx_pool_for_reorg(
     // pending ---> gap ----> proposed
     // try move gap to proposed
     if mine_mode {
-        let mut entries = Vec::new();
+        let mut proposals = Vec::new();
         let mut gaps = Vec::new();
 
-        tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
-            if snapshot.proposals().contains_proposed(id) {
-                entries.push(tx_entry.clone());
-                true
-            } else {
-                false
-            }
-        });
+        tx_pool
+            .pool_map
+            .remove_entries_by_filter(&Status::Gap, |id, tx_entry| {
+                if snapshot.proposals().contains_proposed(id) {
+                    proposals.push(tx_entry.clone());
+                    true
+                } else {
+                    false
+                }
+            });
 
-        tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
-            if snapshot.proposals().contains_proposed(id) {
-                entries.push(tx_entry.clone());
-                true
-            } else if snapshot.proposals().contains_gap(id) {
-                gaps.push(tx_entry.clone());
-                true
-            } else {
-                false
-            }
-        });
+        tx_pool
+            .pool_map
+            .remove_entries_by_filter(&Status::Pending, |id, tx_entry| {
+                if snapshot.proposals().contains_proposed(id) {
+                    proposals.push(tx_entry.clone());
+                    true
+                } else if snapshot.proposals().contains_gap(id) {
+                    gaps.push(tx_entry.clone());
+                    true
+                } else {
+                    false
+                }
+            });
 
-        for entry in entries {
-            debug!("tx move to proposed {}", entry.transaction().hash());
+        for entry in proposals {
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            let tx_hash = entry.transaction().hash();
             if let Err(e) =
                 tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
             {
-                debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             } else {
                 callbacks.call_proposed(tx_pool, &entry, false);
@@ -1094,7 +1086,6 @@ fn _update_tx_pool_for_reorg(
         }
 
         for entry in gaps {
-            debug!("tx move to gap {}", entry.transaction().hash());
             let tx_hash = entry.transaction().hash();
             let cached = CacheEntry::completed(entry.cycles, entry.fee);
             if let Err(e) =

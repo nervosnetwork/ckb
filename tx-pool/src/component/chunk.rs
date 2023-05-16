@@ -93,7 +93,6 @@ impl ChunkQueue {
     }
 
     /// If the queue did not have this tx present, true is returned.
-    ///
     /// If the queue did have this tx present, false is returned.
     pub fn add_tx(&mut self, tx: TransactionView, remote: Option<(Cycle, PeerIndex)>) -> bool {
         if self.contains_key(&tx.proposal_short_id()) {

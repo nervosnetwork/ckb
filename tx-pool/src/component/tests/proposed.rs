@@ -2,7 +2,7 @@ use crate::component::tests::util::{
     build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
-use crate::component::{entry::TxEntry, proposed::ProposedPool};
+use crate::component::{entry::TxEntry, pool_map::PoolMap};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -49,16 +49,16 @@ fn test_add_entry() {
     let tx1_hash = tx1.hash();
     let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx2, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
@@ -91,21 +91,20 @@ fn test_add_entry_from_detached() {
     let id2 = entry2.proposal_short_id();
     let id3 = entry3.proposal_short_id();
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
-    pool.add_entry(entry1.clone()).unwrap();
-    pool.add_entry(entry2.clone()).unwrap();
-    pool.add_entry(entry3).unwrap();
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    pool.add_proposed(entry1.clone()).unwrap();
+    pool.add_proposed(entry2.clone()).unwrap();
+    pool.add_proposed(entry3).unwrap();
 
     assert_eq!(pool.size(), 3);
     assert_eq!(pool.edges.outputs_len(), 3);
     assert_eq!(pool.edges.inputs_len(), 4);
 
-    assert_eq!(pool.inner().sorted_index.len(), 3);
+    assert_eq!(pool.size(), 3);
 
     let expected = vec![(id1.clone(), 1), (id2.clone(), 2), (id3.clone(), 3)];
     let got = pool
-        .inner()
-        .sorted_index
+        .entries
         .iter()
         .map(|(_, key)| (key.id.clone(), key.score.ancestors_size))
         .collect::<Vec<_>>();
@@ -114,81 +113,78 @@ fn test_add_entry_from_detached() {
 
     // check link
     {
-        assert!(pool.inner().links.get_parents(&id1).unwrap().is_empty());
+        assert!(pool.links.get_parents(&id1).unwrap().is_empty());
         assert_eq!(
-            pool.inner().links.get_children(&id1).unwrap(),
+            pool.links.get_children(&id1).unwrap(),
             &HashSet::from_iter(vec![id2.clone()].into_iter())
         );
 
         assert_eq!(
-            pool.inner().links.get_parents(&id2).unwrap(),
+            pool.links.get_parents(&id2).unwrap(),
             &HashSet::from_iter(vec![id1.clone()].into_iter())
         );
         assert_eq!(
-            pool.inner()
-                .links
+            pool.links
                 .get_children(&entry2.proposal_short_id())
                 .unwrap(),
             &HashSet::from_iter(vec![id3.clone()].into_iter())
         );
 
         assert_eq!(
-            pool.inner().links.get_parents(&id3).unwrap(),
+            pool.links.get_parents(&id3).unwrap(),
             &HashSet::from_iter(vec![id2.clone()].into_iter())
         );
-        assert!(pool.inner().links.get_children(&id3).unwrap().is_empty());
+        assert!(pool.links.get_children(&id3).unwrap().is_empty());
     }
 
     pool.remove_committed_tx(&tx1);
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
-    assert_eq!(pool.inner().sorted_index.len(), 2);
+    assert_eq!(pool.entries.len(), 2);
 
     let left = vec![(id2.clone(), 1), (id3.clone(), 2)];
     let got = pool
-        .inner()
-        .sorted_index
+        .entries
         .iter()
         .map(|(_, key)| (key.id.clone(), key.score.ancestors_size))
         .collect::<Vec<_>>();
     assert_eq!(left, got);
 
     assert!(pool
-        .inner()
         .links
         .get_parents(&entry2.proposal_short_id())
         .unwrap()
         .is_empty());
 
-    assert!(pool.add_entry(entry1).unwrap());
-    for (idx, (_, key)) in pool.inner().sorted_index.iter().enumerate() {
-        assert_eq!(key.id, expected[idx].0);
-        assert_eq!(key.score.ancestors_size, expected[idx].1);
+    assert!(pool.add_proposed(entry1).unwrap());
+
+    for (idx, (_, entry)) in pool.entries.iter().enumerate() {
+        assert_eq!(entry.id, expected[idx].0);
+        assert_eq!(entry.score.ancestors_size, expected[idx].1);
     }
     {
-        assert!(pool.inner().links.get_parents(&id1).unwrap().is_empty());
+        assert!(pool.links.get_parents(&id1).unwrap().is_empty());
         assert_eq!(
-            pool.inner().links.get_children(&id1).unwrap(),
+            pool.links.get_children(&id1).unwrap(),
             &HashSet::from_iter(vec![id2.clone()].into_iter())
         );
 
         assert_eq!(
-            pool.inner().links.get_parents(&id2).unwrap(),
+            pool.links.get_parents(&id2).unwrap(),
             &HashSet::from_iter(vec![id1].into_iter())
         );
         assert_eq!(
-            pool.inner()
-                .links
+            pool.links
                 .get_children(&entry2.proposal_short_id())
                 .unwrap(),
             &HashSet::from_iter(vec![id3.clone()].into_iter())
         );
 
         assert_eq!(
-            pool.inner().links.get_parents(&id3).unwrap(),
+            pool.links.get_parents(&id3).unwrap(),
             &HashSet::from_iter(vec![id2].into_iter())
         );
-        assert!(pool.inner().links.get_children(&id3).unwrap().is_empty());
+        assert!(pool.links.get_children(&id3).unwrap().is_empty());
     }
 }
 
@@ -200,16 +196,16 @@ fn test_add_roots() {
         3,
     );
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx2, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
@@ -240,37 +236,37 @@ fn test_add_no_roots() {
     let tx3_hash = tx3.hash();
     let tx5 = build_tx(vec![(&tx1_hash, 2), (&tx3_hash, 0)], 2);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx1.clone(), |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx2, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx3, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx4, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
         MOCK_SIZE,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::new(
+    pool.add_proposed(TxEntry::new(
         dummy_resolve(tx5, |_| None),
         MOCK_CYCLES,
         MOCK_FEE,
@@ -293,26 +289,26 @@ fn test_sorted_by_tx_fee_rate() {
     let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
     let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
@@ -337,33 +333,33 @@ fn test_sorted_by_ancestors_score() {
     let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
     let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx4.clone(),
         cycles,
         Capacity::shannons(400),
@@ -395,7 +391,7 @@ fn test_sorted_by_ancestors_score_competitive() {
     let tx2_3_hash = tx2_3.hash();
     let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     // Choose 5_000_839, so the weight is 853.0001094046, which will not lead to carry when
     // calculating the weight for a package.
@@ -403,7 +399,7 @@ fn test_sorted_by_ancestors_score_competitive() {
     let size = 200;
 
     for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
-        pool.add_entry(TxEntry::dummy_resolve(
+        pool.add_proposed(TxEntry::dummy_resolve(
             tx.clone(),
             cycles,
             Capacity::shannons(200),
@@ -430,33 +426,33 @@ fn test_get_ancestors() {
     let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
     let tx4 = build_tx(vec![(&tx2_hash, 0)], 1);
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let cycles = 5_000_000;
     let size = 200;
 
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx1.clone(),
         cycles,
         Capacity::shannons(100),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx2.clone(),
         cycles,
         Capacity::shannons(300),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx3.clone(),
         cycles,
         Capacity::shannons(200),
         size,
     ))
     .unwrap();
-    pool.add_entry(TxEntry::dummy_resolve(
+    pool.add_proposed(TxEntry::dummy_resolve(
         tx4.clone(),
         cycles,
         Capacity::shannons(400),
@@ -561,9 +557,9 @@ fn test_dep_group() {
         }
     };
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     for tx in &[&tx1, &tx2, &tx3] {
-        pool.add_entry(TxEntry::new(
+        pool.add_proposed(TxEntry::new(
             dummy_resolve((*tx).clone(), get_cell_data),
             MOCK_CYCLES,
             MOCK_FEE,
@@ -572,7 +568,7 @@ fn test_dep_group() {
         .unwrap();
     }
 
-    let get_deps_len = |pool: &ProposedPool, out_point: &OutPoint| -> usize {
+    let get_deps_len = |pool: &PoolMap, out_point: &OutPoint| -> usize {
         pool.edges
             .deps
             .get(out_point)
@@ -591,7 +587,7 @@ fn test_dep_group() {
 
 #[test]
 fn test_resolve_conflict_header_dep() {
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
     let header: Byte32 = h256!("0x1").pack();
     let tx = build_tx_with_header_dep(
@@ -602,7 +598,7 @@ fn test_resolve_conflict_header_dep() {
 
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
 
-    assert!(pool.add_entry(entry.clone()).is_ok());
+    assert!(pool.add_proposed(entry.clone()).is_ok());
 
     let mut headers = HashSet::new();
     headers.insert(header);
@@ -633,10 +629,10 @@ fn test_disordered_remove_committed_tx() {
         MOCK_SIZE,
     );
 
-    let mut pool = ProposedPool::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    pool.add_entry(entry1).unwrap();
-    pool.add_entry(entry2).unwrap();
+    pool.add_proposed(entry1).unwrap();
+    pool.add_proposed(entry2).unwrap();
 
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
@@ -650,7 +646,7 @@ fn test_disordered_remove_committed_tx() {
 
 #[test]
 fn test_max_ancestors() {
-    let mut pool = ProposedPool::new(1);
+    let mut pool = PoolMap::new(1);
     let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
     let tx1_id = tx1.proposal_short_id();
     let tx1_hash = tx1.hash();
@@ -659,15 +655,15 @@ fn test_max_ancestors() {
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
 
-    assert!(pool.add_entry(entry1).is_ok());
-    assert!(pool.add_entry(entry2).is_err());
+    assert!(pool.add_proposed(entry1).is_ok());
+    assert!(pool.add_proposed(entry2).is_err());
     assert_eq!(
-        pool.inner()
+        pool.links
             .get_children(&tx1_id)
             .map(|children| children.is_empty()),
         Some(true)
     );
-    assert!(pool.inner().calc_descendants(&tx1_id).is_empty());
+    assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);
     assert_eq!(pool.edges.outputs_len(), 1);
@@ -675,7 +671,7 @@ fn test_max_ancestors() {
 
 #[test]
 fn test_max_ancestors_with_dep() {
-    let mut pool = ProposedPool::new(1);
+    let mut pool = PoolMap::new(1);
     let tx1 = build_tx_with_dep(
         vec![(&Byte32::zero(), 0)],
         vec![(&h256!("0x1").pack(), 0)],
@@ -687,14 +683,14 @@ fn test_max_ancestors_with_dep() {
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
 
-    assert!(pool.add_entry(entry1).is_ok());
-    assert!(pool.add_entry(entry2).is_err());
-    assert_eq!(pool.inner().deps().len(), 1);
+    assert!(pool.add_proposed(entry1).is_ok());
+    assert!(pool.add_proposed(entry2).is_err());
+    assert_eq!(pool.edges.deps.len(), 1);
     assert!(pool
-        .inner()
-        .deps()
+        .edges
+        .deps
         .contains_key(&OutPoint::new(h256!("0x1").pack(), 0)));
-    assert!(pool.inner().calc_descendants(&tx1_id).is_empty());
+    assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);
     assert_eq!(pool.edges.outputs_len(), 1);

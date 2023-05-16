@@ -1,5 +1,4 @@
-use crate::component::container::AncestorsScoreSortKey;
-use crate::component::container::IndexKey;
+use crate::component::score_key::AncestorsScoreSortKey;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
@@ -100,11 +99,6 @@ impl TxEntry {
         EvictKey::from(self)
     }
 
-    /// Return a sort index
-    pub fn as_index_key(&self) -> IndexKey {
-        IndexKey::from(self)
-    }
-
     /// Returns fee rate
     pub fn fee_rate(&self) -> FeeRate {
         let weight = get_transaction_weight(self.size, self.cycles);
@@ -168,15 +162,6 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
             ancestors_fee: entry.ancestors_fee,
             ancestors_size: entry.ancestors_size,
             ancestors_weight,
-        }
-    }
-}
-
-impl From<&TxEntry> for IndexKey {
-    fn from(entry: &TxEntry) -> Self {
-        IndexKey {
-            id: entry.proposal_short_id(),
-            score: entry.as_score_key(),
         }
     }
 }

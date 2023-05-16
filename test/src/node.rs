@@ -5,6 +5,7 @@ use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
+use ckb_jsonrpc_types::TxStatus;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
@@ -354,6 +355,10 @@ impl Node {
     pub fn submit_transaction(&self, transaction: &TransactionView) -> Byte32 {
         self.rpc_client()
             .send_transaction(transaction.data().into())
+    }
+
+    pub fn get_transaction(&self, tx_hash: Byte32) -> TxStatus {
+        self.rpc_client().get_transaction(tx_hash).tx_status
     }
 
     pub fn remove_transaction(&self, tx_hash: Byte32) -> bool {

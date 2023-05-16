@@ -535,7 +535,6 @@ fn test_package_txs_with_deps_priority() {
     );
 
     let txs = vec![tx2.clone(), tx1];
-
     for tx in &txs {
         let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
         assert!(ret.is_ok(), "submit {} {:?}", tx.proposal_short_id(), ret);
