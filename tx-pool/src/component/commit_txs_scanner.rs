@@ -2,7 +2,7 @@ use crate::component::{container::AncestorsScoreSortKey, entry::TxEntry, propose
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use crate::pool::MultiIndexPoolEntryMap;
+use crate::component::pool_map::MultiIndexPoolEntryMap;
 
 // A template data struct used to store modified entries when package txs
 #[derive(Default)]

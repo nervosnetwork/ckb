@@ -7,6 +7,7 @@ pub(crate) mod orphan;
 pub(crate) mod pending;
 pub(crate) mod proposed;
 pub(crate) mod recent_reject;
+pub(crate) mod pool_map;
 
 #[cfg(test)]
 mod tests;
