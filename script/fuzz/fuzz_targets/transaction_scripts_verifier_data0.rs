@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_script::{TransactionScriptsVerifier, TxVerifyEnv};
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -13,11 +13,10 @@ use ckb_types::{
     },
     h256,
     packed::{
-        Byte32, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script, TransactionInfoBuilder,
-        TransactionKeyBuilder,
+        self, Byte32, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script,
+        TransactionInfoBuilder, TransactionKeyBuilder,
     },
     prelude::*,
-    H256,
 };
 
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -35,6 +34,12 @@ impl CellDataProvider for MockDataLoader {
 
 impl HeaderProvider for MockDataLoader {
     fn get_header(&self, _block_hash: &Byte32) -> Option<HeaderView> {
+        None
+    }
+}
+
+impl ExtensionProvider for MockDataLoader {
+    fn get_block_extension(&self, _hash: &Byte32) -> Option<packed::Bytes> {
         None
     }
 }
@@ -91,7 +96,15 @@ fn run(data: &[u8]) {
     };
 
     let provider = MockDataLoader {};
-    let verifier = TransactionScriptsVerifier::new(&rtx, &provider);
+    let consensus = ConsensusBuilder::default().build();
+    let tx_verify_env =
+        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
+    let verifier = TransactionScriptsVerifier::new(
+        rtx.into(),
+        provider,
+        consensus.into(),
+        tx_verify_env.into(),
+    );
     let _ = verifier.verify(10_000_000);
 }
 
