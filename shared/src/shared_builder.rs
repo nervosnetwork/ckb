@@ -5,6 +5,10 @@ use ckb_tx_pool::service::TxVerificationResult;
 use ckb_tx_pool::{TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
 use std::cmp::Ordering;
 
+use crate::migrate::Migrate;
+use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
+use ckb_app_config::{ExitCode, HeaderMapConfig};
+use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 
@@ -22,10 +26,22 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
+use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
+use ckb_proposal_table::ProposalTable;
+use ckb_proposal_table::ProposalView;
+use ckb_shared::{HeaderMap, Shared};
+use ckb_snapshot::{Snapshot, SnapshotMgr};
+use ckb_store::ChainDB;
+use ckb_store::ChainStore;
 use ckb_store::{ChainDB, ChainStore, Freezer};
+use ckb_tx_pool::{
+    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
+    TxPoolServiceBuilder,
+};
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::core::tx_pool::Reject;
+
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
@@ -45,6 +61,9 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
+
+    header_map_memory_limit: Option<usize>,
+    header_map_tmp_dir: Option<PathBuf>,
 }
 
 /// Open or create a rocksdb
@@ -148,6 +167,8 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             async_handle,
+            header_map_memory_limit: None,
+            header_map_tmp_dir: None,
         })
     }
 
@@ -193,6 +214,9 @@ impl SharedBuilder {
             store_config: None,
             block_assembler_config: None,
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
+
+            header_map_memory_limit: None,
+            header_map_tmp_dir: None,
         })
     }
 }
@@ -328,7 +352,18 @@ impl SharedBuilder {
             block_assembler_config,
             notify_config,
             async_handle,
+            header_map_memory_limit,
+            header_map_tmp_dir,
         } = self;
+
+        let header_map_memory_limit = header_map_memory_limit
+            .unwrap_or(HeaderMapConfig::default().memory_limit.as_u64() as usize);
+
+        let header_map = Arc::new(HeaderMap::new(
+            header_map_tmp_dir,
+            header_map_memory_limit,
+            &async_handle.clone(),
+        ));
 
         let tx_pool_config = tx_pool_config.unwrap_or_default();
         let notify_config = notify_config.unwrap_or_default();
@@ -375,6 +410,7 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
+            header_map,
         );
 
         let pack = SharedPackage {
