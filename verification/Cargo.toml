@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.110.0-rc1"
+version = "0.110.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,20 +9,20 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.110.0-rc1" }
-ckb-script = { path = "../script", version = "= 0.110.0-rc1" }
-ckb-pow = { path = "../pow", version = "= 0.110.0-rc1" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.110.0-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.110.0" }
+ckb-script = { path = "../script", version = "= 0.110.0" }
+ckb-pow = { path = "../pow", version = "= 0.110.0" }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.110.0" }
 lru = "0.7.1"
-ckb-traits = { path = "../traits", version = "= 0.110.0-rc1" }
-ckb-chain-spec = { path = "../spec", version = "= 0.110.0-rc1" }
-ckb-dao = { path = "../util/dao", version = "= 0.110.0-rc1" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.110.0-rc1" }
-ckb-error = { path = "../error", version = "= 0.110.0-rc1" }
+ckb-traits = { path = "../traits", version = "= 0.110.0" }
+ckb-chain-spec = { path = "../spec", version = "= 0.110.0" }
+ckb-dao = { path = "../util/dao", version = "= 0.110.0" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.110.0" }
+ckb-error = { path = "../error", version = "= 0.110.0" }
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
-ckb-verification-traits = { path = "./traits", version = "= 0.110.0-rc1" }
+ckb-verification-traits = { path = "./traits", version = "= 0.110.0" }
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.110.0-rc1" }
-ckb-resource = { path = "../resource", version = "= 0.110.0-rc1" }
-ckb-systemtime = {path = "../util/systemtime", version = "= 0.110.0-rc1", features=["enable_faketime"]}
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.110.0" }
+ckb-resource = { path = "../resource", version = "= 0.110.0" }
+ckb-systemtime = {path = "../util/systemtime", version = "= 0.110.0", features=["enable_faketime"]}
