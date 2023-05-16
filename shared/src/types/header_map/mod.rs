@@ -29,7 +29,7 @@ const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
-    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
+    pub fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -66,19 +66,19 @@ impl HeaderMap {
         Self { inner }
     }
 
-    pub(crate) fn contains_key(&self, hash: &Byte32) -> bool {
+    pub fn contains_key(&self, hash: &Byte32) -> bool {
         self.inner.contains_key(hash)
     }
 
-    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
+    pub fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
         self.inner.get(hash)
     }
 
-    pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
+    pub fn insert(&self, view: HeaderIndexView) -> Option<()> {
         self.inner.insert(view)
     }
 
-    pub(crate) fn remove(&self, hash: &Byte32) {
+    pub fn remove(&self, hash: &Byte32) {
         self.inner.remove(hash)
     }
 }

@@ -1,6 +1,6 @@
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::types::{ActiveChain, HeaderIndex, PendingCompactBlockMap};
+use crate::types::{ActiveChain, PendingCompactBlockMap};
 use crate::utils::send_message_to;
 use crate::SyncShared;
 use crate::{attempt, Status, StatusCode};
@@ -8,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::types::HeaderIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
