@@ -9,6 +9,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
+        hardfork::{HardForks, CKB2021, CKB2023},
         Capacity, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo,
     },
     h256,
@@ -65,7 +66,7 @@ fn run(data: &[u8]) {
 
     let data: Bytes = (Vec::from(data)).into();
     let script = Script::new_builder()
-        .hash_type(ScriptHashType::Data1.into())
+        .hash_type(ScriptHashType::Data2.into())
         .code_hash(CellOutput::calc_data_hash(&data))
         .build();
     let dep_cell = CellMetaBuilder::from_cell_output(
@@ -96,7 +97,17 @@ fn run(data: &[u8]) {
     };
 
     let provider = MockDataLoader {};
-    let consensus = ConsensusBuilder::default().build();
+    let hardfork_switch = HardForks {
+        ckb2021: CKB2021::new_mirana().as_builder().build().unwrap(),
+        ckb2023: CKB2023::new_mirana()
+            .as_builder()
+            .rfc_0148(0)
+            .build()
+            .unwrap(),
+    };
+    let consensus = ConsensusBuilder::default()
+        .hardfork_switch(hardfork_switch)
+        .build();
     let tx_verify_env =
         TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
     let verifier = TransactionScriptsVerifier::new(

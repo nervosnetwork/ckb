@@ -37,6 +37,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "transaction_scripts_verifier_data2"
+path = "fuzz_targets/transaction_scripts_verifier_data2.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "syscall_exec"
 path = "fuzz_targets/syscall_exec.rs"
 test = false
