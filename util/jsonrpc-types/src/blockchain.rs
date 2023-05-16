@@ -1470,6 +1470,25 @@ pub struct Rfc0043 {
     pub rfc0043: Deployment,
 }
 
+/// Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
+/// unsigned 64-bit integers.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Ratio {
+    /// Numerator.
+    pub numer: Uint64,
+    /// Denominator.
+    pub denom: Uint64,
+}
+
+impl From<core::Ratio> for Ratio {
+    fn from(value: core::Ratio) -> Self {
+        Ratio {
+            numer: value.numer().into(),
+            denom: value.denom().into(),
+        }
+    }
+}
+
 /// RFC0043 deployment params
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Deployment {
@@ -1488,7 +1507,7 @@ pub struct Deployment {
     pub period: EpochNumber,
     /// Specifies the minimum ratio of block per `period`,
     /// which indicate the locked_in of the softfork during the `period`.
-    pub threshold: core::Ratio,
+    pub threshold: Ratio,
 }
 
 fn convert(number: core::EpochNumber) -> Option<EpochNumber> {

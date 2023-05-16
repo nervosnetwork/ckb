@@ -19,7 +19,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
-use ckb_traits::HeaderProvider;
+use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
@@ -43,7 +43,7 @@ use std::{cmp, fmt, iter};
 mod header_map;
 
 use crate::utils::send_message;
-use ckb_types::core::EpochNumber;
+use ckb_types::core::{EpochNumber, EpochNumberWithFraction};
 pub use header_map::HeaderMap;
 
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
@@ -175,7 +175,7 @@ impl HeadersSyncController {
         }
     }
 
-    pub(crate) fn from_header(better_tip_header: &core::HeaderView) -> Self {
+    pub(crate) fn from_header(better_tip_header: &HeaderIndexView) -> Self {
         let started_ts = unix_time_as_millis();
         let started_tip_ts = better_tip_header.timestamp();
         Self {
@@ -1019,176 +1019,6 @@ impl Peers {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeaderView {
-    inner: core::HeaderView,
-    total_difficulty: U256,
-    // pointer to the index of some further predecessor of this block
-    pub(crate) skip_hash: Option<Byte32>,
-}
-
-impl HeaderView {
-    pub fn new(inner: core::HeaderView, total_difficulty: U256) -> Self {
-        HeaderView {
-            inner,
-            total_difficulty,
-            skip_hash: None,
-        }
-    }
-
-    pub fn number(&self) -> BlockNumber {
-        self.inner.number()
-    }
-
-    pub fn hash(&self) -> Byte32 {
-        self.inner.hash()
-    }
-
-    pub fn parent_hash(&self) -> Byte32 {
-        self.inner.data().raw().parent_hash()
-    }
-
-    pub fn timestamp(&self) -> u64 {
-        self.inner.timestamp()
-    }
-
-    pub fn total_difficulty(&self) -> &U256 {
-        &self.total_difficulty
-    }
-
-    pub fn inner(&self) -> &core::HeaderView {
-        &self.inner
-    }
-
-    pub fn into_inner(self) -> core::HeaderView {
-        self.inner
-    }
-
-    pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
-    where
-        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
-    {
-        if self.inner.is_genesis() {
-            return;
-        }
-        self.skip_hash = self
-            .get_ancestor(
-                tip_number,
-                get_skip_height(self.number()),
-                get_header_view,
-                fast_scanner,
-            )
-            .map(|header| header.hash());
-    }
-
-    pub fn get_ancestor<F, G>(
-        &self,
-        tip_number: BlockNumber,
-        number: BlockNumber,
-        get_header_view: F,
-        fast_scanner: G,
-    ) -> Option<core::HeaderView>
-    where
-        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
-    {
-        if number > self.number() {
-            return None;
-        }
-
-        let mut current = self.clone();
-        let mut number_walk = current.number();
-        while number_walk > number {
-            let number_skip = get_skip_height(number_walk);
-            let number_skip_prev = get_skip_height(number_walk - 1);
-            let store_first = current.number() <= tip_number;
-            match current.skip_hash {
-                Some(ref hash)
-                    if number_skip == number
-                        || (number_skip > number
-                            && !(number_skip_prev + 2 < number_skip
-                                && number_skip_prev >= number)) =>
-                {
-                    // Only follow skip if parent->skip isn't better than skip->parent
-                    current = get_header_view(hash, Some(store_first))?;
-                    number_walk = number_skip;
-                }
-                _ => {
-                    current = get_header_view(&current.parent_hash(), Some(store_first))?;
-                    number_walk -= 1;
-                }
-            }
-            if let Some(target) = fast_scanner(number, (current.number(), current.hash()).into()) {
-                current = target;
-                break;
-            }
-        }
-        Some(current).map(HeaderView::into_inner)
-    }
-
-    pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
-        self.total_difficulty() > total_difficulty
-    }
-
-    fn from_slice_should_be_ok(slice: &[u8]) -> Self {
-        let len_size = packed::Uint32Reader::TOTAL_SIZE;
-        if slice.len() < len_size {
-            panic!("failed to unpack item in header map: header part is broken");
-        }
-        let mut idx = 0;
-        let inner_len = {
-            let reader = packed::Uint32Reader::from_slice_should_be_ok(&slice[idx..idx + len_size]);
-            Unpack::<u32>::unpack(&reader) as usize
-        };
-        idx += len_size;
-        let total_difficulty_len = packed::Uint256Reader::TOTAL_SIZE;
-        if slice.len() < len_size + inner_len + total_difficulty_len {
-            panic!("failed to unpack item in header map: body part is broken");
-        }
-        let inner = {
-            let reader =
-                packed::HeaderViewReader::from_slice_should_be_ok(&slice[idx..idx + inner_len]);
-            Unpack::<core::HeaderView>::unpack(&reader)
-        };
-        idx += inner_len;
-        let total_difficulty = {
-            let reader = packed::Uint256Reader::from_slice_should_be_ok(
-                &slice[idx..idx + total_difficulty_len],
-            );
-            Unpack::<U256>::unpack(&reader)
-        };
-        idx += total_difficulty_len;
-        let skip_hash = {
-            packed::Byte32OptReader::from_slice_should_be_ok(&slice[idx..])
-                .to_entity()
-                .to_opt()
-        };
-        Self {
-            inner,
-            total_difficulty,
-            skip_hash,
-        }
-    }
-
-    fn to_vec(&self) -> Vec<u8> {
-        let mut v = Vec::new();
-        let inner: packed::HeaderView = self.inner.pack();
-        let total_difficulty: packed::Uint256 = self.total_difficulty.pack();
-        let skip_hash: packed::Byte32Opt = Pack::pack(&self.skip_hash);
-        let inner_len: packed::Uint32 = (inner.as_slice().len() as u32).pack();
-        v.extend_from_slice(inner_len.as_slice());
-        v.extend_from_slice(inner.as_slice());
-        v.extend_from_slice(total_difficulty.as_slice());
-        v.extend_from_slice(skip_hash.as_slice());
-        v
-    }
-
-    pub fn as_header_index(&self) -> HeaderIndex {
-        HeaderIndex::new(self.number(), self.hash(), self.total_difficulty().clone())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderIndex {
     number: BlockNumber,
     hash: Byte32,
@@ -1226,6 +1056,195 @@ impl HeaderIndex {
 
     pub fn is_better_than(&self, other_total_difficulty: &U256) -> bool {
         self.total_difficulty() > other_total_difficulty
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeaderIndexView {
+    hash: Byte32,
+    number: BlockNumber,
+    epoch: EpochNumberWithFraction,
+    timestamp: u64,
+    parent_hash: Byte32,
+    total_difficulty: U256,
+    skip_hash: Option<Byte32>,
+}
+
+impl HeaderIndexView {
+    pub fn new(
+        hash: Byte32,
+        number: BlockNumber,
+        epoch: EpochNumberWithFraction,
+        timestamp: u64,
+        parent_hash: Byte32,
+        total_difficulty: U256,
+    ) -> Self {
+        HeaderIndexView {
+            hash,
+            number,
+            epoch,
+            timestamp,
+            parent_hash,
+            total_difficulty,
+            skip_hash: None,
+        }
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn epoch(&self) -> EpochNumberWithFraction {
+        self.epoch
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
+    }
+
+    pub fn parent_hash(&self) -> Byte32 {
+        self.parent_hash.clone()
+    }
+
+    pub fn skip_hash(&self) -> Option<&Byte32> {
+        self.skip_hash.as_ref()
+    }
+
+    // deserialize from bytes
+    fn from_slice_should_be_ok(hash: &[u8], slice: &[u8]) -> Self {
+        let hash = packed::Byte32Reader::from_slice_should_be_ok(hash).to_entity();
+        let number = BlockNumber::from_le_bytes(slice[0..8].try_into().expect("stored slice"));
+        let epoch = EpochNumberWithFraction::from_full_value(u64::from_le_bytes(
+            slice[8..16].try_into().expect("stored slice"),
+        ));
+        let timestamp = u64::from_le_bytes(slice[16..24].try_into().expect("stored slice"));
+        let parent_hash = packed::Byte32Reader::from_slice_should_be_ok(&slice[24..56]).to_entity();
+        let total_difficulty = U256::from_little_endian(&slice[56..88]).expect("stored slice");
+        let skip_hash = if slice.len() == 120 {
+            Some(packed::Byte32Reader::from_slice_should_be_ok(&slice[88..120]).to_entity())
+        } else {
+            None
+        };
+        Self {
+            hash,
+            number,
+            epoch,
+            timestamp,
+            parent_hash,
+            total_difficulty,
+            skip_hash,
+        }
+    }
+
+    // serialize all fields except `hash` to bytes
+    fn to_vec(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(self.number.to_le_bytes().as_slice());
+        v.extend_from_slice(self.epoch.full_value().to_le_bytes().as_slice());
+        v.extend_from_slice(self.timestamp.to_le_bytes().as_slice());
+        v.extend_from_slice(self.parent_hash.as_slice());
+        v.extend_from_slice(self.total_difficulty.to_le_bytes().as_slice());
+        if let Some(ref skip_hash) = self.skip_hash {
+            v.extend_from_slice(skip_hash.as_slice());
+        }
+        v
+    }
+
+    pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
+    where
+        F: Fn(&Byte32, bool) -> Option<HeaderIndexView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView>,
+    {
+        if self.number == 0 {
+            return;
+        }
+        self.skip_hash = self
+            .get_ancestor(
+                tip_number,
+                get_skip_height(self.number()),
+                get_header_view,
+                fast_scanner,
+            )
+            .map(|header| header.hash());
+    }
+
+    pub fn get_ancestor<F, G>(
+        &self,
+        tip_number: BlockNumber,
+        number: BlockNumber,
+        get_header_view: F,
+        fast_scanner: G,
+    ) -> Option<HeaderIndexView>
+    where
+        F: Fn(&Byte32, bool) -> Option<HeaderIndexView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView>,
+    {
+        if number > self.number() {
+            return None;
+        }
+
+        let mut current = self.clone();
+        let mut number_walk = current.number();
+        while number_walk > number {
+            let number_skip = get_skip_height(number_walk);
+            let number_skip_prev = get_skip_height(number_walk - 1);
+            let store_first = current.number() <= tip_number;
+            match current.skip_hash {
+                Some(ref hash)
+                    if number_skip == number
+                        || (number_skip > number
+                            && !(number_skip_prev + 2 < number_skip
+                                && number_skip_prev >= number)) =>
+                {
+                    // Only follow skip if parent->skip isn't better than skip->parent
+                    current = get_header_view(hash, store_first)?;
+                    number_walk = number_skip;
+                }
+                _ => {
+                    current = get_header_view(&current.parent_hash(), store_first)?;
+                    number_walk -= 1;
+                }
+            }
+            if let Some(target) = fast_scanner(number, (current.number(), current.hash()).into()) {
+                current = target;
+                break;
+            }
+        }
+        Some(current)
+    }
+
+    pub fn as_header_index(&self) -> HeaderIndex {
+        HeaderIndex::new(self.number(), self.hash(), self.total_difficulty().clone())
+    }
+
+    pub fn number_and_hash(&self) -> BlockNumberAndHash {
+        (self.number(), self.hash()).into()
+    }
+
+    pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
+        self.total_difficulty() > total_difficulty
+    }
+}
+
+impl From<(core::HeaderView, U256)> for HeaderIndexView {
+    fn from((header, total_difficulty): (core::HeaderView, U256)) -> Self {
+        HeaderIndexView {
+            hash: header.hash(),
+            number: header.number(),
+            epoch: header.epoch(),
+            timestamp: header.timestamp(),
+            parent_hash: header.parent_hash(),
+            total_difficulty,
+            skip_hash: None,
+        }
     }
 }
 
@@ -1294,7 +1313,7 @@ impl SyncShared {
                 snapshot.tip_header().to_owned(),
             )
         };
-        let shared_best_header = RwLock::new(HeaderView::new(header, total_difficulty));
+        let shared_best_header = RwLock::new((header, total_difficulty).into());
         ckb_logger::info!(
             "header_map.memory_limit {}",
             sync_config.header_map.memory_limit
@@ -1489,25 +1508,33 @@ impl SyncShared {
     pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
         let tip_number = self.active_chain().tip_number();
         let store_first = tip_number >= header.number();
-        let parent_view = self
-            .get_header_view(&header.data().raw().parent_hash(), Some(store_first))
+        // We don't use header#parent_hash clone here because it will hold the arc counter of the SendHeaders message
+        // which will cause the 2000 headers to be held in memory for a long time
+        let parent_hash = Byte32::from_slice(header.data().raw().parent_hash().as_slice())
+            .expect("checked slice length");
+        let parent_header_index = self
+            .get_header_index_view(&parent_hash, store_first)
             .expect("parent should be verified");
-        let mut header_view = {
-            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
-            HeaderView::new(header.clone(), total_difficulty)
-        };
+        let mut header_view = HeaderIndexView::new(
+            header.hash(),
+            header.number(),
+            header.epoch(),
+            header.timestamp(),
+            parent_hash,
+            parent_header_index.total_difficulty() + header.difficulty(),
+        );
 
         let snapshot = Arc::clone(&self.shared.snapshot());
         header_view.build_skip(
             tip_number,
-            |hash, store_first_opt| self.get_header_view(hash, store_first_opt),
+            |hash, store_first| self.get_header_index_view(hash, store_first),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
                 {
                     snapshot
                         .get_block_hash(number)
-                        .and_then(|hash| self.get_header_view(&hash, Some(true)))
+                        .and_then(|hash| self.get_header_index_view(&hash, true))
                 } else {
                     None
                 }
@@ -1520,20 +1547,19 @@ impl SyncShared {
         self.state.may_set_shared_best_header(header_view);
     }
 
-    /// Get header view with hash
-    pub fn get_header_view(
+    pub(crate) fn get_header_index_view(
         &self,
         hash: &Byte32,
-        store_first_opt: Option<bool>,
-    ) -> Option<HeaderView> {
+        store_first: bool,
+    ) -> Option<HeaderIndexView> {
         let store = self.store();
-        if store_first_opt.unwrap_or(false) {
+        if store_first {
             store
                 .get_block_header(hash)
                 .and_then(|header| {
                     store
                         .get_block_ext(hash)
-                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                        .map(|block_ext| (header, block_ext.total_difficulty).into())
                 })
                 .or_else(|| self.state.header_map.get(hash))
         } else {
@@ -1541,7 +1567,7 @@ impl SyncShared {
                 store.get_block_header(hash).and_then(|header| {
                     store
                         .get_block_ext(hash)
-                        .map(|block_ext| HeaderView::new(header, block_ext.total_difficulty))
+                        .map(|block_ext| (header, block_ext.total_difficulty).into())
                 })
             })
         }
@@ -1559,13 +1585,29 @@ impl SyncShared {
     }
 }
 
-impl HeaderProvider for SyncShared {
-    fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
+impl HeaderFieldsProvider for SyncShared {
+    fn get_header_fields(&self, hash: &Byte32) -> Option<HeaderFields> {
         self.state
             .header_map
             .get(hash)
-            .map(HeaderView::into_inner)
-            .or_else(|| self.store().get_block_header(hash))
+            .map(|header| HeaderFields {
+                hash: header.hash(),
+                number: header.number(),
+                epoch: header.epoch(),
+                timestamp: header.timestamp(),
+                parent_hash: header.parent_hash(),
+            })
+            .or_else(|| {
+                self.store()
+                    .get_block_header(hash)
+                    .map(|header| HeaderFields {
+                        hash: header.hash(),
+                        number: header.number(),
+                        epoch: header.epoch(),
+                        timestamp: header.timestamp(),
+                        parent_hash: header.parent_hash(),
+                    })
+            })
     }
 }
 
@@ -1633,7 +1675,7 @@ impl PartialOrd for UnknownTxHashPriority {
 
 pub struct SyncState {
     /* Status irrelevant to peers */
-    shared_best_header: RwLock<HeaderView>,
+    shared_best_header: RwLock<HeaderIndexView>,
     header_map: HeaderMap,
     block_status_map: DashMap<Byte32, BlockStatus>,
     tx_filter: Mutex<TtlFilter<Byte32>>,
@@ -1709,11 +1751,11 @@ impl SyncState {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
-    pub fn shared_best_header(&self) -> HeaderView {
+    pub fn shared_best_header(&self) -> HeaderIndexView {
         self.shared_best_header.read().to_owned()
     }
 
-    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderView> {
+    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
         self.shared_best_header.read()
     }
 
@@ -1721,7 +1763,7 @@ impl SyncState {
         &self.header_map
     }
 
-    pub fn may_set_shared_best_header(&self, header: HeaderView) {
+    pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
         if !header.is_better_than(self.shared_best_header.read().total_difficulty()) {
             return;
         }
@@ -2078,22 +2120,25 @@ impl ActiveChain {
         self.shared.shared().is_initial_block_download()
     }
 
-    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
+    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndexView> {
         let tip_number = self.tip_number();
-        self.shared.get_header_view(base, None)?.get_ancestor(
-            tip_number,
-            number,
-            |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
-            |number, current| {
-                // shortcut to return an ancestor block
-                if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash) {
-                    self.get_block_hash(number)
-                        .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
-                } else {
-                    None
-                }
-            },
-        )
+        self.shared
+            .get_header_index_view(base, false)?
+            .get_ancestor(
+                tip_number,
+                number,
+                |hash, store_first| self.shared.get_header_index_view(hash, store_first),
+                |number, current| {
+                    // shortcut to return an ancestor block
+                    if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash)
+                    {
+                        self.get_block_hash(number)
+                            .and_then(|hash| self.shared.get_header_index_view(&hash, true))
+                    } else {
+                        None
+                    }
+                },
+            )
     }
 
     pub fn get_locator(&self, start: BlockNumberAndHash) -> Vec<Byte32> {
@@ -2160,7 +2205,9 @@ impl ActiveChain {
             (pa.clone(), pb.clone())
         };
 
-        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?.into();
+        m_right = self
+            .get_ancestor(&m_right.hash(), m_left.number())?
+            .number_and_hash();
         if m_left == m_right {
             return Some(m_left);
         }
@@ -2169,10 +2216,10 @@ impl ActiveChain {
         while m_left != m_right {
             m_left = self
                 .get_ancestor(&m_left.hash(), m_left.number() - 1)?
-                .into();
+                .number_and_hash();
             m_right = self
                 .get_ancestor(&m_right.hash(), m_right.number() - 1)?
-                .into();
+                .number_and_hash();
         }
         Some(m_left)
     }

@@ -6,7 +6,9 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
-use ckb_traits::{CellDataProvider, EpochProvider, ExtensionProvider, HeaderProvider};
+use ckb_traits::{
+    CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
+};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
@@ -28,7 +30,7 @@ pub struct TimeRelativeTransactionVerifier<M> {
     pub(crate) since: SinceVerifier<M>,
 }
 
-impl<DL: HeaderProvider> TimeRelativeTransactionVerifier<DL> {
+impl<DL: HeaderFieldsProvider> TimeRelativeTransactionVerifier<DL> {
     /// Creates a new TimeRelativeTransactionVerifier
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
@@ -113,6 +115,7 @@ where
     DL: CellDataProvider
         + HeaderProvider
         + ExtensionProvider
+        + HeaderFieldsProvider
         + EpochProvider
         + Send
         + Sync
@@ -653,7 +656,7 @@ pub struct SinceVerifier<DL> {
     tx_env: Arc<TxVerifyEnv>,
 }
 
-impl<DL: HeaderProvider> SinceVerifier<DL> {
+impl<DL: HeaderFieldsProvider> SinceVerifier<DL> {
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
         consensus: Arc<Consensus>,
@@ -669,8 +672,11 @@ impl<DL: HeaderProvider> SinceVerifier<DL> {
     }
 
     fn parent_median_time(&self, block_hash: &Byte32) -> u64 {
-        let (_, _, parent_hash) = self.data_loader.timestamp_and_parent(block_hash);
-        self.block_median_time(&parent_hash)
+        let header_fields = self
+            .data_loader
+            .get_header_fields(block_hash)
+            .expect("parent block exist");
+        self.block_median_time(&header_fields.parent_hash)
     }
 
     fn block_median_time(&self, block_hash: &Byte32) -> u64 {
@@ -757,9 +763,9 @@ impl<DL: HeaderProvider> SinceVerifier<DL> {
                         .is_block_ts_as_relative_since_start_enabled(epoch_number)
                     {
                         self.data_loader
-                            .get_header(&info.block_hash)
+                            .get_header_fields(&info.block_hash)
                             .expect("header exist")
-                            .timestamp()
+                            .timestamp
                     } else {
                         self.parent_median_time(&info.block_hash)
                     };
@@ -842,6 +848,7 @@ impl<DL> ContextualWithoutScriptTransactionVerifier<DL>
 where
     DL: CellDataProvider
         + HeaderProvider
+        + HeaderFieldsProvider
         + EpochProvider
         + ExtensionProvider
         + Send

@@ -1,6 +1,9 @@
 //! TODO(doc): @quake
 use crate::ChainStore;
-use ckb_traits::{CellDataProvider, EpochProvider, ExtensionProvider, HeaderProvider};
+use ckb_traits::{
+    CellDataProvider, EpochProvider, ExtensionProvider, HeaderFields, HeaderFieldsProvider,
+    HeaderProvider,
+};
 use ckb_types::{
     bytes::Bytes,
     core::{BlockExt, BlockNumber, EpochExt, HeaderView},
@@ -53,6 +56,21 @@ where
 {
     fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
         ChainStore::get_block_header(self.0.as_ref(), block_hash)
+    }
+}
+
+impl<T> HeaderFieldsProvider for DataLoaderWrapper<T>
+where
+    T: ChainStore,
+{
+    fn get_header_fields(&self, hash: &Byte32) -> Option<HeaderFields> {
+        self.0.get_block_header(hash).map(|header| HeaderFields {
+            number: header.number(),
+            epoch: header.epoch(),
+            parent_hash: header.data().raw().parent_hash(),
+            timestamp: header.timestamp(),
+            hash: header.hash(),
+        })
     }
 }
 

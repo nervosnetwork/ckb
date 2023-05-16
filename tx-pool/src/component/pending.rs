@@ -67,13 +67,13 @@ impl PendingQueue {
     }
 
     pub(crate) fn add_entry(&mut self, entry: TxEntry) -> bool {
-        let inputs = entry.transaction().input_pts_iter();
         let tx_short_id = entry.proposal_short_id();
-        let outputs = entry.transaction().output_pts();
-
         if self.inner.contains_key(&tx_short_id) {
             return false;
         }
+
+        let inputs = entry.transaction().input_pts_iter();
+        let outputs = entry.transaction().output_pts();
 
         for i in inputs {
             self.inputs

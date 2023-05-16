@@ -1696,8 +1696,8 @@ Response
                     "period": "0xa",
                     "start": "0x0",
                     "threshold": {
-                        "denom": 4,
-                        "numer": 3
+                        "denom": "0x4",
+                        "numer": "0x3"
                     },
                     "timeout": "0x0"
                 }
@@ -4734,8 +4734,8 @@ Response
                "state": "failed",
                "timeout": "0x0",
                "threshold": {
-                    "numer": 3,
-                    "denom": 4
+                    "numer": "0x3",
+                    "denom": "0x4"
                 }
            }
        }
@@ -4758,13 +4758,13 @@ TCP RPC subscription:
 ```
 telnet localhost 18114
 > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
-< {"jsonrpc":"2.0","result":0,"id":2}
+< {"jsonrpc":"2.0","result":"0x0","id":2}
 < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 "subscription":0}}
 < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 "subscription":0}}
 < ...
-> {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
+> {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}
 < {"jsonrpc":"2.0","result":true,"id":2}
 ```
 
@@ -4781,7 +4781,7 @@ socket.onmessage = function(event) {
 
 socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
 
-socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
+socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 ```
 
 
@@ -6511,6 +6511,13 @@ A non-cellbase transaction is committed at height h_c if all of the following co
 
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both unsigned 64-bit integers.
 
+#### Fields
+
+`Ratio` is a JSON object with the following fields.
+
+*   `numer`: [`Uint64`](#type-uint64) - Numerator.
+
+*   `denom`: [`Uint64`](#type-uint64) - Denominator.
 
 
 ### Type `RationalU256`

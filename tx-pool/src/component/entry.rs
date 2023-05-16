@@ -1,4 +1,5 @@
 use crate::component::container::AncestorsScoreSortKey;
+use crate::component::container::IndexKey;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
@@ -90,13 +91,18 @@ impl TxEntry {
     }
 
     /// Returns a sorted_key
-    pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
+    pub fn as_score_key(&self) -> AncestorsScoreSortKey {
         AncestorsScoreSortKey::from(self)
     }
 
     /// Returns a evict_key
     pub fn as_evict_key(&self) -> EvictKey {
         EvictKey::from(self)
+    }
+
+    /// Return a sort index
+    pub fn as_index_key(&self) -> IndexKey {
+        IndexKey::from(self)
     }
 
     /// Returns fee rate
@@ -116,6 +122,7 @@ impl TxEntry {
                 .saturating_add(entry.fee.as_u64()),
         );
     }
+
     /// Update ancestor state for remove an entry
     pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(1);
@@ -165,6 +172,15 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
     }
 }
 
+impl From<&TxEntry> for IndexKey {
+    fn from(entry: &TxEntry) -> Self {
+        IndexKey {
+            id: entry.proposal_short_id(),
+            score: entry.as_score_key(),
+        }
+    }
+}
+
 impl Hash for TxEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(self.transaction(), state);
@@ -185,7 +201,7 @@ impl PartialOrd for TxEntry {
 
 impl Ord for TxEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.as_sorted_key().cmp(&other.as_sorted_key())
+        self.as_score_key().cmp(&other.as_score_key())
     }
 }
 

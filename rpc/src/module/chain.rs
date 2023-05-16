@@ -10,7 +10,7 @@ use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
-use ckb_traits::HeaderProvider;
+use ckb_traits::HeaderFieldsProvider;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
     core::{
@@ -1378,8 +1378,8 @@ pub trait ChainRpc {
     ///                     "period": "0xa",
     ///                     "start": "0x0",
     ///                     "threshold": {
-    ///                         "denom": 4,
-    ///                         "numer": 3
+    ///                         "denom": "0x4",
+    ///                         "numer": "0x3"
     ///                     },
     ///                     "timeout": "0x0"
     ///                 }

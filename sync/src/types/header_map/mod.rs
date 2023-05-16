@@ -1,10 +1,9 @@
-use crate::types::HeaderView;
 use ckb_async_runtime::Handle;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_types::packed::{self, Byte32};
-use std::path;
+use ckb_types::packed::Byte32;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{mem::size_of, path};
 use tokio::sync::oneshot;
 use tokio::time::MissedTickBehavior;
 
@@ -18,6 +17,8 @@ pub(crate) use self::{
     memory::MemoryMap,
 };
 
+use super::HeaderIndexView;
+
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
     stop: StopHandler<()>,
@@ -30,8 +31,7 @@ impl Drop for HeaderMap {
 }
 
 const INTERVAL: Duration = Duration::from_millis(500);
-// key + total_difficulty + skip_hash
-const ITEM_BYTES_SIZE: usize = packed::HeaderView::TOTAL_SIZE + 32 * 3;
+const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
@@ -76,11 +76,11 @@ impl HeaderMap {
         self.inner.contains_key(hash)
     }
 
-    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
         self.inner.get(hash)
     }
 
-    pub(crate) fn insert(&self, view: HeaderView) -> Option<()> {
+    pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
         self.inner.insert(view)
     }
 

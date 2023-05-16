@@ -28,9 +28,9 @@ pub use self::blockchain::{
     Block, BlockEconomicState, BlockFilter, BlockIssuance, BlockResponse, BlockView,
     BlockWithCyclesResponse, CellDep, CellInput, CellOutput, Consensus, DepType, Deployment,
     EpochView, FeeRateStatistics, HardForkFeature, HardForks, Header, HeaderView, MerkleProof,
-    MinerReward, OutPoint, ProposalWindow, Script, ScriptHashType, SoftFork, Status, Transaction,
-    TransactionAndWitnessProof, TransactionProof, TransactionView, TransactionWithStatusResponse,
-    TxStatus, UncleBlock, UncleBlockView,
+    MinerReward, OutPoint, ProposalWindow, Ratio, Script, ScriptHashType, SoftFork, Status,
+    Transaction, TransactionAndWitnessProof, TransactionProof, TransactionView,
+    TransactionWithStatusResponse, TxStatus, UncleBlock, UncleBlockView,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
