@@ -1,5 +1,4 @@
-use crate::synchronizer::Synchronizer;
-use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, HeaderIndexView, IBDState};
+use crate::types::{ActiveChain, IBDState};
 use crate::SyncShared;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -7,6 +6,7 @@ use ckb_constant::sync::{
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::types::{BlockNumberAndHash, HeaderIndex, HeaderIndexView};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed;
 use std::cmp::min;
