@@ -3,6 +3,7 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
+use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
@@ -735,10 +736,18 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
-            let ret = if let Some(entry) = tx_pool.proposed.get(&id) {
-                Ok((TxStatus::Proposed, Some(entry.cycles)))
-            } else if let Some(entry) = tx_pool.get_entry_from_pending_or_gap(&id) {
-                Ok((TxStatus::Pending, Some(entry.cycles)))
+            let ret = if let Some(PoolEntry {
+                status,
+                inner: entry,
+                ..
+            }) = tx_pool.pool_map.get_by_id(&id)
+            {
+                let status = if status == &Status::Proposed {
+                    TxStatus::Proposed
+                } else {
+                    TxStatus::Pending
+                };
+                Ok((status, Some(entry.cycles)))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
@@ -764,14 +773,18 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
-            let ret = if let Some(entry) = tx_pool.proposed.get(&id) {
-                Ok(TransactionWithStatus::with_proposed(
-                    Some(entry.transaction().clone()),
-                    entry.cycles,
-                    entry.timestamp,
-                ))
-            } else if let Some(entry) = tx_pool.get_entry_from_pending_or_gap(&id) {
-                Ok(TransactionWithStatus::with_pending(
+            let ret = if let Some(PoolEntry {
+                status,
+                inner: entry,
+                ..
+            }) = tx_pool.pool_map.get_by_id(&id)
+            {
+                let trans_status = if status == &Status::Proposed {
+                    TransactionWithStatus::with_proposed
+                } else {
+                    TransactionWithStatus::with_pending
+                };
+                Ok(trans_status(
                     Some(entry.transaction().clone()),
                     entry.cycles,
                     entry.timestamp,
@@ -900,8 +913,8 @@ impl TxPoolService {
         TxPoolInfo {
             tip_hash: tip_header.hash(),
             tip_number: tip_header.number(),
-            pending_size: tx_pool.pending.size() + tx_pool.gap.size(),
-            proposed_size: tx_pool.proposed.size(),
+            pending_size: tx_pool.pool_map.pending_size(),
+            proposed_size: tx_pool.pool_map.proposed_size(),
             orphan_size: orphan.len(),
             total_tx_size: tx_pool.total_tx_size,
             total_tx_cycles: tx_pool.total_tx_cycles,
@@ -968,7 +981,7 @@ impl TxPoolService {
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        tx_pool.add_pending(entry);
+                        tx_pool.add_pending(entry).unwrap();
                     }
                 }
                 PlugTarget::Proposed => {

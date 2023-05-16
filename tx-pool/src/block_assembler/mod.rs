@@ -203,6 +203,7 @@ impl BlockAssembler {
             current_template.cellbase.clone(),
             txs,
         )?;
+
         let txs_size = checked_txs.iter().map(|tx| tx.size).sum();
         let total_size = basic_size + txs_size;
 
