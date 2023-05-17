@@ -164,6 +164,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `PoolTransactionReject`](#type-pooltransactionreject)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
+    * [Type `Ratio`](#type-ratio)
     * [Type `RationalU256`](#type-rationalu256)
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
@@ -877,6 +878,7 @@ Response
       "witnesses": []
     },
     "cycles": "0x219",
+    "time_added_to_pool" : "0x187b3d137a1",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -3134,7 +3136,7 @@ Response
     * `target_tip_hash`: [`H256`](#type-h256)
 * result: `null`
 
-Truncate chain to specified tip hash.
+Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
 
 ###### Params
 
@@ -5735,7 +5737,9 @@ An object containing various state info regarding deployments of consensus chang
 
 *   `period`: [`EpochNumber`](#type-epochnumber) - the length in epochs of the signalling period
 
-*   `threshold`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
+*   `threshold`: [`Ratio`](#type-ratio) - the ratio of blocks with the version bit set required to activate the feature
+
+*   `since`: [`EpochNumber`](#type-epochnumber) - The first epoch which the current state applies
 
 *   `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are:
 
@@ -6483,6 +6487,12 @@ A non-cellbase transaction is committed at height h_c if all of the following co
 *   `farthest`: [`BlockNumber`](#type-blocknumber) - The farthest distance between the proposal and the commitment.
 
 
+### Type `Ratio`
+
+Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both unsigned 64-bit integers.
+
+
+
 ### Type `RationalU256`
 
 The ratio which numerator and denominator are both 256-bit unsigned integers.
@@ -6926,6 +6936,8 @@ The JSON view of a transaction as well as its status.
 *   `transaction`: [`ResponseFormat`](#type-responseformat) `|` `null` - The transaction.
 
 *   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
+
+*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

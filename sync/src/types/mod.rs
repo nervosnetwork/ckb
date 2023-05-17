@@ -273,9 +273,9 @@ pub struct PeerState {
     pub peer_flags: PeerFlags,
     pub chain_sync: ChainSyncState,
     // The best known block we know this peer has announced
-    pub best_known_header: Option<HeaderView>,
+    pub best_known_header: Option<HeaderIndex>,
     // The last block we both stored
-    pub last_common_header: Option<core::HeaderView>,
+    pub last_common_header: Option<BlockNumberAndHash>,
     // use on ibd concurrent block download
     // save `get_headers` locator hashes here
     pub unknown_header_list: Vec<Byte32>,
@@ -410,11 +410,43 @@ pub struct BlockNumberAndHash {
     pub hash: Byte32,
 }
 
+impl BlockNumberAndHash {
+    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
+        Self { number, hash }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+}
+
 impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
     fn from(inner: (BlockNumber, Byte32)) -> Self {
         Self {
             number: inner.0,
             hash: inner.1,
+        }
+    }
+}
+
+impl From<&core::HeaderView> for BlockNumberAndHash {
+    fn from(header: &core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
+        }
+    }
+}
+
+impl From<core::HeaderView> for BlockNumberAndHash {
+    fn from(header: core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
         }
     }
 }
@@ -866,31 +898,31 @@ impl Peers {
             .or_insert_with(|| PeerState::new(PeerFlags::default()));
     }
 
-    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
+    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderIndex> {
         self.state
             .get(&pi)
             .and_then(|peer_state| peer_state.best_known_header.clone())
     }
 
-    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_view: HeaderView) {
+    pub fn may_set_best_known_header(&self, peer: PeerIndex, header_index: HeaderIndex) {
         if let Some(mut peer_state) = self.state.get_mut(&peer) {
-            if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(hv.total_difficulty()) {
-                    peer_state.best_known_header = Some(header_view);
+            if let Some(ref known) = peer_state.best_known_header {
+                if header_index.is_better_chain(known) {
+                    peer_state.best_known_header = Some(header_index);
                 }
             } else {
-                peer_state.best_known_header = Some(header_view);
+                peer_state.best_known_header = Some(header_index);
             }
         }
     }
 
-    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
+    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<BlockNumberAndHash> {
         self.state
             .get(&pi)
             .and_then(|peer_state| peer_state.last_common_header.clone())
     }
 
-    pub fn set_last_common_header(&self, pi: PeerIndex, header: core::HeaderView) {
+    pub fn set_last_common_header(&self, pi: PeerIndex, header: BlockNumberAndHash) {
         self.state
             .entry(pi)
             .and_modify(|peer_state| peer_state.last_common_header = Some(header));
@@ -957,10 +989,12 @@ impl Peers {
                 if !state.unknown_header_list.is_empty() {
                     return None;
                 }
-                match state.best_known_header {
-                    Some(ref header) if header.number() < tip => Some(*peer_index),
-                    _ => None,
+                if let Some(ref header) = state.best_known_header {
+                    if header.number() < tip {
+                        return Some(*peer_index);
+                    }
                 }
+                None
             })
             .collect()
     }
@@ -1023,14 +1057,13 @@ impl HeaderView {
 
     pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
     where
-        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
+        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
         if self.inner.is_genesis() {
             return;
         }
         self.skip_hash = self
-            .clone()
             .get_ancestor(
                 tip_number,
                 get_skip_height(self.number()),
@@ -1040,23 +1073,22 @@ impl HeaderView {
             .map(|header| header.hash());
     }
 
-    // NOTE: get_header_view may change source state, for cache or for tests
     pub fn get_ancestor<F, G>(
-        self,
+        &self,
         tip_number: BlockNumber,
         number: BlockNumber,
-        mut get_header_view: F,
+        get_header_view: F,
         fast_scanner: G,
     ) -> Option<core::HeaderView>
     where
-        F: FnMut(&Byte32, Option<bool>) -> Option<HeaderView>,
-        G: Fn(BlockNumber, &HeaderView) -> Option<HeaderView>,
+        F: Fn(&Byte32, Option<bool>) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
-        let mut current = self;
-        if number > current.number() {
+        if number > self.number() {
             return None;
         }
 
+        let mut current = self.clone();
         let mut number_walk = current.number();
         while number_walk > number {
             let number_skip = get_skip_height(number_walk);
@@ -1078,7 +1110,7 @@ impl HeaderView {
                     number_walk -= 1;
                 }
             }
-            if let Some(target) = fast_scanner(number, &current) {
+            if let Some(target) = fast_scanner(number, (current.number(), current.hash()).into()) {
                 current = target;
                 break;
             }
@@ -1141,6 +1173,51 @@ impl HeaderView {
         v.extend_from_slice(total_difficulty.as_slice());
         v.extend_from_slice(skip_hash.as_slice());
         v
+    }
+
+    pub fn as_header_index(&self) -> HeaderIndex {
+        HeaderIndex::new(self.number(), self.hash(), self.total_difficulty().clone())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeaderIndex {
+    number: BlockNumber,
+    hash: Byte32,
+    total_difficulty: U256,
+}
+
+impl HeaderIndex {
+    pub fn new(number: BlockNumber, hash: Byte32, total_difficulty: U256) -> Self {
+        HeaderIndex {
+            number,
+            hash,
+            total_difficulty,
+        }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+
+    pub fn total_difficulty(&self) -> &U256 {
+        &self.total_difficulty
+    }
+
+    pub fn number_and_hash(&self) -> BlockNumberAndHash {
+        (self.number(), self.hash()).into()
+    }
+
+    pub fn is_better_chain(&self, other: &Self) -> bool {
+        self.is_better_than(other.total_difficulty())
+    }
+
+    pub fn is_better_than(&self, other_total_difficulty: &U256) -> bool {
+        self.total_difficulty() > other_total_difficulty
     }
 }
 
@@ -1344,7 +1421,8 @@ impl SyncShared {
         }
     }
 
-    /// cleanup orphan_pool, remove blocks with epoch less 2 than currently epoch.
+    /// Cleanup orphan_pool,
+    /// Remove blocks whose epoch is 6 (EXPIRED_EPOCH) epochs behind the current epoch.
     pub(crate) fn periodic_clean_orphan_pool(&self) {
         let hashes = self
             .state
@@ -1417,8 +1495,7 @@ impl SyncShared {
             |hash, store_first_opt| self.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
-                if current.number() <= snapshot.tip_number()
-                    && snapshot.is_main_chain(&current.hash())
+                if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
                 {
                     snapshot
                         .get_block_hash(number)
@@ -1431,7 +1508,7 @@ impl SyncShared {
         self.state.header_map.insert(header_view.clone());
         self.state
             .peers()
-            .may_set_best_known_header(peer, header_view.clone());
+            .may_set_best_known_header(peer, header_view.as_header_index());
         self.state.may_set_shared_best_header(header_view);
     }
 
@@ -1884,6 +1961,10 @@ impl SyncState {
         }
     }
 
+    // Disconnect this peer and remove inflight blocks by peer
+    //
+    // TODO: record peer's connection duration (disconnect time - connect established time)
+    // and report peer's connection duration to ckb_metrics
     pub fn disconnected(&self, pi: PeerIndex) {
         self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi);
@@ -1904,7 +1985,8 @@ impl SyncState {
             // so here you discard and exit early
             for hash in header_list {
                 if let Some(header) = self.header_map.get(&hash) {
-                    self.peers.may_set_best_known_header(pi, header);
+                    self.peers
+                        .may_set_best_known_header(pi, header.as_header_index());
                     break;
                 } else {
                     self.peers.insert_unknown_header_hash(pi, hash)
@@ -1996,8 +2078,7 @@ impl ActiveChain {
             |hash, store_first_opt| self.shared.get_header_view(hash, store_first_opt),
             |number, current| {
                 // shortcut to return an ancestor block
-                if current.number() <= tip_number && self.snapshot().is_main_chain(&current.hash())
-                {
+                if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash) {
                     self.get_block_hash(number)
                         .and_then(|hash| self.shared.get_header_view(&hash, Some(true)))
                 } else {
@@ -2007,7 +2088,7 @@ impl ActiveChain {
         )
     }
 
-    pub fn get_locator(&self, start: &core::HeaderView) -> Vec<Byte32> {
+    pub fn get_locator(&self, start: BlockNumberAndHash) -> Vec<Byte32> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
@@ -2019,7 +2100,7 @@ impl ActiveChain {
                 .unwrap_or_else(|| {
                     panic!(
                         "index calculated in get_locator: \
-                         start: {}, base: {}, step: {}, locators({}): {:?}.",
+                         start: {:?}, base: {}, step: {}, locators({}): {:?}.",
                         start,
                         base,
                         step,
@@ -2062,24 +2143,28 @@ impl ActiveChain {
 
     pub fn last_common_ancestor(
         &self,
-        pa: &core::HeaderView,
-        pb: &core::HeaderView,
-    ) -> Option<core::HeaderView> {
+        pa: &BlockNumberAndHash,
+        pb: &BlockNumberAndHash,
+    ) -> Option<BlockNumberAndHash> {
         let (mut m_left, mut m_right) = if pa.number() > pb.number() {
             (pb.clone(), pa.clone())
         } else {
             (pa.clone(), pb.clone())
         };
 
-        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?.into();
         if m_left == m_right {
             return Some(m_left);
         }
         debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
-            m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
-            m_right = self.get_ancestor(&m_right.hash(), m_right.number() - 1)?;
+            m_left = self
+                .get_ancestor(&m_left.hash(), m_left.number() - 1)?
+                .into();
+            m_right = self
+                .get_ancestor(&m_right.hash(), m_right.number() - 1)?
+                .into();
         }
         Some(m_left)
     }
@@ -2153,13 +2238,13 @@ impl ActiveChain {
         &self,
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
-        header: &core::HeaderView,
+        block_number_and_hash: BlockNumberAndHash,
     ) {
         if let Some(last_time) = self
             .state
             .pending_get_headers
             .write()
-            .get(&(peer, header.hash()))
+            .get(&(peer, block_number_and_hash.hash()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -2177,14 +2262,14 @@ impl ActiveChain {
         self.state
             .pending_get_headers
             .write()
-            .put((peer, header.hash()), Instant::now());
+            .put((peer, block_number_and_hash.hash()), Instant::now());
 
         debug!(
             "send_getheaders_to_peer peer={}, hash={}",
             peer,
-            header.hash()
+            block_number_and_hash.hash()
         );
-        let locator_hash = self.get_locator(header);
+        let locator_hash = self.get_locator(block_number_and_hash);
         let content = packed::GetHeaders::new_builder()
             .block_locator_hashes(locator_hash.pack())
             .hash_stop(packed::Byte32::zero())
@@ -2220,6 +2305,8 @@ impl ActiveChain {
     }
 }
 
+/// The `IBDState` enum represents whether the node is currently in the IBD process (`In`) or has
+/// completed it (`Out`).
 #[derive(Clone, Copy, Debug)]
 pub enum IBDState {
     In,

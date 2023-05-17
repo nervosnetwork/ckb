@@ -4,7 +4,7 @@ use eaglesong::eaglesong;
 use log::Level::Debug;
 use log::{debug, log_enabled};
 
-/// TODO(doc): @quake
+/// PoW verifier using [Eaglesong hash](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md)
 pub struct EaglesongPowEngine;
 
 impl PowEngine for EaglesongPowEngine {

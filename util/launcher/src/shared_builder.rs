@@ -137,6 +137,7 @@ impl SharedBuilder {
     }
 
     /// Generates the SharedBuilder with temp db
+    /// NOTICE: this is only used in testing
     pub fn with_temp_db() -> Self {
         use once_cell::{sync, unsync};
         use std::{

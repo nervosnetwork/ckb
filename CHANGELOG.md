@@ -1,3 +1,12 @@
+# [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
+
+### Features
+* #3949 **rpc: (BREAKING)** Add `time_added_to_pool` field for `ChainRpcImpl::get_transaction` (@eval-exec)
+
+### Bug Fixes
+
+* #3959: Use snapshot in light-client protocol (@quake)
+
 # [v0.109.0](https://github.com/nervosnetwork/ckb/compare/v0.108.1...v0.109.0) (2023-04-19)
 
 ### Features

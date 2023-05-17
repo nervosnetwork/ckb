@@ -22,15 +22,15 @@ use ckb_types::{
     prelude::*,
 };
 
-/// TODO(doc): @quake
+/// The `ChainStore` trait provides chain data store interface
 pub trait ChainStore: Send + Sync + Sized {
-    /// TODO(doc): @quake
+    /// Return cache reference
     fn cache(&self) -> Option<&StoreCache>;
     /// Return freezer reference
     fn freezer(&self) -> Option<&Freezer>;
     /// Return the bytes associated with a key value and the given column family.
     fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice>;
-    /// TODO(doc): @quake
+    /// Return an iterator over the database key-value pairs in the given column family.
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter;
     /// Return the borrowed data loader wrapper
     fn borrow_as_data_loader(&self) -> BorrowedDataLoaderWrapper<Self> {
@@ -511,7 +511,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
-    /// TODO(doc): @quake
+    /// Gets block bytes by block hash
     fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
         let header = self
             .get(COLUMN_BLOCK_HEADER, hash.as_slice())
@@ -558,7 +558,7 @@ pub trait ChainStore: Send + Sync + Sized {
         Some(block)
     }
 
-    /// TODO(doc): @quake
+    /// Gets block header bytes by block hash
     fn get_packed_block_header(&self, hash: &packed::Byte32) -> Option<packed::Header> {
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
@@ -574,6 +574,21 @@ pub trait ChainStore: Send + Sync + Sized {
                 let reader = packed::HeaderDigestReader::from_slice_should_be_ok(slice.as_ref());
                 reader.to_entity()
             })
+    }
+
+    /// Gets ancestor block header by a base block hash and number
+    fn get_ancestor(&self, base: &packed::Byte32, number: BlockNumber) -> Option<HeaderView> {
+        let header = self.get_block_header(base)?;
+        if number > header.number() {
+            None
+        } else if number == header.number() {
+            Some(header)
+        } else if self.is_main_chain(base) {
+            self.get_block_hash(number)
+                .and_then(|hash| self.get_block_header(&hash))
+        } else {
+            self.get_ancestor(&header.parent_hash(), number)
+        }
     }
 }
 

@@ -279,7 +279,7 @@ impl ChainService {
     }
 
     // Truncate the main chain
-    // Use for testing only
+    // Use for testing only, can only truncate less than 50000 blocks each time
     pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
         let snapshot = Arc::clone(&self.shared.snapshot());
         assert!(snapshot.is_main_chain(target_tip_hash));
@@ -291,6 +291,19 @@ impl ChainService {
             .and_then(|index| snapshot.get_epoch_ext(&index))
             .expect("checked");
         let origin_proposals = snapshot.proposals();
+
+        let block_count = snapshot
+            .tip_header()
+            .number()
+            .saturating_sub(target_tip_header.number());
+
+        if block_count > 5_0000 {
+            let err = format!(
+                "trying to truncate too many blocks: {}, exceed 50000",
+                block_count
+            );
+            return Err(InternalErrorKind::Database.other(err).into());
+        }
         let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
 
         let db_txn = self.shared.store().begin_transaction();
@@ -299,9 +312,9 @@ impl ChainService {
         db_txn.insert_tip_header(&target_tip_header)?;
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
 
-        for blk in fork.attached_blocks() {
-            db_txn.delete_block(blk)?;
-        }
+        // Currently, we only move the target tip header here, we don't delete the block for performance
+        // TODO: delete the blocks if we need in the future
+
         db_txn.commit()?;
 
         self.update_proposal_table(&fork);
@@ -320,7 +333,6 @@ impl ChainService {
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
         // NOTE: Dont update tx-pool when truncate
-
         Ok(())
     }
 

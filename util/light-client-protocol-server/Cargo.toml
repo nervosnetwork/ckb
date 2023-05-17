@@ -1,6 +1,6 @@
 [package]
 name = "ckb-light-client-protocol-server"
-version = "0.109.0"
+version = "0.110.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,24 +9,23 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-network = { path = "../../network", version = "= 0.109.0" }
-ckb-sync = { path = "../../sync", version = "= 0.109.0" }
-ckb-shared = { path = "../../shared", version = "= 0.109.0" }
-ckb-logger = { path = "../logger", version = "= 0.109.0" }
-ckb-types = { path = "../types", version = "= 0.109.0" }
-ckb-store = { path = "../../store", version = "= 0.109.0" }
+ckb-network = { path = "../../network", version = "= 0.110.0" }
+ckb-shared = { path = "../../shared", version = "= 0.110.0" }
+ckb-logger = { path = "../logger", version = "= 0.110.0" }
+ckb-types = { path = "../types", version = "= 0.110.0" }
+ckb-store = { path = "../../store", version = "= 0.110.0" }
 ckb-merkle-mountain-range = "0.5.2"
-ckb-systemtime = {path = "../systemtime", version = "= 0.109.0"}
+ckb-systemtime = {path = "../systemtime", version = "= 0.110.0"}
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.109.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.109.0" }
-ckb-tx-pool = { path = "../../tx-pool", version = "= 0.109.0" }
-ckb-launcher = { path = "../launcher", version = "= 0.109.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.109.0" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.109.0" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.109.0" }
-ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.109.0" }
+ckb-chain = { path = "../../chain", version = "= 0.110.0" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.110.0" }
+ckb-tx-pool = { path = "../../tx-pool", version = "= 0.110.0" }
+ckb-launcher = { path = "../launcher", version = "= 0.110.0" }
+ckb-app-config = { path = "../app-config", version = "= 0.110.0" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.110.0" }
+ckb-dao-utils = { path = "../dao/utils", version = "= 0.110.0" }
+ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.110.0" }
 tempfile.workspace = true
-ckb-systemtime = {path = "../systemtime", version = "= 0.109.0", features = ["enable_faketime"]}
+ckb-systemtime = {path = "../systemtime", version = "= 0.110.0", features = ["enable_faketime"]}
 tokio = "1.20"

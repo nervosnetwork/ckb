@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
 
 use crate::{constant, LightClientProtocol, Status, StatusCode};
@@ -37,10 +38,10 @@ impl<'a> GetBlocksProofProcess<'a> {
             return StatusCode::MalformedProtocolMessage.with_context("too many blocks");
         }
 
-        let active_chain = self.protocol.shared.active_chain();
+        let snapshot = self.protocol.shared.snapshot();
 
         let last_hash = self.message.last_hash().to_entity();
-        let last_block = if let Some(block) = active_chain.get_block(&last_hash) {
+        let last_block = if let Some(block) = snapshot.get_block(&last_hash) {
             block
         } else {
             return self
@@ -68,11 +69,11 @@ impl<'a> GetBlocksProofProcess<'a> {
         let (positions, block_headers, missing_blocks) = block_hashes
             .into_iter()
             .map(|block_hash| {
-                active_chain
+                snapshot
                     .get_block_header(&block_hash)
                     .map(|header| header.number())
                     .filter(|number| *number != last_block.number())
-                    .and_then(|number| active_chain.get_ancestor(&last_hash, number))
+                    .and_then(|number| snapshot.get_ancestor(&last_hash, number))
                     .filter(|header| header.hash() == block_hash)
                     .ok_or(block_hash)
             })

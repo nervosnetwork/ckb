@@ -14,8 +14,8 @@ use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
-        cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder,
-        HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
+        cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView,
+        TransactionBuilder, TransactionView,
     },
     packed::{
         self, Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
@@ -37,7 +37,7 @@ use std::{
 
 use crate::{
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    types::{HeaderView, HeadersSyncController, IBDState, PeerState},
+    types::{HeaderIndex, HeadersSyncController, IBDState, PeerState},
     Status, StatusCode, SyncShared,
 };
 
@@ -64,7 +64,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
 
 fn create_cellbase(
     shared: &Shared,
-    parent_header: &CoreHeaderView,
+    parent_header: &HeaderView,
     number: BlockNumber,
 ) -> TransactionView {
     let (_, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
@@ -90,7 +90,7 @@ fn create_cellbase(
 
 fn gen_block(
     shared: &Shared,
-    parent_header: &CoreHeaderView,
+    parent_header: &HeaderView,
     epoch: &EpochExt,
     nonce: u128,
 ) -> BlockView {
@@ -158,7 +158,7 @@ fn test_locator() {
     let locator = synchronizer
         .shared
         .active_chain()
-        .get_locator(shared.snapshot().tip_header());
+        .get_locator(shared.snapshot().tip_header().into());
 
     let mut expect = Vec::new();
 
@@ -189,7 +189,7 @@ fn test_locate_latest_common_block() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     let latest_common = synchronizer2
         .shared
@@ -261,7 +261,7 @@ fn test_locate_latest_common_block2() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     let latest_common = synchronizer2
         .shared
@@ -414,11 +414,8 @@ fn mock_peer_info() -> Peer {
     )
 }
 
-fn mock_header_view(total_difficulty: u64) -> HeaderView {
-    HeaderView::new(
-        HeaderBuilder::default().build(),
-        U256::from(total_difficulty),
-    )
+fn mock_header_index(total_difficulty: u64) -> HeaderIndex {
+    HeaderIndex::new(0, Default::default(), U256::from(total_difficulty))
 }
 
 #[async_trait]
@@ -590,7 +587,7 @@ fn test_sync_process() {
     let locator1 = synchronizer1
         .shared
         .active_chain()
-        .get_locator(shared1.snapshot().tip_header());
+        .get_locator(shared1.snapshot().tip_header().into());
 
     for i in 1..=num {
         let j = if i > 192 { i + 1 } else { i };
@@ -633,7 +630,10 @@ fn test_sync_process() {
 
     let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
-    assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
+    assert_eq!(
+        best_known_header.unwrap().hash(),
+        headers.last().unwrap().hash()
+    );
 
     let blocks_to_fetch = synchronizer1
         .get_blocks_to_fetch(peer1, IBDState::Out)
@@ -806,10 +806,10 @@ fn test_chain_sync_timeout() {
         peers.state.insert(5.into(), state_5);
         peers.state.insert(6.into(), state_6);
     }
-    peers.may_set_best_known_header(0.into(), mock_header_view(1));
-    peers.may_set_best_known_header(2.into(), mock_header_view(3));
-    peers.may_set_best_known_header(3.into(), mock_header_view(1));
-    peers.may_set_best_known_header(5.into(), mock_header_view(3));
+    peers.may_set_best_known_header(0.into(), mock_header_index(1));
+    peers.may_set_best_known_header(2.into(), mock_header_index(3));
+    peers.may_set_best_known_header(3.into(), mock_header_index(1));
+    peers.may_set_best_known_header(5.into(), mock_header_index(3));
     {
         // Protected peer 0 start sync
         peers
@@ -1130,16 +1130,16 @@ fn test_fix_last_common_header() {
                 .cloned()
                 .unwrap()
                 .total_difficulty;
-            HeaderView::new(header, total_difficulty)
+            HeaderIndex::new(header.number(), header.hash(), total_difficulty)
         };
         if let Some(mut state) = synchronizer.shared.state().peers().state.get_mut(&peer) {
-            state.last_common_header = last_common_header;
+            state.last_common_header = last_common_header.map(Into::into);
             state.best_known_header = Some(best_known_header.clone());
         }
 
         let expected = fix_last_common.map(|mark| mark.to_string());
         let actual = BlockFetcher::new(&synchronizer, peer, IBDState::In)
-            .update_last_common_header(&best_known_header)
+            .update_last_common_header(&best_known_header.number_and_hash())
             .map(|header| {
                 if graph
                     .get(&m_(header.number()))

@@ -98,7 +98,7 @@ impl TxPool {
         &self.snapshot
     }
 
-    /// Makes a clone of the Arc<Snapshot>
+    /// Makes a clone of the `Arc<Snapshot>`
     pub fn cloned_snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot)
     }

@@ -28,7 +28,7 @@ pub const COLUMN_EPOCH: Col = "9";
 pub const COLUMN_CELL: Col = "10";
 /// Column store main chain consensus include uncles
 ///
-/// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#specification
+/// <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#specification>
 pub const COLUMN_UNCLES: Col = "11";
 /// Column store cell data
 pub const COLUMN_CELL_DATA: Col = "12";

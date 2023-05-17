@@ -175,7 +175,7 @@ impl<'a> HeadersProcess<'a> {
         self.debug();
 
         if headers.len() == MAX_HEADERS_LEN {
-            let start = headers.last().expect("empty checked");
+            let start = headers.last().expect("empty checked").into();
             self.active_chain
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         } else if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
@@ -291,7 +291,7 @@ impl<'a, DL: HeaderProvider> HeaderAcceptor<'a, DL> {
                 .expect("header with HEADER_VALID should exist");
             state
                 .peers()
-                .may_set_best_known_header(self.peer, header_view);
+                .may_set_best_known_header(self.peer, header_view.as_header_index());
             return result;
         }
 

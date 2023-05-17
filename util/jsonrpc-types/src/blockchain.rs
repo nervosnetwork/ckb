@@ -525,6 +525,8 @@ pub struct TransactionWithStatusResponse {
     pub transaction: Option<ResponseFormat<TransactionView>>,
     /// The transaction consumed cycles.
     pub cycles: Option<Cycle>,
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
 }
@@ -540,6 +542,7 @@ impl TransactionWithStatusResponse {
                     .map(|tx| ResponseFormat::hex(tx.data().as_bytes())),
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
+                time_added_to_pool: t.time_added_to_pool.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
@@ -547,6 +550,7 @@ impl TransactionWithStatusResponse {
                     .map(|tx| ResponseFormat::json(TransactionView::from(tx))),
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
+                time_added_to_pool: t.time_added_to_pool.map(Into::into),
             },
         }
     }

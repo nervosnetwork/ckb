@@ -1,6 +1,6 @@
 [package]
 name = "ckb-types"
-version = "0.109.0"
+version = "0.110.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -10,16 +10,16 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 molecule = "=0.7.3"
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.109.0" }
+ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.110.0" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { version="1", features = ["serde"] }
 merkle-cbt = "0.3"
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.109.0" }
-ckb-hash = { path = "../hash", version = "= 0.109.0" }
-ckb-channel = { path = "../channel", version = "= 0.109.0" }
+ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.110.0" }
+ckb-hash = { path = "../hash", version = "= 0.110.0" }
+ckb-channel = { path = "../channel", version = "= 0.110.0" }
 bit-vec = "0.6.3"
-ckb-error = { path = "../../error", version = "= 0.109.0" }
-ckb-rational = { path = "../rational", version = "= 0.109.0" }
+ckb-error = { path = "../../error", version = "= 0.110.0" }
+ckb-rational = { path = "../rational", version = "= 0.110.0" }
 once_cell = "1.8.0"
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 ckb-merkle-mountain-range = "0.5.2"

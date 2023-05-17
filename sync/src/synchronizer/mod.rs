@@ -1,3 +1,11 @@
+//! CKB node has initial block download phase (IBD mode) like Bitcoin:
+//! https://btcinformation.org/en/glossary/initial-block-download
+//!
+//! When CKB node is in IBD mode, it will respond `packed::InIBD` to `GetHeaders` and `GetBlocks` requests
+//!
+//! And CKB has a headers-first synchronization style like Bitcoin:
+//! https://btcinformation.org/en/glossary/headers-first-sync
+//!
 mod block_fetcher;
 mod block_process;
 mod get_blocks_process;
@@ -13,7 +21,7 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 
@@ -58,6 +66,13 @@ enum CanStart {
     AssumeValidNotFound,
 }
 
+// TODO: Consider converting this enum to a struct since it only has one item
+//
+// struct FetchCMD {
+//    peers: Vec<PeerIndex>,
+//    ibd_state: IBDState,
+// }
+//
 enum FetchCMD {
     Fetch((Vec<PeerIndex>, IBDState)),
 }
@@ -212,7 +227,7 @@ pub struct Synchronizer {
 impl Synchronizer {
     /// Init sync protocol handle
     ///
-    /// This is a runtime sync protocol shared state, and any relay messages will be processed and forwarded by it
+    /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
@@ -372,7 +387,7 @@ impl Synchronizer {
                         continue;
                     }
                 } else {
-                    active_chain.send_getheaders_to_peer(nc, *peer, &better_tip_header);
+                    active_chain.send_getheaders_to_peer(nc, *peer, (&better_tip_header).into());
                 }
             }
 
@@ -393,8 +408,10 @@ impl Synchronizer {
                         active_chain.total_difficulty().to_owned(),
                     )
                 };
-                if best_known_header.map(HeaderView::total_difficulty)
-                    >= Some(&local_total_difficulty)
+                if best_known_header
+                    .map(|header_index| header_index.total_difficulty().clone())
+                    .unwrap_or_default()
+                    >= local_total_difficulty
                 {
                     if state.chain_sync.timeout != 0 {
                         state.chain_sync.timeout = 0;
@@ -404,8 +421,9 @@ impl Synchronizer {
                     }
                 } else if state.chain_sync.timeout == 0
                     || (best_known_header.is_some()
-                        && best_known_header.map(HeaderView::total_difficulty)
-                            >= state.chain_sync.total_difficulty.as_ref())
+                        && best_known_header
+                            .map(|header_index| header_index.total_difficulty().clone())
+                            >= state.chain_sync.total_difficulty)
                 {
                     // Our best block known by this peer is behind our tip, and we're either noticing
                     // that for the first time, OR this peer was able to catch up to some earlier point
@@ -433,11 +451,12 @@ impl Synchronizer {
                         active_chain.send_getheaders_to_peer(
                             nc,
                             *peer,
-                            &state
+                            state
                                 .chain_sync
                                 .work_header
-                                .clone()
-                                .expect("work_header be assigned"),
+                                .as_ref()
+                                .expect("work_header be assigned")
+                                .into(),
                         );
                     }
                 }
@@ -493,7 +512,7 @@ impl Synchronizer {
             }
 
             debug!("start sync peer={}", peer);
-            active_chain.send_getheaders_to_peer(nc, peer, &tip);
+            active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
         }
     }
 

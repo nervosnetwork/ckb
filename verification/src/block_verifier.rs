@@ -49,10 +49,10 @@ impl<'a> Verifier for BlockVerifier<'a> {
 /// Cellbase verifier
 ///
 /// First transaction must be cellbase, the rest must not be.
-/// Cellbase outputs/outputs_data len must le 1
+/// Cellbase outputs/outputs_data len must le 1, and outputs len must equal to outputs_data len.
 /// Cellbase output data must be empty
 /// Cellbase output type_ must be empty
-/// Cellbase has only one dummy input. The since must be set to the block number.
+/// Cellbase has only one dummy input. The input's `since` field must be equal to the block number.
 #[derive(Clone)]
 pub struct CellbaseVerifier {}
 
@@ -73,7 +73,7 @@ impl CellbaseVerifier {
             .filter(|tx| tx.is_cellbase())
             .count();
 
-        // empty checked, block must contain cellbase
+        // check cellbase count, block must contain ONLY one cellbase
         if cellbase_len != 1 {
             return Err((CellbaseError::InvalidQuantity).into());
         }
@@ -84,7 +84,7 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidPosition).into());
         }
 
-        // cellbase outputs/outputs_data len must le 1
+        // cellbase outputs/outputs_data len must le 1, and outputs len must equal to outputs_data len
         if cellbase_transaction.outputs().len() > 1
             || cellbase_transaction.outputs_data().len() > 1
             || cellbase_transaction.outputs().len() != cellbase_transaction.outputs_data().len()
@@ -92,7 +92,7 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidOutputQuantity).into());
         }
 
-        // cellbase output data must empty
+        // cellbase output data must be empty
         if !cellbase_transaction
             .outputs_data()
             .get(0)
@@ -111,6 +111,7 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidWitness).into());
         }
 
+        // cellbase output type_ must be empty
         if cellbase_transaction
             .outputs()
             .into_iter()
@@ -133,7 +134,8 @@ impl CellbaseVerifier {
 
 /// DuplicateVerifier
 ///
-/// Invalidating duplicate transaction or proposal
+/// Verifying that a block does not contain any duplicate transactions or
+/// proposals.
 #[derive(Clone)]
 pub struct DuplicateVerifier {}
 

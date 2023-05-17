@@ -107,7 +107,7 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "process_block_without_verify")]
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>>;
 
-    /// Truncate chain to specified tip hash.
+    /// Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
     ///
     /// ## Params
     ///
