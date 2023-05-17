@@ -12,21 +12,6 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct HardForkConfig {}
 
-// macro_rules! check_default {
-//     ($config:ident, $feature:ident, $expected:expr) => {
-//         if $config.$feature.is_some() {
-//             let errmsg = format!(
-//                 "Found the hard fork feature parameter \"{}\" is the chain specification file.
-//                 Don't set any hard fork parameters for \"mainnet\" or \"testnet\".",
-//                 stringify!($feature),
-//             );
-//             return Err(errmsg);
-//         } else {
-//             $expected
-//         }
-//     };
-// }
-
 impl HardForkConfig {
     /// If all parameters which have been set are correct for mainnet, then
     /// sets all `None` to default values, otherwise, return an `Err`.
