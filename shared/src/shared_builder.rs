@@ -45,6 +45,8 @@ use ckb_types::core::tx_pool::Reject;
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
+use dashmap::DashMap;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -400,6 +402,8 @@ impl SharedBuilder {
 
         register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
 
+        let block_status_map = Arc::new(DashMap::new());
+
         let ibd_finished = Arc::new(AtomicBool::new(false));
         let shared = Shared::new(
             store,
@@ -411,6 +415,7 @@ impl SharedBuilder {
             async_handle,
             ibd_finished,
             header_map,
+            block_status_map,
         );
 
         let pack = SharedPackage {

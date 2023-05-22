@@ -721,6 +721,7 @@ impl NetRpc for NetRpcImpl {
 
     fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
+        let shared = chain.shared();
         let state = chain.shared().state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
@@ -742,7 +743,7 @@ impl NetRpc for NetRpcImpl {
             min_chain_work_reached: state.min_chain_work_ready(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
-            orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
+            orphan_blocks_count: (shared.shared().orphan_pool_count()).into(),
             orphan_blocks_size: (state.orphan_pool().total_size() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
