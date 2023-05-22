@@ -1,4 +1,5 @@
 //! TODO(doc): @quake
+use crate::block_status::BlockStatus;
 use crate::{HeaderMap, Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_async_runtime::Handle;
@@ -21,6 +22,7 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::cache::TxVerificationCache;
+use dashmap::DashMap;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,6 +58,7 @@ pub struct Shared {
     pub(crate) ibd_finished: Arc<AtomicBool>,
 
     pub(crate) header_map: Arc<HeaderMap>,
+    pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
 }
 
 impl Shared {
@@ -71,6 +74,7 @@ impl Shared {
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
         header_map: Arc<HeaderMap>,
+        block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
     ) -> Shared {
         Shared {
             store,
@@ -82,6 +86,7 @@ impl Shared {
             async_handle,
             ibd_finished,
             header_map,
+            block_status_map,
         }
     }
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
