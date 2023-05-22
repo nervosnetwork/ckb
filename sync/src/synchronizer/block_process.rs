@@ -30,9 +30,8 @@ impl<'a> BlockProcess<'a> {
             block.hash(),
         );
         let shared = self.synchronizer.shared();
-        let state = shared.state();
 
-        if state.new_block_received(&block) {
+        if shared.new_block_received(&block) {
             if let Err(err) = self.synchronizer.process_new_block(block.clone()) {
                 if !is_internal_db_error(&err) {
                     return StatusCode::BlockIsInvalid.with_context(format!(

@@ -213,7 +213,8 @@ impl BlockFetchCMD {
             return self.can_start;
         }
 
-        let state = self.sync_shared.state();
+        let sync_shared = self.sync_shared;
+        let state = sync_shared.state();
 
         let min_work_reach = |flag: &mut CanStart| {
             if state.min_chain_work_ready() {
@@ -224,7 +225,7 @@ impl BlockFetchCMD {
         let assume_valid_target_find = |flag: &mut CanStart| {
             let mut assume_valid_target = state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
-                match state.header_map().get(&target.pack()) {
+                match sync_shared.shared().header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
                         info!("assume valid target found in header_map; CKB will start fetch blocks now");
