@@ -6,12 +6,11 @@ use crate::syscalls::{
     SPAWN_MAX_MEMORY, SPAWN_MAX_PEAK_MEMORY, SPAWN_MEMORY_PAGE_SIZE, SPAWN_WRONG_MEMORY_LIMIT,
     WRONG_FORMAT,
 };
-use crate::types::Indices;
 use crate::types::{set_vm_max_cycles, CoreMachineType, Machine};
 use crate::TransactionScriptsSyscallsGenerator;
 use crate::{ScriptGroup, ScriptVersion};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
-use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
+use ckb_types::core::cell::CellMeta;
 use ckb_vm::{
     cost_model::estimate_cycles,
     registers::{A0, A1, A2, A3, A4, A5, A7},
@@ -20,66 +19,60 @@ use ckb_vm::{
 use std::sync::{Arc, Mutex};
 
 pub struct Spawn<DL> {
-    data_loader: DL,
-    group_inputs: Indices,
-    group_outputs: Indices,
-    rtx: Arc<ResolvedTransaction>,
     script_group: ScriptGroup,
     script_version: ScriptVersion,
     syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
-    outputs: Arc<Vec<CellMeta>>,
     peak_memory: u64,
 }
 
 impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spawn<DL> {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        data_loader: DL,
-        group_inputs: Indices,
-        group_outputs: Indices,
-        rtx: Arc<ResolvedTransaction>,
         script_group: ScriptGroup,
         script_version: ScriptVersion,
         syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
-        outputs: Arc<Vec<CellMeta>>,
         peak_memory: u64,
     ) -> Self {
         Self {
-            data_loader,
-            group_inputs,
-            group_outputs,
-            rtx,
             script_group,
             script_version,
             syscalls_generator,
-            outputs,
             peak_memory,
         }
     }
 
+    fn data_loader(&self) -> &DL {
+        &self.syscalls_generator.data_loader
+    }
+
+    fn outputs(&self) -> &Vec<CellMeta> {
+        &self.syscalls_generator.outputs
+    }
+
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.syscalls_generator.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.syscalls_generator.rtx.resolved_cell_deps
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
         let cell_opt = match source {
             Source::Transaction(SourceEntry::Input) => self.resolved_inputs().get(index),
-            Source::Transaction(SourceEntry::Output) => self.outputs.get(index),
+            Source::Transaction(SourceEntry::Output) => self.outputs().get(index),
             Source::Transaction(SourceEntry::CellDep) => self.resolved_cell_deps().get(index),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .script_group
+                .input_indices
                 .get(index)
                 .and_then(|actual_index| self.resolved_inputs().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .script_group
+                .output_indices
                 .get(index)
-                .and_then(|actual_index| self.outputs.get(*actual_index)),
+                .and_then(|actual_index| self.outputs().get(*actual_index)),
             Source::Transaction(SourceEntry::HeaderDep)
             | Source::Group(SourceEntry::CellDep)
             | Source::Group(SourceEntry::HeaderDep) => {
@@ -174,17 +167,12 @@ where
                 self.syscalls_generator
                     .build_set_content(Arc::clone(&machine_content), content_length.to_u64()),
             ));
-            let machine_builder = machine_builder.syscall(Box::new(Spawn::new(
-                self.data_loader.clone(),
-                Arc::clone(&self.group_inputs),
-                Arc::clone(&self.group_outputs),
-                Arc::clone(&self.rtx),
-                self.script_group.clone(),
-                self.script_version,
-                self.syscalls_generator.clone(),
-                Arc::clone(&self.outputs),
-                self.peak_memory + memory_limit,
-            )));
+            let machine_builder =
+                machine_builder.syscall(Box::new(self.syscalls_generator.build_spawn(
+                    self.script_version,
+                    &self.script_group,
+                    self.peak_memory + memory_limit,
+                )));
             let mut machine_child = Machine::new(machine_builder.build());
             set_vm_max_cycles(&mut machine_child, cycles_limit);
             machine_child
@@ -197,7 +185,7 @@ where
                 return Ok(true);
             }
             let cell = cell.unwrap();
-            let data = self.data_loader.load_cell_data(cell).ok_or_else(|| {
+            let data = self.data_loader().load_cell_data(cell).ok_or_else(|| {
                 VMError::Unexpected(format!(
                     "Unexpected load_cell_data failed {}",
                     cell.out_point,

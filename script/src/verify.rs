@@ -123,10 +123,10 @@ impl Binaries {
 /// TransactionScriptsSyscallsGenerator can be cloned.
 #[derive(Clone)]
 pub struct TransactionScriptsSyscallsGenerator<DL> {
-    data_loader: DL,
+    pub(crate) data_loader: DL,
     debug_printer: DebugPrinter,
-    outputs: Arc<Vec<CellMeta>>,
-    rtx: Arc<ResolvedTransaction>,
+    pub(crate) outputs: Arc<Vec<CellMeta>>,
+    pub(crate) rtx: Arc<ResolvedTransaction>,
     #[cfg(test)]
     skip_pause: Arc<AtomicBool>,
 }
@@ -238,6 +238,21 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         SetContent::new(content, content_length)
     }
 
+    /// Build syscall: spawn
+    pub fn build_spawn(
+        &self,
+        script_version: ScriptVersion,
+        script_group: &ScriptGroup,
+        peak_memory: u64,
+    ) -> Spawn<DL> {
+        Spawn::new(
+            script_group.clone(),
+            script_version,
+            self.clone(),
+            peak_memory,
+        )
+    }
+
     /// Generate same syscalls. The result does not contain spawn syscalls.
     pub fn generate_same_syscalls(
         &self,
@@ -297,24 +312,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
-        let script_group_input_indices = Arc::new(script_group.input_indices.clone());
-        let script_group_output_indices = Arc::new(script_group.output_indices.clone());
         let mut syscalls = self.generate_same_syscalls(script_version, script_group);
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
                 Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
-                Box::new(Spawn::new(
-                    self.data_loader.clone(),
-                    Arc::clone(&script_group_input_indices),
-                    Arc::clone(&script_group_output_indices),
-                    Arc::clone(&self.rtx),
-                    script_group.clone(),
-                    script_version,
-                    self.clone(),
-                    Arc::clone(&self.outputs),
-                    8,
-                )),
+                Box::new(self.build_spawn(script_version, script_group, 8)),
             ])
         }
         syscalls
