@@ -35,6 +35,7 @@ bitflags = "1.0"
 tokio = { version = "1", features = ["sync"] }
 tempfile.workspace = true
 sled = "0.34.7"
+dashmap = "4.0"
 
 [dev-dependencies]
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.114.0-pre", features = ["enable_faketime"] }
