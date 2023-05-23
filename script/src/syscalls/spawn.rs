@@ -2,9 +2,9 @@ use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
     Source, SourceEntry, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SPAWN,
-    SPAWN_EXCEEDED_MAX_CONTENT_LENGTH, SPAWN_EXCEEDED_MAX_PEAK_MEMORY, SPAWN_MAX_CONTENT_LENGTH,
-    SPAWN_MAX_MEMORY, SPAWN_MAX_PEAK_MEMORY, SPAWN_MEMORY_PAGE_SIZE, SPAWN_WRONG_MEMORY_LIMIT,
-    WRONG_FORMAT,
+    SPAWN_EXCEEDED_MAX_CONTENT_LENGTH, SPAWN_EXCEEDED_MAX_PEAK_MEMORY, SPAWN_EXTRA_CYCLES_BASE,
+    SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE, SPAWN_MAX_CONTENT_LENGTH, SPAWN_MAX_MEMORY,
+    SPAWN_MAX_PEAK_MEMORY, SPAWN_MEMORY_PAGE_SIZE, SPAWN_WRONG_MEMORY_LIMIT, WRONG_FORMAT,
 };
 use crate::types::{set_vm_max_cycles, CoreMachineType, Machine};
 use crate::TransactionScriptsSyscallsGenerator;
@@ -177,6 +177,12 @@ where
             set_vm_max_cycles(&mut machine_child, cycles_limit);
             machine_child
         };
+
+        // Deduct cycls used to build the machine
+        let extra_cyclse =
+            SPAWN_EXTRA_CYCLES_BASE + memory_limit * SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE;
+        machine_child.machine.add_cycles_no_checking(extra_cyclse)?;
+
         // Get binary.
         let program = {
             let cell = self.fetch_cell(source, index as usize);

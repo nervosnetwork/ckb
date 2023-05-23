@@ -85,6 +85,8 @@ pub const SPAWN_MAX_MEMORY: u64 = 8;
 pub const SPAWN_MAX_PEAK_MEMORY: u64 = 64; // 64 * 0.5M = 32M
 pub const SPAWN_MEMORY_PAGE_SIZE: u64 = 512 * 1024; // 0.5M
 pub const SPAWN_MAX_CONTENT_LENGTH: u64 = 256 * 1024; // 256K
+pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
+pub const SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE: u64 = 8192;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
