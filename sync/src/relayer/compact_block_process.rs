@@ -332,7 +332,7 @@ fn contextual_check(
             return Status::ignored();
         } else {
             shared
-                .state()
+                .shared()
                 .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
             return StatusCode::CompactBlockHasInvalidHeader
                 .with_context(format!("{block_hash} {err}"));

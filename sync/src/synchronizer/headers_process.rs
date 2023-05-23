@@ -307,7 +307,9 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.number(),
                 self.header.hash(),
             );
-            state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            shared
+                .shared()
+                .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
@@ -318,7 +320,9 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.hash(),
             );
             if is_invalid {
-                state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+                shared
+                    .shared()
+                    .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             }
             return result;
         }
@@ -329,7 +333,9 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.number(),
                 self.header.hash(),
             );
-            state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            shared
+                .shared()
+                .insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
