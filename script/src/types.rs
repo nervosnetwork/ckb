@@ -5,9 +5,9 @@ use ckb_types::{
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{VERSION0, VERSION1},
+    machine::{VERSION0, VERSION1, VERSION2},
     snapshot::{make_snapshot, Snapshot},
-    Error as VMInternalError, SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
+    Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -51,12 +51,14 @@ pub enum ScriptVersion {
     V0 = 0,
     /// CKB VM 1 with Syscall version 1 and version 2.
     V1 = 1,
+    /// CKB VM 2 with Syscall version 1, version 2 and version 3.
+    V2 = 2,
 }
 
 impl ScriptVersion {
     /// Returns the latest version.
     pub const fn latest() -> Self {
-        Self::V1
+        Self::V2
     }
 
     /// Returns the ISA set of CKB VM in current script version.
@@ -64,6 +66,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => ISA_IMC,
             Self::V1 => ISA_IMC | ISA_B | ISA_MOP,
+            Self::V2 => ISA_IMC | ISA_A | ISA_B | ISA_MOP,
         }
     }
 
@@ -72,6 +75,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => VERSION0,
             Self::V1 => VERSION1,
+            Self::V2 => VERSION2,
         }
     }
 
@@ -84,6 +88,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => ScriptHashType::Data,
             Self::V1 => ScriptHashType::Data1,
+            Self::V2 => ScriptHashType::Data2,
         }
     }
 
@@ -160,6 +165,7 @@ pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
 /// A script group will only be executed once per transaction, the
 /// script itself should check against all inputs/outputs in its group
 /// if needed.
+#[derive(Clone)]
 pub struct ScriptGroup {
     /// The script.
     ///

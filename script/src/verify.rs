@@ -1,23 +1,25 @@
 #[cfg(test)]
 use crate::syscalls::Pause;
 use crate::{
-    cost_model::{instruction_cycles, transferred_byte_cycles},
+    cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
     syscalls::{
-        CurrentCycles, Debugger, Exec, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript,
-        LoadScriptHash, LoadTx, LoadWitness, VMVersion,
+        CurrentCycles, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData, LoadExtension,
+        LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, SetContent, Spawn,
+        VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{
         CoreMachine, DebugPrinter, Indices, Machine, ResumableMachine, ScriptGroup,
         ScriptGroupType, ScriptVersion, TransactionSnapshot, TransactionState, VerifyResult,
     },
+    verify_env::TxVerifyEnv,
 };
-use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
+use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -28,12 +30,13 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_vm::{
+    cost_model::estimate_cycles,
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -115,6 +118,212 @@ impl Binaries {
     }
 }
 
+/// Syscalls can be generated individually by TransactionScriptsSyscallsGenerator.
+///
+/// TransactionScriptsSyscallsGenerator can be cloned.
+#[derive(Clone)]
+pub struct TransactionScriptsSyscallsGenerator<DL> {
+    pub(crate) data_loader: DL,
+    debug_printer: DebugPrinter,
+    pub(crate) outputs: Arc<Vec<CellMeta>>,
+    pub(crate) rtx: Arc<ResolvedTransaction>,
+    #[cfg(test)]
+    skip_pause: Arc<AtomicBool>,
+}
+
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
+    TransactionScriptsSyscallsGenerator<DL>
+{
+    /// Build syscall: current_cycles
+    pub fn build_current_cycles(&self) -> CurrentCycles {
+        CurrentCycles::new()
+    }
+
+    /// Build syscall: vm_version
+    pub fn build_vm_version(&self) -> VMVersion {
+        VMVersion::new()
+    }
+
+    /// Build syscall: exec
+    pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
+        Exec::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            Arc::clone(&self.outputs),
+            group_inputs,
+            group_outputs,
+        )
+    }
+
+    /// Build syscall: load_tx
+    pub fn build_load_tx(&self) -> LoadTx {
+        LoadTx::new(Arc::clone(&self.rtx))
+    }
+
+    /// Build syscall: load_cell
+    pub fn build_load_cell(&self, group_inputs: Indices, group_outputs: Indices) -> LoadCell<DL> {
+        LoadCell::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            Arc::clone(&self.outputs),
+            group_inputs,
+            group_outputs,
+        )
+    }
+
+    /// Build syscall: load_cell_data
+    pub fn build_load_cell_data(
+        &self,
+        group_inputs: Indices,
+        group_outputs: Indices,
+    ) -> LoadCellData<DL> {
+        LoadCellData::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            Arc::clone(&self.outputs),
+            group_inputs,
+            group_outputs,
+        )
+    }
+
+    ///Build syscall: load_input
+    pub fn build_load_input(&self, group_inputs: Indices) -> LoadInput {
+        LoadInput::new(Arc::clone(&self.rtx), group_inputs)
+    }
+
+    /// Build syscall: load_script_hash
+    pub fn build_load_script_hash(&self, hash: Byte32) -> LoadScriptHash {
+        LoadScriptHash::new(hash)
+    }
+
+    /// Build syscall: load_header
+    pub fn build_load_header(&self, group_inputs: Indices) -> LoadHeader<DL> {
+        LoadHeader::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            group_inputs,
+        )
+    }
+
+    /// Build syscall: load_extension
+    pub fn build_load_extension(&self, group_inputs: Indices) -> LoadExtension<DL> {
+        LoadExtension::new(
+            self.data_loader.clone(),
+            Arc::clone(&self.rtx),
+            group_inputs,
+        )
+    }
+
+    /// Build syscall: load_witness
+    pub fn build_load_witness(&self, group_inputs: Indices, group_outputs: Indices) -> LoadWitness {
+        LoadWitness::new(Arc::clone(&self.rtx), group_inputs, group_outputs)
+    }
+
+    /// Build syscall: load_script
+    pub fn build_load_script(&self, script: Script) -> LoadScript {
+        LoadScript::new(script)
+    }
+
+    /// Build syscall: get_memory_limit
+    pub fn build_get_memory_limit(&self, memory_limit: u64) -> GetMemoryLimit {
+        GetMemoryLimit::new(memory_limit)
+    }
+
+    /// Build syscall: set_content
+    pub fn build_set_content(
+        &self,
+        content: Arc<Mutex<Vec<u8>>>,
+        content_length: u64,
+    ) -> SetContent {
+        SetContent::new(content, content_length)
+    }
+
+    /// Build syscall: spawn
+    pub fn build_spawn(
+        &self,
+        script_version: ScriptVersion,
+        script_group: &ScriptGroup,
+        peak_memory: u64,
+    ) -> Spawn<DL> {
+        Spawn::new(
+            script_group.clone(),
+            script_version,
+            self.clone(),
+            peak_memory,
+        )
+    }
+
+    /// Generate same syscalls. The result does not contain spawn syscalls.
+    pub fn generate_same_syscalls(
+        &self,
+        script_version: ScriptVersion,
+        script_group: &ScriptGroup,
+    ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
+        let current_script_hash = script_group.script.calc_script_hash();
+        let script_group_input_indices = Arc::new(script_group.input_indices.clone());
+        let script_group_output_indices = Arc::new(script_group.output_indices.clone());
+        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine>)>> = vec![
+            Box::new(self.build_load_script_hash(current_script_hash.clone())),
+            Box::new(self.build_load_tx()),
+            Box::new(self.build_load_cell(
+                Arc::clone(&script_group_input_indices),
+                Arc::clone(&script_group_output_indices),
+            )),
+            Box::new(self.build_load_input(Arc::clone(&script_group_input_indices))),
+            Box::new(self.build_load_header(Arc::clone(&script_group_input_indices))),
+            Box::new(self.build_load_witness(
+                Arc::clone(&script_group_input_indices),
+                Arc::clone(&script_group_output_indices),
+            )),
+            Box::new(self.build_load_script(script_group.script.clone())),
+            Box::new(self.build_load_cell_data(
+                Arc::clone(&script_group_input_indices),
+                Arc::clone(&script_group_output_indices),
+            )),
+            Box::new(Debugger::new(
+                current_script_hash,
+                Arc::clone(&self.debug_printer),
+            )),
+        ];
+        #[cfg(test)]
+        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
+        if script_version >= ScriptVersion::V1 {
+            syscalls.append(&mut vec![
+                Box::new(self.build_vm_version()),
+                Box::new(self.build_current_cycles()),
+                Box::new(self.build_exec(
+                    Arc::clone(&script_group_input_indices),
+                    Arc::clone(&script_group_output_indices),
+                )),
+            ]);
+        }
+
+        if script_version >= ScriptVersion::V2 {
+            syscalls.push(Box::new(
+                self.build_load_extension(Arc::clone(&script_group_input_indices)),
+            ));
+        }
+        syscalls
+    }
+
+    /// Generate root syscalls.
+    pub fn generate_root_syscalls(
+        &self,
+        script_version: ScriptVersion,
+        script_group: &ScriptGroup,
+    ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
+        let mut syscalls = self.generate_same_syscalls(script_version, script_group);
+        if script_version >= ScriptVersion::V2 {
+            syscalls.append(&mut vec![
+                Box::new(self.build_get_memory_limit(8)),
+                Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
+                Box::new(self.build_spawn(script_version, script_group, 8)),
+            ])
+        }
+        syscalls
+    }
+}
+
 /// This struct leverages CKB VM to verify transaction inputs.
 ///
 /// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
@@ -135,9 +344,12 @@ pub struct TransactionScriptsVerifier<DL> {
 
     #[cfg(test)]
     skip_pause: Arc<AtomicBool>,
+
+    consensus: Arc<Consensus>,
+    tx_env: Arc<TxVerifyEnv>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
+impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
     TransactionScriptsVerifier<DL>
 {
     /// Creates a script verifier for the transaction.
@@ -146,7 +358,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
     ///
     /// * `rtx` - transaction which cell out points have been resolved.
     /// * `data_loader` - used to load cell data.
-    pub fn new(rtx: Arc<ResolvedTransaction>, data_loader: DL) -> TransactionScriptsVerifier<DL> {
+    pub fn new(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+    ) -> TransactionScriptsVerifier<DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_cell_deps = &rtx.resolved_cell_deps;
         let resolved_inputs = &rtx.resolved_inputs;
@@ -232,6 +449,8 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
             ),
             #[cfg(test)]
             skip_pause: Arc::new(AtomicBool::new(false)),
+            consensus,
+            tx_env,
         }
     }
 
@@ -259,82 +478,12 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         self.rtx.transaction.hash()
     }
 
-    fn build_current_cycles(&self) -> CurrentCycles {
-        CurrentCycles::new()
-    }
-
-    fn build_vm_version(&self) -> VMVersion {
-        VMVersion::new()
-    }
-
-    fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
-        Exec::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            Arc::clone(&self.outputs),
-            group_inputs,
-            group_outputs,
-        )
-    }
-
-    fn build_load_tx(&self) -> LoadTx {
-        LoadTx::new(Arc::clone(&self.rtx))
-    }
-
-    fn build_load_cell(&self, group_inputs: Indices, group_outputs: Indices) -> LoadCell<DL> {
-        LoadCell::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            Arc::clone(&self.outputs),
-            group_inputs,
-            group_outputs,
-        )
-    }
-
-    fn build_load_cell_data(
-        &self,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> LoadCellData<DL> {
-        LoadCellData::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            Arc::clone(&self.outputs),
-            group_inputs,
-            group_outputs,
-        )
-    }
-
-    fn build_load_input(&self, group_inputs: Indices) -> LoadInput {
-        LoadInput::new(Arc::clone(&self.rtx), group_inputs)
-    }
-
-    fn build_load_script_hash(&self, hash: Byte32) -> LoadScriptHash {
-        LoadScriptHash::new(hash)
-    }
-
-    fn build_load_header(&self, group_inputs: Indices) -> LoadHeader<DL> {
-        LoadHeader::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            group_inputs,
-        )
-    }
-
-    fn build_load_witness(&self, group_inputs: Indices, group_outputs: Indices) -> LoadWitness {
-        LoadWitness::new(Arc::clone(&self.rtx), group_inputs, group_outputs)
-    }
-
-    fn build_load_script(&self, script: Script) -> LoadScript {
-        LoadScript::new(script)
-    }
-
     /// Extracts actual script binary either in dep cells.
     pub fn extract_script(&self, script: &Script) -> Result<Bytes, ScriptError> {
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
-            ScriptHashType::Data | ScriptHashType::Data1 => {
+            ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
                     Ok(lazy.access(&self.data_loader))
                 } else {
@@ -355,14 +504,34 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         }
     }
 
+    fn is_vm_version_2_and_syscalls_3_enabled(&self) -> bool {
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        hardfork_switch
+            .ckb2023
+            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
+    }
+
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
+        let is_vm_version_2_and_syscalls_3_enabled = self.is_vm_version_2_and_syscalls_3_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
             ScriptHashType::Data1 => Ok(ScriptVersion::V1),
-            ScriptHashType::Type => Ok(ScriptVersion::V1),
+            ScriptHashType::Data2 => Ok(ScriptVersion::V2),
+            ScriptHashType::Type => {
+                if is_vm_version_2_and_syscalls_3_enabled {
+                    Ok(ScriptVersion::V2)
+                } else {
+                    Ok(ScriptVersion::V1)
+                }
+            }
         }
     }
 
@@ -803,45 +972,15 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
-        let current_script_hash = script_group.script.calc_script_hash();
-        let script_group_input_indices = Arc::new(script_group.input_indices.clone());
-        let script_group_output_indices = Arc::new(script_group.output_indices.clone());
-        let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine>)>> = vec![
-            Box::new(self.build_load_script_hash(current_script_hash.clone())),
-            Box::new(self.build_load_tx()),
-            Box::new(self.build_load_cell(
-                Arc::clone(&script_group_input_indices),
-                Arc::clone(&script_group_output_indices),
-            )),
-            Box::new(self.build_load_input(Arc::clone(&script_group_input_indices))),
-            Box::new(self.build_load_header(Arc::clone(&script_group_input_indices))),
-            Box::new(self.build_load_witness(
-                Arc::clone(&script_group_input_indices),
-                Arc::clone(&script_group_output_indices),
-            )),
-            Box::new(self.build_load_script(script_group.script.clone())),
-            Box::new(self.build_load_cell_data(
-                Arc::clone(&script_group_input_indices),
-                Arc::clone(&script_group_output_indices),
-            )),
-            Box::new(Debugger::new(
-                current_script_hash,
-                Arc::clone(&self.debug_printer),
-            )),
-        ];
-        #[cfg(test)]
-        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
-        if script_version >= ScriptVersion::V1 {
-            syscalls.append(&mut vec![
-                Box::new(self.build_vm_version()),
-                Box::new(self.build_current_cycles()),
-                Box::new(self.build_exec(
-                    Arc::clone(&script_group_input_indices),
-                    Arc::clone(&script_group_output_indices),
-                )),
-            ])
-        }
-        syscalls
+        let generator = TransactionScriptsSyscallsGenerator {
+            data_loader: self.data_loader.clone(),
+            debug_printer: Arc::clone(&self.debug_printer),
+            outputs: Arc::clone(&self.outputs),
+            rtx: Arc::clone(&self.rtx),
+            #[cfg(test)]
+            skip_pause: Arc::clone(&self.skip_pause),
+        };
+        generator.generate_root_syscalls(script_version, script_group)
     }
 
     fn build_machine(
@@ -852,7 +991,7 @@ impl<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>
         let script_version = self.select_version(&script_group.script)?;
         let core_machine = script_version.init_core_machine(max_cycles);
         let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
-            .instruction_cycle_func(Box::new(instruction_cycles));
+            .instruction_cycle_func(Box::new(estimate_cycles));
         let machine_builder = self
             .generate_syscalls(script_version, script_group)
             .into_iter()

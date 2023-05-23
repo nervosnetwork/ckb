@@ -21,6 +21,7 @@ use ckb_types::{
             resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider,
             ResolvedTransaction,
         },
+        hardfork::HardForks,
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
     },
@@ -172,6 +173,35 @@ impl ForkChanges {
         }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
             blk.header().number()
         })
+    }
+
+    pub fn during_hardfork(&self, hardfork_switch: &HardForks) -> bool {
+        let hardfork_during_detach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.detached_blocks);
+        let hardfork_during_attach =
+            self.check_if_hardfork_during_blocks(hardfork_switch, &self.attached_blocks);
+
+        hardfork_during_detach || hardfork_during_attach
+    }
+
+    fn check_if_hardfork_during_blocks(
+        &self,
+        hardfork: &HardForks,
+        blocks: &VecDeque<BlockView>,
+    ) -> bool {
+        if blocks.is_empty() {
+            false
+        } else {
+            // This method assumes that the input blocks are sorted and unique.
+            let rfc_0148 = hardfork.ckb2023.rfc_0148();
+            let epoch_first = blocks.front().unwrap().epoch().number();
+            let epoch_next = blocks
+                .back()
+                .unwrap()
+                .epoch()
+                .minimum_epoch_number_after_n_blocks(1);
+            epoch_first < rfc_0148 && rfc_0148 <= epoch_next
+        }
     }
 }
 
@@ -729,9 +759,19 @@ impl ChainService {
         }
 
         let txs_verify_cache = self.shared.txs_verify_cache();
-        let consensus = self.shared.cloned_consensus();
+
+        let consensus = self.shared.consensus();
+        let hardfork_switch = consensus.hardfork_switch();
+        let during_hardfork = fork.during_hardfork(hardfork_switch);
         let async_handle = self.shared.tx_pool_controller().handle();
 
+        if during_hardfork {
+            async_handle.block_on(async {
+                txs_verify_cache.write().await.clear();
+            });
+        }
+
+        let consensus = self.shared.cloned_consensus();
         let start_block_header = fork.attached_blocks()[0].header();
         let mmr_size = leaf_index_to_mmr_size(start_block_header.number() - 1);
         trace!("light-client: new chain root MMR with size = {}", mmr_size);

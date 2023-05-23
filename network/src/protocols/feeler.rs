@@ -6,7 +6,7 @@ use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
 };
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 /// Feeler
 /// Currently do nothing, CKBProtocol auto refresh peer_store after connected.
@@ -24,9 +24,15 @@ impl Feeler {
 impl ServiceProtocol for Feeler {
     async fn init(&mut self, _context: &mut ProtocolContext) {}
 
-    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, _version: &str) {
+    async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         let session = context.session;
-        if context.session.ty.is_outbound() {
+        if self.network_state.ckb2023.load(Ordering::SeqCst) && version != "3" {
+            self.network_state
+                .peer_store
+                .lock()
+                .mut_addr_manager()
+                .remove(&session.address);
+        } else if context.session.ty.is_outbound() {
             let flags = self.network_state.with_peer_registry(|reg| {
                 if let Some(p) = reg.get_peer(session.id) {
                     p.identify_info

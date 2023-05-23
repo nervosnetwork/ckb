@@ -6,7 +6,8 @@ use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::{
-    cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT, Capacity, Cycle, TransactionView,
+    cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT, Capacity, Cycle, EpochNumber,
+    TransactionView,
 };
 use ckb_verification::{
     cache::{CacheEntry, Completed},
@@ -76,11 +77,11 @@ pub(crate) fn non_contextual_verify(
 pub(crate) fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
-    tx_env: &TxVerifyEnv,
+    tx_env: Arc<TxVerifyEnv>,
     cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
 ) -> Result<Completed, Reject> {
-    let consensus = snapshot.consensus();
+    let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
     if let Some(ref cached) = cache_entry {
@@ -109,12 +110,17 @@ pub(crate) fn verify_rtx(
 pub(crate) fn time_relative_verify(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
-    tx_env: &TxVerifyEnv,
+    tx_env: TxVerifyEnv,
 ) -> Result<(), Reject> {
-    let consensus = snapshot.consensus();
-    TimeRelativeTransactionVerifier::new(rtx, consensus, snapshot.as_data_loader(), tx_env)
-        .verify()
-        .map_err(Reject::Verification)
+    let consensus = snapshot.cloned_consensus();
+    TimeRelativeTransactionVerifier::new(
+        rtx,
+        consensus,
+        snapshot.as_data_loader(),
+        Arc::new(tx_env),
+    )
+    .verify()
+    .map_err(Reject::Verification)
 }
 
 pub(crate) fn is_missing_input(reject: &Reject) -> bool {
@@ -135,4 +141,20 @@ macro_rules! try_or_return_with_snapshot {
             }
         }
     };
+}
+
+pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
+    let epoch = snapshot.tip_header().epoch();
+    let proposal_window = snapshot.consensus().tx_proposal_window();
+
+    let index = epoch.index();
+    let epoch_number = epoch.number();
+
+    let rfc_0148 = snapshot.consensus().hardfork_switch.ckb2023.rfc_0148();
+
+    if rfc_0148 == 0 && rfc_0148 == EpochNumber::MAX {
+        return true;
+    }
+
+    epoch_number > rfc_0148 || (epoch_number == rfc_0148 && index > proposal_window.farthest())
 }

@@ -7,7 +7,7 @@ use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::HeaderFieldsProvider;
-use ckb_types::core::{BlockNumber, EpochNumberWithFraction, HeaderView, Version};
+use ckb_types::core::{BlockNumber, EpochNumberWithFraction, HeaderView};
 use ckb_verification_traits::Verifier;
 
 /// Context-dependent verification checks for block header
@@ -31,7 +31,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderVerifier<'a, DL> {
 impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
-        VersionVerifier::new(header, self.consensus.block_version()).verify()?;
+        VersionVerifier::new(header, self.consensus).verify()?;
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent_fields = self
@@ -54,21 +54,24 @@ impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
 
 pub struct VersionVerifier<'a> {
     header: &'a HeaderView,
-    block_version: Version,
+    consensus: &'a Consensus,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a HeaderView, block_version: Version) -> Self {
-        VersionVerifier {
-            header,
-            block_version,
-        }
+    pub fn new(header: &'a HeaderView, consensus: &'a Consensus) -> Self {
+        VersionVerifier { header, consensus }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.version() != self.block_version {
+        if !self
+            .consensus
+            .hardfork_switch
+            .ckb2023
+            .is_remove_header_version_reservation_rule_enabled(self.header.epoch().number())
+            && self.header.version() != self.consensus.block_version()
+        {
             return Err(BlockVersionError {
-                expected: self.block_version,
+                expected: self.consensus.block_version(),
                 actual: self.header.version(),
             }
             .into());

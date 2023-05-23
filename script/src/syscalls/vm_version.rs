@@ -4,7 +4,7 @@ use ckb_vm::{
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VMVersion {}
 
 impl VMVersion {

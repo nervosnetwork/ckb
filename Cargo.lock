@@ -1437,6 +1437,7 @@ dependencies = [
  "bit-vec",
  "bytes 1.4.0",
  "ckb-channel",
+ "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
  "ckb-hash",
@@ -1449,6 +1450,7 @@ dependencies = [
  "molecule",
  "numext-fixed-uint",
  "once_cell",
+ "paste",
  "proptest",
 ]
 
@@ -1520,9 +1522,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.23.2"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93fee7eb8d6525a0d3a4f113414c1b51dd3aaf75ef7b54fe7ce306e545c87cdd"
+checksum = "d77a1ce8d1ed8b18041d194ffe0d647c3a707af9347f49b5f543317c73943634"
 dependencies = [
  "byteorder",
  "bytes 1.4.0",
@@ -1538,9 +1540,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.23.2"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9403cda7180a8203facf05e96537f0038d188b2efdcef13c84538bfbdfcbcbf"
+checksum = "328c7a6b5664483d5c02fae7b0ada0c407660e7064b2f1505ee6f5d07a4dbf2b"
 
 [[package]]
 name = "clang-sys"

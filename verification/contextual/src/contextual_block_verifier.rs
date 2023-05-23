@@ -400,20 +400,22 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS>
             HashMap::new()
         };
 
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
+
         // make verifiers orthogonal
         let ret = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
-                let tx_env = TxVerifyEnv::new_commit(&self.header);
+
                 if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
                     match cache_entry {
                         CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
                             Arc::clone(tx),
-                            &self.context.consensus,
+                            Arc::clone(&self.context.consensus),
                             self.context.store.as_data_loader(),
-                            &tx_env,
+                            Arc::clone(&tx_env),
                         )
                         .verify()
                         .map_err(|error| {
@@ -426,9 +428,9 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS>
                         .map(|_| (tx_hash, *completed)),
                         CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
                             Arc::clone(tx),
-                            &self.context.consensus,
+                            Arc::clone(&self.context.consensus),
                             self.context.store.as_data_loader(),
-                            &tx_env,
+                            Arc::clone(&tx_env),
                         )
                         .complete(
                             self.context.consensus.max_block_cycles(),
@@ -447,9 +449,9 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS>
                 } else {
                     ContextualTransactionVerifier::new(
                         Arc::clone(tx),
-                        &self.context.consensus,
+                        Arc::clone(&self.context.consensus),
                         self.context.store.as_data_loader(),
-                        &tx_env,
+                        Arc::clone(&tx_env),
                     )
                     .verify(
                         self.context.consensus.max_block_cycles(),

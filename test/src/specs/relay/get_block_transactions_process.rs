@@ -17,7 +17,7 @@ impl Spec for MissingUncleRequest {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
         );
         net.connect(node);
 
@@ -42,7 +42,7 @@ impl Spec for MissingUncleRequest {
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
-        net.send(node, SupportProtocols::RelayV2, message.as_bytes());
+        net.send(node, SupportProtocols::RelayV3, message.as_bytes());
 
         let ret = net.should_receive(node, |data: &Bytes| {
             RelayMessage::from_slice(data)

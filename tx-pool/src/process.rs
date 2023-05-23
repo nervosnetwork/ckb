@@ -6,13 +6,14 @@ use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
 use crate::util::{
-    check_tx_fee, check_txid_collision, is_missing_input, non_contextual_verify,
-    time_relative_verify, verify_rtx,
+    after_delay_window, check_tx_fee, check_txid_collision, is_missing_input,
+    non_contextual_verify, time_relative_verify, verify_rtx,
 };
+use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
-use ckb_logger::{debug, error, log_enabled_target, trace_target};
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
@@ -32,6 +33,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::block_in_place;
+
+const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -115,7 +118,7 @@ impl TxPoolService {
 
                     let tip_header = snapshot.tip_header();
                     let tx_env = status.with_env(tip_header);
-                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), &tx_env)?;
+                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -320,6 +323,20 @@ impl TxPoolService {
     ) {
         let tx_hash = tx.hash();
 
+        // The network protocol is switched after tx-pool confirms the cache,
+        // there will be no problem with the current state as the choice of the broadcast protocol.
+        let with_vm_2023 = {
+            let epoch = snapshot
+                .tip_header()
+                .epoch()
+                .minimum_epoch_number_after_n_blocks(1);
+
+            self.consensus
+                .hardfork_switch
+                .ckb2023
+                .is_vm_version_2_and_syscalls_3_enabled(epoch)
+        };
+
         // log tx verification result for monitor node
         if log_enabled_target!("ckb_tx_monitor", Trace) {
             if let Ok(c) = ret {
@@ -337,6 +354,7 @@ impl TxPoolService {
                 Ok(_) => {
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
+                        with_vm_2023,
                         tx_hash,
                     });
                     self.process_orphan_tx(&tx).await;
@@ -366,6 +384,7 @@ impl TxPoolService {
                     Ok(_) => {
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,
+                            with_vm_2023,
                             tx_hash,
                         });
                         self.process_orphan_tx(&tx).await;
@@ -374,6 +393,7 @@ impl TxPoolService {
                         // re-broadcast tx when it's duplicated and submitted through local rpc
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,
+                            with_vm_2023,
                             tx_hash,
                         });
                     }
@@ -431,14 +451,26 @@ impl TxPoolService {
                         .write()
                         .await
                         .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
-                } else if let Some((ret, _snapshot)) = self
+                } else if let Some((ret, snapshot)) = self
                     ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
                     .await
                 {
                     match ret {
                         Ok(_) => {
+                            let with_vm_2023 = {
+                                let epoch = snapshot
+                                    .tip_header()
+                                    .epoch()
+                                    .minimum_epoch_number_after_n_blocks(1);
+
+                                self.consensus
+                                    .hardfork_switch
+                                    .ckb2023
+                                    .is_vm_version_2_and_syscalls_3_enabled(epoch)
+                            };
                             self.send_result_to_relayer(TxVerificationResult::Ok {
                                 original_peer: Some(orphan.peer),
+                                with_vm_2023,
                                 tx_hash: orphan.tx.hash(),
                             });
                             debug!(
@@ -522,9 +554,17 @@ impl TxPoolService {
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
+
         let cached = self.fetch_tx_verify_cache(&tx_hash).await;
         let tip_header = snapshot.tip_header();
-        let tx_env = status.with_env(tip_header);
+        let tx_env = Arc::new(status.with_env(tip_header));
 
         let data_loader = snapshot.as_data_loader();
 
@@ -533,9 +573,9 @@ impl TxPoolService {
                 CacheEntry::Completed(completed) => {
                     let ret = TimeRelativeTransactionVerifier::new(
                         Arc::clone(&rtx),
-                        &self.consensus,
+                        Arc::clone(&self.consensus),
                         data_loader,
-                        &tx_env,
+                        tx_env,
                     )
                     .verify()
                     .map_err(Reject::Verification);
@@ -547,15 +587,14 @@ impl TxPoolService {
                 }
             }
         } else {
-            let consensus = snapshot.consensus();
             let is_chunk_full = self.is_chunk_full().await;
 
             let ret = block_in_place(|| {
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(&rtx),
-                    consensus,
+                    Arc::clone(&self.consensus),
                     data_loader,
-                    &tx_env,
+                    tx_env,
                 );
 
                 let (ret, fee) = verifier
@@ -645,15 +684,23 @@ impl TxPoolService {
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
+
         let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
-        let tx_env = status.with_env(tip_header);
+        let tx_env = Arc::new(status.with_env(tip_header));
 
         let verified_ret = verify_rtx(
             Arc::clone(&snapshot),
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &verify_cache,
             max_cycles,
         );
@@ -699,6 +746,14 @@ impl TxPoolService {
         let mut detached = LinkedHashSet::default();
         let mut attached = LinkedHashSet::default();
 
+        let epoch_of_next_block = snapshot
+            .tip_header()
+            .epoch()
+            .minimum_epoch_number_after_n_blocks(1);
+
+        let new_tip_after_delay = after_delay_window(&snapshot);
+        let is_in_delay_window = self.is_in_delay_window(&snapshot);
+
         let detached_headers: HashSet<Byte32> = detached_blocks
             .iter()
             .map(|blk| blk.header().hash())
@@ -713,11 +768,30 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
-        let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
+        let fetched_cache = if is_in_delay_window {
+            // If in delay_window, don't use the cache.
+            HashMap::new()
+        } else {
+            self.fetch_txs_verify_cache(retain.iter()).await
+        };
 
-        {
+        // If there are any transactions requires re-process, return them.
+        //
+        // At present, there is only one situation:
+        // - If the hardfork was happened, then re-process all transactions.
+        let txs_opt = {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
+
+            let txs_opt = if is_in_delay_window {
+                {
+                    self.chunk.write().await.clear();
+                }
+                Some(tx_pool.drain_all_transactions())
+            } else {
+                None
+            };
+
             _update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
@@ -728,8 +802,56 @@ impl TxPoolService {
                 mine_mode,
             );
 
+            // Updates network fork switch if required.
+            //
+            // This operation should be ahead of any transaction which is processed with new
+            // hardfork features.
+            if !self.network.load_ckb2023()
+                && self
+                    .consensus
+                    .hardfork_switch
+                    .ckb2023
+                    .is_vm_version_2_and_syscalls_3_enabled(epoch_of_next_block)
+            {
+                self.network.init_ckb2023()
+            }
+
             // notice: readd_detached_tx don't update cache
             self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
+
+            txs_opt
+        };
+
+        if let Some(txs) = txs_opt {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                for tx in txs {
+                    delay.insert(tx.proposal_short_id(), tx);
+                }
+            }
+        }
+
+        {
+            let delay_txs = if !self.after_delay() && new_tip_after_delay {
+                let limit = MAX_BLOCK_PROPOSALS_LIMIT as usize;
+                let mut txs = Vec::with_capacity(limit);
+                let mut delay = self.delay.write().await;
+                let keys: Vec<_> = { delay.keys().take(limit).cloned().collect() };
+                for k in keys {
+                    if let Some(v) = delay.remove(&k) {
+                        txs.push(v);
+                    }
+                }
+                if delay.is_empty() {
+                    self.set_after_delay_true();
+                }
+                Some(txs)
+            } else {
+                None
+            };
+            if let Some(txs) = delay_txs {
+                self.try_process_txs(txs).await;
+            }
         }
 
         {
@@ -758,11 +880,11 @@ impl TxPoolService {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
                     let tip_header = snapshot.tip_header();
-                    let tx_env = status.with_env(tip_header);
+                    let tx_env = Arc::new(status.with_env(tip_header));
                     if let Ok(verified) = verify_rtx(
                         snapshot,
                         Arc::clone(&rtx),
-                        &tx_env,
+                        tx_env,
                         &verify_cache,
                         max_cycles,
                     ) {
@@ -799,6 +921,32 @@ impl TxPoolService {
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
         }
+    }
+
+    // # Notice
+    //
+    // This method assumes that the inputs transactions are sorted.
+    async fn try_process_txs(&self, txs: Vec<TransactionView>) {
+        if txs.is_empty() {
+            return;
+        }
+        let total = txs.len();
+        let mut count = 0usize;
+        for tx in txs {
+            let tx_hash = tx.hash();
+            if let Err(err) = self.process_tx(tx, None).await {
+                error!("failed to process {:#x}, error: {:?}", tx_hash, err);
+                count += 1;
+            }
+        }
+        if count != 0 {
+            info!("{}/{} transactions are failed to process", count, total);
+        }
+    }
+
+    pub(crate) fn is_in_delay_window(&self, snapshot: &Snapshot) -> bool {
+        let epoch = snapshot.tip_header().epoch();
+        self.consensus.is_in_delay_window(&epoch)
     }
 }
 

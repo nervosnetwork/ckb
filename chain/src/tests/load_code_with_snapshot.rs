@@ -8,8 +8,10 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, Capacity, EpochNumberWithFraction,
-        ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes,
+        hardfork::{HardForks, CKB2021, CKB2023},
+        BlockBuilder, Capacity, EpochNumberWithFraction, ScriptHashType, TransactionBuilder,
+        TransactionView,
     },
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
     utilities::DIFF_TWO,
@@ -235,11 +237,14 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         .dao(dao)
         .build();
 
-    let hardfork_switch = HardForkSwitch::new_mirana()
-        .as_builder()
-        .rfc_0032(0)
-        .build()
-        .unwrap();
+    let hardfork_switch = HardForks {
+        ckb2021: CKB2021::new_mirana()
+            .as_builder()
+            .rfc_0032(0)
+            .build()
+            .unwrap(),
+        ckb2023: CKB2023::new_mirana().as_builder().build().unwrap(),
+    };
     let consensus = ConsensusBuilder::default()
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
         .genesis_block(genesis_block)

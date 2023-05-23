@@ -7,13 +7,18 @@ cargo install cargo-binutils
 cargo install rustfilt
 ```
 
+install cargo fuzz
+```
+cargo install cargo-fuzz
+```
+
 run fuzz test
 ```
-cargo fuzz run transaction_scripts_verifier_data1
+cargo +nightly fuzz run transaction_scripts_verifier_data1
 ```
 
 generate coverage report
 ```
-cargo fuzz coverage transaction_scripts_verifier_data1
-cargo cov -- show fuzz/target/target-tuples/release/transaction_scripts_verifier_data1 --Xdemangler=rustfilt --format=html -instr-profile=fuzz/coverage/transaction_scripts_verifier_data1/coverage.profdata --name=ckb --line-coverage-gt=1> /tmp/report.html
+cargo +nightly fuzz coverage transaction_scripts_verifier_data1
+cargo +nightly cov -- show fuzz/target/target-tuples/release/transaction_scripts_verifier_data1 --Xdemangler=rustfilt --format=html -instr-profile=fuzz/coverage/transaction_scripts_verifier_data1/coverage.profdata --name=ckb --line-coverage-gt=1> /tmp/report.html
 ```

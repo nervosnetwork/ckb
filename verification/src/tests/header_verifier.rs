@@ -4,13 +4,16 @@ use crate::header_verifier::{
 use crate::{
     BlockVersionError, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
 };
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_types::{
-    constants::BLOCK_VERSION,
-    core::{EpochNumberWithFraction, HeaderBuilder},
+    core::{
+        hardfork::{HardForks, CKB2021, CKB2023},
+        EpochNumberWithFraction, HeaderBuilder,
+    },
     packed::Header,
     prelude::*,
 };
@@ -25,18 +28,37 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 pub fn test_version() {
-    let header = HeaderBuilder::default()
-        .version((BLOCK_VERSION + 1).pack())
+    let hardfork_switch = HardForks {
+        ckb2021: CKB2021::new_mirana(),
+        ckb2023: CKB2023::new_mirana()
+            .as_builder()
+            .rfc_0146(10)
+            .build()
+            .unwrap(),
+    };
+    let consensus = ConsensusBuilder::default()
+        .hardfork_switch(hardfork_switch)
         .build();
-    let verifier = VersionVerifier::new(&header, BLOCK_VERSION);
+
+    let header = HeaderBuilder::default()
+        .version((consensus.block_version() + 1).pack())
+        .build();
+    let verifier = VersionVerifier::new(&header, &consensus);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
         BlockVersionError {
-            expected: BLOCK_VERSION,
-            actual: BLOCK_VERSION + 1
+            expected: consensus.block_version(),
+            actual: consensus.block_version() + 1
         }
     );
+    let epoch = EpochNumberWithFraction::new(10, 40, 1000);
+    let header = HeaderBuilder::default()
+        .version((consensus.block_version() + 1).pack())
+        .epoch(epoch.pack())
+        .build();
+    let verifier = VersionVerifier::new(&header, &consensus);
+    assert!(verifier.verify().is_ok());
 }
 
 #[cfg(not(disable_faketime))]

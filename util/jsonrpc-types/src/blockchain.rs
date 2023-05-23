@@ -27,6 +27,8 @@ pub enum ScriptHashType {
     Type = 1,
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
+    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+    Data2 = 3,
 }
 
 impl Default for ScriptHashType {
@@ -41,6 +43,7 @@ impl From<ScriptHashType> for core::ScriptHashType {
             ScriptHashType::Data => core::ScriptHashType::Data,
             ScriptHashType::Type => core::ScriptHashType::Type,
             ScriptHashType::Data1 => core::ScriptHashType::Data1,
+            ScriptHashType::Data2 => core::ScriptHashType::Data2,
         }
     }
 }
@@ -51,6 +54,7 @@ impl From<core::ScriptHashType> for ScriptHashType {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
             core::ScriptHashType::Data1 => ScriptHashType::Data1,
+            core::ScriptHashType::Data2 => ScriptHashType::Data2,
         }
     }
 }
@@ -61,6 +65,7 @@ impl fmt::Display for ScriptHashType {
             Self::Data => write!(f, "data"),
             Self::Type => write!(f, "type"),
             Self::Data1 => write!(f, "data1"),
+            Self::Data2 => write!(f, "data2"),
         }
     }
 }
@@ -1370,9 +1375,36 @@ pub struct Consensus {
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
-    pub hardfork_features: Vec<HardForkFeature>,
+    pub hardfork_features: HardForks,
     /// Softforks
     pub softforks: HashMap<DeploymentPos, SoftFork>,
+}
+
+/// Hardfork information
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct HardForks {
+    /// ckb2021 information
+    pub ckb2021: Vec<HardForkFeature>,
+    /// ckb2023 information
+    pub ckb2023: Vec<HardForkFeature>,
+}
+
+impl HardForks {
+    /// Returns a list of hardfork features from a hardfork switch.
+    pub fn new(hardforks: &core::hardfork::HardForks) -> Self {
+        HardForks {
+            ckb2021: vec![
+                HardForkFeature::new("0028", convert(hardforks.ckb2021.rfc_0028())),
+                HardForkFeature::new("0029", convert(hardforks.ckb2021.rfc_0029())),
+                HardForkFeature::new("0030", convert(hardforks.ckb2021.rfc_0030())),
+                HardForkFeature::new("0031", convert(hardforks.ckb2021.rfc_0031())),
+                HardForkFeature::new("0032", convert(hardforks.ckb2021.rfc_0032())),
+                HardForkFeature::new("0036", convert(hardforks.ckb2021.rfc_0036())),
+                HardForkFeature::new("0038", convert(hardforks.ckb2021.rfc_0038())),
+            ],
+            ckb2023: vec![],
+        }
+    }
 }
 
 /// The information about one hardfork feature.
@@ -1493,19 +1525,6 @@ impl HardForkFeature {
             rfc: rfc.to_owned(),
             epoch_number,
         }
-    }
-
-    /// Returns a list of hardfork features from a hardfork switch.
-    pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
-        vec![
-            Self::new("0028", convert(switch.rfc_0028())),
-            Self::new("0029", convert(switch.rfc_0029())),
-            Self::new("0030", convert(switch.rfc_0030())),
-            Self::new("0031", convert(switch.rfc_0031())),
-            Self::new("0032", convert(switch.rfc_0032())),
-            Self::new("0036", convert(switch.rfc_0036())),
-            Self::new("0038", convert(switch.rfc_0038())),
-        ]
     }
 }
 

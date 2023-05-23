@@ -28,8 +28,8 @@ use ckb_resource::{
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity,
-        Cycle, EpochNumber, EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder,
+        capacity_bytes, hardfork::HardForks, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle,
+        EpochNumber, EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder,
         TransactionView,
     },
     h256, packed,
@@ -494,12 +494,12 @@ impl ChainSpec {
     ///
     /// Verify the parameters for mainnet and testnet, because all start epoch numbers
     /// for mainnet and testnet are fixed.
-    fn build_hardfork_switch(&self) -> Result<HardForkSwitch, Box<dyn Error>> {
+    fn build_hardfork_switch(&self) -> Result<HardForks, Box<dyn Error>> {
         let config = self.params.hardfork.as_ref().cloned().unwrap_or_default();
         match self.name.as_str() {
             mainnet::CHAIN_SPEC_NAME => config.complete_mainnet(),
             testnet::CHAIN_SPEC_NAME => config.complete_testnet(),
-            _ => config.complete_with_default(EpochNumber::MAX),
+            _ => config.complete_with_dev_default(),
         }
         .map_err(Into::into)
     }
@@ -701,6 +701,15 @@ impl ChainSpec {
                     if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=data1",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+                ScriptHashType::Data2 => {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data2",
                             lock_script.code_hash(),
                         )
                         .into());

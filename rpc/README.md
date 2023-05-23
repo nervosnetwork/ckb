@@ -139,6 +139,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
+    * [Type `HardForks`](#type-hardforks)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `IndexerCell`](#type-indexercell)
@@ -1654,15 +1655,18 @@ Response
         "dao_type_hash": null,
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-        "hardfork_features": [
-            { "rfc": "0028", "epoch_number": "0x1526" },
-            { "rfc": "0029", "epoch_number": "0x0" },
-            { "rfc": "0030", "epoch_number": "0x0" },
-            { "rfc": "0031", "epoch_number": "0x0" },
-            { "rfc": "0032", "epoch_number": "0x0" },
-            { "rfc": "0036", "epoch_number": "0x0" },
-            { "rfc": "0038", "epoch_number": "0x0" }
-        ],
+        "hardfork_features": {
+            "ckb2021": [
+                { "rfc": "0028", "epoch_number": "0x1526" },
+                { "rfc": "0029", "epoch_number": "0x0" },
+                { "rfc": "0030", "epoch_number": "0x0" },
+                { "rfc": "0031", "epoch_number": "0x0" },
+                { "rfc": "0032", "epoch_number": "0x0" },
+                { "rfc": "0036", "epoch_number": "0x0" },
+                { "rfc": "0038", "epoch_number": "0x0" }
+            ],
+            "ckb2023": []
+        },
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
         "max_block_bytes": "0x91c08",
@@ -5683,7 +5687,7 @@ Consensus defines various parameters that influence chain consensus
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
 
-*   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+*   `hardfork_features`: [`HardForks`](#type-hardforks) - Hardfork features
 
 *   `softforks`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`SoftFork`](#type-softfork) `}` - Softforks
 
@@ -5906,6 +5910,19 @@ The information about one hardfork feature.
 *   `rfc`: `string` - The related RFC ID.
 
 *   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
+
+
+### Type `HardForks`
+
+Hardfork information
+
+#### Fields
+
+`HardForks` is a JSON object with the following fields.
+
+*   `ckb2021`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - ckb2021 information
+
+*   `ckb2023`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - ckb2023 information
 
 
 ### Type `Header`
@@ -6688,11 +6705,12 @@ Allowed kinds: “data”, “type” and “data1”.
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
-`ScriptHashType` is equivalent to `"data" | "type" | "data1"`.
+`ScriptHashType` is equivalent to `"data" | "type" | "data1" | "data2"`.
 
 *   Type “data” matches script code via cell data hash, and run the script code in v0 CKB VM.
 *   Type “type” matches script code via cell type script hash.
 *   Type “data1” matches script code via cell data hash, and run the script code in v1 CKB VM.
+*   Type “data2” matches script code via cell data hash, and run the script code in v2 CKB VM.
 
 
 ### Type `SerializedBlock`

@@ -421,6 +421,9 @@ fn mock_header_index(total_difficulty: u64) -> HeaderIndex {
 
 #[async_trait]
 impl CKBProtocolContext for DummyNetworkContext {
+    fn ckb2023(&self) -> bool {
+        false
+    }
     // Interact with underlying p2p service
     async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!();

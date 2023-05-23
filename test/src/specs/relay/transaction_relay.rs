@@ -88,14 +88,14 @@ impl Spec for TransactionRelayTimeout {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
         );
         net.connect(&node);
         let dummy_tx = TransactionBuilder::default().build();
         info!("Sending RelayTransactionHashes to node");
         net.send(
             &node,
-            SupportProtocols::RelayV2,
+            SupportProtocols::RelayV3,
             build_relay_tx_hashes(&[dummy_tx.hash()]),
         );
         info!("Receiving GetRelayTransactions message from node");
@@ -125,14 +125,14 @@ impl Spec for RelayInvalidTransaction {
         let mut net = Net::new(
             self.name(),
             node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
         );
         net.connect(node);
         let dummy_tx = TransactionBuilder::default().build();
         info!("Sending RelayTransactionHashes to node");
         net.send(
             node,
-            SupportProtocols::RelayV2,
+            SupportProtocols::RelayV3,
             build_relay_tx_hashes(&[dummy_tx.hash()]),
         );
         info!("Receiving GetRelayTransactions message from node");
@@ -148,7 +148,7 @@ impl Spec for RelayInvalidTransaction {
         info!("Sending RelayTransactions to node");
         net.send(
             node,
-            SupportProtocols::RelayV2,
+            SupportProtocols::RelayV3,
             build_relay_txs(&[(dummy_tx, 333)]),
         );
 
