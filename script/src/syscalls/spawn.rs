@@ -178,10 +178,10 @@ where
             machine_child
         };
 
-        // Deduct cycls used to build the machine
-        let extra_cyclse =
+        // Deduct cycles used to build the machine
+        let extra_cycles =
             SPAWN_EXTRA_CYCLES_BASE + memory_limit * SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE;
-        machine_child.machine.add_cycles_no_checking(extra_cyclse)?;
+        machine_child.machine.add_cycles_no_checking(extra_cycles)?;
 
         // Get binary.
         let program = {
