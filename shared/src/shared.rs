@@ -16,11 +16,13 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
-    core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
+    core,
+    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
     U256,
 };
+use ckb_util::shrink_to_fit;
 use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
@@ -33,6 +35,8 @@ use std::time::Duration;
 const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
 const THRESHOLD_EPOCH: EpochNumber = 2;
 const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
+
+pub const SHRINK_THRESHOLD: usize = 300;
 
 /// An owned permission to close on a freezer thread
 pub struct FreezerClose {
@@ -57,7 +61,7 @@ pub struct Shared {
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
 
-    pub(crate) header_map: Arc<HeaderMap>,
+    pub header_map: Arc<HeaderMap>,
     pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
 }
 
@@ -378,5 +382,34 @@ impl Shared {
             proposals_limit,
             max_version.map(Into::into),
         )
+    }
+
+    pub fn header_map(&self) -> &HeaderMap {
+        &self.header_map
+    }
+    pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
+        &self.block_status_map
+    }
+
+    pub fn remove_header_view(&self, hash: &Byte32) {
+        self.header_map.remove(hash);
+    }
+
+    pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
+        self.block_status_map.insert(block_hash, status);
+    }
+
+    pub fn remove_block_status(&self, block_hash: &Byte32) {
+        self.block_status_map.remove(block_hash);
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
+    }
+
+    pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
+        todo!("get_orphan_block")
+        // self.orphan_block_pool.get_block(block_hash)
+    }
+
+    pub fn orphan_pool_count(&self) -> u64 {
+        0
     }
 }
