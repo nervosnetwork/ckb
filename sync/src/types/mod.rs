@@ -1184,8 +1184,8 @@ impl SyncShared {
             // So we just simply remove the corresponding in-memory block status,
             // and the next time `get_block_status` would acquire the real-time
             // status via fetching block_ext from the database.
-            self.shared().remove_block_status(&block.as_ref().hash());
-            self.shared().remove_header_view(&block.as_ref().hash());
+            // self.shared().remove_block_status(&block.as_ref().hash());
+            // self.shared().remove_header_view(&block.as_ref().hash());
         }
 
         ret
@@ -1796,22 +1796,41 @@ impl ActiveChain {
     pub fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
         self.snapshot.is_main_chain(hash)
     }
+    pub fn is_unverified_chain(&self, hash: &packed::Byte32) -> bool {
+        self.shared()
+            .shared()
+            .store()
+            .get_block_epoch_index(hash)
+            .is_some()
+    }
 
     pub fn is_initial_block_download(&self) -> bool {
         self.shared.shared().is_initial_block_download()
     }
+    pub fn unverified_tip_header(&self) -> HeaderIndex {
+        self.shared.shared.get_unverified_tip()
+    }
+
+    pub fn unverified_tip_hash(&self) -> Byte32 {
+        self.unverified_tip_header().hash()
+    }
+
+    pub fn unverified_tip_number(&self) -> BlockNumber {
+        self.unverified_tip_header().number()
+    }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndexView> {
-        let tip_number = self.tip_number();
+        let unverified_tip_number = self.unverified_tip_number();
         self.shared
             .get_header_index_view(base, false)?
             .get_ancestor(
-                tip_number,
+                unverified_tip_number,
                 number,
                 |hash, store_first| self.shared.get_header_index_view(hash, store_first),
                 |number, current| {
                     // shortcut to return an ancestor block
-                    if current.number <= tip_number && self.snapshot().is_main_chain(&current.hash)
+                    if current.number <= unverified_tip_number
+                        && self.is_unverified_chain(&current.hash)
                     {
                         self.get_block_hash(number)
                             .and_then(|hash| self.shared.get_header_index_view(&hash, true))

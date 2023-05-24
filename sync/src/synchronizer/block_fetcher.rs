@@ -58,10 +58,15 @@ impl BlockFetcher {
         {
             header
         } else {
-            let tip_header = self.active_chain.tip_header();
-            let guess_number = min(tip_header.number(), best_known.number());
-            let guess_hash = self.active_chain.get_block_hash(guess_number)?;
-            (guess_number, guess_hash).into()
+            let unverified_tip_header = self.sync_shared.shared().get_unverified_tip();
+            if best_known.number() < unverified_tip_header.number() {
+                (best_known.number(), best_known.hash()).into()
+            } else {
+                (unverified_tip_header.number(), unverified_tip_header.hash()).into()
+            }
+            // let guess_number = min(tip_header.number(), best_known.number());
+            // let guess_hash = self.active_chain.get_block_hash(guess_number)?;
+            // (guess_number, guess_hash).into()
         };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
@@ -79,6 +84,8 @@ impl BlockFetcher {
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
+        let trace_timecost_now = std::time::Instant::now();
+
         if self.reached_inflight_limit() {
             trace!(
                 "[block_fetcher] inflight count has reached the limit, preventing further downloads from peer {}",
@@ -123,7 +130,7 @@ impl BlockFetcher {
             // last_common_header, is expected to provide a more realistic picture. Hence here we
             // specially advance this peer's last_common_header at the case of both us on the same
             // active chain.
-            if self.active_chain.is_main_chain(&best_known.hash()) {
+            if self.active_chain.is_unverified_chain(&best_known.hash()) {
                 self.sync_shared
                     .state()
                     .peers()
@@ -196,8 +203,9 @@ impl BlockFetcher {
         fetch.sort_by_key(|header| header.number());
 
         let tip = self.active_chain.tip_number();
+        let unverified_tip = self.active_chain.unverified_tip_number();
         let should_mark = fetch.last().map_or(false, |header| {
-            header.number().saturating_sub(CHECK_POINT_WINDOW) > tip
+            header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {
             inflight.mark_slow_block(tip);
@@ -205,15 +213,38 @@ impl BlockFetcher {
 
         if fetch.is_empty() {
             debug!(
-                "[block fetch empty] fixed_last_common_header = {} \
-                best_known_header = {}, tip = {}, inflight_len = {}, \
-                inflight_state = {:?}",
+                "[block fetch empty] peer-{}, fixed_last_common_header = {} \
+                best_known_header = {}, tip = {}, unverified_tip = {}, inflight_len = {}, time_cost: {}ms",
+                self.peer,
                 last_common.number(),
                 best_known.number(),
                 tip,
+                unverified_tip,
                 inflight.total_inflight_count(),
+                trace_timecost_now.elapsed().as_millis(),
+            );
+            trace!(
+                "[block fetch empty] peer-{}, inflight_state = {:?}",
+                self.peer,
                 *inflight
-            )
+            );
+        } else {
+            let fetch_head = fetch.first().map_or(0_u64.into(), |v| v.number());
+            let fetch_last = fetch.last().map_or(0_u64.into(), |v| v.number());
+            let inflight_peer_count = inflight.peer_inflight_count(self.peer);
+            let inflight_total_count = inflight.total_inflight_count();
+            debug!(
+                "request peer-{} for batch blocks: [{}-{}], batch len:{} , unverified_tip: {}, [peer/total inflight count]: [{} / {}], timecost: {}ms, blocks: {}",
+                self.peer,
+                fetch_head,
+                fetch_last,
+                fetch.len(),
+                self.synchronizer.shared().shared().get_unverified_tip().number(),
+                inflight_peer_count,
+                inflight_total_count,
+                trace_timecost_now.elapsed().as_millis(),
+                fetch.iter().map(|h| h.number().to_string()).collect::<Vec<_>>().join(","),
+                );
         }
 
         Some(
