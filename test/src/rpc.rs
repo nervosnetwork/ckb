@@ -7,7 +7,7 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate,
     BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
-    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, Timestamp,
+    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
     Transaction, TransactionProof, TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64,
     Version,
 };
@@ -148,6 +148,10 @@ impl RpcClient {
         self.inner
             .get_banned_addresses()
             .expect("rpc call get_banned_addresses")
+    }
+
+    pub fn sync_state(&self) -> SyncState {
+        self.inner.sync_state().expect("rpc call sync_state")
     }
 
     pub fn clear_banned_addresses(&self) {
@@ -322,6 +326,7 @@ jsonrpc!(
     pub fn get_current_epoch(&self) -> EpochView;
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
 
+    pub fn sync_state(&self) -> SyncState;
     pub fn local_node_info(&self) -> LocalNode;
     pub fn get_peers(&self) -> Vec<RemoteNode>;
     pub fn get_banned_addresses(&self) -> Vec<BannedAddr>;

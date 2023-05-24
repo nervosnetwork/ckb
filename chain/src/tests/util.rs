@@ -1,4 +1,4 @@
-use crate::chain::{ChainController, ChainService};
+use crate::{start_chain_services, ChainController};
 use ckb_app_config::TxPoolConfig;
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -85,8 +85,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
     let parent = {
         let snapshot = shared.snapshot();
         snapshot

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};

@@ -1,7 +1,7 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
 use ckb_app_config::NetworkConfig;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
@@ -133,8 +133,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start(Some("ChainService"));
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     (shared, chain_controller)
 }
@@ -219,7 +218,10 @@ fn bench(c: &mut Criterion) {
                                 .expect("header verified");
 
                             chain
-                                .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+                                .blocking_process_block_with_switch(
+                                    Arc::new(block),
+                                    Switch::DISABLE_EXTENSION,
+                                )
                                 .expect("process_block");
                             i -= 1;
                         }

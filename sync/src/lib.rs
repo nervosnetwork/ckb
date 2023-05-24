@@ -5,7 +5,6 @@
 
 mod filter;
 pub(crate) mod net_time_checker;
-pub(crate) mod orphan_block_pool;
 mod relayer;
 mod status;
 mod synchronizer;

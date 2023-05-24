@@ -35,7 +35,7 @@ use std::time::Instant;
 pub struct CompactBlockProcess<'a> {
     message: packed::CompactBlockReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -43,7 +43,7 @@ impl<'a> CompactBlockProcess<'a> {
     pub fn new(
         message: packed::CompactBlockReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         CompactBlockProcess {
@@ -117,16 +117,15 @@ impl<'a> CompactBlockProcess<'a> {
                         >= block.epoch().number()
                 });
                 shrink_to_fit!(pending_compact_blocks, 20);
-                let status = self
-                    .relayer
-                    .accept_block(self.nc.as_ref(), self.peer, block);
+                self.relayer
+                    .accept_block(Arc::clone(&self.nc), self.peer, block, "CompactBlock");
 
                 if let Some(metrics) = ckb_metrics::handle() {
                     metrics
                         .ckb_relay_cb_verify_duration
                         .observe(instant.elapsed().as_secs_f64());
                 }
-                status
+                Status::ok()
             }
             ReconstructionResult::Missing(transactions, uncles) => {
                 let missing_transactions: Vec<u32> =
@@ -232,7 +231,7 @@ fn contextual_check(
     compact_block_header: &HeaderView,
     shared: &Arc<SyncShared>,
     active_chain: &ActiveChain,
-    nc: &Arc<dyn CKBProtocolContext>,
+    nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 ) -> Status {
     let block_hash = compact_block_header.hash();

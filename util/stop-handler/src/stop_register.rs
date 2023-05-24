@@ -25,7 +25,7 @@ pub fn wait_all_ckb_services_exit() {
             }
         }
     }
-    debug!("All ckb threads have been stopped.");
+    info!("All ckb threads have been stopped");
 }
 
 static CKB_HANDLES: once_cell::sync::Lazy<Mutex<CkbServiceHandles>> =

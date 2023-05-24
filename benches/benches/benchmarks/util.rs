@@ -1,4 +1,4 @@
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
@@ -78,9 +78,9 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
-        chains.push((chain_service.start::<&str>(None), shared));
+        chains.push((chain_controller, shared));
     }
 
     chains
@@ -296,9 +296,9 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
-        chains.push((chain_service.start::<&str>(None), shared));
+        chains.push((chain_controller, shared));
     }
 
     chains

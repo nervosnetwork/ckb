@@ -1,6 +1,6 @@
 use crate::benchmarks::util::create_2out_transaction;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
@@ -96,8 +96,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start(Some("ChainService"));
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     // FIXME: global cache !!!
     let _ret = setup_system_cell_cache(

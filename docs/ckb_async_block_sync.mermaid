@@ -1,0 +1,81 @@
+sequenceDiagram
+  autonumber
+  participant Sr as Synchronizer::received
+  participant BP as BlockProcess
+  participant Sp as Synchronizer::poll
+  participant C as main thread
+  participant PU as PreloadUnverified thread
+  participant CV as ConsumeUnverifiedBlocks thread
+
+  box crate:ckb-sync
+    participant Sr
+    participant Sp
+    participant BP
+  end
+
+  box crate:ckb-chain
+    participant C
+    participant PU
+    participant CV
+  end
+
+  Note left of Sr: synchronizer received <br>Block(122) from remote peer
+  Note over Sr: try_process SyncMessageUnionReader::SendBlock
+  Sr ->>+ BP: BlockProcess::execute(Block(122))
+  BP ->>+ C: asynchronous_process_block(Block(122))
+  Note over C: non_contextual_verify(Block(122))
+  Note over C: insert_block(Block(122))
+  Note over C: OrphanBroker.process_lonly_block(Block(122))
+
+  alt parent is BLOCK_STORED or parent is_pending_veryfing
+    Note over C: OrphanBroker.process_lonly_block(Block(122))
+    Note over C: increase unverified_tip to Block(122)
+    C ->>+ PU: send Block(122) to PreloadUnverified via channel
+  else parent not found
+    Note over C: OrphanBroker.process_lonly_block(Block(122))
+    Note over C: insert Block(122) to OrphanBroker
+  end
+  C ->>+ PU: send Block(123) to PreloadUnverified via channel
+  C ->>- BP: return
+  BP ->>- Sr: return
+  Note left of Sr: synchronizer received <br>Block(123) from remote peer
+  Note over Sr: try_process SyncMessageUnionReader::SendBlock
+  Sr ->>+ BP: BlockProcess::execute(Block(123))
+  BP ->>+ C: asynchronous_process_block(Block(123))
+  Note over C: non_contextual_verify(Block(123))
+  Note over C: insert_block(Block(123))
+  Note over C: OrphanBroker.process_lonly_block(Block(123))
+  alt parent is BLOCK_STORED or parent is_pending_veryfing
+    Note over C: OrphanBroker.process_lonly_block(Block(123))
+    Note over C: increase unverified_tip to Block(123)
+    C ->>+ PU: send Block(123) to PreloadUnverified via channel
+  else parent not found
+    Note over C: OrphanBroker.process_lonly_block(Block(123))
+    Note over C: insert Block(123) to OrphanBroker
+  end
+  C ->>- BP: return
+  BP ->>- Sr: return
+
+  loop load unverified
+    Note over PU: receive LonelyBlockHash
+    Note over PU: load UnverifiedBlock from db
+    PU ->>+ CV: send UnverifiedBlock to ConsumeUnverifiedBlocks
+  end
+
+  loop Consume Unverified Blocks
+    Note over CV: start verify UnverifiedBlock if the channel is not empty
+    Note over CV: Verify Block in CKB VM
+
+    alt Block is Valid
+      Note over CV: remove Block block_status and HeaderMap
+    else Block is Invalid
+      Note over CV: mark block as BLOCK_INVALID in block_status_map
+      Note over CV: Decrease Unverified TIP
+    end
+
+    opt Execute Callback
+      Note over CV: execute callback to punish the malicious peer if block is invalid
+      Note over CV: callback: Box<dyn FnOnce(Result<bool , Error>) + Send + Sync>
+
+    end
+  end

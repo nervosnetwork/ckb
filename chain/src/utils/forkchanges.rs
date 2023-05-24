@@ -1,7 +1,8 @@
-use ckb_rust_unstable_port::IsSorted;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::{BlockExt, BlockView};
 use ckb_types::packed::ProposalShortId;
+#[cfg(debug_assertions)]
+use is_sorted::IsSorted;
 use std::collections::{HashSet, VecDeque};
 
 /// The struct represent fork
