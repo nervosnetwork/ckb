@@ -1,7 +1,10 @@
 use std::path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[cfg(feature = "stats")]
-use ckb_logger::trace;
+use ckb_logger::info;
+use ckb_metrics::HistogramTimer;
 #[cfg(feature = "stats")]
 use ckb_util::{Mutex, MutexGuard};
 
@@ -18,6 +21,8 @@ where
     pub(crate) backend: Backend,
     // Configuration
     memory_limit: usize,
+    // if ckb is in IBD mode, don't shrink memory map
+    ibd_finished: Arc<AtomicBool>,
     // Statistics
     #[cfg(feature = "stats")]
     stats: Mutex<HeaderMapKernelStats>,
@@ -43,7 +48,11 @@ impl<Backend> HeaderMapKernel<Backend>
 where
     Backend: KeyValueBackend,
 {
-    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize) -> Self
+    pub(crate) fn new<P>(
+        tmpdir: Option<P>,
+        memory_limit: usize,
+        ibd_finished: Arc<AtomicBool>,
+    ) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -56,6 +65,7 @@ where
                 memory,
                 backend,
                 memory_limit,
+                ibd_finished,
             }
         }
 
@@ -65,6 +75,7 @@ where
                 memory,
                 backend,
                 memory_limit,
+                ibd_finished,
                 stats: Mutex::new(HeaderMapKernelStats::new(50_000)),
             }
         }
@@ -76,8 +87,15 @@ where
             self.stats().tick_primary_contain();
         }
         if self.memory.contains_key(hash) {
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_header_map_memory_hit_miss_count.hit.inc()
+            }
             return true;
         }
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
+        }
+
         if self.backend.is_empty() {
             return false;
         }
@@ -94,8 +112,16 @@ where
             self.stats().tick_primary_select();
         }
         if let Some(view) = self.memory.get_refresh(hash) {
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_header_map_memory_hit_miss_count.hit.inc();
+            }
             return Some(view);
         }
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
+        }
+
         if self.backend.is_empty() {
             return None;
         }
@@ -130,7 +156,9 @@ where
             self.trace();
             self.stats().tick_primary_delete();
         }
-        self.memory.remove(hash);
+        // If IBD is not finished, don't shrink memory map
+        let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
+        self.memory.remove(hash, allow_shrink_to_fit);
         if self.backend.is_empty() {
             return;
         }
@@ -138,12 +166,18 @@ where
     }
 
     pub(crate) fn limit_memory(&self) {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle()
+            .map(|handle| handle.ckb_header_map_limit_memory_duration.start_timer());
+
         if let Some(values) = self.memory.front_n(self.memory_limit) {
             tokio::task::block_in_place(|| {
                 self.backend.insert_batch(&values);
             });
+
+            // If IBD is not finished, don't shrink memory map
+            let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
             self.memory
-                .remove_batch(values.iter().map(|value| value.hash()));
+                .remove_batch(values.iter().map(|value| value.hash()), allow_shrink_to_fit);
         }
     }
 
@@ -153,7 +187,7 @@ where
         let progress = stats.trace_progress();
         let frequency = stats.frequency();
         if progress % frequency == 0 {
-            trace!(
+            info!(
                 "Header Map Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\

@@ -1,334 +1,260 @@
-//! CKB chain service.
-#![allow(missing_docs)]
-
-use crate::forkchanges::ForkChanges;
-use ckb_channel::{self as channel, select, Sender};
-use ckb_error::{Error, InternalErrorKind};
+use crate::{delete_unverified_block, UnverifiedBlock};
+use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
+use ckb_channel::{select, Receiver};
+use ckb_error::{is_internal_db_error, Error, InternalErrorKind};
+use ckb_logger::internal::{log_enabled, trace};
 use ckb_logger::Level::Trace;
-use ckb_logger::{
-    self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
-};
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::shared::Shared;
-use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
+use ckb_shared::block_status::BlockStatus;
+use ckb_shared::Shared;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::{
-    core::{
-        cell::{
-            resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider,
-            ResolvedTransaction,
-        },
-        service::Request,
-        BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
-    },
-    packed::Byte32,
-    utilities::merkle_mountain_range::ChainRootMMR,
-    U256,
+use ckb_tx_pool::TxPoolController;
+use ckb_types::core::cell::{
+    resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction,
 };
+use ckb_types::core::{service::Request, BlockExt, BlockNumber, BlockView, Cycle, HeaderView};
+use ckb_types::packed::Byte32;
+use ckb_types::utilities::merkle_mountain_range::ChainRootMMR;
+use ckb_types::H256;
 use ckb_verification::cache::Completed;
-use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
+use ckb_verification::InvalidParentError;
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
-use ckb_verification_traits::{Switch, Verifier};
-#[cfg(debug_assertions)]
-use is_sorted::IsSorted;
+use ckb_verification_traits::Switch;
+use dashmap::DashSet;
+use std::cmp;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
-use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
-type TruncateRequest = Request<Byte32, Result<(), Error>>;
-
-/// Controller to the chain service.
-///
-/// The controller is internally reference-counted and can be freely cloned.
-///
-/// A controller can invoke [`ChainService`] methods.
-#[cfg_attr(feature = "mock", faux::create)]
-#[derive(Clone)]
-pub struct ChainController {
-    process_block_sender: Sender<ProcessBlockRequest>,
-    truncate_sender: Sender<TruncateRequest>, // Used for testing only
+pub(crate) struct ConsumeUnverifiedBlockProcessor {
+    pub(crate) shared: Shared,
+    pub(crate) is_pending_verify: Arc<DashSet<Byte32>>,
+    pub(crate) proposal_table: ProposalTable,
 }
 
-#[cfg_attr(feature = "mock", faux::methods)]
-impl ChainController {
-    pub fn new(
-        process_block_sender: Sender<ProcessBlockRequest>,
-        truncate_sender: Sender<TruncateRequest>,
+pub(crate) struct ConsumeUnverifiedBlocks {
+    tx_pool_controller: TxPoolController,
+
+    unverified_block_rx: Receiver<UnverifiedBlock>,
+    truncate_block_rx: Receiver<TruncateRequest>,
+
+    stop_rx: Receiver<()>,
+    processor: ConsumeUnverifiedBlockProcessor,
+}
+
+impl ConsumeUnverifiedBlocks {
+    pub(crate) fn new(
+        shared: Shared,
+        unverified_blocks_rx: Receiver<UnverifiedBlock>,
+        truncate_block_rx: Receiver<TruncateRequest>,
+        proposal_table: ProposalTable,
+        is_pending_verify: Arc<DashSet<Byte32>>,
+        stop_rx: Receiver<()>,
     ) -> Self {
-        ChainController {
-            process_block_sender,
-            truncate_sender,
-        }
-    }
-    /// Inserts the block into database.
-    ///
-    /// Expects the block's header to be valid and already verified.
-    ///
-    /// If the block already exists, does nothing and false is returned.
-    ///
-    /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
-        self.internal_process_block(block, Switch::NONE)
-    }
-
-    /// Internal method insert block for test
-    ///
-    /// switch bit flags for particular verify, make easier to generating test data
-    pub fn internal_process_block(
-        &self,
-        block: Arc<BlockView>,
-        switch: Switch,
-    ) -> Result<bool, Error> {
-        Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
-            Err(InternalErrorKind::System
-                .other("Chain service has gone")
-                .into())
-        })
-    }
-
-    /// Truncate chain to specified target
-    ///
-    /// Should use for testing only
-    pub fn truncate(&self, target_tip_hash: Byte32) -> Result<(), Error> {
-        Request::call(&self.truncate_sender, target_tip_hash).unwrap_or_else(|| {
-            Err(InternalErrorKind::System
-                .other("Chain service has gone")
-                .into())
-        })
-    }
-}
-
-pub(crate) struct GlobalIndex {
-    pub(crate) number: BlockNumber,
-    pub(crate) hash: Byte32,
-    pub(crate) unseen: bool,
-}
-
-impl GlobalIndex {
-    pub(crate) fn new(number: BlockNumber, hash: Byte32, unseen: bool) -> GlobalIndex {
-        GlobalIndex {
-            number,
-            hash,
-            unseen,
+        ConsumeUnverifiedBlocks {
+            tx_pool_controller: shared.tx_pool_controller().to_owned(),
+            unverified_block_rx: unverified_blocks_rx,
+            truncate_block_rx,
+            stop_rx,
+            processor: ConsumeUnverifiedBlockProcessor {
+                shared,
+                is_pending_verify,
+                proposal_table,
+            },
         }
     }
 
-    pub(crate) fn forward(&mut self, hash: Byte32) {
-        self.number -= 1;
-        self.hash = hash;
-    }
-}
+    pub(crate) fn start(mut self) {
+        loop {
+            let _trace_begin_loop = minstant::Instant::now();
+            select! {
+                recv(self.unverified_block_rx) -> msg => match msg {
+                    Ok(unverified_task) => {
+                        // process this unverified block
+                        if let Some(handle) = ckb_metrics::handle() {
+                            handle.ckb_chain_consume_unverified_block_waiting_block_duration.observe(_trace_begin_loop.elapsed().as_secs_f64())
+                        }
+                        let _ = self.tx_pool_controller.suspend_chunk_process();
 
-/// Chain background service
-///
-/// The ChainService provides a single-threaded background executor.
-pub struct ChainService {
-    shared: Shared,
-    proposal_table: ProposalTable,
-}
+                        let _trace_now = minstant::Instant::now();
+                        self.processor.consume_unverified_blocks(unverified_task);
+                        if let Some(handle) = ckb_metrics::handle() {
+                            handle.ckb_chain_consume_unverified_block_duration.observe(_trace_now.elapsed().as_secs_f64())
+                        }
 
-impl ChainService {
-    /// Create a new ChainService instance with shared and initial proposal_table.
-    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
-        ChainService {
-            shared,
-            proposal_table,
-        }
-    }
-
-    /// start background single-threaded service with specified thread_name.
-    pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
-        let signal_receiver = new_crossbeam_exit_rx();
-        let (process_block_sender, process_block_receiver) = channel::bounded(0);
-        let (truncate_sender, truncate_receiver) = channel::bounded(0);
-
-        // Mainly for test: give an empty thread_name
-        let mut thread_builder = thread::Builder::new();
-        if let Some(name) = thread_name {
-            thread_builder = thread_builder.name(name.to_string());
-        }
-        let tx_control = self.shared.tx_pool_controller().clone();
-
-        let chain_jh = thread_builder
-            .spawn(move || loop {
-                select! {
-                    recv(process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (block, verify) }) => {
-                            let instant = Instant::now();
-
-                            let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.process_block(block, verify));
-                            let _ = tx_control.continue_chunk_process();
-
-                            if let Some(metrics) = ckb_metrics::handle() {
-                                metrics
-                                    .ckb_block_process_duration
-                                    .observe(instant.elapsed().as_secs_f64());
-                            }
-                        },
-                        _ => {
-                            error!("process_block_receiver closed");
-                            break;
-                        },
+                        let _ = self.tx_pool_controller.continue_chunk_process();
                     },
-                    recv(truncate_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: target_tip_hash }) => {
-                            let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.truncate(&target_tip_hash));
-                            let _ = tx_control.continue_chunk_process();
-                        },
-                        _ => {
-                            error!("truncate_receiver closed");
-                            break;
-                        },
+                    Err(err) => {
+                        error!("unverified_block_rx err: {}", err);
+                        return;
                     },
-                    recv(signal_receiver) -> _ => {
-                        info!("ChainService received exit signal, exit now");
-                        break;
+                },
+                recv(self.truncate_block_rx) -> msg => match msg {
+                    Ok(Request { responder, arguments: target_tip_hash }) => {
+                        let _ = self.tx_pool_controller.suspend_chunk_process();
+                        let _ = responder.send(self.processor.truncate(&target_tip_hash));
+                        let _ = self.tx_pool_controller.continue_chunk_process();
+                    },
+                    Err(err) => {
+                        info!("truncate_block_tx has been closed,err: {}", err);
+                        return;
+                    },
+                },
+                recv(self.stop_rx) -> _ => {
+                    info!("consume_unverified_blocks thread received exit signal, exit now");
+                    break;
+                }
+
+            }
+        }
+    }
+}
+
+impl ConsumeUnverifiedBlockProcessor {
+    pub(crate) fn consume_unverified_blocks(&mut self, unverified_block: UnverifiedBlock) {
+        let UnverifiedBlock {
+            block,
+            switch,
+            verify_callback,
+            parent_header,
+        } = unverified_block;
+        let block_hash = block.hash();
+        // process this unverified block
+        let verify_result = self.verify_block(&block, &parent_header, switch);
+        match &verify_result {
+            Ok(_) => {
+                let log_now = std::time::Instant::now();
+                self.shared.remove_block_status(&block_hash);
+                let log_elapsed_remove_block_status = log_now.elapsed();
+                self.shared.remove_header_view(&block_hash);
+                debug!(
+                    "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
+                    block_hash,
+                    log_elapsed_remove_block_status,
+                    log_now.elapsed()
+                );
+            }
+            Err(err) => {
+                error!("verify block {} failed: {}", block_hash, err);
+
+                let tip = self
+                    .shared
+                    .store()
+                    .get_tip_header()
+                    .expect("tip_header must exist");
+                let tip_ext = self
+                    .shared
+                    .store()
+                    .get_block_ext(&tip.hash())
+                    .expect("tip header's ext must exist");
+
+                self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
+                    tip.number(),
+                    tip.hash(),
+                    tip_ext.total_difficulty,
+                ));
+
+                self.delete_unverified_block(&block);
+
+                if !is_internal_db_error(err) {
+                    self.shared
+                        .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                } else {
+                    error!("internal db error, remove block status: {}", block_hash);
+                    self.shared.remove_block_status(&block_hash);
+                }
+
+                error!(
+                    "set_unverified tip to {}-{}, because verify {} failed: {}",
+                    tip.number(),
+                    tip.hash(),
+                    block_hash,
+                    err
+                );
+            }
+        }
+
+        self.is_pending_verify.remove(&block_hash);
+
+        if let Some(callback) = verify_callback {
+            callback(verify_result);
+        }
+    }
+
+    fn delete_unverified_block(&self, block: &BlockView) {
+        delete_unverified_block(
+            self.shared.store(),
+            block.hash(),
+            block.number(),
+            block.parent_hash(),
+        )
+    }
+
+    fn verify_block(
+        &mut self,
+        block: &BlockView,
+        parent_header: &HeaderView,
+        switch: Option<Switch>,
+    ) -> VerifyResult {
+        let switch: Switch = switch.unwrap_or_else(|| {
+            let mut assume_valid_target = self.shared.assume_valid_target();
+            match *assume_valid_target {
+                Some(ref target) => {
+                    // if the target has been reached, delete it
+                    if target
+                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block))
+                    {
+                        assume_valid_target.take();
+                        Switch::NONE
+                    } else {
+                        Switch::DISABLE_SCRIPT
                     }
                 }
-            })
-            .expect("Start ChainService failed");
+                None => Switch::NONE,
+            }
+        });
 
-        register_thread("ChainService", chain_jh);
-
-        ChainController::new(process_block_sender, truncate_sender)
-    }
-
-    fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
-        let mut fork = ForkChanges::default();
-        let store = self.shared.store();
-        for bn in (target.number() + 1)..=current_tip.number() {
-            let hash = store.get_block_hash(bn).expect("index checked");
-            let old_block = store.get_block(&hash).expect("index checked");
-            fork.detached_blocks.push_back(old_block);
-        }
-        is_sorted_assert(&fork);
-        fork
-    }
-
-    // Truncate the main chain
-    // Use for testing only, can only truncate less than 50000 blocks each time
-    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
-        let snapshot = Arc::clone(&self.shared.snapshot());
-        assert!(snapshot.is_main_chain(target_tip_hash));
-
-        let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
-        let target_block_ext = snapshot.get_block_ext(target_tip_hash).expect("checked");
-        let target_epoch_ext = snapshot
-            .get_block_epoch_index(target_tip_hash)
-            .and_then(|index| snapshot.get_epoch_ext(&index))
-            .expect("checked");
-        let origin_proposals = snapshot.proposals();
-
-        let block_count = snapshot
-            .tip_header()
-            .number()
-            .saturating_sub(target_tip_header.number());
-
-        if block_count > 5_0000 {
-            let err = format!(
-                "trying to truncate too many blocks: {}, exceed 50000",
-                block_count
-            );
-            return Err(InternalErrorKind::Database.other(err).into());
-        }
-        let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
-
-        let db_txn = self.shared.store().begin_transaction();
-        self.rollback(&fork, &db_txn)?;
-
-        db_txn.insert_tip_header(&target_tip_header)?;
-        db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
-
-        // Currently, we only move the target tip header here, we don't delete the block for performance
-        // TODO: delete the blocks if we need in the future
-
-        db_txn.commit()?;
-
-        self.update_proposal_table(&fork);
-        let (detached_proposal_id, new_proposals) = self
-            .proposal_table
-            .finalize(origin_proposals, target_tip_header.number());
-        fork.detached_proposal_id = detached_proposal_id;
-
-        let new_snapshot = self.shared.new_snapshot(
-            target_tip_header,
-            target_block_ext.total_difficulty,
-            target_epoch_ext,
-            new_proposals,
-        );
-
-        self.shared.store_snapshot(Arc::clone(&new_snapshot));
-
-        // NOTE: Dont update tx-pool when truncate
-        Ok(())
-    }
-
-    // visible pub just for test
-    #[doc(hidden)]
-    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let block_number = block.number();
         let block_hash = block.hash();
+        let parent_hash = block.parent_hash();
 
-        debug!("Begin processing block: {}-{}", block_number, block_hash);
-        if block_number < 1 {
-            warn!("Receive 0 number block: 0-{}", block_hash);
+        {
+            let parent_status = self.shared.get_block_status(&parent_hash);
+            if parent_status.eq(&BlockStatus::BLOCK_INVALID) {
+                return Err(InternalErrorKind::Other
+                    .other(format!(
+                        "block: {}'s parent: {} previously verified failed",
+                        block_hash, parent_hash
+                    ))
+                    .into());
+            }
         }
 
-        self.insert_block(block, switch).map(|ret| {
-            debug!("Finish processing block");
-            ret
-        })
-    }
+        let parent_ext = self.shared.store().get_block_ext(&parent_hash).ok_or(
+            InternalErrorKind::Other.other(format!(
+                "block: {}'s parent: {}'s block ext not found",
+                block_hash, parent_hash
+            )),
+        )?;
 
-    fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
-        let consensus = self.shared.consensus();
-        BlockVerifier::new(consensus).verify(block).map_err(|e| {
-            debug!("[process_block] BlockVerifier error {:?}", e);
-            e
-        })?;
-
-        NonContextualBlockTxsVerifier::new(consensus)
-            .verify(block)
-            .map_err(|e| {
+        if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
+            if let Some(verified) = ext.verified {
                 debug!(
-                    "[process_block] NonContextualBlockTxsVerifier error {:?}",
-                    e
+                    "block {}-{} has been verified, previously verified result: {}",
+                    block.number(),
+                    block.hash(),
+                    verified
                 );
-                e
-            })
-            .map(|_| ())
-    }
-
-    fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let db_txn = Arc::new(self.shared.store().begin_transaction());
-        let txn_snapshot = db_txn.get_snapshot();
-        let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
-
-        // insert_block are assumed be executed in single thread
-        if txn_snapshot.block_exists(&block.header().hash()) {
-            return Ok(false);
+                return if verified {
+                    Ok(false)
+                } else {
+                    Err(InternalErrorKind::Other
+                        .other("block previously verified failed")
+                        .into())
+                };
+            }
         }
-        // non-contextual verify
-        if !switch.disable_non_contextual() {
-            self.non_contextual_verify(&block)?;
-        }
-
-        let mut total_difficulty = U256::zero();
-        let mut fork = ForkChanges::default();
-
-        let parent_ext = txn_snapshot
-            .get_block_ext(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
-
-        let parent_header = txn_snapshot
-            .get_block_header(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
 
         let cannon_total_difficulty =
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
@@ -340,16 +266,6 @@ impl ChainService {
             .into());
         }
 
-        db_txn.insert_block(&block)?;
-
-        let next_block_epoch = self
-            .shared
-            .consensus()
-            .next_epoch_ext(&parent_header, &txn_snapshot.borrow_as_data_loader())
-            .expect("epoch should be stored");
-        let new_epoch = next_block_epoch.is_head();
-        let epoch = next_block_epoch.epoch();
-
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
@@ -360,6 +276,28 @@ impl ChainService {
             txs_sizes: None,
         };
 
+        let shared_snapshot = Arc::clone(&self.shared.snapshot());
+        let origin_proposals = shared_snapshot.proposals();
+        let current_tip_header = shared_snapshot.tip_header();
+        let current_total_difficulty = shared_snapshot.total_difficulty().to_owned();
+
+        // is_better_than
+        let new_best_block = cannon_total_difficulty > current_total_difficulty;
+
+        let mut fork = ForkChanges::default();
+
+        let next_block_epoch = self
+            .shared
+            .consensus()
+            .next_epoch_ext(parent_header, &self.shared.store().borrow_as_data_loader())
+            .expect("epoch should be stored");
+        let new_epoch = next_block_epoch.is_head();
+        let epoch = next_block_epoch.epoch();
+
+        let db_txn = Arc::new(self.shared.store().begin_transaction());
+        let txn_snapshot = db_txn.get_snapshot();
+        let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
+
         db_txn.insert_block_epoch_index(
             &block.header().hash(),
             &epoch.last_block_hash_in_previous_epoch(),
@@ -368,38 +306,30 @@ impl ChainService {
             db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         }
 
-        let shared_snapshot = Arc::clone(&self.shared.snapshot());
-        let origin_proposals = shared_snapshot.proposals();
-        let current_tip_header = shared_snapshot.tip_header();
-
-        let current_total_difficulty = shared_snapshot.total_difficulty().to_owned();
-        debug!(
-            "Current difficulty = {:#x}, cannon = {:#x}",
-            current_total_difficulty, cannon_total_difficulty,
-        );
-
-        // is_better_than
-        let new_best_block = cannon_total_difficulty > current_total_difficulty;
-
         if new_best_block {
-            debug!(
-                "Newly found best block : {} => {:#x}, difficulty diff = {:#x}",
+            info!(
+                "[verify block] new best block found: {} => {:#x}, difficulty diff = {:#x}, unverified_tip: {}",
                 block.header().number(),
                 block.header().hash(),
-                &cannon_total_difficulty - &current_total_difficulty
+                &cannon_total_difficulty - &current_total_difficulty,
+                self.shared.get_unverified_tip().number(),
             );
-            self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
+            self.find_fork(&mut fork, current_tip_header.number(), block, ext);
             self.rollback(&fork, &db_txn)?;
 
             // update and verify chain root
             // MUST update index before reconcile_main_chain
+            let begin_reconcile_main_chain = std::time::Instant::now();
             self.reconcile_main_chain(Arc::clone(&db_txn), &mut fork, switch)?;
+            trace!(
+                "reconcile_main_chain cost {:?}",
+                begin_reconcile_main_chain.elapsed()
+            );
 
             db_txn.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
                 db_txn.insert_current_epoch_ext(&epoch)?;
             }
-            total_difficulty = cannon_total_difficulty.clone();
         } else {
             db_txn.insert_block_ext(&block.header().hash(), &ext)?;
         }
@@ -412,7 +342,7 @@ impl ChainService {
                 tip_header.number(),
                 tip_header.hash(),
                 tip_header.epoch(),
-                total_difficulty,
+                cannon_total_difficulty,
                 block.transactions().len()
             );
 
@@ -424,7 +354,7 @@ impl ChainService {
 
             let new_snapshot =
                 self.shared
-                    .new_snapshot(tip_header, total_difficulty, epoch, new_proposals);
+                    .new_snapshot(tip_header, cannon_total_difficulty, epoch, new_proposals);
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
@@ -436,15 +366,14 @@ impl ChainService {
                     fork.detached_proposal_id().clone(),
                     new_snapshot,
                 ) {
-                    error!("Notify update_tx_pool_for_reorg error {}", e);
+                    error!("[verify block] notify update_tx_pool_for_reorg error {}", e);
                 }
             }
 
-            let block_ref: &BlockView = &block;
             self.shared
                 .notify_controller()
-                .notify_new_block(block_ref.clone());
-            if log_enabled!(ckb_logger::Level::Debug) {
+                .notify_new_block(block.to_owned());
+            if log_enabled!(ckb_logger::Level::Trace) {
                 self.print_chain(10);
             }
             if let Some(metrics) = ckb_metrics::handle() {
@@ -453,7 +382,7 @@ impl ChainService {
         } else {
             self.shared.refresh_snapshot();
             info!(
-                "uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
+                "[verify block] uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
                 block.header().number(),
                 block.header().hash(),
                 block.header().epoch(),
@@ -463,13 +392,11 @@ impl ChainService {
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
-                let block_ref: &BlockView = &block;
-                if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
-                    error!("Notify new_uncle error {}", e);
+                if let Err(e) = tx_pool_controller.notify_new_uncle(block.as_uncle()) {
+                    error!("[verify block] notify new_uncle error {}", e);
                 }
             }
         }
-
         Ok(true)
     }
 
@@ -506,7 +433,7 @@ impl ChainService {
             let proposal_start =
                 cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
 
-            debug!("Reload_proposal_table [{}, {}]", proposal_start, common);
+            debug!("reload_proposal_table [{}, {}]", proposal_start, common);
             for bn in proposal_start..=common {
                 let blk = self
                     .shared
@@ -697,7 +624,13 @@ impl ChainService {
         {
             if !switch.disable_all() {
                 if found_error.is_none() {
+                    let log_now = std::time::Instant::now();
                     let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
+                    debug!(
+                        "resolve_block_transactions {} cost: {:?}",
+                        b.hash(),
+                        log_now.elapsed()
+                    );
                     match resolved {
                         Ok(resolved) => {
                             let verified = {
@@ -708,7 +641,14 @@ impl ChainService {
                                     Arc::clone(&txs_verify_cache),
                                     &mmr,
                                 );
-                                contextual_block_verifier.verify(&resolved, b)
+                                let log_now = std::time::Instant::now();
+                                let verify_result = contextual_block_verifier.verify(&resolved, b);
+                                debug!(
+                                    "contextual_block_verifier {} cost: {:?}",
+                                    b.hash(),
+                                    log_now.elapsed()
+                                );
+                                verify_result
                             };
                             match verified {
                                 Ok((cycles, cache_entries)) => {
@@ -860,13 +800,13 @@ impl ChainService {
 
     fn print_error(&self, b: &BlockView, err: &Error) {
         error!(
-            "Block verify error. Block number: {}, hash: {}, error: {:?}",
+            "block verify error, block number: {}, hash: {}, error: {:?}",
             b.header().number(),
             b.header().hash(),
             err
         );
         if log_enabled!(ckb_logger::Level::Trace) {
-            trace!("Block {}", b.data());
+            trace!("block {}", b);
         }
     }
 
@@ -888,6 +828,64 @@ impl ChainService {
         }
 
         debug!("}}");
+    }
+
+    fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {
+        let mut fork = ForkChanges::default();
+        let store = self.shared.store();
+        for bn in (target.number() + 1)..=current_tip.number() {
+            let hash = store.get_block_hash(bn).expect("index checked");
+            let old_block = store.get_block(&hash).expect("index checked");
+            fork.detached_blocks.push_back(old_block);
+        }
+        is_sorted_assert(&fork);
+        fork
+    }
+
+    // Truncate the main chain
+    // Use for testing only
+    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
+        let snapshot = Arc::clone(&self.shared.snapshot());
+        assert!(snapshot.is_main_chain(target_tip_hash));
+
+        let target_tip_header = snapshot.get_block_header(target_tip_hash).expect("checked");
+        let target_block_ext = snapshot.get_block_ext(target_tip_hash).expect("checked");
+        let target_epoch_ext = snapshot
+            .get_block_epoch_index(target_tip_hash)
+            .and_then(|index| snapshot.get_epoch_ext(&index))
+            .expect("checked");
+        let origin_proposals = snapshot.proposals();
+        let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
+
+        let db_txn = self.shared.store().begin_transaction();
+        self.rollback(&fork, &db_txn)?;
+
+        db_txn.insert_tip_header(&target_tip_header)?;
+        db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
+
+        for blk in fork.attached_blocks() {
+            db_txn.delete_block(blk)?;
+        }
+        db_txn.commit()?;
+
+        self.update_proposal_table(&fork);
+        let (detached_proposal_id, new_proposals) = self
+            .proposal_table
+            .finalize(origin_proposals, target_tip_header.number());
+        fork.detached_proposal_id = detached_proposal_id;
+
+        let new_snapshot = self.shared.new_snapshot(
+            target_tip_header,
+            target_block_ext.total_difficulty,
+            target_epoch_ext,
+            new_proposals,
+        );
+
+        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+
+        // NOTE: Dont update tx-pool when truncate
+
+        Ok(())
     }
 }
 

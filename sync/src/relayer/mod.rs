@@ -20,14 +20,16 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
-use crate::types::{ActiveChain, SyncShared};
-use crate::utils::{
-    is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
-};
+use crate::types::{post_sync_process, ActiveChain, SyncShared};
+use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
-use ckb_chain::chain::ChainController;
+use ckb_chain::VerifyResult;
+use ckb_chain::{ChainController, RemoteBlock};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
-use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
+use ckb_error::is_internal_db_error;
+use ckb_logger::{
+    debug, debug_target, error, error_target, info_target, trace_target, warn_target,
+};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
@@ -71,7 +73,6 @@ pub enum ReconstructionResult {
 }
 
 /// Relayer protocol handle
-#[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
@@ -88,6 +89,7 @@ impl Relayer {
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
+
         Relayer {
             chain,
             shared,
@@ -284,128 +286,73 @@ impl Relayer {
     #[allow(clippy::needless_collect)]
     pub fn accept_block(
         &self,
-        nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer_id: PeerIndex,
         block: core::BlockView,
-    ) -> Status {
+        msg_name: &str,
+    ) {
         if self
             .shared()
             .active_chain()
             .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
         {
-            return Status::ok();
+            return;
         }
 
-        let boxed: Arc<BlockView> = Arc::new(block);
-        match self
-            .shared()
-            .insert_new_block(&self.chain, Arc::clone(&boxed))
-        {
-            Ok(true) => self.broadcast_compact_block(nc, peer, &boxed),
-            Ok(false) => debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "Relayer accept_block received an uncle block, don't broadcast compact block"
-            ),
-            Err(err) => {
-                if !is_internal_db_error(&err) {
-                    return StatusCode::BlockIsInvalid.with_context(format!(
-                        "{}, error: {}",
-                        boxed.hash(),
-                        err,
-                    ));
-                }
-            }
-        }
-        Status::ok()
-    }
+        let block = Arc::new(block);
 
-    fn broadcast_compact_block(
-        &self,
-        nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
-        boxed: &Arc<BlockView>,
-    ) {
-        debug_target!(
-            crate::LOG_TARGET_RELAY,
-            "[block_relay] relayer accept_block {} {}",
-            boxed.header().hash(),
-            unix_time_as_millis()
-        );
-        let block_hash = boxed.hash();
-        self.shared().state().remove_header_view(&block_hash);
-        let cb = packed::CompactBlock::build_from_block(boxed, &HashSet::new());
-        let message = packed::RelayMessage::new_builder().set(cb).build();
-
-        let selected_peers: Vec<PeerIndex> = nc
-            .connected_peers()
-            .into_iter()
-            .filter(|target_peer| peer != *target_peer)
-            .take(MAX_RELAY_PEERS)
-            .collect();
-        if let Err(err) = nc.quick_filter_broadcast(
-            TargetSession::Multi(Box::new(selected_peers.into_iter())),
-            message.as_bytes(),
-        ) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "relayer send block when accept block error: {:?}",
-                err,
-            );
-            let block_hash = boxed.hash();
-            self.shared().shared().remove_header_view(&block_hash);
-            let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
-            let message = packed::RelayMessage::new_builder().set(cb).build();
-
-        if let Some(p2p_control) = nc.p2p_control() {
-            let snapshot = self.shared.shared().snapshot();
-            let parent_chain_root = {
-                let mmr = snapshot.chain_root_mmr(boxed.header().number() - 1);
-                match mmr.get_root() {
-                    Ok(root) => root,
-                    Err(err) => {
-                        error_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "Generate last state to light client failed: {:?}",
-                            err
+        let verify_callback = {
+            let nc: Arc<dyn CKBProtocolContext + Sync> = Arc::clone(&nc);
+            let block = Arc::clone(&block);
+            let shared = Arc::clone(self.shared());
+            let msg_name = msg_name.to_owned();
+            Box::new(move |result: VerifyResult| match result {
+                Ok(verified) => {
+                    if !verified {
+                        debug!(
+                            "block {}-{} has verified already, won't build compact block and broadcast it",
+                            block.number(),
+                            block.hash()
                         );
                         return;
                     }
-                }
-            };
 
-            let tip_header = packed::VerifiableHeader::new_builder()
-                .header(boxed.header().data())
-                .uncles_hash(boxed.calc_uncles_hash())
-                .extension(Pack::pack(&boxed.extension()))
-                .parent_chain_root(parent_chain_root)
-                .build();
-            let light_client_message = {
-                let content = packed::SendLastState::new_builder()
-                    .last_header(tip_header)
-                    .build();
-                packed::LightClientMessage::new_builder()
-                    .set(content)
-                    .build()
-            };
-            let light_client_peers: HashSet<PeerIndex> = nc
-                .connected_peers()
-                .into_iter()
-                .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
-                .filter(|(_id, peer)| peer.if_lightclient_subscribed)
-                .map(|(id, _)| id)
-                .collect();
-            if let Err(err) = p2p_control.filter_broadcast(
-                TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
-                SupportProtocols::LightClient.protocol_id(),
-                light_client_message.as_bytes(),
-            ) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send last state to light client when accept block, error: {:?}",
-                    err,
-                );
-            }
-        }
+                    build_and_broadcast_compact_block(nc.as_ref(), shared.shared(), peer_id, block);
+                }
+                Err(err) => {
+                    error!(
+                        "verify block {}-{} failed: {:?}, won't build compact block and broadcast it",
+                        block.number(),
+                        block.hash(),
+                            err
+                    );
+
+                    let is_internal_db_error = is_internal_db_error(&err);
+                    if is_internal_db_error {
+                        return;
+                    }
+
+                    // punish the malicious peer
+                    post_sync_process(
+                        nc.as_ref(),
+                        peer_id,
+                        &msg_name,
+                        StatusCode::BlockIsInvalid.with_context(format!(
+                            "block {} is invalid, reason: {}",
+                            block.hash(),
+                            err
+                        )),
+                    );
+                }
+            })
+        };
+
+        let remote_block = RemoteBlock {
+            block,
+            verify_callback,
+        };
+
+        self.shared.accept_remote_block(&self.chain, remote_block);
     }
 
     /// Reorganize the full block according to the compact block/txs/uncles
@@ -516,7 +463,10 @@ impl Relayer {
                     }
                 }
                 BlockStatus::BLOCK_RECEIVED => {
-                    if let Some(uncle) = self.shared.shared().get_orphan_block(&uncle_hash) {
+                    if let Some(uncle) = self
+                        .chain
+                        .get_orphan_block(self.shared().store(), &uncle_hash)
+                    {
                         uncles.push(uncle.as_uncle().data());
                     } else {
                         debug_target!(
@@ -782,6 +732,92 @@ impl Relayer {
                     err,
                 );
             }
+        }
+    }
+}
+
+fn build_and_broadcast_compact_block(
+    nc: &dyn CKBProtocolContext,
+    shared: &Shared,
+    peer: PeerIndex,
+    block: Arc<BlockView>,
+) {
+    debug_target!(
+        crate::LOG_TARGET_RELAY,
+        "[block_relay] relayer accept_block {} {}",
+        block.header().hash(),
+        unix_time_as_millis()
+    );
+    let block_hash = block.hash();
+    shared.remove_header_view(&block_hash);
+    let cb = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+    let message = packed::RelayMessage::new_builder().set(cb).build();
+
+    let selected_peers: Vec<PeerIndex> = nc
+        .connected_peers()
+        .into_iter()
+        .filter(|target_peer| peer != *target_peer)
+        .take(MAX_RELAY_PEERS)
+        .collect();
+    if let Err(err) = nc.quick_filter_broadcast(
+        TargetSession::Multi(Box::new(selected_peers.into_iter())),
+        message.as_bytes(),
+    ) {
+        debug_target!(
+            crate::LOG_TARGET_RELAY,
+            "relayer send block when accept block error: {:?}",
+            err,
+        );
+    }
+
+    if let Some(p2p_control) = nc.p2p_control() {
+        let snapshot = shared.snapshot();
+        let parent_chain_root = {
+            let mmr = snapshot.chain_root_mmr(block.header().number() - 1);
+            match mmr.get_root() {
+                Ok(root) => root,
+                Err(err) => {
+                    error_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "Generate last state to light client failed: {:?}",
+                        err
+                    );
+                    return;
+                }
+            }
+        };
+
+        let tip_header = packed::VerifiableHeader::new_builder()
+            .header(block.header().data())
+            .uncles_hash(block.calc_uncles_hash())
+            .extension(Pack::pack(&block.extension()))
+            .parent_chain_root(parent_chain_root)
+            .build();
+        let light_client_message = {
+            let content = packed::SendLastState::new_builder()
+                .last_header(tip_header)
+                .build();
+            packed::LightClientMessage::new_builder()
+                .set(content)
+                .build()
+        };
+        let light_client_peers: HashSet<PeerIndex> = nc
+            .connected_peers()
+            .into_iter()
+            .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
+            .filter(|(_id, peer)| peer.if_lightclient_subscribed)
+            .map(|(id, _)| id)
+            .collect();
+        if let Err(err) = p2p_control.filter_broadcast(
+            TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+            SupportProtocols::LightClient.protocol_id(),
+            light_client_message.as_bytes(),
+        ) {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "relayer send last state to light client when accept block, error: {:?}",
+                err,
+            );
         }
     }
 }

@@ -2,14 +2,17 @@ use crate::global::binary;
 use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
-use ckb_app_config::CKBAppConfig;
+use ckb_app_config::{AppConfig, CKBAppConfig, ExitCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
 use ckb_logger::{debug, error, info};
+use ckb_network::multiaddr::Multiaddr;
 use ckb_resource::Resource;
+use ckb_shared::shared_builder::open_or_create_db;
+use ckb_store::ChainDB;
 use ckb_types::{
     bytes,
     core::{
@@ -19,19 +22,19 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
-use std::borrow::Borrow;
-use std::collections::HashSet;
-use std::convert::Into;
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_C_EVENT};
 
-struct ProcessGuard {
+pub(crate) struct ProcessGuard {
     pub name: String,
     pub child: Child,
     pub killed: bool,
@@ -49,7 +52,12 @@ impl Drop for ProcessGuard {
     }
 }
 
+#[derive(Clone)]
 pub struct Node {
+    inner: Arc<InnerNode>,
+}
+
+pub struct InnerNode {
     spec_node_name: String,
     working_dir: PathBuf,
     consensus: Consensus,
@@ -57,8 +65,8 @@ pub struct Node {
     rpc_client: RpcClient,
     rpc_listen: String,
 
-    node_id: Option<String>,     // initialize when starts node
-    guard: Option<ProcessGuard>, // initialize when starts node
+    node_id: RwLock<Option<String>>, // initialize when starts node
+    guard: RwLock<Option<ProcessGuard>>, // initialize when starts node
 }
 
 impl Node {
@@ -108,7 +116,7 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
@@ -121,7 +129,7 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     // Initialize Node instance based on working directory
@@ -153,44 +161,51 @@ impl Node {
             chain_spec.build_consensus().unwrap()
         };
         Self {
-            spec_node_name,
-            working_dir,
-            consensus,
-            p2p_listen,
-            rpc_client,
-            rpc_listen,
-            node_id: None,
-            guard: None,
+            inner: Arc::new(InnerNode {
+                spec_node_name,
+                working_dir,
+                consensus,
+                p2p_listen,
+                rpc_client,
+                rpc_listen,
+                node_id: RwLock::new(None),
+                guard: RwLock::new(None),
+            }),
         }
     }
 
     pub fn rpc_client(&self) -> &RpcClient {
-        &self.rpc_client
+        &self.inner.rpc_client
     }
 
     pub fn working_dir(&self) -> PathBuf {
-        self.working_dir.clone()
+        self.inner.working_dir.clone()
     }
 
     pub fn log_path(&self) -> PathBuf {
         self.working_dir().join("data/logs/run.log")
     }
 
-    pub fn node_id(&self) -> &str {
+    pub fn node_id(&self) -> String {
         // peer_id.to_base58()
-        self.node_id.as_ref().expect("uninitialized node_id")
+        self.inner
+            .node_id
+            .read()
+            .expect("read locked node_id")
+            .clone()
+            .expect("uninitialized node_id")
     }
 
     pub fn consensus(&self) -> &Consensus {
-        &self.consensus
+        &self.inner.consensus
     }
 
     pub fn p2p_listen(&self) -> String {
-        self.p2p_listen.clone()
+        self.inner.p2p_listen.clone()
     }
 
     pub fn rpc_listen(&self) -> String {
-        self.rpc_listen.clone()
+        self.inner.rpc_listen.clone()
     }
 
     pub fn p2p_address(&self) -> String {
@@ -255,7 +270,7 @@ impl Node {
 
     pub fn connect(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_listen());
+            .add_node(peer.node_id(), peer.p2p_listen());
         let connected = wait_until(5, || {
             self.rpc_client()
                 .get_peers()
@@ -269,7 +284,7 @@ impl Node {
 
     pub fn connect_uncheck(&self, peer: &Self) {
         self.rpc_client()
-            .add_node(peer.node_id().to_string(), peer.p2p_listen());
+            .add_node(peer.node_id(), peer.p2p_listen());
     }
 
     // workaround for banned address checking (because we are using loopback address)
@@ -282,7 +297,7 @@ impl Node {
             rpc_client.get_banned_addresses().is_empty(),
             "banned addresses should be empty"
         );
-        rpc_client.add_node(peer.node_id().to_string(), peer.p2p_listen());
+        rpc_client.add_node(peer.node_id(), peer.p2p_listen());
         let result = wait_until(10, || {
             let banned_addresses = rpc_client.get_banned_addresses();
             let result = !banned_addresses.is_empty();
@@ -301,7 +316,7 @@ impl Node {
 
     // TODO it will be removed out later, in another PR
     pub fn disconnect(&self, peer: &Self) {
-        self.rpc_client().remove_node(peer.node_id().to_string());
+        self.rpc_client().remove_node(peer.node_id());
         let disconnected = wait_until(5, || {
             self.rpc_client()
                 .get_peers()
@@ -681,20 +696,104 @@ impl Node {
 
         self.wait_tx_pool_ready();
 
-        self.guard = Some(ProcessGuard {
-            name: self.spec_node_name.clone(),
+        self.set_process_guard(ProcessGuard {
+            name: self.inner.spec_node_name.clone(),
             child: child_process,
             killed: false,
         });
-        self.node_id = Some(node_info.node_id);
+        self.set_node_id(node_info.node_id.as_str());
+    }
+
+    pub(crate) fn set_process_guard(&mut self, guard: ProcessGuard) {
+        let mut g = self.inner.guard.write().unwrap();
+        *g = Some(guard);
+    }
+
+    pub(crate) fn set_node_id(&mut self, node_id: &str) {
+        let mut n = self.inner.node_id.write().unwrap();
+        *n = Some(node_id.to_owned());
+    }
+
+    pub(crate) fn take_guard(&mut self) -> Option<ProcessGuard> {
+        let mut g = self.inner.guard.write().unwrap();
+        g.take()
     }
 
     pub fn stop(&mut self) {
-        drop(self.guard.take())
+        drop(self.take_guard());
+    }
+
+    fn derive_options(
+        &self,
+        mut config: CKBAppConfig,
+        root_dir: &Path,
+        subcommand_name: &str,
+    ) -> Result<CKBAppConfig, ExitCode> {
+        config.root_dir = root_dir.to_path_buf();
+
+        config.data_dir = root_dir.join(config.data_dir);
+
+        config.db.adjust(root_dir, &config.data_dir, "db");
+        config.ancient = config.data_dir.join("ancient");
+
+        config.network.path = config.data_dir.join("network");
+        if config.tmp_dir.is_none() {
+            config.tmp_dir = Some(config.data_dir.join("tmp"));
+        }
+        config.logger.log_dir = config.data_dir.join("logs");
+        config.logger.file = Path::new(&(subcommand_name.to_string() + ".log")).to_path_buf();
+
+        let tx_pool_path = config.data_dir.join("tx_pool");
+        config.tx_pool.adjust(root_dir, tx_pool_path);
+
+        let indexer_path = config.data_dir.join("indexer");
+        config.indexer.adjust(root_dir, indexer_path);
+
+        config.chain.spec.absolutize(root_dir);
+
+        Ok(config)
+    }
+
+    pub fn access_db<F>(&self, f: F)
+    where
+        F: Fn(&ChainDB),
+    {
+        info!("accessing db");
+        info!("AppConfig load_for_subcommand {:?}", self.working_dir());
+
+        let resource = Resource::ckb_config(self.working_dir());
+        let app_config =
+            CKBAppConfig::load_from_slice(&resource.get().expect("resource")).expect("app config");
+
+        let config = AppConfig::CKB(Box::new(
+            self.derive_options(app_config, self.working_dir().as_ref(), "run")
+                .expect("app config"),
+        ));
+
+        let consensus = config
+            .chain_spec()
+            .expect("spec")
+            .build_consensus()
+            .expect("consensus");
+
+        let app_config = config.into_ckb().expect("app config");
+
+        let db = open_or_create_db(
+            "ckb",
+            &app_config.root_dir,
+            &app_config.db,
+            consensus.hardfork_switch().clone(),
+        )
+        .expect("open_or_create_db");
+        let chain_db = ChainDB::new(db, app_config.store);
+        f(&chain_db);
+
+        info!("accessed db done");
     }
 
     pub fn stop_gracefully(&mut self) {
-        if let Some(mut guard) = self.guard.take() {
+        let guard = self.take_guard();
+        if let Some(mut guard) = guard {
             if !guard.killed {
                 // on nix: send SIGINT to the child
                 // on windows: use taskkill to kill the child gracefully
@@ -770,11 +869,11 @@ pub fn connect_all(nodes: &[Node]) {
 }
 
 // TODO it will be removed out later, in another PR
-pub fn disconnect_all(nodes: &[Node]) {
+pub fn disconnect_all<N: Borrow<Node>>(nodes: &[N]) {
     for node_a in nodes.iter() {
         for node_b in nodes.iter() {
-            if node_a.p2p_address() != node_b.p2p_address() {
-                node_a.disconnect(node_b);
+            if node_a.borrow().p2p_address() != node_b.borrow().p2p_address() {
+                node_a.borrow().disconnect(node_b.borrow());
             }
         }
     }
@@ -794,9 +893,51 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
         tip_headers.len() == 1
     });
     if !synced {
-        panic!("timeout to wait for sync, tip_headers: {tip_headers:?}");
+        panic!(
+            "timeout to wait for sync, tip_headers: {:?}",
+            tip_headers
+                .iter()
+                .map(|header| header.inner.number.value())
+                .collect::<Vec<BlockNumber>>()
+        );
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();
+    }
+}
+
+pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
+    let node_multiaddrs: HashMap<String, Multiaddr> = nodes
+        .iter()
+        .map(|n| {
+            (
+                n.borrow().node_id(),
+                n.borrow().p2p_address().try_into().unwrap(),
+            )
+        })
+        .collect();
+    let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
+        .keys()
+        .map(|id| {
+            let addrs = node_multiaddrs
+                .iter()
+                .filter(|(other_id, _)| other_id.as_str() != id.as_str())
+                .map(|(_, addr)| addr.to_owned())
+                .collect::<Vec<_>>();
+            addrs
+        })
+        .collect();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.borrow_mut()
+            .modify_app_config(|config: &mut CKBAppConfig| {
+                info!("Setting bootnodes to {:?}", other_node_addrs[i]);
+                config.network.bootnodes = other_node_addrs[i].clone();
+            })
+    }
+    // Restart nodes to make bootnodes work
+    for node in nodes.iter_mut() {
+        node.borrow_mut().stop();
+        node.borrow_mut().start();
+        info!("Restarted node {:?}", node.borrow_mut().node_id());
     }
 }

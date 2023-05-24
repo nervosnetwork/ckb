@@ -1,7 +1,8 @@
-//! TODO(doc): @quake
+//! Provide Shared
+#![allow(missing_docs)]
 use crate::block_status::BlockStatus;
 use crate::{HeaderMap, Snapshot, SnapshotMgr};
-use arc_swap::Guard;
+use arc_swap::{ArcSwap, Guard};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
@@ -9,6 +10,7 @@ use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
 use ckb_error::{AnyError, Error};
+use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
@@ -16,13 +18,12 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
-    core,
-    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
+    core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    H256, U256,
 };
-use ckb_util::shrink_to_fit;
+use ckb_util::{shrink_to_fit, Mutex, MutexGuard};
 use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
@@ -61,8 +62,12 @@ pub struct Shared {
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
 
+    pub(crate) assume_valid_target: Arc<Mutex<Option<H256>>>,
+    pub(crate) assume_valid_target_specified: Arc<Option<H256>>,
+
     pub header_map: Arc<HeaderMap>,
     pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
+    pub(crate) unverified_tip: Arc<ArcSwap<crate::HeaderIndex>>,
 }
 
 impl Shared {
@@ -77,9 +82,21 @@ impl Shared {
         snapshot_mgr: Arc<SnapshotMgr>,
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
+
+        assume_valid_target: Arc<Mutex<Option<H256>>>,
+        assume_valid_target_specified: Arc<Option<H256>>,
         header_map: Arc<HeaderMap>,
         block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
     ) -> Shared {
+        let header = store
+            .get_tip_header()
+            .unwrap_or(consensus.genesis_block().header());
+        let unverified_tip = Arc::new(ArcSwap::new(Arc::new(crate::HeaderIndex::new(
+            header.number(),
+            header.hash(),
+            header.difficulty(),
+        ))));
+
         Shared {
             store,
             tx_pool_controller,
@@ -89,8 +106,11 @@ impl Shared {
             snapshot_mgr,
             async_handle,
             ibd_finished,
+            assume_valid_target,
+            assume_valid_target_specified,
             header_map,
             block_status_map,
+            unverified_tip,
         }
     }
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
@@ -384,15 +404,52 @@ impl Shared {
         )
     }
 
+    pub fn set_unverified_tip(&self, header: crate::HeaderIndex) {
+        self.unverified_tip.store(Arc::new(header));
+    }
+    pub fn get_unverified_tip(&self) -> crate::HeaderIndex {
+        self.unverified_tip.load().as_ref().clone()
+    }
+
     pub fn header_map(&self) -> &HeaderMap {
         &self.header_map
     }
+    pub fn remove_header_view(&self, hash: &Byte32) {
+        self.header_map.remove(hash);
+    }
+
     pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
         &self.block_status_map
     }
 
-    pub fn remove_header_view(&self, hash: &Byte32) {
-        self.header_map.remove(hash);
+    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
+        match self.block_status_map().get(block_hash) {
+            Some(status_ref) => *status_ref.value(),
+            None => {
+                if self.header_map().contains_key(block_hash) {
+                    BlockStatus::HEADER_VALID
+                } else {
+                    let verified = self
+                        .snapshot()
+                        .get_block_ext(block_hash)
+                        .map(|block_ext| block_ext.verified);
+                    match verified {
+                        None => BlockStatus::UNKNOWN,
+                        Some(None) => BlockStatus::BLOCK_STORED,
+                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn contains_block_status<T: ChainStore>(
+        &self,
+        block_hash: &Byte32,
+        status: BlockStatus,
+    ) -> bool {
+        self.get_block_status(block_hash).contains(status)
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
@@ -400,16 +457,21 @@ impl Shared {
     }
 
     pub fn remove_block_status(&self, block_hash: &Byte32) {
+        let log_now = std::time::Instant::now();
         self.block_status_map.remove(block_hash);
+        debug!("remove_block_status cost {:?}", log_now.elapsed());
         shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
+        debug!(
+            "remove_block_status shrink_to_fit cost {:?}",
+            log_now.elapsed()
+        );
     }
 
-    pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
-        todo!("get_orphan_block")
-        // self.orphan_block_pool.get_block(block_hash)
+    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
+        self.assume_valid_target.lock()
     }
 
-    pub fn orphan_pool_count(&self) -> u64 {
-        0
+    pub fn assume_valid_target_specified(&self) -> Arc<Option<H256>> {
+        Arc::clone(&self.assume_valid_target_specified)
     }
 }
