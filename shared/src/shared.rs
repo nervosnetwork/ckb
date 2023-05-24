@@ -1,7 +1,7 @@
 //! TODO(doc): @quake
 use crate::block_status::BlockStatus;
 use crate::{HeaderMap, Snapshot, SnapshotMgr};
-use arc_swap::Guard;
+use arc_swap::{ArcSwap, Guard};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
@@ -9,6 +9,7 @@ use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
 use ckb_error::{AnyError, Error};
+use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
@@ -27,6 +28,7 @@ use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
 use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -63,6 +65,7 @@ pub struct Shared {
 
     pub header_map: Arc<HeaderMap>,
     pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
+    pub(crate) unverified_tip: Arc<ArcSwap<crate::HeaderIndex>>,
 }
 
 impl Shared {
@@ -80,6 +83,15 @@ impl Shared {
         header_map: Arc<HeaderMap>,
         block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
     ) -> Shared {
+        let header = store
+            .get_tip_header()
+            .unwrap_or(consensus.genesis_block().header());
+        let unverified_tip = Arc::new(ArcSwap::new(Arc::new(crate::HeaderIndex::new(
+            header.number(),
+            header.hash(),
+            header.difficulty(),
+        ))));
+
         Shared {
             store,
             tx_pool_controller,
@@ -91,6 +103,7 @@ impl Shared {
             ibd_finished,
             header_map,
             block_status_map,
+            unverified_tip,
         }
     }
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
@@ -384,24 +397,18 @@ impl Shared {
         )
     }
 
+    pub fn set_unverified_tip(&self, header: crate::HeaderIndex) {
+        self.unverified_tip.store(Arc::new(header));
+    }
+    pub fn get_unverified_tip(&self) -> crate::HeaderIndex {
+        self.unverified_tip.load().as_ref().clone()
+    }
+
     pub fn header_map(&self) -> &HeaderMap {
         &self.header_map
     }
-    pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
-        &self.block_status_map
-    }
-
     pub fn remove_header_view(&self, hash: &Byte32) {
         self.header_map.remove(hash);
-    }
-
-    pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
-        self.block_status_map.insert(block_hash, status);
-    }
-
-    pub fn remove_block_status(&self, block_hash: &Byte32) {
-        self.block_status_map.remove(block_hash);
-        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
     }
 
     pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
@@ -411,5 +418,54 @@ impl Shared {
 
     pub fn orphan_pool_count(&self) -> u64 {
         0
+    }
+
+    pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
+        &self.block_status_map
+    }
+    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
+        match self.block_status_map.get(block_hash) {
+            Some(status_ref) => *status_ref.value(),
+            None => {
+                if self.header_map.contains_key(block_hash) {
+                    BlockStatus::HEADER_VALID
+                } else {
+                    let verified = self
+                        .store()
+                        .get_block_ext(block_hash)
+                        .map(|block_ext| block_ext.verified);
+                    match verified {
+                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                        Some(None) => BlockStatus::BLOCK_STORED,
+                        None => {
+                            if self.store().get_block_header(block_hash).is_some() {
+                                BlockStatus::BLOCK_PARTIAL_STORED
+                            } else {
+                                BlockStatus::UNKNOWN
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
+        self.block_status_map.insert(block_hash, status);
+    }
+
+    pub fn remove_block_status(&self, block_hash: &Byte32) {
+        let log_now = std::time::Instant::now();
+        self.block_status_map.remove(block_hash);
+        debug!("remove_block_status cost {:?}", log_now.elapsed());
+        shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
+        debug!(
+            "remove_block_status shrink_to_fit cost {:?}",
+            log_now.elapsed()
+        );
+    }
+    pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
+        self.get_block_status(block_hash).contains(status)
     }
 }

@@ -8,5 +8,6 @@
 
 pub mod chain;
 mod forkchanges;
+mod orphan_block_pool;
 #[cfg(test)]
 mod tests;
