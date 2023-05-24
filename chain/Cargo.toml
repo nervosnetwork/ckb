@@ -27,6 +27,9 @@ ckb-channel = { path = "../util/channel", version = "= 0.115.0-pre" }
 faux = { version = "^0.1", optional = true }
 ckb-merkle-mountain-range = "0.5.2"
 is_sorted = "0.1.1"
+ckb-constant = { path = "../util/constant", version = "= 0.115.0-pre" }
+ckb-util = { path = "../util", version = "= 0.115.0-pre" }
+crossbeam = "0.8.2"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.115.0-pre" }
@@ -37,7 +40,7 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.115.0-pre" 
 ckb-network = { path = "../network", version = "= 0.115.0-pre" }
 lazy_static = "1.4"
 tempfile.workspace = true
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.115.0-pre" ,features = ["enable_faketime"]}
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.115.0-pre", features = ["enable_faketime"] }
 
 [features]
 default = []
