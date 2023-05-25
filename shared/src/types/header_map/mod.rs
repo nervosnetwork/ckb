@@ -24,7 +24,7 @@ pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
 }
 
-const INTERVAL: Duration = Duration::from_millis(500);
+const INTERVAL: Duration = Duration::from_millis(5000);
 const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
@@ -53,7 +53,9 @@ impl HeaderMap {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let now = std::time::Instant::now();
                         map.limit_memory();
+                        debug!("HeaderMap limit_memory cost: {:?}", now.elapsed());
                     }
                     _ = stop_rx.cancelled() => {
                         info!("HeaderMap limit_memory received exit signal, exit now");

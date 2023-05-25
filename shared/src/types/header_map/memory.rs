@@ -1,4 +1,4 @@
-use crate::types::{HeaderIndexView, SHRINK_THRESHOLD};
+use crate::types::HeaderIndexView;
 use ckb_types::{
     core::{BlockNumber, EpochNumberWithFraction},
     packed::Byte32,
@@ -6,6 +6,8 @@ use ckb_types::{
 };
 use ckb_util::{shrink_to_fit, LinkedHashMap, RwLock};
 use std::default;
+
+const SHRINK_THRESHOLD: usize = 300;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HeaderIndexViewInner {
@@ -99,7 +101,7 @@ impl MemoryMap {
     pub(crate) fn remove(&self, key: &Byte32) -> Option<HeaderIndexView> {
         let mut guard = self.0.write();
         let ret = guard.remove(key);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+        // shrink_to_fit!(guard, SHRINK_THRESHOLD);
         ret.map(|inner| (key.clone(), inner).into())
     }
 
