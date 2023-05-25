@@ -146,13 +146,12 @@ impl BlockFetcher {
             return None;
         }
 
-        let state = self.sync_shared.state();
-        let mut inflight = state.write_inflight_blocks();
+        let state = self.sync_shared.shared().state();
         let mut start = last_common.number() + 1;
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
-            inflight.peer_can_fetch_count(self.peer),
+            state.read_inflight_blocks().peer_can_fetch_count(self.peer),
         );
         let mut fetch = Vec::with_capacity(n_fetch);
         let now = unix_time_as_millis();
@@ -194,12 +193,18 @@ impl BlockFetcher {
                     // Do not download repeatedly
                 } else if (matches!(self.ibd, IBDState::In)
                     || state.compare_with_pending_compact(&hash, now))
-                    && inflight.insert(self.peer, (header.number(), hash).into())
+                    && state
+                        .write_inflight_blocks()
+                        .insert(self.peer, (header.number(), hash).into())
                 {
                     fetch.push(header)
                 }
 
-                status = self.active_chain.get_block_status(&parent_hash);
+                status = self
+                    .synchronizer
+                    .shared()
+                    .shared()
+                    .get_block_status(&parent_hash);
                 header = self
                     .sync_shared
                     .get_header_index_view(&parent_hash, false)?;
@@ -218,7 +223,7 @@ impl BlockFetcher {
             header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {
-            inflight.mark_slow_block(tip);
+            state.write_inflight_blocks().mark_slow_block(tip);
         }
 
         if fetch.is_empty() {
@@ -230,19 +235,19 @@ impl BlockFetcher {
                 best_known.number(),
                 tip,
                 unverified_tip,
-                inflight.total_inflight_count(),
+                state.read_inflight_blocks().total_inflight_count(),
                 trace_timecost_now.elapsed().as_millis(),
             );
             trace!(
                 "[block fetch empty] peer-{}, inflight_state = {:?}",
                 self.peer,
-                *inflight
+                *state.read_inflight_blocks()
             );
         } else {
             let fetch_head = fetch.first().map_or(0_u64.into(), |v| v.number());
             let fetch_last = fetch.last().map_or(0_u64.into(), |v| v.number());
-            let inflight_peer_count = inflight.peer_inflight_count(self.peer);
-            let inflight_total_count = inflight.total_inflight_count();
+            let inflight_peer_count = state.read_inflight_blocks().peer_inflight_count(self.peer);
+            let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
             debug!(
                 "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], timecost: {}ms, blocks: {}",
                 self.peer,
