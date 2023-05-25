@@ -46,7 +46,7 @@ use std::time::Duration;
 use std::time::Instant;
 use std::{cmp, thread};
 
-const ORPHAN_BLOCK_SIZE: usize = 100000;
+const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
@@ -164,7 +164,7 @@ pub struct ChainService {
 
 #[derive(Clone)]
 struct UnverifiedBlock {
-    block: BlockView,
+    block: Arc<BlockView>,
     parent_header: HeaderView,
     switch: Switch,
 }
@@ -173,7 +173,7 @@ impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
     pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         let (unverified_tx, unverified_rx) =
-            channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 11);
+            channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
         let (new_block_tx, new_block_rx) =
             channel::bounded::<Switch>(BLOCK_DOWNLOAD_WINDOW as usize);
@@ -399,7 +399,7 @@ impl ChainService {
             }
             let mut accept_error_occurred = false;
             for descendant in &descendants {
-                match self.accept_block(descendant) {
+                match self.accept_block(descendant.to_owned()) {
                     Err(err) => {
                         accept_error_occurred = true;
                         error!("accept block {} failed: {}", descendant.hash(), err);
@@ -574,7 +574,7 @@ impl ChainService {
             self.non_contextual_verify(&block)?;
         }
 
-        self.orphan_blocks_broker.insert(block.as_ref().to_owned());
+        self.orphan_blocks_broker.insert(block);
 
         match self.new_block_tx.send(switch) {
             Ok(_) => {}
@@ -594,7 +594,7 @@ impl ChainService {
         Ok(false)
     }
 
-    fn accept_block(&self, block: &BlockView) -> Result<Option<(HeaderView, U256)>, Error> {
+    fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
         let (block_number, block_hash) = (block.number(), block.hash());
 
         if self
@@ -624,7 +624,7 @@ impl ChainService {
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
 
-        db_txn.insert_block(block)?;
+        db_txn.insert_block(block.as_ref())?;
 
         // if parent_ext.verified == Some(false) {
         //     return Err(InvalidParentError {

@@ -413,7 +413,6 @@ impl Shared {
 
     pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
         todo!("get_orphan_block")
-        // self.orphan_block_pool.get_block(block_hash)
     }
 
     pub fn orphan_pool_count(&self) -> u64 {

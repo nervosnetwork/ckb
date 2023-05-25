@@ -156,6 +156,12 @@ impl BlockFetcher {
         );
         let mut fetch = Vec::with_capacity(n_fetch);
         let now = unix_time_as_millis();
+        debug!(
+            "finding which blocks to fetch, start: {}, end: {}, best_known: {}",
+            start,
+            end,
+            best_known.number(),
+        );
 
         while fetch.len() < n_fetch && start <= end {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
@@ -164,14 +170,18 @@ impl BlockFetcher {
             let mut header = self
                 .active_chain
                 .get_ancestor(&best_known.hash(), start + span - 1)?;
-            let mut status = self.active_chain.get_block_status(&header.hash());
+            let mut status = self
+                .synchronizer
+                .shared()
+                .shared()
+                .get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
 
-                if status.contains(BlockStatus::BLOCK_STORED) {
+                if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
                     self.sync_shared
@@ -214,7 +224,7 @@ impl BlockFetcher {
         if fetch.is_empty() {
             debug!(
                 "[block fetch empty] peer-{}, fixed_last_common_header = {} \
-                best_known_header = {}, tip = {}, unverified_tip = {}, inflight_len = {}, time_cost: {}ms",
+                best_known_header = {}, [tip/unverified_tip]: [{}/{}], inflight_len = {}, time_cost: {}ms",
                 self.peer,
                 last_common.number(),
                 best_known.number(),
@@ -234,11 +244,12 @@ impl BlockFetcher {
             let inflight_peer_count = inflight.peer_inflight_count(self.peer);
             let inflight_total_count = inflight.total_inflight_count();
             debug!(
-                "request peer-{} for batch blocks: [{}-{}], batch len:{} , unverified_tip: {}, [peer/total inflight count]: [{} / {}], timecost: {}ms, blocks: {}",
+                "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], timecost: {}ms, blocks: {}",
                 self.peer,
                 fetch_head,
                 fetch_last,
                 fetch.len(),
+                tip,
                 self.synchronizer.shared().shared().get_unverified_tip().number(),
                 inflight_peer_count,
                 inflight_total_count,

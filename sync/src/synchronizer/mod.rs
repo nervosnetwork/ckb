@@ -29,8 +29,8 @@ use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
-    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
-    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
+    BAD_MESSAGE_BAN_TIME, BLOCK_DOWNLOAD_WINDOW, CHAIN_SYNC_TIMEOUT,
+    EVICTION_HEADERS_RESPONSE_TIME, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
@@ -580,10 +580,14 @@ impl Synchronizer {
     }
 
     fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
-        let tip = self.shared.active_chain().tip_number();
+        let unverified_tip = self.shared.active_chain().unverified_tip_number();
 
         let disconnect_list = {
-            let mut list = self.shared().state().write_inflight_blocks().prune(tip);
+            let mut list = self
+                .shared()
+                .state()
+                .write_inflight_blocks()
+                .prune(unverified_tip);
             if let IBDState::In = ibd {
                 // best known < tip and in IBD state, and unknown list is empty,
                 // these node can be disconnect
@@ -591,7 +595,7 @@ impl Synchronizer {
                     self.shared
                         .state()
                         .peers()
-                        .get_best_known_less_than_tip_and_unknown_empty(tip),
+                        .get_best_known_less_than_tip_and_unknown_empty(unverified_tip),
                 )
             };
             list
