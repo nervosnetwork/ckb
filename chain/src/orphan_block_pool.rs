@@ -3,6 +3,7 @@ use ckb_types::core::EpochNumber;
 use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 pub type ParentHash = packed::Byte32;
 
@@ -12,7 +13,7 @@ const EXPIRED_EPOCH: u64 = 6;
 #[derive(Default)]
 struct InnerPool {
     // Group by blocks in the pool by the parent hash.
-    blocks: HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>,
+    blocks: HashMap<ParentHash, HashMap<packed::Byte32, Arc<core::BlockView>>>,
     // The map tells the parent hash when given the hash of a block in the pool.
     //
     // The block is in the orphan pool if and only if the block hash exists as a key in this map.
@@ -30,7 +31,7 @@ impl InnerPool {
         }
     }
 
-    fn insert(&mut self, block: core::BlockView) {
+    fn insert(&mut self, block: Arc<core::BlockView>) {
         let hash = block.header().hash();
         let parent_hash = block.data().header().raw().parent_hash();
         self.blocks
@@ -50,7 +51,10 @@ impl InnerPool {
         self.parents.insert(hash, parent_hash);
     }
 
-    pub fn remove_blocks_by_parent(&mut self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
+    pub fn remove_blocks_by_parent(
+        &mut self,
+        parent_hash: &ParentHash,
+    ) -> Vec<Arc<core::BlockView>> {
         // try remove leaders first
         if !self.leaders.remove(parent_hash) {
             return Vec::new();
@@ -59,7 +63,7 @@ impl InnerPool {
         let mut queue: VecDeque<packed::Byte32> = VecDeque::new();
         queue.push_back(parent_hash.to_owned());
 
-        let mut removed: Vec<core::BlockView> = Vec::new();
+        let mut removed: Vec<Arc<core::BlockView>> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
             if let Some(orphaned) = self.blocks.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
@@ -84,7 +88,7 @@ impl InnerPool {
         removed
     }
 
-    pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<Arc<core::BlockView>> {
         self.parents.get(hash).and_then(|parent_hash| {
             self.blocks
                 .get(parent_hash)
@@ -135,15 +139,15 @@ impl OrphanBlockPool {
     }
 
     /// Insert orphaned block, for which we have already requested its parent block
-    pub fn insert(&self, block: core::BlockView) {
+    pub fn insert(&self, block: Arc<core::BlockView>) {
         self.inner.write().insert(block);
     }
 
-    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<core::BlockView> {
+    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<Arc<core::BlockView>> {
         self.inner.write().remove_blocks_by_parent(parent_hash)
     }
 
-    pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<Arc<core::BlockView>> {
         self.inner.read().get_block(hash)
     }
 

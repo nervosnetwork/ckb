@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
+use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
@@ -538,6 +539,7 @@ pub trait NetRpc {
 pub(crate) struct NetRpcImpl {
     pub network_controller: NetworkController,
     pub sync_shared: Arc<SyncShared>,
+    pub chain_controller: Arc<ChainController>,
 }
 
 #[async_trait]
@@ -716,7 +718,6 @@ impl NetRpc for NetRpcImpl {
 
     fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
-        let shared = chain.shared();
         let state = chain.shared().state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
@@ -724,7 +725,7 @@ impl NetRpc for NetRpcImpl {
             ibd: chain.is_initial_block_download(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
-            orphan_blocks_count: (shared.shared().orphan_pool_count()).into(),
+            orphan_blocks_count: (self.chain_controller.orphan_blocks_len() as u64).into(),
             orphan_blocks_size: (state.orphan_pool().total_size() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
