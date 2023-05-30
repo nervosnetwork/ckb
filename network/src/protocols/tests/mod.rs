@@ -35,6 +35,7 @@ struct Node {
     listen_addr: Multiaddr,
     control: ServiceControl,
     network_state: Arc<NetworkState>,
+    _tmp_dir: tempfile::TempDir,
 }
 
 impl Node {
@@ -110,13 +111,11 @@ fn net_service_start(
     required_flags: Flags,
     self_flags: Flags,
 ) -> Node {
+    let tmp_dir = tempdir().expect("create tempdir failed");
     let config = NetworkConfig {
         max_peers: 19,
         max_outbound_peers: 5,
-        path: tempdir()
-            .expect("create tempdir failed")
-            .path()
-            .to_path_buf(),
+        path: tmp_dir.path().to_path_buf(),
         ping_interval_secs: 15,
         ping_timeout_secs: 20,
         connect_outbound_interval_secs: 1,
@@ -259,6 +258,7 @@ fn net_service_start(
         control,
         listen_addr,
         network_state,
+        _tmp_dir: tmp_dir,
     }
 }
 
