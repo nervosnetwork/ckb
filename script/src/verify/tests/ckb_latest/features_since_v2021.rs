@@ -533,7 +533,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
 
             while let Some((ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(group, limit, &None)
+                    .verify_group_with_chunk(group, limit, None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
@@ -543,7 +543,9 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                             limit = step_cycles;
                         }
                     }
-                    ChunkState::Suspended(vm) => {
+                    ChunkState::Suspended(mut vms, _) => {
+                        assert!(vms.len() <= 1);
+                        let vm = vms.pop();
                         if vm.is_some() {
                             tmp = vm;
                         } else if ty == ScriptGroupType::Type // fast forward
@@ -624,14 +626,15 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
             }
             while let Some((_, _, group)) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(group, limit, &None)
+                    .verify_group_with_chunk(group, limit, None)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                     }
-                    ChunkState::Suspended(vm) => {
-                        tmp = vm;
+                    ChunkState::Suspended(mut vms, _) => {
+                        assert!(vms.len() <= 1);
+                        tmp = vms.pop();
                         if limit < (TWO_IN_TWO_OUT_CYCLES - step_cycles) {
                             limit += TWO_IN_TWO_OUT_CYCLES - step_cycles;
                         } else {

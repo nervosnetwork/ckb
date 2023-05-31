@@ -11,7 +11,7 @@ use ckb_vm::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -112,17 +112,104 @@ pub(crate) type Machine = AsmMachine;
 #[cfg(not(has_asm))]
 pub(crate) type Machine = TraceMachine<CoreMachine>;
 
+/// Common data that would be shared amongst multiple VM instances.
+/// One sample usage right now, is to capture suspended machines in
+/// a chain of spanwed machines.
+#[derive(Default)]
+pub struct MachineContext {
+    pub(crate) suspended_machines: Vec<ResumableMachine>,
+}
+
+/// Data structure captured all environment data for a suspended machine
+#[derive(Clone, Debug)]
+pub enum ResumePoint {
+    Initial,
+    Spawn {
+        callee_peak_memory: u64,
+        callee_memory_limit: u64,
+        content: Vec<u8>,
+        content_length: u64,
+        caller_exit_code_addr: u64,
+        caller_content_addr: u64,
+        caller_content_length_addr: u64,
+    },
+}
+
+/// Data structure captured all environment data for a suspended machine.
+/// While ResumePoint is used in snapshots for easier serialization, this
+/// contains data that can be used at runtime amongst running machines.
+#[derive(Clone, Debug)]
+pub enum ResumeData {
+    Initial,
+    Spawn {
+        callee_peak_memory: u64,
+        callee_memory_limit: u64,
+        content: Arc<Mutex<Vec<u8>>>,
+        content_length: u64,
+        caller_exit_code_addr: u64,
+        caller_content_addr: u64,
+        caller_content_length_addr: u64,
+    },
+}
+
+impl From<&ResumePoint> for ResumeData {
+    fn from(value: &ResumePoint) -> Self {
+        match value {
+            ResumePoint::Initial => ResumeData::Initial,
+            ResumePoint::Spawn {
+                callee_peak_memory,
+                callee_memory_limit,
+                content,
+                content_length,
+                caller_exit_code_addr,
+                caller_content_addr,
+                caller_content_length_addr,
+            } => ResumeData::Spawn {
+                callee_peak_memory: *callee_peak_memory,
+                callee_memory_limit: *callee_memory_limit,
+                content: Arc::new(Mutex::new(content.clone())),
+                content_length: *content_length,
+                caller_exit_code_addr: *caller_exit_code_addr,
+                caller_content_addr: *caller_content_addr,
+                caller_content_length_addr: *caller_content_length_addr,
+            },
+        }
+    }
+}
+
+impl From<&ResumeData> for ResumePoint {
+    fn from(value: &ResumeData) -> Self {
+        match value {
+            ResumeData::Initial => ResumePoint::Initial,
+            ResumeData::Spawn {
+                callee_peak_memory,
+                callee_memory_limit,
+                content,
+                content_length,
+                caller_exit_code_addr,
+                caller_content_addr,
+                caller_content_length_addr,
+            } => ResumePoint::Spawn {
+                callee_peak_memory: *callee_peak_memory,
+                callee_memory_limit: *callee_memory_limit,
+                content: content.lock().unwrap().clone(),
+                content_length: *content_length,
+                caller_exit_code_addr: *caller_exit_code_addr,
+                caller_content_addr: *caller_content_addr,
+                caller_content_length_addr: *caller_content_length_addr,
+            },
+        }
+    }
+}
+
 pub struct ResumableMachine {
     machine: Machine,
-    pub(crate) program_bytes_cycles: Option<Cycle>,
+    pub(crate) data: ResumeData,
 }
 
 impl ResumableMachine {
-    pub(crate) fn new(machine: Machine, program_bytes_cycles: Option<Cycle>) -> Self {
-        ResumableMachine {
-            machine,
-            program_bytes_cycles,
-        }
+    pub(crate) fn new(machine: Machine, data: ResumeData) -> Self {
+        ResumableMachine { machine, data }
     }
 
     pub(crate) fn cycles(&self) -> Cycle {
@@ -133,20 +220,16 @@ impl ResumableMachine {
         set_vm_max_cycles(&mut self.machine, cycles)
     }
 
-    pub fn program_loaded(&self) -> bool {
-        self.program_bytes_cycles.is_none()
-    }
-
     pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
         self.machine.machine.add_cycles(cycles)
     }
 
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
-        if let Some(cycles) = self.program_bytes_cycles {
-            self.add_cycles(cycles)?;
-            self.program_bytes_cycles = None;
-        }
         self.machine.run()
+    }
+
+    pub(crate) fn destruct(self) -> (Machine, ResumeData) {
+        (self.machine, self.data)
     }
 }
 
@@ -228,8 +311,8 @@ impl fmt::Display for ScriptGroupType {
 pub struct TransactionSnapshot {
     /// current suspended script index
     pub current: usize,
-    /// vm snapshot
-    pub snap: Option<(Snapshot, Cycle)>,
+    /// vm snapshots
+    pub snaps: Vec<(Snapshot, Cycle, ResumePoint)>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -241,12 +324,14 @@ pub struct TransactionSnapshot {
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
-    /// vm state
-    pub vm: Option<ResumableMachine>,
+    /// vm states
+    pub vms: Vec<ResumableMachine>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
+    /// machine context for the vms included in this state
+    pub machine_context: Arc<Mutex<MachineContext>>,
 }
 
 impl TransactionState {
@@ -283,34 +368,25 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
     fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            vm,
+            vms,
             current_cycles,
             limit_cycles,
+            ..
         } = state;
 
-        let (snap, current_cycles) = if let Some(mut vm) = vm {
-            // we should not capture snapshot if load program failed by exceeded cycles
-            if vm.program_loaded() {
-                let vm_cycles = vm.cycles();
-                (
-                    Some((
-                        make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                            ScriptError::VMInternalError(format!("{e:?}")).unknown_source()
-                        })?,
-                        vm_cycles,
-                    )),
-                    current_cycles,
-                )
-            } else {
-                (None, current_cycles)
-            }
-        } else {
-            (None, current_cycles)
-        };
+        let mut snaps = Vec::with_capacity(vms.len());
+        for mut vm in vms {
+            snaps.push((
+                make_snapshot(&mut vm.machine.machine)
+                    .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
+                vm.cycles(),
+                (&vm.data).into(),
+            ));
+        }
 
         Ok(TransactionSnapshot {
             current,
-            snap,
+            snaps,
             current_cycles,
             limit_cycles,
         })
