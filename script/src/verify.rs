@@ -322,7 +322,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
                 Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
-                Box::new(self.build_spawn(script_version, script_group, 8, context.clone())),
+                Box::new(self.build_spawn(script_version, script_group, 8, Arc::clone(&context))),
             ])
         }
         syscalls
@@ -765,7 +765,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             })
             .collect();
 
-        match run_vms(&current_group, limit_cycles, machines, &machine_context) {
+        match run_vms(current_group, limit_cycles, machines, &machine_context) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(current_used, used_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
@@ -1047,7 +1047,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 let resume_data: ResumeData = resume_point.into();
                 let mut machine = match &resume_data {
                     ResumeData::Initial => {
-                        self.build_machine(script_group, max_cycles, context.clone())
+                        self.build_machine(script_group, max_cycles, Arc::clone(&context))
                     }
                     ResumeData::Spawn { .. } => build_child_machine(
                         script_group,
@@ -1066,7 +1066,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             machines
         } else {
             // No shapshots are available, create machine from scratch
-            let mut machine = self.build_machine(script_group, max_cycles, context.clone())?;
+            let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
             let program = self.extract_script(&script_group.script)?;
             let bytes = machine
                 .load_program(&program, &[])
@@ -1161,7 +1161,10 @@ fn run_vms(
                         .collect();
                     suspended_machines.push(ResumableMachine::new(machine, resume_data));
                     suspended_machines.append(&mut new_suspended_machines);
-                    return Ok(ChunkState::suspended(suspended_machines, context.clone()));
+                    return Ok(ChunkState::suspended(
+                        suspended_machines,
+                        Arc::clone(context),
+                    ));
                 }
                 _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
             },

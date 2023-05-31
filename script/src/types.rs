@@ -177,9 +177,11 @@ impl From<&ResumePoint> for ResumeData {
     }
 }
 
-impl From<&ResumeData> for ResumePoint {
-    fn from(value: &ResumeData) -> Self {
-        match value {
+impl TryFrom<&ResumeData> for ResumePoint {
+    type Error = VMInternalError;
+
+    fn try_from(value: &ResumeData) -> Result<Self, Self::Error> {
+        Ok(match value {
             ResumeData::Initial => ResumePoint::Initial,
             ResumeData::Spawn {
                 callee_peak_memory,
@@ -192,13 +194,16 @@ impl From<&ResumeData> for ResumePoint {
             } => ResumePoint::Spawn {
                 callee_peak_memory: *callee_peak_memory,
                 callee_memory_limit: *callee_memory_limit,
-                content: content.lock().unwrap().clone(),
+                content: content
+                    .lock()
+                    .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
+                    .clone(),
                 content_length: *content_length,
                 caller_exit_code_addr: *caller_exit_code_addr,
                 caller_content_addr: *caller_content_addr,
                 caller_content_length_addr: *caller_content_length_addr,
             },
-        }
+        })
     }
 }
 
@@ -380,7 +385,9 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
                 make_snapshot(&mut vm.machine.machine)
                     .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
                 vm.cycles(),
-                (&vm.data).into(),
+                (&vm.data)
+                    .try_into()
+                    .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
             ));
         }
 

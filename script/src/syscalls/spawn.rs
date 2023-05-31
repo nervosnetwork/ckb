@@ -297,7 +297,7 @@ pub fn build_child_machine<
         script_version,
         script_group,
         callee_peak_memory,
-        context.clone(),
+        Arc::clone(context),
     )));
     let mut machine_child = Machine::new(machine_builder.build());
     set_vm_max_cycles(&mut machine_child, cycles_limit);
