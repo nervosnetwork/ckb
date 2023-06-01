@@ -206,6 +206,10 @@ where
             argv_vec.push(cstr);
             addr += 8;
         }
+        // Deduct cycles used to build the child machine
+        let extra_cycles =
+            SPAWN_EXTRA_CYCLES_BASE + memory_limit * SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE;
+        machine_child.machine.add_cycles_no_checking(extra_cycles)?;
         // Load program into child machine.
         match machine_child.load_program(&program, &argv_vec) {
             Ok(size) => {
@@ -218,10 +222,6 @@ where
                 return Ok(true);
             }
         }
-        // Deduct cycles used to build the child machine
-        let extra_cycles =
-            SPAWN_EXTRA_CYCLES_BASE + memory_limit * SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE;
-        machine_child.machine.add_cycles_no_checking(extra_cycles)?;
         // Run the child machine and check result.
         match machine_child.run() {
             Ok(data) => {
