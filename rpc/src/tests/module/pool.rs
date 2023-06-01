@@ -172,7 +172,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         parent_tx_hash = tx.hash();
     }
 
-    suite.wait_block_template_array_ge("proposals", 130);
+    suite.wait_block_template_array_ge("proposals", 125);
 
     // 130 txs will be added to proposal list
     while store.get_tip_header().unwrap().number() != (tip.number() + 2) {

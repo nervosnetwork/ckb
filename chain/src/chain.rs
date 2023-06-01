@@ -560,7 +560,6 @@ impl ChainService {
             self.proposal_table
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
-
         self.reload_proposal_table(fork);
     }
 

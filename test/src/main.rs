@@ -360,12 +360,6 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .unwrap_or_else(|_| path.as_ref().to_path_buf())
 }
 
-fn _all_specs() -> Vec<Box<dyn Spec>> {
-    // This case is not stable right now
-    //vec![Box::new(PoolResolveConflictAfterReorg)]
-    vec![Box::new(RemoveConflictFromPending)]
-}
-
 fn all_specs() -> Vec<Box<dyn Spec>> {
     let mut specs: Vec<Box<dyn Spec>> = vec![
         Box::new(BlockSyncFromOne),
@@ -408,8 +402,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(GetRawTxPool),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
-        //TODO: (yukang)
-        //Box::new(PoolResolveConflictAfterReorg),
         Box::new(InvalidHeaderDep),
         #[cfg(not(target_os = "windows"))]
         Box::new(PoolPersisted),
