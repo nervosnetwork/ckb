@@ -36,8 +36,7 @@ sentry = { version = "0.26.0", optional = true }
 serde_json = "1.0"
 rand = "0.8.4"
 hyper = { version = "0.14", features = ["http1", "client", "tcp"] }
-#multi_index_map = { git = "https://github.com/wyjin/multi_index_map.git", branch = "master" }
-multi_index_map = "0.5.0"
+ckb_multi_index_map = "0.0.1" # ckb team fork crate
 slab = "0.4"
 rustc-hash = "1.1"
 tokio-util = "0.7.8"

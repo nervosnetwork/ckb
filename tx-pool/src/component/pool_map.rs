@@ -9,6 +9,7 @@ use crate::error::Reject;
 use crate::TxEntry;
 
 use ckb_logger::trace;
+use ckb_multi_index_map::MultiIndexMap;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
 use ckb_types::{
@@ -20,7 +21,6 @@ use ckb_types::{
     core::cell::{CellMetaBuilder, CellProvider, CellStatus},
     prelude::*,
 };
-use multi_index_map::MultiIndexMap;
 use std::borrow::Cow;
 use std::collections::HashSet;
 
@@ -242,38 +242,31 @@ impl PoolMap {
         conflicts
     }
 
-    /// pending gap and proposed store the inputs and deps in edges, it's removed in `remove_entry`
-    /// here we use `input_pts_iter` and `related_dep_out_points` to find the conflict txs
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
-        let mut to_be_removed = Vec::new();
+        let inputs = tx.input_pts_iter();
         let mut conflicts = Vec::new();
 
-        for (_, entry) in self.entries.iter() {
-            let entry = &entry.inner;
-            let tx_id = entry.proposal_short_id();
-            let tx_inputs = entry.transaction().input_pts_iter();
-            let deps = entry.related_dep_out_points();
-
-            // tx input conflict
-            for i in tx_inputs {
-                if tx.input_pts_iter().any(|j| i == j) {
-                    to_be_removed.push((tx_id.to_owned(), i.clone()));
+        for i in inputs {
+            if let Some(id) = self.edges.remove_input(&i) {
+                let entries = self.remove_entry_and_descendants(&id);
+                if !entries.is_empty() {
+                    let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
+                    let rejects = std::iter::repeat(reject).take(entries.len());
+                    conflicts.extend(entries.into_iter().zip(rejects));
                 }
             }
 
-            // tx deps conflict
-            for i in deps {
-                if tx.input_pts_iter().any(|j| *i == j) {
-                    to_be_removed.push((tx_id.to_owned(), i.clone()));
+            // deps consumed
+            if let Some(x) = self.edges.remove_deps(&i) {
+                for id in x {
+                    let entries = self.remove_entry_and_descendants(&id);
+                    if !entries.is_empty() {
+                        let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
+                        let rejects = std::iter::repeat(reject).take(entries.len());
+                        conflicts.extend(entries.into_iter().zip(rejects));
+                    }
                 }
             }
-        }
-
-        for (tx_id, input) in to_be_removed.iter() {
-            let entries = self.remove_entry_and_descendants(tx_id);
-            let reject = Reject::Resolve(OutPointError::Dead(input.to_owned()));
-            let rejects = std::iter::repeat(reject).take(entries.len());
-            conflicts.extend(entries.into_iter().zip(rejects));
         }
 
         conflicts
@@ -297,6 +290,7 @@ impl PoolMap {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn remove_entries_by_filter<P: FnMut(&ProposalShortId, &TxEntry) -> bool>(
         &mut self,
         status: &Status,
@@ -360,10 +354,11 @@ impl PoolMap {
                 EntryOp::Add => child.add_entry_weight(parent),
             }
             let short_id = child.proposal_short_id();
-            //TODO: optimize it
-            self.entries.remove_by_id(&short_id);
-            self.insert_entry(&child, entry.status)
-                .expect("pool consistent");
+            self.entries.modify_by_id(&short_id, |e| {
+                e.score = child.as_score_key();
+                e.evict_key = child.as_evict_key();
+                e.inner = child;
+            });
         }
     }
 
@@ -437,7 +432,7 @@ impl PoolMap {
     }
 
     /// Record the links for entry
-    fn record_entry_links(&mut self, entry: &mut TxEntry, status: &Status) -> Result<bool, Reject> {
+    fn record_entry_links(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
         // find in pool parents
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
@@ -476,7 +471,8 @@ impl PoolMap {
                 .expect("pool consistent");
             entry.add_entry_weight(&ancestor.inner);
         }
-        if *status == Status::Proposed && entry.ancestors_count > self.max_ancestors_count {
+        if entry.ancestors_count > self.max_ancestors_count {
+            eprintln!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
@@ -534,11 +530,23 @@ impl PoolMap {
             return Ok(false);
         }
         trace!("add_{:?} {}", status, entry.transaction().hash());
-        self.record_entry_links(&mut entry, &status)?;
+        self.record_entry_links(&mut entry)?;
         self.insert_entry(&entry, status)?;
         self.record_entry_deps(&entry);
         self.record_entry_edges(&entry);
         Ok(true)
+    }
+
+    /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
+    pub(crate) fn set_entry(&mut self, entry: &TxEntry, status: Status) {
+        let tx_short_id = entry.proposal_short_id();
+        let _ = self
+            .entries
+            .get_by_id(&tx_short_id)
+            .expect("unconsistent pool");
+        self.entries.modify_by_id(&tx_short_id, |e| {
+            e.status = status;
+        });
     }
 
     fn insert_entry(&mut self, entry: &TxEntry, status: Status) -> Result<bool, Reject> {
@@ -558,10 +566,8 @@ impl PoolMap {
 
 impl CellProvider for PoolMap {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        if let Some(id) = self.edges.get_input_ref(out_point) {
-            if self.has_proposed(id) {
-                return CellStatus::Dead;
-            }
+        if self.edges.get_input_ref(out_point).is_some() {
+            return CellStatus::Dead;
         }
         match self.edges.get_output_ref(out_point) {
             Some(OutPointStatus::UnConsumed) => {
@@ -571,7 +577,7 @@ impl CellProvider for PoolMap {
                     .build();
                 CellStatus::live_cell(cell_meta)
             }
-            Some(OutPointStatus::Consumed(id)) if self.has_proposed(id) => CellStatus::Dead,
+            Some(OutPointStatus::Consumed(_id)) => CellStatus::Dead,
             _ => CellStatus::Unknown,
         }
     }
@@ -579,13 +585,11 @@ impl CellProvider for PoolMap {
 
 impl CellChecker for PoolMap {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        if let Some(id) = self.edges.get_input_ref(out_point) {
-            if self.has_proposed(id) {
-                return Some(false);
-            }
+        if self.edges.get_input_ref(out_point).is_some() {
+            return Some(false);
         }
         match self.edges.get_output_ref(out_point) {
-            Some(OutPointStatus::Consumed(id)) if self.has_proposed(id) => Some(false),
+            Some(OutPointStatus::Consumed(_id)) => Some(false),
             Some(OutPointStatus::UnConsumed) => Some(true),
             _ => None,
         }

@@ -1,6 +1,4 @@
-use crate::util::check::{
-    is_transaction_committed, is_transaction_pending, is_transaction_rejected,
-};
+use crate::util::check::{is_transaction_committed, is_transaction_pending};
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
@@ -67,7 +65,8 @@ impl Spec for ConflictInPending {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest()).for_each(|_| {
@@ -89,13 +88,15 @@ impl Spec for ConflictInGap {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest() - 1).for_each(|_| {
             node.submit_block(&blank(node));
         });
-        node.submit_block(&propose(node, &[&txb]));
+
+        //node.submit_block(&propose(node, &[&txb]));
         let block = node.new_block(None, None, None);
         assert_eq!(&[txa], &block.transactions()[1..]);
 
@@ -114,7 +115,8 @@ impl Spec for ConflictInProposed {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa, &txb]));
         node.mine(window.farthest());
@@ -153,12 +155,13 @@ impl Spec for RemoveConflictFromPending {
             conflict_transactions_with_capacity(node, Bytes::new(), capacity_bytes!(1000));
         let txc = node.new_transaction_with_since_capacity(txb.hash(), 0, capacity_bytes!(100));
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
-        node.submit_transaction(&txc);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
+
+        let res = node.submit_transaction_with_result(&txc);
+        assert!(res.is_err());
 
         assert!(is_transaction_pending(node, &txa));
-        assert!(is_transaction_pending(node, &txb));
-        assert!(is_transaction_pending(node, &txc));
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest()).for_each(|_| {
@@ -168,8 +171,6 @@ impl Spec for RemoveConflictFromPending {
         node.wait_for_tx_pool();
 
         assert!(is_transaction_committed(node, &txa));
-        assert!(is_transaction_rejected(node, &txb));
-        assert!(is_transaction_rejected(node, &txc));
     }
 }
 

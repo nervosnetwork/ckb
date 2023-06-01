@@ -28,10 +28,14 @@ impl Spec for DifferentTxsWithSameInput {
             .as_advanced_builder()
             .set_outputs(vec![output])
             .build();
-        node0.rpc_client().send_transaction(tx1.data().into());
-        node0.rpc_client().send_transaction(tx2.data().into());
 
-        node0.mine_with_blocking(|template| template.proposals.len() != 3);
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+
+        node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
         node0.mine_with_blocking(|template| template.transactions.len() != 2);
 
@@ -47,11 +51,11 @@ impl Spec for DifferentTxsWithSameInput {
         assert!(!commit_txs_hash.contains(&tx2.hash()));
 
         // when tx1 was confirmed, tx2 should be rejected
-        let ret = node0.rpc_client().get_transaction(tx2.hash());
-        assert!(
-            matches!(ret.tx_status.status, Status::Rejected),
-            "tx2 should be rejected"
-        );
+        // let ret = node0.rpc_client().get_transaction(tx2.hash());
+        // assert!(
+        //     matches!(ret.tx_status.status, Status::Rejected),
+        //     "tx2 should be rejected"
+        // );
 
         // verbosity = 1
         let ret = node0
@@ -60,11 +64,11 @@ impl Spec for DifferentTxsWithSameInput {
         assert!(ret.transaction.is_none());
         assert!(matches!(ret.tx_status.status, Status::Committed));
 
-        let ret = node0
-            .rpc_client()
-            .get_transaction_with_verbosity(tx2.hash(), 1);
-        assert!(ret.transaction.is_none());
-        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        // let ret = node0
+        //     .rpc_client()
+        //     .get_transaction_with_verbosity(tx2.hash(), 1);
+        // assert!(ret.transaction.is_none());
+        // assert!(matches!(ret.tx_status.status, Status::Rejected));
 
         // verbosity = 2
         let ret = node0
@@ -73,10 +77,10 @@ impl Spec for DifferentTxsWithSameInput {
         assert!(ret.transaction.is_some());
         assert!(matches!(ret.tx_status.status, Status::Committed));
 
-        let ret = node0
-            .rpc_client()
-            .get_transaction_with_verbosity(tx2.hash(), 2);
-        assert!(ret.transaction.is_none());
-        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        // let ret = node0
+        //     .rpc_client()
+        //     .get_transaction_with_verbosity(tx2.hash(), 2);
+        // assert!(ret.transaction.is_none());
+        // assert!(matches!(ret.tx_status.status, Status::Rejected));
     }
 }
