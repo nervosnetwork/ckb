@@ -151,7 +151,7 @@ prod-docker:
 
 .PHONY: prod-test
 prod-test:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
+	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" CKB_FEATURES="with_sentry,with_dns_seeding" $(MAKE) test
 
 .PHONY: prod-with-debug
 prod-with-debug:
