@@ -1078,7 +1078,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // one, we won't generate any snapshots. Starting from this version,
             // we will remove this distinction: when loading program exceeds
             // maximum cycles, the error will be triggered when executing the
-            // first instruction. As as result, now all ResumableMachine will
+            // first instruction. As a result, now all ResumableMachine will
             // be transformed to snapshots. This is due to several considerations:
             //
             // * Let's do a little bit math: right now CKB has a block limit of
