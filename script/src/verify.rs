@@ -1093,7 +1093,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // * If you pay attention to the code now, we already have this behavior
             // in the code: most syscalls use +add_cycles_no_checking+ in the code,
             // meaning an error would not be immediately generated when cycle limit
-            // is reached, the error would be raise when executing the first instruction
+            // is reached, the error would be raised when executing the first instruction
             // after the syscall. What's more, when spawn is loading a program
             // to its child machine, it also uses +add_cycles_no_checking+ so it
             // won't generate errors immediately. This means that all spanwed machines
