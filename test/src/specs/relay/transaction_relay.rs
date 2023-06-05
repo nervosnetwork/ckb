@@ -5,6 +5,7 @@ use crate::util::transaction::{always_success_transaction, always_success_transa
 use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_constant::sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
+use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_types::{
@@ -234,11 +235,18 @@ impl Spec for TransactionRelayConflict {
         node0.rpc_client().send_transaction(tx1.data().into());
         sleep(6);
 
+        let res = node0.rpc_client().get_transaction(tx1.hash());
+        assert!(matches!(res.tx_status.status, Status::Pending));
+
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err());
-        eprintln!("res: {:?}", res);
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("TransactionFailedToResolve: Resolve failed Dead"));
 
         let relayed = wait_until(20, || {
             [tx1.hash()].iter().all(|hash| {
@@ -258,11 +266,10 @@ impl Spec for TransactionRelayConflict {
         node0.wait_for_tx_pool();
         node1.wait_for_tx_pool();
 
-        /*
         let ret = node1
             .rpc_client()
             .get_transaction_with_verbosity(tx2.hash(), 1);
-        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(matches!(ret.tx_status.status, Status::Unknown));
 
         node0.remove_transaction(tx1.hash());
         node0.remove_transaction(tx2.hash());
@@ -284,9 +291,11 @@ impl Spec for TransactionRelayConflict {
 
         let relayed = wait_until(10, || {
             // re-broadcast
+            // TODO: (yukang) double comfirm this behavior
             let _ = node1
                 .rpc_client()
                 .send_transaction_result(tx2.data().into());
+
             node0
                 .rpc_client()
                 .get_transaction(tx2.hash())
@@ -294,6 +303,5 @@ impl Spec for TransactionRelayConflict {
                 .is_some()
         });
         assert!(relayed, "Transaction should be relayed to node1");
-        */
     }
 }
