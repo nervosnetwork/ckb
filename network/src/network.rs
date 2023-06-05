@@ -113,6 +113,7 @@ impl NetworkState {
                     })
             })
             .collect();
+        info!("loading the peer store, which may take a few seconds to complete");
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
