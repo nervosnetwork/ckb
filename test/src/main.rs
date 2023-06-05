@@ -294,8 +294,12 @@ fn clap_app() -> App<'static> {
                 .value_name("SECONDS")
                 .help("Exit when total running time exceeds this limit"),
         )
-        .arg(Arg::with_name("list-specs").long("list-specs"))
-        .arg(Arg::with_name("specs").multiple(true))
+        .arg(
+            Arg::with_name("list-specs")
+                .long("list-specs")
+                .help("list all specs"),
+        )
+        .arg(Arg::with_name("specs").multiple(true).help("Specs to run"))
         .arg(
             Arg::with_name("concurrent")
                 .short('c')
