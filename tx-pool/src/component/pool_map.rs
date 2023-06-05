@@ -60,6 +60,7 @@ impl MultiIndexPoolEntryMap {
     pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
         // Note: multi_index don't support reverse order iteration now
         // so we need to collect and reverse
+        // TODO: @wyjin will add reverse order iteration support for multi_index
         let entries = self
             .iter_by_score()
             .filter(|entry| entry.status == Status::Proposed)
@@ -202,7 +203,7 @@ impl PoolMap {
         let mut removed = vec![];
         removed_ids.extend(self.calc_descendants(id));
 
-        // update links state for remove
+        // update links state for remove, so that we won't update_descendants_index_key in remove_entry
         for id in &removed_ids {
             self.remove_entry_links(id);
         }
