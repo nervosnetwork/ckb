@@ -9,14 +9,16 @@ jobs:
     name: Backport
     steps:
       - name: Create Reminder for cherry-pick and assign it to pr author
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
           HTTP_RESPONSE=`curl -v -X "POST" "https://api.github.com/repos/${{ github.repository }}/issues" \
               -H "Authorization: token ${{ secrets.REPO_ACCESS_TOKEN }}" \
               -H "Content-Type: text/plain; charset=utf-8" \
               --write-out "%{http_code}\n"\
               -o /dev/null\
-              -d $'{
-            "title": "Backport #${{ github.event.number }} ${{ github.event.pull_request.title }}",
+              -d '{
+            "title": "Backport #${{ github.event.number }} '"$TITLE"'",
             "body": "#${{ github.event.number }}",
             "assignees": [
               "${{ github.event.pull_request.user.login }}"
@@ -33,8 +35,8 @@ jobs:
                 -H "Content-Type: text/plain; charset=utf-8" \
                 --write-out "%{http_code}\n"\
                 -o /dev/null\
-                -d $'{
-                "title": "Backport #${{ github.event.number }} ${{ github.event.pull_request.title }}",
+                -d '{
+                "title": "Backport #${{ github.event.number }} '"$TITLE"'",
                 "body": "#${{ github.event.number }}",
                 "labels": [
                   "s:backport-needed"
