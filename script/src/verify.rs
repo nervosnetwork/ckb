@@ -1094,7 +1094,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // is reached, the error would be raised when executing the first instruction
             // after the syscall. What's more, when spawn is loading a program
             // to its child machine, it also uses +add_cycles_no_checking+ so it
-            // won't generate errors immediately. This means that all spanwed machines
+            // won't generate errors immediately. This means that all spawned machines
             // will be in a state that a program is loaded, regardless of the fact if
             // loading a program in spawn reaches the cycle limit or not. As a
             // result, we definitely want to pull the trigger, so we can have unified
