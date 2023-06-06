@@ -135,106 +135,88 @@ pub enum ResumePoint {
     },
 }
 
-/// Data structure captured all environment data for a suspended machine.
-/// While ResumePoint is used in snapshots for easier serialization, this
-/// contains data that can be used at runtime amongst running machines.
+/// Data structure captured all the required data for a spawn syscall
 #[derive(Clone, Debug)]
-pub enum ResumeData {
-    Initial,
-    Spawn {
-        callee_peak_memory: u64,
-        callee_memory_limit: u64,
-        content: Arc<Mutex<Vec<u8>>>,
-        content_length: u64,
-        caller_exit_code_addr: u64,
-        caller_content_addr: u64,
-        caller_content_length_addr: u64,
-    },
+pub struct SpawnData {
+    pub(crate) callee_peak_memory: u64,
+    pub(crate) callee_memory_limit: u64,
+    pub(crate) content: Arc<Mutex<Vec<u8>>>,
+    pub(crate) content_length: u64,
+    pub(crate) caller_exit_code_addr: u64,
+    pub(crate) caller_content_addr: u64,
+    pub(crate) caller_content_length_addr: u64,
 }
 
-impl From<&ResumePoint> for ResumeData {
-    fn from(value: &ResumePoint) -> Self {
-        match value {
-            ResumePoint::Initial => ResumeData::Initial,
-            ResumePoint::Spawn {
-                callee_peak_memory,
-                callee_memory_limit,
-                content,
-                content_length,
-                caller_exit_code_addr,
-                caller_content_addr,
-                caller_content_length_addr,
-            } => ResumeData::Spawn {
-                callee_peak_memory: *callee_peak_memory,
-                callee_memory_limit: *callee_memory_limit,
-                content: Arc::new(Mutex::new(content.clone())),
-                content_length: *content_length,
-                caller_exit_code_addr: *caller_exit_code_addr,
-                caller_content_addr: *caller_content_addr,
-                caller_content_length_addr: *caller_content_length_addr,
-            },
-        }
-    }
-}
-
-impl TryFrom<&ResumeData> for ResumePoint {
+impl TryFrom<&SpawnData> for ResumePoint {
     type Error = VMInternalError;
 
-    fn try_from(value: &ResumeData) -> Result<Self, Self::Error> {
-        Ok(match value {
-            ResumeData::Initial => ResumePoint::Initial,
-            ResumeData::Spawn {
-                callee_peak_memory,
-                callee_memory_limit,
-                content,
-                content_length,
-                caller_exit_code_addr,
-                caller_content_addr,
-                caller_content_length_addr,
-            } => ResumePoint::Spawn {
-                callee_peak_memory: *callee_peak_memory,
-                callee_memory_limit: *callee_memory_limit,
-                content: content
-                    .lock()
-                    .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
-                    .clone(),
-                content_length: *content_length,
-                caller_exit_code_addr: *caller_exit_code_addr,
-                caller_content_addr: *caller_content_addr,
-                caller_content_length_addr: *caller_content_length_addr,
-            },
+    fn try_from(value: &SpawnData) -> Result<Self, Self::Error> {
+        let SpawnData {
+            callee_peak_memory,
+            callee_memory_limit,
+            content,
+            content_length,
+            caller_exit_code_addr,
+            caller_content_addr,
+            caller_content_length_addr,
+        } = value;
+        Ok(ResumePoint::Spawn {
+            callee_peak_memory: *callee_peak_memory,
+            callee_memory_limit: *callee_memory_limit,
+            content: content
+                .lock()
+                .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
+                .clone(),
+            content_length: *content_length,
+            caller_exit_code_addr: *caller_exit_code_addr,
+            caller_content_addr: *caller_content_addr,
+            caller_content_length_addr: *caller_content_length_addr,
         })
     }
 }
 
-pub struct ResumableMachine {
-    machine: Machine,
-    pub(crate) data: ResumeData,
+pub enum ResumableMachine {
+    Initial(Machine),
+    Spawn(Machine, SpawnData),
 }
 
 impl ResumableMachine {
-    pub(crate) fn new(machine: Machine, data: ResumeData) -> Self {
-        ResumableMachine { machine, data }
+    pub(crate) fn initial(machine: Machine) -> Self {
+        ResumableMachine::Initial(machine)
+    }
+
+    pub(crate) fn spawn(machine: Machine, data: SpawnData) -> Self {
+        ResumableMachine::Spawn(machine, data)
+    }
+
+    pub(crate) fn machine(&self) -> &Machine {
+        match self {
+            ResumableMachine::Initial(machine) => machine,
+            ResumableMachine::Spawn(machine, _) => machine,
+        }
+    }
+
+    pub(crate) fn machine_mut(&mut self) -> &mut Machine {
+        match self {
+            ResumableMachine::Initial(machine) => machine,
+            ResumableMachine::Spawn(machine, _) => machine,
+        }
     }
 
     pub(crate) fn cycles(&self) -> Cycle {
-        self.machine.machine.cycles()
+        self.machine().machine.cycles()
     }
 
     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
-        set_vm_max_cycles(&mut self.machine, cycles)
+        set_vm_max_cycles(self.machine_mut(), cycles)
     }
 
     pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
-        self.machine.machine.add_cycles(cycles)
+        self.machine_mut().machine.add_cycles(cycles)
     }
 
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
-        self.machine.run()
-    }
-
-    pub(crate) fn destruct(self) -> (Machine, ResumeData) {
-        (self.machine, self.data)
+        self.machine_mut().run()
     }
 }
 
@@ -398,14 +380,16 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
 
         let mut snaps = Vec::with_capacity(vms.len());
         for mut vm in vms {
-            snaps.push((
-                make_snapshot(&mut vm.machine.machine)
-                    .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
-                vm.cycles(),
-                (&vm.data)
+            let snapshot = make_snapshot(&mut vm.machine_mut().machine)
+                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?;
+            let cycles = vm.cycles();
+            let resume_point = match vm {
+                ResumableMachine::Initial(_) => ResumePoint::Initial,
+                ResumableMachine::Spawn(_, data) => (&data)
                     .try_into()
                     .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
-            ));
+            };
+            snaps.push((snapshot, cycles, resume_point));
         }
 
         Ok(TransactionSnapshot {

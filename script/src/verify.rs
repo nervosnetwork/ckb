@@ -11,8 +11,8 @@ use crate::{
     },
     type_id::TypeIdSystemScript,
     types::{
-        CoreMachine, DebugPrinter, Indices, Machine, MachineContext, ResumableMachine, ResumeData,
-        ResumePoint, ScriptGroup, ScriptGroupType, ScriptVersion, TransactionSnapshot,
+        CoreMachine, DebugPrinter, Indices, Machine, MachineContext, ResumableMachine, ResumePoint,
+        ScriptGroup, ScriptGroupType, ScriptVersion, SpawnData, TransactionSnapshot,
         TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
@@ -726,7 +726,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     ) -> Result<VerifyResult, Error> {
         let TransactionState {
             current,
-            vms,
+            mut vms,
             current_cycles,
             machine_context,
             ..
@@ -740,18 +740,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .unknown_source()
         })?;
 
-        let machines: Vec<_> = vms
-            .into_iter()
-            .map(|mut vm| {
-                vm.set_max_cycles(limit_cycles);
-                vm.destruct()
-            })
-            .collect();
-
-        let resumed_script_result = if machines.is_empty() {
+        let resumed_script_result = if vms.is_empty() {
             self.verify_group_with_chunk(current_group, limit_cycles, &[])
         } else {
-            run_vms(current_group, limit_cycles, machines, &machine_context)
+            vms.iter_mut()
+                .for_each(|vm| vm.set_max_cycles(limit_cycles));
+            run_vms(current_group, limit_cycles, vms, &machine_context)
         };
         match resumed_script_result {
             Ok(ChunkState::Completed(used_cycles)) => {
@@ -1027,24 +1021,45 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // Resume machines from snapshots
             let mut machines = vec![];
             for (sp, current_cycle, resume_point) in snaps {
-                let resume_data: ResumeData = resume_point.into();
-                let mut machine = match &resume_data {
-                    ResumeData::Initial => {
-                        self.build_machine(script_group, max_cycles, Arc::clone(&context))
-                    }
-                    ResumeData::Spawn { .. } => build_child_machine(
+                let mut machine = match resume_point {
+                    ResumePoint::Initial => ResumableMachine::initial(self.build_machine(
                         script_group,
-                        self.select_version(&script_group.script)?,
-                        &self.generator,
                         max_cycles,
-                        &resume_data,
-                        &context,
-                    )
-                    .map_err(map_vm_internal_error),
-                }?;
-                resume(&mut machine.machine, sp).map_err(map_vm_internal_error)?;
-                machine.machine.set_cycles(*current_cycle);
-                machines.push((machine, resume_data));
+                        Arc::clone(&context),
+                    )?),
+                    ResumePoint::Spawn {
+                        callee_peak_memory,
+                        callee_memory_limit,
+                        content,
+                        content_length,
+                        caller_exit_code_addr,
+                        caller_content_addr,
+                        caller_content_length_addr,
+                    } => {
+                        let spawn_data = SpawnData {
+                            callee_peak_memory: *callee_peak_memory,
+                            callee_memory_limit: *callee_memory_limit,
+                            content: Arc::new(Mutex::new(content.clone())),
+                            content_length: *content_length,
+                            caller_exit_code_addr: *caller_exit_code_addr,
+                            caller_content_addr: *caller_content_addr,
+                            caller_content_length_addr: *caller_content_length_addr,
+                        };
+                        let machine = build_child_machine(
+                            script_group,
+                            self.select_version(&script_group.script)?,
+                            &self.generator,
+                            max_cycles,
+                            &spawn_data,
+                            &context,
+                        )
+                        .map_err(map_vm_internal_error)?;
+                        ResumableMachine::spawn(machine, spawn_data)
+                    }
+                };
+                resume(&mut machine.machine_mut().machine, sp).map_err(map_vm_internal_error)?;
+                machine.machine_mut().machine.set_cycles(*current_cycle);
+                machines.push(machine);
             }
             machines
         } else {
@@ -1088,7 +1103,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .machine
                 .add_cycles_no_checking(program_bytes_cycles)
                 .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
-            vec![(machine, ResumeData::Initial)]
+            vec![ResumableMachine::initial(machine)]
         };
 
         run_vms(script_group, max_cycles, machines, &context)
@@ -1099,11 +1114,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 fn run_vms(
     script_group: &ScriptGroup,
     max_cycles: Cycle,
-    mut machines: Vec<(Machine, ResumeData)>,
+    mut machines: Vec<ResumableMachine>,
     context: &Arc<Mutex<MachineContext>>,
 ) -> Result<ChunkState, ScriptError> {
-    // (exit_code, cycles, resume_data)
+    // (exit_code, cycles)
     let mut callee_data = None;
+    let mut spawn_data = None;
 
     if machines.is_empty() {
         return Err(ScriptError::VMInternalError(
@@ -1117,21 +1133,26 @@ fn run_vms(
     };
 
     while !machines.is_empty() {
-        let (mut machine, resume_data) = machines.pop().unwrap();
+        let mut machine = machines.pop().unwrap();
 
-        if let Some((callee_exit_code, callee_cycles, callee_resume_data)) = callee_data {
+        if let (Some((callee_exit_code, callee_cycles)), Some(callee_spawn_data)) =
+            (callee_data, &spawn_data)
+        {
             update_caller_machine(
-                &mut machine.machine,
+                &mut machine.machine_mut().machine,
                 callee_exit_code,
                 callee_cycles,
-                &callee_resume_data,
+                callee_spawn_data,
             )
             .map_err(map_vm_internal_error)?;
         }
 
         match machine.run() {
             Ok(code) => {
-                callee_data = Some((code, machine.machine.cycles(), resume_data));
+                callee_data = Some((code, machine.cycles()));
+                if let ResumableMachine::Spawn(_, data) = machine {
+                    spawn_data = Some(data);
+                }
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded => {
@@ -1144,11 +1165,8 @@ fn run_vms(
                     // The inner most machine lives at the top of the vector,
                     // reverse the list for natural order.
                     new_suspended_machines.reverse();
-                    let mut suspended_machines: Vec<_> = machines
-                        .drain(..)
-                        .map(|(machine, data)| ResumableMachine::new(machine, data))
-                        .collect();
-                    suspended_machines.push(ResumableMachine::new(machine, resume_data));
+                    let mut suspended_machines: Vec<_> = machines.drain(..).collect();
+                    suspended_machines.push(machine);
                     suspended_machines.append(&mut new_suspended_machines);
                     return Ok(ChunkState::suspended(
                         suspended_machines,
@@ -1160,7 +1178,7 @@ fn run_vms(
         };
     }
 
-    let (exit_code, cycles, _) = callee_data.unwrap();
+    let (exit_code, cycles) = callee_data.unwrap();
     if exit_code == 0 {
         Ok(ChunkState::Completed(cycles))
     } else {

@@ -7,7 +7,7 @@ use crate::syscalls::{
     SPAWN_MAX_PEAK_MEMORY, SPAWN_MEMORY_PAGE_SIZE, SPAWN_WRONG_MEMORY_LIMIT, WRONG_FORMAT,
 };
 use crate::types::{
-    set_vm_max_cycles, CoreMachineType, Machine, MachineContext, ResumableMachine, ResumeData,
+    set_vm_max_cycles, CoreMachineType, Machine, MachineContext, ResumableMachine, SpawnData,
 };
 use crate::TransactionScriptsSyscallsGenerator;
 use crate::{ScriptGroup, ScriptVersion};
@@ -147,7 +147,7 @@ where
             return Ok(true);
         }
         // Build child machine.
-        let resume_data = ResumeData::Spawn {
+        let spawn_data = SpawnData {
             callee_peak_memory: self.peak_memory + memory_limit,
             callee_memory_limit: memory_limit,
             content: Arc::new(Mutex::new(Vec::<u8>::new())),
@@ -161,7 +161,7 @@ where
             self.script_version,
             &self.syscalls_generator,
             cycles_limit,
-            &resume_data,
+            &spawn_data,
             &self.context,
         )?;
         // Get binary.
@@ -225,7 +225,7 @@ where
         // Run the child machine and check result.
         match machine_child.run() {
             Ok(data) => {
-                update_caller_machine(machine, data, machine_child.machine.cycles(), &resume_data)?;
+                update_caller_machine(machine, data, machine_child.machine.cycles(), &spawn_data)?;
                 Ok(true)
             }
             Err(VMError::CyclesExceeded) => {
@@ -235,7 +235,7 @@ where
                     .map_err(|e| VMError::Unexpected(format!("Failed to acquire lock: {}", e)))?;
                 context
                     .suspended_machines
-                    .push(ResumableMachine::new(machine_child, resume_data));
+                    .push(ResumableMachine::spawn(machine_child, spawn_data));
                 Err(VMError::CyclesExceeded)
             }
             Err(err) => Err(err),
@@ -250,28 +250,16 @@ pub fn build_child_machine<
     script_version: ScriptVersion,
     syscalls_generator: &TransactionScriptsSyscallsGenerator<DL>,
     cycles_limit: u64,
-    resume_data: &ResumeData,
+    spawn_data: &SpawnData,
     context: &Arc<Mutex<MachineContext>>,
 ) -> Result<Machine, VMError> {
-    let (callee_peak_memory, callee_memory_limit, content, content_length) = match resume_data {
-        ResumeData::Spawn {
-            callee_peak_memory,
-            callee_memory_limit,
-            content,
-            content_length,
-            ..
-        } => (
-            *callee_peak_memory,
-            *callee_memory_limit,
-            content,
-            *content_length,
-        ),
-        _ => {
-            return Err(VMError::Unexpected(
-                "Building child machine requires Spawn variant of ResumeData!".to_string(),
-            ))
-        }
-    };
+    let SpawnData {
+        callee_peak_memory,
+        callee_memory_limit,
+        content,
+        content_length,
+        ..
+    } = spawn_data;
 
     let machine_isa = script_version.vm_isa();
     let machine_version = script_version.vm_version();
@@ -288,15 +276,15 @@ pub fn build_child_machine<
         .into_iter()
         .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
     let machine_builder = machine_builder.syscall(Box::new(
-        syscalls_generator.build_get_memory_limit(callee_memory_limit),
+        syscalls_generator.build_get_memory_limit(*callee_memory_limit),
     ));
     let machine_builder = machine_builder.syscall(Box::new(
-        syscalls_generator.build_set_content(Arc::clone(content), content_length),
+        syscalls_generator.build_set_content(Arc::clone(content), *content_length),
     ));
     let machine_builder = machine_builder.syscall(Box::new(syscalls_generator.build_spawn(
         script_version,
         script_group,
-        callee_peak_memory,
+        *callee_peak_memory,
         Arc::clone(context),
     )));
     let mut machine_child = Machine::new(machine_builder.build());
@@ -308,35 +296,26 @@ pub fn update_caller_machine<Mac: SupportMachine>(
     caller: &mut Mac,
     callee_exit_code: i8,
     callee_cycles: u64,
-    resume_data: &ResumeData,
+    spawn_data: &SpawnData,
 ) -> Result<(), VMError> {
-    let (content, caller_exit_code_addr, caller_content_addr, caller_content_length_addr) =
-        match resume_data {
-            ResumeData::Spawn {
-                content,
-                caller_exit_code_addr,
-                caller_content_addr,
-                caller_content_length_addr,
-                ..
-            } => (
-                content,
-                *caller_exit_code_addr,
-                *caller_content_addr,
-                *caller_content_length_addr,
-            ),
-            _ => return Ok(()),
-        };
+    let SpawnData {
+        content,
+        caller_exit_code_addr,
+        caller_content_addr,
+        caller_content_length_addr,
+        ..
+    } = spawn_data;
 
     caller.set_register(A0, Mac::REG::from_u32(0));
     caller.memory_mut().store8(
-        &Mac::REG::from_u64(caller_exit_code_addr),
+        &Mac::REG::from_u64(*caller_exit_code_addr),
         &Mac::REG::from_i8(callee_exit_code),
     )?;
     caller
         .memory_mut()
         .store_bytes(caller_content_addr.to_u64(), &content.lock().unwrap())?;
     caller.memory_mut().store64(
-        &Mac::REG::from_u64(caller_content_length_addr),
+        &Mac::REG::from_u64(*caller_content_length_addr),
         &Mac::REG::from_u64(content.lock().unwrap().len() as u64),
     )?;
     caller.add_cycles_no_checking(callee_cycles)?;
