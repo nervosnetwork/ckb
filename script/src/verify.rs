@@ -583,23 +583,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(cycles)
     }
 
-    fn build_state(
-        &self,
-        vms: Vec<ResumableMachine>,
-        machine_context: Arc<Mutex<MachineContext>>,
-        current: usize,
-        current_cycles: Cycle,
-        limit_cycles: Cycle,
-    ) -> TransactionState {
-        TransactionState {
-            current,
-            vms,
-            machine_context,
-            current_cycles,
-            limit_cycles,
-        }
-    }
-
     /// Performing a resumable verification on the transaction scripts.
     ///
     /// ## Params
@@ -624,13 +607,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, None) {
+            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vms, context)) => {
                     let current = idx;
-                    let state = self.build_state(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -672,7 +655,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         })?;
 
         // continue snapshot current script
-        match self.verify_group_with_chunk(current_group, limit_cycles, Some(&snap.snaps)) {
+        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.snaps) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(
                     current_used,
@@ -683,7 +666,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
             Ok(ChunkState::Suspended(vms, context)) => {
                 let current = snap.current;
-                let state = self.build_state(vms, context, current, cycles, limit_cycles);
+                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -702,14 +685,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, None) {
+            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vms, context)) => {
                     let current = idx;
-                    let state = self.build_state(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -766,7 +749,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             .collect();
 
         let resumed_script_result = if machines.is_empty() {
-            self.verify_group_with_chunk(current_group, limit_cycles, None)
+            self.verify_group_with_chunk(current_group, limit_cycles, &[])
         } else {
             run_vms(current_group, limit_cycles, machines, &machine_context)
         };
@@ -776,7 +759,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
             Ok(ChunkState::Suspended(vms, context)) => {
-                let state = self.build_state(vms, context, current, cycles, limit_cycles);
+                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -794,14 +777,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, None) {
+            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(vms, context)) => {
                     let current = idx;
-                    let state = self.build_state(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -843,7 +826,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         // continue snapshot current script
         // max_cycles - cycles checked
-        match self.verify_group_with_chunk(current_group, max_cycles - cycles, Some(&snap.snaps)) {
+        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.snaps) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
@@ -865,7 +848,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, None) {
+            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
@@ -940,7 +923,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         group: &ScriptGroup,
         max_cycles: Cycle,
-        snaps: Option<&[(Snapshot, Cycle, ResumePoint)]>,
+        snaps: &[(Snapshot, Cycle, ResumePoint)],
     ) -> Result<ChunkState, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -1031,7 +1014,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-        snaps: Option<&[(Snapshot, Cycle, ResumePoint)]>,
+        snaps: &[(Snapshot, Cycle, ResumePoint)],
     ) -> Result<ChunkState, ScriptError> {
         let context: Arc<Mutex<MachineContext>> = Default::default();
 
@@ -1040,7 +1023,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             _ => ScriptError::VMInternalError(format!("{error:?}")),
         };
 
-        let machines = if let Some(snaps) = snaps {
+        let machines = if !snaps.is_empty() {
             // Resume machines from snapshots
             let mut machines = vec![];
             for (sp, current_cycle, resume_point) in snaps {

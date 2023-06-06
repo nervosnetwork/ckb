@@ -340,6 +340,23 @@ pub struct TransactionState {
 }
 
 impl TransactionState {
+    /// Creates a new TransactionState struct
+    pub fn new(
+        vms: Vec<ResumableMachine>,
+        machine_context: Arc<Mutex<MachineContext>>,
+        current: usize,
+        current_cycles: Cycle,
+        limit_cycles: Cycle,
+    ) -> Self {
+        TransactionState {
+            current,
+            vms,
+            machine_context,
+            current_cycles,
+            limit_cycles,
+        }
+    }
+
     /// Return next limit cycles according to max_cycles and step_cycles
     pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
         let remain = max_cycles - self.current_cycles;

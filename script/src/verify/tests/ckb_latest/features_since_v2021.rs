@@ -532,10 +532,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
             }
 
             while let Some((ty, _, group)) = groups.front().cloned() {
-                match verifier
-                    .verify_group_with_chunk(group, limit, None)
-                    .unwrap()
-                {
+                match verifier.verify_group_with_chunk(group, limit, &[]).unwrap() {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                         groups.pop_front();
@@ -731,10 +728,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
                 }
             }
             while let Some((_, _, group)) = groups.pop() {
-                match verifier
-                    .verify_group_with_chunk(group, limit, None)
-                    .unwrap()
-                {
+                match verifier.verify_group_with_chunk(group, limit, &[]).unwrap() {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                     }
