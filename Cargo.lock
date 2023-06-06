@@ -1552,9 +1552,9 @@ checksum = "83869c9d322de1ddbfde5b54b7376f9a1ac32273c50e21cdd5e8a1bd1a1cf632"
 
 [[package]]
 name = "ckb_multi_index_map"
-version = "0.0.1"
+version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2adba00c3dcb84fc4634c948cf3d24c05ce3193810bfa568effe13ad814f662a"
+checksum = "53c20823dfd9f9a8e30faa3b0bdcab4801fb2544957586fada3884c78dcdf38b"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro-error",
