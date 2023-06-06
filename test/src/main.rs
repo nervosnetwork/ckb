@@ -406,6 +406,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(GetRawTxPool),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
+        Box::new(PoolResolveConflictAfterReorg),
         Box::new(InvalidHeaderDep),
         #[cfg(not(target_os = "windows"))]
         Box::new(PoolPersisted),
