@@ -1133,7 +1133,6 @@ fn run_vms(
     };
 
     while let Some(mut machine) = machines.pop() {
-
         if let (Some((callee_exit_code, callee_cycles)), Some(callee_spawn_data)) =
             (callee_data, &spawn_data)
         {
@@ -1166,10 +1165,7 @@ fn run_vms(
                     new_suspended_machines.reverse();
                     machines.push(machine);
                     machines.append(&mut new_suspended_machines);
-                    return Ok(ChunkState::suspended(
-                        machines,
-                        Arc::clone(context),
-                    ));
+                    return Ok(ChunkState::suspended(machines, Arc::clone(context)));
                 }
                 _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
             },
