@@ -1132,8 +1132,7 @@ fn run_vms(
         _ => ScriptError::VMInternalError(format!("{error:?}")),
     };
 
-    while !machines.is_empty() {
-        let mut machine = machines.pop().unwrap();
+    while let Some(mut machine) = machines.pop() {
 
         if let (Some((callee_exit_code, callee_cycles)), Some(callee_spawn_data)) =
             (callee_data, &spawn_data)
