@@ -55,20 +55,6 @@ pub struct PoolEntry {
     pub inner: TxEntry,
 }
 
-impl MultiIndexPoolEntryMap {
-    /// sorted by ancestor score from higher to lower
-    pub fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        // Note: multi_index don't support reverse order iteration now
-        // so we need to collect and reverse
-        // TODO: @wyjin will add reverse order iteration support for multi_index
-        let entries = self
-            .iter_by_score()
-            .filter(|entry| entry.status == Status::Proposed)
-            .collect::<Vec<_>>();
-        entries.into_iter().rev().map(move |entry| &entry.inner)
-    }
-}
-
 pub struct PoolMap {
     /// The pool entries with different kinds of sort strategies
     pub(crate) entries: MultiIndexPoolEntryMap,
@@ -150,7 +136,11 @@ impl PoolMap {
     }
 
     pub(crate) fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        self.entries.score_sorted_iter()
+        self.entries
+            .iter_by_score()
+            .rev()
+            .filter(|entry| entry.status == Status::Proposed)
+            .map(|entry| &entry.inner)
     }
 
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
@@ -185,6 +175,31 @@ impl PoolMap {
                     .transaction()
                     .output_with_data(out_point.index().unpack())
             })
+    }
+
+    pub(crate) fn add_entry(&mut self, mut entry: TxEntry, status: Status) -> Result<bool, Reject> {
+        let tx_short_id = entry.proposal_short_id();
+        if self.entries.get_by_id(&tx_short_id).is_some() {
+            return Ok(false);
+        }
+        trace!("add_{:?} {}", status, entry.transaction().hash());
+        self.record_entry_links(&mut entry)?;
+        self.insert_entry(&entry, status)?;
+        self.record_entry_deps(&entry);
+        self.record_entry_edges(&entry);
+        Ok(true)
+    }
+
+    /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
+    pub(crate) fn set_entry(&mut self, entry: &TxEntry, status: Status) {
+        let tx_short_id = entry.proposal_short_id();
+        let _ = self
+            .entries
+            .get_by_id(&tx_short_id)
+            .expect("unconsistent pool");
+        self.entries.modify_by_id(&tx_short_id, |e| {
+            e.status = status;
+        });
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -523,31 +538,6 @@ impl PoolMap {
         }
 
         self.edges.header_deps.remove(&id);
-    }
-
-    pub(crate) fn add_entry(&mut self, mut entry: TxEntry, status: Status) -> Result<bool, Reject> {
-        let tx_short_id = entry.proposal_short_id();
-        if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok(false);
-        }
-        trace!("add_{:?} {}", status, entry.transaction().hash());
-        self.record_entry_links(&mut entry)?;
-        self.insert_entry(&entry, status)?;
-        self.record_entry_deps(&entry);
-        self.record_entry_edges(&entry);
-        Ok(true)
-    }
-
-    /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
-    pub(crate) fn set_entry(&mut self, entry: &TxEntry, status: Status) {
-        let tx_short_id = entry.proposal_short_id();
-        let _ = self
-            .entries
-            .get_by_id(&tx_short_id)
-            .expect("unconsistent pool");
-        self.entries.modify_by_id(&tx_short_id, |e| {
-            e.status = status;
-        });
     }
 
     fn insert_entry(&mut self, entry: &TxEntry, status: Status) -> Result<bool, Reject> {

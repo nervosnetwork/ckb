@@ -356,7 +356,7 @@ impl TxPool {
 
     /// Get to-be-proposal transactions that may be included in the next block.
     /// TODO: do we need to consider the something like score, so that we can
-    ///      provide best transactions to be proposed.
+    /// provide best transactions to be proposed.
     pub(crate) fn get_proposals(
         &self,
         limit: usize,
