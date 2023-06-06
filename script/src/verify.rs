@@ -1117,9 +1117,7 @@ fn run_vms(
     mut machines: Vec<ResumableMachine>,
     context: &Arc<Mutex<MachineContext>>,
 ) -> Result<ChunkState, ScriptError> {
-    // (exit_code, cycles)
-    let mut callee_data = None;
-    let mut spawn_data = None;
+    let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
 
     if machines.is_empty() {
         return Err(ScriptError::VMInternalError(
@@ -1133,13 +1131,11 @@ fn run_vms(
     };
 
     while let Some(mut machine) = machines.pop() {
-        if let (Some((callee_exit_code, callee_cycles)), Some(callee_spawn_data)) =
-            (callee_data, &spawn_data)
-        {
+        if let Some(callee_spawn_data) = &spawn_data {
             update_caller_machine(
                 &mut machine.machine_mut().machine,
-                callee_exit_code,
-                callee_cycles,
+                exit_code,
+                cycles,
                 callee_spawn_data,
             )
             .map_err(map_vm_internal_error)?;
@@ -1147,9 +1143,12 @@ fn run_vms(
 
         match machine.run() {
             Ok(code) => {
-                callee_data = Some((code, machine.cycles()));
+                exit_code = code;
+                cycles = machine.cycles();
                 if let ResumableMachine::Spawn(_, data) = machine {
                     spawn_data = Some(data);
+                } else {
+                    spawn_data = None;
                 }
             }
             Err(error) => match error {
@@ -1172,7 +1171,6 @@ fn run_vms(
         };
     }
 
-    let (exit_code, cycles) = callee_data.unwrap();
     if exit_code == 0 {
         Ok(ChunkState::Completed(cycles))
     } else {
