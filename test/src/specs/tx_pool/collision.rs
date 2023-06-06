@@ -1,4 +1,6 @@
-use crate::util::check::{is_transaction_committed, is_transaction_pending};
+use crate::util::check::{
+    is_transaction_committed, is_transaction_pending, is_transaction_rejected,
+};
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
@@ -6,7 +8,7 @@ use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
 use ckb_types::prelude::*;
 
 // Convention:
-//   * `tx1` and `tx2` are cousin transactions, with the same transaction content, expect the
+//   * `tx1` and `tx2` are cousin transactions, with the same transaction content, except the
 //   witnesses. Hence `tx1` and `tx2` have the same tx_hash/proposal-id but different witness_hash.
 
 pub struct TransactionHashCollisionDifferentWitnessHashes;
@@ -95,8 +97,8 @@ impl Spec for ConflictInGap {
         (0..window.closest() - 1).for_each(|_| {
             node.submit_block(&blank(node));
         });
+        node.submit_block(&propose(node, &[&txb]));
 
-        //node.submit_block(&propose(node, &[&txb]));
         let block = node.new_block(None, None, None);
         assert_eq!(&[txa], &block.transactions()[1..]);
 
@@ -162,6 +164,8 @@ impl Spec for RemoveConflictFromPending {
         assert!(res.is_err());
 
         assert!(is_transaction_pending(node, &txa));
+        assert!(is_transaction_rejected(node, &txb));
+        assert!(is_transaction_rejected(node, &txc));
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest()).for_each(|_| {
@@ -171,6 +175,8 @@ impl Spec for RemoveConflictFromPending {
         node.wait_for_tx_pool();
 
         assert!(is_transaction_committed(node, &txa));
+        assert!(is_transaction_rejected(node, &txb));
+        assert!(is_transaction_rejected(node, &txc));
     }
 }
 
