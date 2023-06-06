@@ -114,7 +114,7 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 
 /// Common data that would be shared amongst multiple VM instances.
 /// One sample usage right now, is to capture suspended machines in
-/// a chain of spanwed machines.
+/// a chain of spawned machines.
 #[derive(Default)]
 pub struct MachineContext {
     pub(crate) suspended_machines: Vec<ResumableMachine>,
