@@ -1165,11 +1165,10 @@ fn run_vms(
                     // The inner most machine lives at the top of the vector,
                     // reverse the list for natural order.
                     new_suspended_machines.reverse();
-                    let mut suspended_machines: Vec<_> = machines.drain(..).collect();
-                    suspended_machines.push(machine);
-                    suspended_machines.append(&mut new_suspended_machines);
+                    machines.push(machine);
+                    machines.append(&mut new_suspended_machines);
                     return Ok(ChunkState::suspended(
-                        suspended_machines,
+                        machines,
                         Arc::clone(context),
                     ));
                 }
