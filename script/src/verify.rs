@@ -757,7 +757,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .unknown_source()
         })?;
 
-        let machines = vms
+        let machines: Vec<_> = vms
             .into_iter()
             .map(|mut vm| {
                 vm.set_max_cycles(limit_cycles);
@@ -765,7 +765,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             })
             .collect();
 
-        match run_vms(current_group, limit_cycles, machines, &machine_context) {
+        let resumed_script_result = if machines.is_empty() {
+            self.verify_group_with_chunk(current_group, limit_cycles, None)
+        } else {
+            run_vms(current_group, limit_cycles, machines, &machine_context)
+        };
+        match resumed_script_result {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(current_used, used_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
@@ -1037,11 +1042,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         let machines = if let Some(snaps) = snaps {
             // Resume machines from snapshots
-            if snaps.is_empty() {
-                return Err(ScriptError::VMInternalError(
-                    "TransactionSnapshot must have at least one VM snap available!".to_string(),
-                ));
-            }
             let mut machines = vec![];
             for (sp, current_cycle, resume_point) in snaps {
                 let resume_data: ResumeData = resume_point.into();
@@ -1121,6 +1121,12 @@ fn run_vms(
 ) -> Result<ChunkState, ScriptError> {
     // (exit_code, cycles, resume_data)
     let mut callee_data = None;
+
+    if machines.is_empty() {
+        return Err(ScriptError::VMInternalError(
+            "To resume VMs, at least one VM must be available!".to_string(),
+        ));
+    }
 
     let map_vm_internal_error = |error: VMInternalError| match error {
         VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),

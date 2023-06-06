@@ -591,6 +591,112 @@ proptest! {
     }
 }
 
+fn _check_type_id_one_in_one_out_resume_with_state(
+    step_cycles: Cycle,
+) -> Result<(), TestCaseError> {
+    let script_version = SCRIPT_VERSION;
+
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
+    let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
+
+    let type_id_script = Script::new_builder()
+        .args(Bytes::from(h256!("0x1111").as_ref()).pack())
+        .code_hash(TYPE_ID_CODE_HASH.pack())
+        .hash_type(ScriptHashType::Type.into())
+        .build();
+
+    let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
+    let input_cell = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(1000).pack())
+        .lock(always_success_script.clone())
+        .type_(Some(type_id_script.clone()).pack())
+        .build();
+
+    let output_cell = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(990).pack())
+        .lock(always_success_script.clone())
+        .type_(Some(type_id_script).pack())
+        .build();
+
+    let transaction = TransactionBuilder::default()
+        .input(input.clone())
+        .output(output_cell)
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point.clone())
+                .build(),
+        )
+        .build();
+
+    let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        .out_point(input.previous_output())
+        .build();
+    let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        always_success_cell.clone(),
+        always_success_cell_data.to_owned(),
+    )
+    .out_point(always_success_out_point)
+    .build();
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![resolved_always_success_cell],
+        resolved_inputs: vec![resolved_input_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+
+    let (cycles, chunks_count) = verifier
+        .verify_map(script_version, &rtx, |verifier| {
+            let mut limit = step_cycles;
+            let cycles;
+            let mut times = 0usize;
+            times += 1;
+            let mut init_state = match verifier.resumable_verify(limit).unwrap() {
+                VerifyResult::Suspended(state) => {
+                    limit *= 2;
+                    Some(state)
+                }
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    return Ok((cycles, times));
+                }
+            };
+
+            loop {
+                times += 1;
+                let state = init_state.take().unwrap();
+                match verifier.resume_from_state(state, limit).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        init_state = Some(state);
+                        limit *= 2;
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+
+            Ok::<(u64, usize), Error>((cycles, times))
+        })
+        .unwrap();
+    assert_eq!(cycles, TYPE_ID_CYCLES + ALWAYS_SUCCESS_SCRIPT_CYCLE);
+    assert!(chunks_count > 1);
+
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(42))]
+    #[test]
+    fn check_type_id_one_in_one_out_resume_with_state(step in ALWAYS_SUCCESS_SCRIPT_CYCLE..(ALWAYS_SUCCESS_SCRIPT_CYCLE + TYPE_ID_CYCLES)) {
+        _check_type_id_one_in_one_out_resume_with_state(step)?;
+    }
+}
+
 fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle) {
     let script_version = SCRIPT_VERSION;
 
