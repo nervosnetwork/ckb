@@ -987,21 +987,15 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
-    let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
-            if tx_pool.add_pending(entry.clone()).unwrap_or(false) {
+            if tx_pool.add_pending(entry.clone())? {
                 callbacks.call_pending(tx_pool, &entry);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
-
         TxStatus::Gap => {
-            if tx_pool.add_gap(entry.clone()).unwrap_or(false) {
+            if tx_pool.add_gap(entry.clone())? {
                 callbacks.call_pending(tx_pool, &entry);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
         TxStatus::Proposed => {
