@@ -211,7 +211,7 @@ impl TxPool {
         }
     }
 
-    // Remove transactions from the pool until total size < size_limit.
+    // Remove transactions from the pool until total size <= size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
         while self.total_tx_size > self.config.max_tx_pool_size {
             if let Some(id) = self.pool_map.next_evict_entry() {

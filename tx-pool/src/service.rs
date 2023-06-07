@@ -981,13 +981,15 @@ impl TxPoolService {
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        tx_pool.add_pending(entry).unwrap();
+                        if let Err(err) = tx_pool.add_pending(entry) {
+                            error!("plug entry add_pending error {}", err);
+                        }
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
                         if let Err(err) = tx_pool.add_proposed(entry) {
-                            error!("plug entry error {}", err);
+                            error!("plug entry add_proposed error {}", err);
                         }
                     }
                 }

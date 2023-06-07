@@ -182,7 +182,7 @@ impl PoolMap {
         if self.entries.get_by_id(&tx_short_id).is_some() {
             return Ok(false);
         }
-        trace!("add_{:?} {}", status, entry.transaction().hash());
+        trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         self.record_entry_links(&mut entry)?;
         self.insert_entry(&entry, status)?;
         self.record_entry_deps(&entry);
