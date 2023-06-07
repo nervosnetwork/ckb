@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CellWithStatus {
     /// The cell information.
     ///
@@ -85,7 +85,7 @@ pub struct CellWithStatus {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CellInfo {
     /// Cell fields appears in the transaction `outputs` array.
     pub output: CellOutput,
@@ -107,7 +107,7 @@ pub struct CellInfo {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CellData {
     /// Cell content.
     pub content: JsonBytes,
