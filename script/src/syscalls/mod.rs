@@ -12,7 +12,7 @@ mod load_script_hash;
 mod load_tx;
 mod load_witness;
 mod set_content;
-mod spawn;
+pub(crate) mod spawn;
 mod utils;
 mod vm_version;
 

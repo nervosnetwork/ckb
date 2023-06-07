@@ -22,6 +22,8 @@ use crate::verify::{tests::utils::*, *};
 // check_spawn_big_content_length: fails when content_length > 256K.
 // check_peak_memory_4m_to_32m: spawn should success when peak memory <= 32M
 // check_peak_memory_2m_to_32m: spawn should success when peak memory <= 32M
+// check_spawn_snapshot: A spawn B, then B gets suspended to snapshot and resume again.
+// check_spawn_state: Like check_spawn_snapshot but invoking verifier.resume_from_state instead.
 
 #[test]
 fn check_vm_version() {
@@ -566,4 +568,114 @@ fn check_peak_memory_2m_to_32m() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_snapshot() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/current_cycles_with_snapshot");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_pause(script_version, &rtx, Cycle::MAX);
+    let cycles_once = result.unwrap();
+
+    let (cycles, chunks_count) = verifier
+        .verify_until_completed(script_version, &rtx)
+        .unwrap();
+    assert_eq!(cycles, cycles_once);
+    assert!(chunks_count > 1);
+}
+
+#[test]
+fn check_spawn_state() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/current_cycles_with_snapshot");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_pause(script_version, &rtx, Cycle::MAX);
+    let cycles_once = result.unwrap();
+
+    let (cycles, chunks_count) = verifier
+        .verify_map(script_version, &rtx, |verifier| {
+            let max_cycles = Cycle::MAX;
+            let cycles;
+            let mut times = 0usize;
+            times += 1;
+            let mut init_state = match verifier.resumable_verify(max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => Some(state),
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    return Ok((cycles, times));
+                }
+            };
+
+            loop {
+                times += 1;
+                let state = init_state.take().unwrap();
+                match verifier.resume_from_state(state, max_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        init_state = Some(state);
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+
+            Ok::<(u64, usize), Error>((cycles, times))
+        })
+        .unwrap();
+    assert_eq!(cycles, cycles_once);
+    assert!(chunks_count > 1);
 }
