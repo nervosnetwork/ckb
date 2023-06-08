@@ -465,7 +465,8 @@ impl TxPool {
 
     fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
         if !config.recent_reject.as_os_str().is_empty() {
-            let recent_reject_ttl = config.keep_rejected_tx_hashes_days as i32 * 24 * 60 * 60;
+            let recent_reject_ttl =
+                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * 24 * 60 * 60;
             match RecentReject::new(
                 &config.recent_reject,
                 config.keep_rejected_tx_hashes_count,
