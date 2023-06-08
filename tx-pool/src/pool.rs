@@ -6,7 +6,6 @@ use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
-use crate::util::verify_rtx;
 use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
@@ -19,7 +18,6 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -72,7 +70,7 @@ impl TxPool {
     }
 
     fn get_by_status(&self, status: &Status) -> Vec<&PoolEntry> {
-        self.pool_map.entries.get_by_status(status)
+        self.pool_map.get_by_status(status)
     }
 
     /// Get tx-pool size
@@ -128,12 +126,12 @@ impl TxPool {
         self.pool_map.get_by_id(id).is_some()
     }
 
-    pub(crate) fn set_entry_proposed(&mut self, entry: &TxEntry) {
-        self.pool_map.set_entry(entry, Status::Proposed)
+    pub(crate) fn set_entry_proposed(&mut self, short_id: &ProposalShortId) {
+        self.pool_map.set_entry(short_id, Status::Proposed)
     }
 
-    pub(crate) fn set_entry_gap(&mut self, entry: &TxEntry) {
-        self.pool_map.set_entry(entry, Status::Gap)
+    pub(crate) fn set_entry_gap(&mut self, short_id: &ProposalShortId) {
+        self.pool_map.set_entry(short_id, Status::Gap)
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -144,6 +142,10 @@ impl TxPool {
         self.pool_map
             .get_by_id(id)
             .map(|entry| (entry.inner.transaction().clone(), entry.inner.cycles))
+    }
+
+    pub(crate) fn get_pool_entry(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+        self.pool_map.get_by_id(id)
     }
 
     pub(crate) fn get_tx_from_pool(&self, id: &ProposalShortId) -> Option<&TransactionView> {
@@ -296,63 +298,36 @@ impl TxPool {
             .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn gap_rtx(
-        &mut self,
-        cache_entry: CacheEntry,
-        size: usize,
-        timestamp: u64,
-        rtx: Arc<ResolvedTransaction>,
-    ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.cloned_snapshot();
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 0));
-
-        let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(
-            snapshot,
-            Arc::clone(&rtx),
-            tx_env,
-            &Some(cache_entry),
-            max_cycles,
-        )?;
-
-        let entry =
-            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
-
-        self.set_entry_gap(&entry);
-        Ok(CacheEntry::Completed(verified))
+    pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        match self.get_pool_entry(short_id) {
+            Some(entry) => {
+                let tx_hash = entry.inner.transaction().hash();
+                if entry.status == Status::Gap {
+                    Err(Reject::Duplicated(tx_hash))
+                } else {
+                    debug!("gap_rtx: {:?} => {:?}", tx_hash, short_id);
+                    self.set_entry_gap(short_id);
+                    Ok(())
+                }
+            }
+            None => Err(Reject::Malformed(String::from("invalid short_id"))),
+        }
     }
 
-    pub(crate) fn proposed_rtx(
-        &mut self,
-        cache_entry: CacheEntry,
-        size: usize,
-        timestamp: u64,
-        rtx: Arc<ResolvedTransaction>,
-    ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.cloned_snapshot();
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 1));
-
-        let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(
-            snapshot,
-            Arc::clone(&rtx),
-            tx_env,
-            &Some(cache_entry),
-            max_cycles,
-        )?;
-
-        let entry =
-            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
-        let tx_hash = entry.transaction().hash();
-        debug!(
-            "proposed_rtx: {:?} => {:?}",
-            tx_hash,
-            entry.proposal_short_id()
-        );
-        self.set_entry_proposed(&entry);
-        Ok(CacheEntry::Completed(verified))
+    pub(crate) fn proposed_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        match self.get_pool_entry(short_id) {
+            Some(entry) => {
+                let tx_hash = entry.inner.transaction().hash();
+                if entry.status == Status::Proposed {
+                    Err(Reject::Duplicated(tx_hash))
+                } else {
+                    debug!("proposed_rtx: {:?} => {:?}", tx_hash, short_id);
+                    self.set_entry_proposed(short_id);
+                    Ok(())
+                }
+            }
+            None => Err(Reject::Malformed(String::from("invalid short_id"))),
+        }
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.

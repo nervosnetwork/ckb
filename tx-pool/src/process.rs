@@ -1034,43 +1034,39 @@ fn _update_tx_pool_for_reorg(
         let mut gaps = Vec::new();
 
         for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
-            let e = &entry.inner;
-            let short_id = e.proposal_short_id();
+            let short_id = entry.inner.proposal_short_id();
             if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push(e.clone());
+                proposals.push((short_id, entry.inner.clone()));
             }
         }
 
         for entry in tx_pool.pool_map.entries.get_by_status(&Status::Pending) {
-            let e = &entry.inner;
-            let short_id = e.proposal_short_id();
+            let short_id = entry.inner.proposal_short_id();
+            let elem = (short_id.clone(), entry.inner.clone());
             if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push(e.clone());
+                proposals.push(elem);
             } else if snapshot.proposals().contains_gap(&short_id) {
-                gaps.push(e.clone());
+                gaps.push(elem);
             }
         }
 
-        for entry in proposals {
-            debug!("begin to proposed: {:x}", entry.transaction().hash());
-            let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            if let Err(e) =
-                tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
-            {
-                callbacks.call_reject(tx_pool, &entry, e.clone());
+        for (id, entry) in proposals {
+            debug!("begin to proposed: {:x}", id);
+            if let Err(e) = tx_pool.proposed_rtx(&id) {
+                callbacks.call_reject(tx_pool, &entry, e);
             } else {
-                callbacks.call_proposed(tx_pool, &entry, false);
+                callbacks.call_proposed(tx_pool, &entry, false)
             }
         }
 
-        for entry in gaps {
-            debug!("begin to gap: {:x}", entry.transaction().hash());
-            let tx_hash = entry.transaction().hash();
-            let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            if let Err(e) =
-                tx_pool.gap_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
-            {
-                debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+        for (id, entry) in gaps {
+            debug!("begin to gap: {:x}", id);
+            if let Err(e) = tx_pool.gap_rtx(&id) {
+                debug!(
+                    "Failed to add tx to gap {}, reason: {}",
+                    entry.transaction().hash(),
+                    e
+                );
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             }
         }
