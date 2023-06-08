@@ -230,6 +230,7 @@ impl TxPool {
                 }
             }
         }
+        self.pool_map.entries.shrink_to_fit();
     }
 
     // remove transaction with detached proposal from gap and proposed

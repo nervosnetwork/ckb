@@ -328,12 +328,8 @@ impl PoolMap {
         self.entries.iter().map(|(_, entry)| entry)
     }
 
-    pub(crate) fn iter_by_evict_key(&self) -> impl Iterator<Item = &PoolEntry> {
-        self.entries.iter_by_evict_key()
-    }
-
     pub(crate) fn next_evict_entry(&self) -> Option<ProposalShortId> {
-        self.iter_by_evict_key()
+        self.entries.iter_by_evict_key()
             .next()
             .map(|entry| entry.id.clone())
     }
