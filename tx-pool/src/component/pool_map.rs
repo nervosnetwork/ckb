@@ -126,6 +126,10 @@ impl PoolMap {
         self.entries.get_by_id(id)
     }
 
+    pub(crate) fn get_by_status(&self, status: &Status) -> Vec<&PoolEntry> {
+        self.entries.get_by_status(status)
+    }
+
     pub(crate) fn pending_size(&self) -> usize {
         self.entries.get_by_status(&Status::Pending).len()
             + self.entries.get_by_status(&Status::Gap).len()
@@ -191,13 +195,9 @@ impl PoolMap {
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
-    pub(crate) fn set_entry(&mut self, entry: &TxEntry, status: Status) {
-        let tx_short_id = entry.proposal_short_id();
-        let _ = self
-            .entries
-            .get_by_id(&tx_short_id)
-            .expect("unconsistent pool");
-        self.entries.modify_by_id(&tx_short_id, |e| {
+    pub(crate) fn set_entry(&mut self, short_id: &ProposalShortId, status: Status) {
+        let _ = self.entries.get_by_id(short_id).expect("unconsistent pool");
+        self.entries.modify_by_id(short_id, |e| {
             e.status = status;
         });
     }
