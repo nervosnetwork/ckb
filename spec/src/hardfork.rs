@@ -2,7 +2,7 @@
 
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_types::core::{
-    hardfork::{CKB2021Builder, HardForks, CKB2021, CKB2023},
+    hardfork::{CKB2021Builder, CKB2023Builder, HardForks, CKB2021, CKB2023},
     EpochNumber,
 };
 use serde::{Deserialize, Serialize};
@@ -38,10 +38,12 @@ impl HardForkConfig {
             testnet::CKB2021_START_EPOCH,
             testnet::RFC0028_START_EPOCH,
         )?;
+        let mut ckb2023 = CKB2023::new_builder();
+        ckb2023 = self.update_2023(ckb2023, testnet::CKB2023_START_EPOCH)?;
 
         Ok(HardForks {
             ckb2021: ckb2021.build()?,
-            ckb2023: CKB2023::new_mirana(),
+            ckb2023: ckb2023.build()?,
         })
     }
 
@@ -59,6 +61,15 @@ impl HardForkConfig {
             .rfc_0032(ckb2021)
             .rfc_0036(ckb2021)
             .rfc_0038(ckb2021);
+        Ok(builder)
+    }
+
+    fn update_2023(
+        &self,
+        builder: CKB2023Builder,
+        ckb2023: EpochNumber,
+    ) -> Result<CKB2023Builder, String> {
+        let builder = builder.rfc_0146(ckb2023).rfc_0148(ckb2023);
         Ok(builder)
     }
 
