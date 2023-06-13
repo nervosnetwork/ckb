@@ -6,9 +6,11 @@ use crate::component::{
     entry::TxEntry,
     pool_map::{PoolMap, Status},
 };
+use ckb_types::core::Capacity;
 use ckb_types::packed::OutPoint;
 use ckb_types::{h256, packed::Byte32, prelude::*};
 use std::collections::HashSet;
+use std::time::Duration;
 
 #[test]
 fn test_basic() {
@@ -206,7 +208,11 @@ fn test_fill_proposals() {
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    std::thread::sleep(Duration::from_millis(1));
+
     let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    std::thread::sleep(Duration::from_millis(1));
+
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     assert!(pool.add_entry(entry1, Status::Pending).unwrap());
     assert!(pool.add_entry(entry2, Status::Pending).unwrap());
@@ -234,6 +240,55 @@ fn test_fill_proposals() {
     let mut ret = HashSet::new();
     pool.fill_proposals(2, &HashSet::new(), &mut ret, &Status::Pending);
     assert_eq!(ret, HashSet::from_iter(vec![id1.clone(), id2.clone()]));
+
+    let mut ret = HashSet::new();
+    let mut exclusion = HashSet::new();
+    exclusion.insert(id2);
+    pool.fill_proposals(2, &exclusion, &mut ret, &Status::Pending);
+    assert_eq!(ret, HashSet::from_iter(vec![id1, id3]));
+}
+
+#[test]
+fn test_fill_proposals_with_high_score() {
+    let mut pool = PoolMap::new(1000);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
+        3,
+    );
+    let tx3 = build_tx_with_dep(
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
+        3,
+    );
+    let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry2 = TxEntry::dummy_resolve(tx2.clone(), 2, Capacity::shannons(50), 2);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 2);
+
+    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+
+    let id1 = tx1.proposal_short_id();
+    let id2 = tx2.proposal_short_id();
+    let id3 = tx3.proposal_short_id();
+
+    let mut ret = HashSet::new();
+    pool.fill_proposals(10, &HashSet::new(), &mut ret, &Status::Pending);
+    assert_eq!(
+        ret,
+        HashSet::from_iter(vec![id3.clone(), id2.clone(), id1.clone()])
+    );
+
+    let mut ret = HashSet::new();
+    pool.fill_proposals(1, &HashSet::new(), &mut ret, &Status::Pending);
+    assert_eq!(ret, HashSet::from_iter(vec![id3.clone()]));
+
+    let mut ret = HashSet::new();
+    pool.fill_proposals(2, &HashSet::new(), &mut ret, &Status::Pending);
+    assert_eq!(ret, HashSet::from_iter(vec![id3.clone(), id2.clone()]));
 
     let mut ret = HashSet::new();
     let mut exclusion = HashSet::new();

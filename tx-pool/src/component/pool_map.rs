@@ -140,11 +140,7 @@ impl PoolMap {
     }
 
     pub(crate) fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        self.entries
-            .iter_by_score()
-            .rev()
-            .filter(|entry| entry.status == Status::Proposed)
-            .map(|entry| &entry.inner)
+        self.score_sorted_iter_by(Status::Proposed)
     }
 
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
@@ -296,12 +292,13 @@ impl PoolMap {
         proposals: &mut HashSet<ProposalShortId>,
         status: &Status,
     ) {
-        for entry in self.entries.get_by_status(status) {
+        for entry in self.score_sorted_iter_by(*status) {
             if proposals.len() == limit {
                 break;
             }
-            if !exclusion.contains(&entry.id) {
-                proposals.insert(entry.id.clone());
+            let id = entry.proposal_short_id();
+            if !exclusion.contains(&id) {
+                proposals.insert(id);
             }
         }
     }
@@ -339,6 +336,14 @@ impl PoolMap {
         self.entries = MultiIndexPoolEntryMap::default();
         self.edges.clear();
         self.links.clear();
+    }
+
+    fn score_sorted_iter_by(&self, status: Status) -> impl Iterator<Item = &TxEntry> {
+        self.entries
+            .iter_by_score()
+            .rev()
+            .filter(move |entry| entry.status == status)
+            .map(|entry| &entry.inner)
     }
 
     fn remove_entry_links(&mut self, id: &ProposalShortId) {

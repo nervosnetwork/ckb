@@ -9,6 +9,7 @@ pub struct AncestorsScoreSortKey {
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_weight: u64,
+    pub timestamp: u64,
 }
 
 impl AncestorsScoreSortKey {
@@ -42,7 +43,12 @@ impl Ord for AncestorsScoreSortKey {
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor weight
             if self.ancestors_weight == other.ancestors_weight {
-                self.id.raw_data().cmp(&other.id.raw_data())
+                if self.timestamp == other.timestamp {
+                    self.id.raw_data().cmp(&other.id.raw_data())
+                } else {
+                    // NOTE: we use timestamp to compare, so the order is reversed
+                    self.timestamp.cmp(&other.timestamp).reverse()
+                }
             } else {
                 self.ancestors_weight.cmp(&other.ancestors_weight)
             }
