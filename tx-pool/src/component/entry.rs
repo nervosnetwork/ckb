@@ -106,7 +106,7 @@ impl TxEntry {
     }
 
     /// Update ancestor state for add an entry
-    pub fn add_entry_weight(&mut self, entry: &TxEntry) {
+    pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_add(1);
         self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
         self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.cycles);
@@ -118,7 +118,7 @@ impl TxEntry {
     }
 
     /// Update ancestor state for remove an entry
-    pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
+    pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(1);
         self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
         self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.cycles);
