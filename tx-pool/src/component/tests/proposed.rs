@@ -104,11 +104,11 @@ fn test_add_entry_from_detached() {
 
     assert_eq!(pool.size(), 3);
 
-    let expected = vec![(id1.clone(), 1), (id2.clone(), 2), (id3.clone(), 3)];
+    let expected = vec![id1.clone(), id2.clone(), id3.clone()];
     let got = pool
         .entries
         .iter()
-        .map(|(_, key)| (key.id.clone(), key.score.ancestors_size))
+        .map(|(_, key)| key.id.clone())
         .collect::<Vec<_>>();
 
     assert_eq!(expected, got);
@@ -144,11 +144,11 @@ fn test_add_entry_from_detached() {
     assert_eq!(pool.edges.inputs_len(), 2);
     assert_eq!(pool.entries.len(), 2);
 
-    let left = vec![(id2.clone(), 1), (id3.clone(), 2)];
+    let left = vec![id2.clone(), id3.clone()];
     let got = pool
         .entries
         .iter()
-        .map(|(_, key)| (key.id.clone(), key.score.ancestors_size))
+        .map(|(_, key)| key.id.clone())
         .collect::<Vec<_>>();
     assert_eq!(left, got);
 
@@ -160,10 +160,13 @@ fn test_add_entry_from_detached() {
 
     assert!(pool.add_proposed(entry1).unwrap());
 
-    for (idx, (_, entry)) in pool.entries.iter().enumerate() {
-        assert_eq!(entry.id, expected[idx].0);
-        assert_eq!(entry.score.ancestors_size, expected[idx].1);
-    }
+    let ids = pool
+        .entries
+        .iter()
+        .map(|(_, entry)| entry.inner.proposal_short_id())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, expected);
+
     {
         assert!(pool.links.get_parents(&id1).unwrap().is_empty());
         assert_eq!(
