@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain"
-version = "0.111.0-pre"
+version = "0.110.0-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,37 +9,37 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.111.0-pre" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.111.0-pre" }
-ckb-types = { path = "../util/types", version = "= 0.111.0-pre" }
-ckb-shared = { path = "../shared", version = "= 0.111.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.111.0-pre" }
-ckb-store = { path = "../store", version = "= 0.111.0-pre" }
-ckb-verification = { path = "../verification", version = "= 0.111.0-pre" }
-ckb-verification-contextual = { path = "../verification/contextual", version = "= 0.111.0-pre" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.111.0-pre" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.111.0-pre" }
-ckb-dao = { path = "../util/dao", version = "= 0.111.0-pre" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.111.0-pre" }
-ckb-error = { path = "../error", version = "= 0.111.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.111.0-pre" }
-ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.111.0-pre" }
-ckb-channel = { path = "../util/channel", version = "= 0.111.0-pre" }
+ckb-logger = { path = "../util/logger", version = "= 0.110.0-rc1" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.110.0-rc1" }
+ckb-types = { path = "../util/types", version = "= 0.110.0-rc1" }
+ckb-shared = { path = "../shared", version = "= 0.110.0-rc1" }
+ckb-chain-spec = { path = "../spec", version = "= 0.110.0-rc1" }
+ckb-store = { path = "../store", version = "= 0.110.0-rc1" }
+ckb-verification = { path = "../verification", version = "= 0.110.0-rc1" }
+ckb-verification-contextual = { path = "../verification/contextual", version = "= 0.110.0-rc1" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.110.0-rc1" }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.110.0-rc1" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.110.0-rc1" }
+ckb-dao = { path = "../util/dao", version = "= 0.110.0-rc1" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.110.0-rc1" }
+ckb-error = { path = "../error", version = "= 0.110.0-rc1" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.110.0-rc1" }
+ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.110.0-rc1" }
+ckb-channel = { path = "../util/channel", version = "= 0.110.0-rc1" }
 faux = { version = "^0.1", optional = true }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.111.0-pre" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.111.0-pre" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.111.0-pre" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.111.0-pre", features = ["internal"] }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.111.0-pre" }
-ckb-network = { path = "../network", version = "= 0.111.0-pre" }
-ckb-launcher = { path = "../util/launcher", version = "= 0.111.0-pre" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.110.0-rc1" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.110.0-rc1" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.110.0-rc1" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.110.0-rc1", features = ["internal"] }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.110.0-rc1" }
+ckb-network = { path = "../network", version = "= 0.110.0-rc1" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.110.0-rc1" }
 lazy_static = "1.4"
 tempfile.workspace = true
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-pre" ,features = ["enable_faketime"]}
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.110.0-rc1" ,features = ["enable_faketime"]}
 
 [features]
 default = []
