@@ -160,7 +160,6 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
             weight,
             id: entry.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
-            ancestors_size: entry.ancestors_size,
             ancestors_weight,
         }
     }

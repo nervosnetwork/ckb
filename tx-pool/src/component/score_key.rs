@@ -9,7 +9,6 @@ pub struct AncestorsScoreSortKey {
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_weight: u64,
-    pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {
