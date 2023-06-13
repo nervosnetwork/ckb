@@ -1,7 +1,9 @@
+use crate::component::pool_map::Status;
 use crate::component::tests::util::{
     build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
+
 use crate::component::{entry::TxEntry, pool_map::PoolMap};
 use ckb_types::{
     bytes::Bytes,
@@ -694,4 +696,48 @@ fn test_max_ancestors_with_dep() {
 
     assert_eq!(pool.edges.inputs_len(), 1);
     assert_eq!(pool.edges.outputs_len(), 1);
+}
+
+#[test]
+fn test_container_bench_add_limits() {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    let mut pool = PoolMap::new(1000000);
+    let tx1 = TxEntry::dummy_resolve(
+        TransactionBuilder::default().build(),
+        100,
+        Capacity::shannons(100),
+        100,
+    );
+    pool.add_entry(tx1.clone(), Status::Proposed).unwrap();
+    let mut prev_tx = tx1;
+
+    for _i in 0..1000 {
+        let next_tx = TxEntry::dummy_resolve(
+            TransactionBuilder::default()
+                .input(
+                    CellInput::new_builder()
+                        .previous_output(
+                            OutPoint::new_builder()
+                                .tx_hash(prev_tx.transaction().hash())
+                                .index(0u32.pack())
+                                .build(),
+                        )
+                        .build(),
+                )
+                .witness(Bytes::new().pack())
+                .build(),
+            rng.gen_range(0..1000),
+            Capacity::shannons(200),
+            rng.gen_range(0..1000),
+        );
+        pool.add_entry(next_tx.clone(), Status::Proposed).unwrap();
+        prev_tx = next_tx;
+    }
+    assert_eq!(pool.size(), 1001);
+    assert_eq!(pool.proposed_size(), 1001);
+    assert_eq!(pool.pending_size(), 0);
+    pool.clear();
+    assert_eq!(pool.size(), 0);
 }
