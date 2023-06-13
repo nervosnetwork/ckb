@@ -363,8 +363,8 @@ impl PoolMap {
             let entry = self.entries.get_by_id(desc_id).unwrap().clone();
             let mut child = entry.inner.clone();
             match op {
-                EntryOp::Remove => child.sub_entry_weight(parent),
-                EntryOp::Add => child.add_entry_weight(parent),
+                EntryOp::Remove => child.sub_ancestor_weight(parent),
+                EntryOp::Add => child.add_ancestor_weight(parent),
             }
             let short_id = child.proposal_short_id();
             self.entries.modify_by_id(&short_id, |e| {
@@ -482,7 +482,7 @@ impl PoolMap {
                 .entries
                 .get_by_id(ancestor_id)
                 .expect("pool consistent");
-            entry.add_entry_weight(&ancestor.inner);
+            entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
             eprintln!("debug: exceeded maximum ancestors count");

@@ -209,7 +209,7 @@ impl<'a> CommitTxsScanner<'a> {
                     .remove(desc_id)
                     .or_else(|| self.pool_map.get(desc_id).cloned())
                 {
-                    desc.sub_entry_weight(entry);
+                    desc.sub_ancestor_weight(entry);
                     self.modified_entries.insert(desc);
                 }
             }
