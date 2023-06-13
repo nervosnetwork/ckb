@@ -30,6 +30,7 @@ fn test_min_fee_and_weight() {
             id: ProposalShortId::new([0u8; 10]),
             ancestors_fee: Capacity::shannons(ancestors_fee),
             ancestors_weight,
+            timestamp: 0,
         };
         key.min_fee_and_weight()
     })
@@ -74,6 +75,7 @@ fn test_ancestors_sorted_key_order() {
             id: ProposalShortId::new(id),
             ancestors_fee: Capacity::shannons(ancestors_fee),
             ancestors_weight,
+            timestamp: 0,
         }
     })
     .collect::<Vec<_>>();
