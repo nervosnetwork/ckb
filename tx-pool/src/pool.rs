@@ -173,7 +173,7 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn resolve_conflict_header_dep(
+    fn resolve_conflict_header_dep(
         &mut self,
         detached_headers: &HashSet<Byte32>,
         callbacks: &Callbacks,
@@ -183,7 +183,7 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
+    fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let short_id = tx.proposal_short_id();
         if let Some(entry) = self.pool_map.remove_entry(&short_id) {
             callbacks.call_committed(self, &entry)

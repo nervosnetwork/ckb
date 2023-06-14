@@ -117,11 +117,6 @@ impl PoolMap {
         self.add_entry(entry, Status::Proposed)
     }
 
-    #[cfg(test)]
-    pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView) -> Option<TxEntry> {
-        self.remove_entry(&tx.proposal_short_id())
-    }
-
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
     }
@@ -192,10 +187,11 @@ impl PoolMap {
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
     pub(crate) fn set_entry(&mut self, short_id: &ProposalShortId, status: Status) {
-        let _ = self.entries.get_by_id(short_id).expect("unconsistent pool");
-        self.entries.modify_by_id(short_id, |e| {
-            e.status = status;
-        });
+        self.entries
+            .modify_by_id(short_id, |e| {
+                e.status = status;
+            })
+            .expect("unconsistent pool");
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -302,24 +298,6 @@ impl PoolMap {
                 proposals.insert(id);
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn remove_entries_by_filter<P: FnMut(&ProposalShortId, &TxEntry) -> bool>(
-        &mut self,
-        status: &Status,
-        mut predicate: P,
-    ) -> Vec<TxEntry> {
-        let mut removed = Vec::new();
-        for entry in self.entries.get_by_status(status) {
-            if predicate(&entry.id, &entry.inner) {
-                removed.push(entry.inner.clone());
-            }
-        }
-        for entry in &removed {
-            self.remove_entry(&entry.proposal_short_id());
-        }
-        removed
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &PoolEntry> {
@@ -443,31 +421,16 @@ impl PoolMap {
         }
         // update children
         if !children.is_empty() {
-            self.update_descendants_from_detached(&tx_short_id, children);
+            for child in &children {
+                self.links.add_parent(child, tx_short_id.clone());
+            }
+            if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
+                links.children.extend(children);
+            }
+            self.update_descendants_index_key(entry, EntryOp::Add);
         }
         // update ancestors
         self.update_ancestors_index_key(entry, EntryOp::Add);
-    }
-
-    // update_descendants_from_detached is used to update
-    // the descendants for a single transaction that has been added to the
-    // pool but may have child transactions in the pool, eg during a
-    // chain reorg.
-    fn update_descendants_from_detached(
-        &mut self,
-        id: &ProposalShortId,
-        children: HashSet<ProposalShortId>,
-    ) {
-        if let Some(entry) = self.get_by_id(id).cloned() {
-            for child in &children {
-                self.links.add_parent(child, id.clone());
-            }
-            if let Some(links) = self.links.inner.get_mut(id) {
-                links.children.extend(children);
-            }
-
-            self.update_descendants_index_key(&entry.inner, EntryOp::Add);
-        }
     }
 
     /// Record the links for entry
@@ -517,7 +480,6 @@ impl PoolMap {
 
         for cell_dep in entry.transaction().cell_deps() {
             let dep_pt = cell_dep.out_point();
-            // insert dep-ref map
             self.edges
                 .deps
                 .entry(dep_pt)
@@ -529,7 +491,6 @@ impl PoolMap {
             self.links.add_child(parent, short_id.clone());
         }
 
-        // insert links
         let links = TxLinks {
             parents,
             children: Default::default(),

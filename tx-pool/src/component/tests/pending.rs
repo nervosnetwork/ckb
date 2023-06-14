@@ -166,35 +166,6 @@ fn test_remove_entry() {
 }
 
 #[test]
-fn test_remove_entries_by_filter() {
-    let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
-    let tx2 = build_tx(
-        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
-        3,
-    );
-    let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").pack(), 1)],
-        vec![(&h256!("0x5").pack(), 1)],
-        3,
-    );
-    let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    let entry3 = TxEntry::dummy_resolve(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
-
-    pool.remove_entries_by_filter(&Status::Pending, |id, _tx_entry| {
-        id == &tx1.proposal_short_id()
-    });
-
-    assert!(!pool.contains_key(&tx1.proposal_short_id()));
-    assert!(pool.contains_key(&tx2.proposal_short_id()));
-    assert!(pool.contains_key(&tx3.proposal_short_id()));
-}
-
-#[test]
 fn test_fill_proposals() {
     let mut pool = PoolMap::new(1000);
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
