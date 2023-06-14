@@ -184,7 +184,7 @@ impl PoolMap {
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         self.record_entry_links(&mut entry)?;
-        self.insert_entry(&entry, status)?;
+        self.insert_entry(&entry, status);
         self.record_entry_deps(&entry);
         self.record_entry_edges(&entry);
         Ok(true)
@@ -200,6 +200,7 @@ impl PoolMap {
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         if let Some(entry) = self.entries.remove_by_id(id) {
+            self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_deps(&entry.inner);
             self.remove_entry_edges(&entry.inner);
@@ -325,10 +326,10 @@ impl PoolMap {
         self.entries.iter().map(|(_, entry)| entry)
     }
 
-    pub(crate) fn next_evict_entry(&self) -> Option<ProposalShortId> {
+    pub(crate) fn next_evict_entry(&self, status: Status) -> Option<ProposalShortId> {
         self.entries
             .iter_by_evict_key()
-            .next()
+            .find(move |entry| entry.status == status)
             .map(|entry| entry.id.clone())
     }
 
@@ -360,6 +361,25 @@ impl PoolMap {
         self.links.remove(id);
     }
 
+    fn update_ancestors_index_key(&mut self, child: &TxEntry, op: EntryOp) {
+        let ancestors: HashSet<ProposalShortId> =
+            self.links.calc_ancestors(&child.proposal_short_id());
+        for anc_id in &ancestors {
+            // update parent score
+            let entry = self.entries.get_by_id(anc_id).unwrap().clone();
+            let mut parent = entry.inner.clone();
+            match op {
+                EntryOp::Remove => parent.sub_descendant_weight(child),
+                EntryOp::Add => parent.add_descendant_weight(child),
+            }
+            let short_id = parent.proposal_short_id();
+            self.entries.modify_by_id(&short_id, |e| {
+                e.evict_key = parent.as_evict_key();
+                e.inner = parent;
+            });
+        }
+    }
+
     fn update_descendants_index_key(&mut self, parent: &TxEntry, op: EntryOp) {
         let descendants: HashSet<ProposalShortId> =
             self.links.calc_descendants(&parent.proposal_short_id());
@@ -374,7 +394,6 @@ impl PoolMap {
             let short_id = child.proposal_short_id();
             self.entries.modify_by_id(&short_id, |e| {
                 e.score = child.as_score_key();
-                e.evict_key = child.as_evict_key();
                 e.inner = child;
             });
         }
@@ -426,6 +445,8 @@ impl PoolMap {
         if !children.is_empty() {
             self.update_descendants_from_detached(&tx_short_id, children);
         }
+        // update ancestors
+        self.update_ancestors_index_key(entry, EntryOp::Add);
     }
 
     // update_descendants_from_detached is used to update
@@ -542,7 +563,7 @@ impl PoolMap {
         self.edges.header_deps.remove(&id);
     }
 
-    fn insert_entry(&mut self, entry: &TxEntry, status: Status) -> Result<bool, Reject> {
+    fn insert_entry(&mut self, entry: &TxEntry, status: Status) {
         let tx_short_id = entry.proposal_short_id();
         let score = entry.as_score_key();
         let evict_key = entry.as_evict_key();
@@ -553,7 +574,6 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
-        Ok(true)
     }
 }
 

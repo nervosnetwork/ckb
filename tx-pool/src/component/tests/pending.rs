@@ -314,3 +314,148 @@ fn test_edges() {
     edges.delete_txid_by_dep(outpoint, &short_id2);
     assert!(edges.deps.is_empty());
 }
+
+#[test]
+fn test_pool_evict() {
+    let mut pool = PoolMap::new(1000);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
+        3,
+    );
+    let tx3 = build_tx_with_dep(
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
+        3,
+    );
+    let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry3 = TxEntry::dummy_resolve(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
+
+    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+
+    let e1 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e1, tx1.proposal_short_id());
+    pool.remove_entry(&e1);
+
+    let e2 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e2, tx2.proposal_short_id());
+    pool.remove_entry(&e2);
+
+    let e3 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e3, tx3.proposal_short_id());
+    pool.remove_entry(&e3);
+
+    assert!(pool.next_evict_entry(Status::Pending).is_none());
+}
+
+#[test]
+fn test_pool_min_weight_evict() {
+    let mut pool = PoolMap::new(1000);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
+        3,
+    );
+    let tx3 = build_tx_with_dep(
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
+        3,
+    );
+    let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 2);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry2 = TxEntry::dummy_resolve(tx2.clone(), 2, Capacity::shannons(50), 2);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(10), 2);
+
+    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+
+    let e1 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e1, tx3.proposal_short_id());
+    pool.remove_entry(&e1);
+
+    let e2 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e2, tx2.proposal_short_id());
+    pool.remove_entry(&e2);
+
+    let e3 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e3, tx1.proposal_short_id());
+    pool.remove_entry(&e3);
+
+    assert!(pool.next_evict_entry(Status::Pending).is_none());
+}
+
+#[test]
+fn test_pool_max_size_evict() {
+    let mut pool = PoolMap::new(1000);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
+        3,
+    );
+    let tx3 = build_tx_with_dep(
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
+        3,
+    );
+    let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 3);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry2 = TxEntry::dummy_resolve(tx2.clone(), 2, Capacity::shannons(100), 2);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 1);
+
+    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+
+    let e1 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e1, tx1.proposal_short_id());
+    pool.remove_entry(&e1);
+
+    let e2 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e2, tx2.proposal_short_id());
+    pool.remove_entry(&e2);
+
+    let e3 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e3, tx3.proposal_short_id());
+    pool.remove_entry(&e3);
+
+    assert!(pool.next_evict_entry(Status::Pending).is_none());
+}
+
+#[test]
+fn test_pool_min_descendants_evict() {
+    let mut pool = PoolMap::new(1000);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(vec![(&tx1.hash(), 1), (&h256!("0x3").pack(), 1)], 3);
+    let tx3 = build_tx_with_dep(vec![(&tx2.hash(), 1)], vec![(&h256!("0x5").pack(), 1)], 3);
+    let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 1);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry2 = TxEntry::dummy_resolve(tx2.clone(), 2, Capacity::shannons(100), 1);
+    std::thread::sleep(Duration::from_millis(1));
+    let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 1);
+
+    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+
+    let e1 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e1, tx3.proposal_short_id());
+    pool.remove_entry(&e1);
+
+    let e2 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e2, tx2.proposal_short_id());
+    pool.remove_entry(&e2);
+
+    let e3 = pool.next_evict_entry(Status::Pending).unwrap();
+    assert_eq!(e3, tx1.proposal_short_id());
+    pool.remove_entry(&e3);
+
+    assert!(pool.next_evict_entry(Status::Pending).is_none());
+}
