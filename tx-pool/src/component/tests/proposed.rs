@@ -72,7 +72,7 @@ fn test_add_entry() {
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 3);
 
-    pool.remove_committed_tx(&tx1);
+    pool.remove_entry(&tx1.proposal_short_id());
     assert_eq!(pool.edges.outputs_len(), 1);
     assert_eq!(pool.edges.inputs_len(), 1);
 }
@@ -139,7 +139,7 @@ fn test_add_entry_from_detached() {
         assert!(pool.links.get_children(&id3).unwrap().is_empty());
     }
 
-    pool.remove_committed_tx(&tx1);
+    pool.remove_entry(&tx1.proposal_short_id());
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
     assert_eq!(pool.entries.len(), 2);
@@ -221,7 +221,7 @@ fn test_add_roots() {
     assert_eq!(pool.edges.outputs_len(), 4);
     assert_eq!(pool.edges.inputs_len(), 4);
 
-    pool.remove_committed_tx(&tx1);
+    pool.remove_entry(&tx1.proposal_short_id());
 
     assert_eq!(pool.edges.outputs_len(), 3);
     assert_eq!(pool.edges.inputs_len(), 2);
@@ -282,7 +282,7 @@ fn test_add_no_roots() {
     assert_eq!(pool.edges.outputs_len(), 13);
     assert_eq!(pool.edges.inputs_len(), 7);
 
-    pool.remove_committed_tx(&tx1);
+    pool.remove_entry(&tx1.proposal_short_id());
 
     assert_eq!(pool.edges.outputs_len(), 10);
     assert_eq!(pool.edges.inputs_len(), 6);
@@ -584,7 +584,7 @@ fn test_dep_group() {
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 1);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
 
-    pool.remove_committed_tx(&tx3);
+    pool.remove_entry(&tx3.proposal_short_id());
     assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);
     assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
@@ -642,8 +642,8 @@ fn test_disordered_remove_committed_tx() {
     assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
 
-    pool.remove_committed_tx(&tx2);
-    pool.remove_committed_tx(&tx1);
+    pool.remove_entry(&tx2.proposal_short_id());
+    pool.remove_entry(&tx1.proposal_short_id());
 
     assert_eq!(pool.edges.inputs_len(), 0);
     assert_eq!(pool.edges.outputs_len(), 0);
