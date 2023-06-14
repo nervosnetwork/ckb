@@ -336,8 +336,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 pub struct TransactionScriptsVerifier<DL> {
     data_loader: DL,
 
-    debug_printer: DebugPrinter,
-
     rtx: Arc<ResolvedTransaction>,
 
     binaries_by_data_hash: HashMap<Byte32, LazyData>,
@@ -464,7 +462,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             rtx,
             lock_groups,
             type_groups,
-            debug_printer,
             #[cfg(test)]
             skip_pause,
             consensus,
@@ -483,7 +480,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// * `hash: &Byte32`: this is the script hash of currently running script group.
     /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
-        self.debug_printer = Arc::new(func);
+        self.generator.debug_printer = Arc::new(func);
     }
 
     #[cfg(test)]
