@@ -34,7 +34,7 @@ impl Spec for SizeLimit {
 
         let max_tx_num = (MAX_MEM_SIZE_FOR_SIZE_LIMIT as u64) / one_tx_size;
 
-        info!("Generate as much as possible txs on node");
+        info!("Generate as much as possible txs on : {}", max_tx_num);
         (0..(max_tx_num - 1)).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
             hash = node.rpc_client().send_transaction(tx.data().into());

@@ -31,6 +31,14 @@ pub struct TxEntry {
     pub ancestors_cycles: Cycle,
     /// ancestors txs count
     pub ancestors_count: usize,
+    /// descendants txs fee
+    pub descendants_fee: Capacity,
+    /// descendants txs size
+    pub descendants_size: usize,
+    /// descendants txs cycles
+    pub descendants_cycles: Cycle,
+    /// descendants txs count
+    pub descendants_count: usize,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
 }
@@ -58,6 +66,10 @@ impl TxEntry {
             ancestors_size: size,
             ancestors_fee: fee,
             ancestors_cycles: cycles,
+            descendants_fee: fee,
+            descendants_size: size,
+            descendants_cycles: cycles,
+            descendants_count: 1,
             ancestors_count: 1,
         }
     }
@@ -106,6 +118,30 @@ impl TxEntry {
     }
 
     /// Update ancestor state for add an entry
+    pub fn add_descendant_weight(&mut self, entry: &TxEntry) {
+        self.descendants_count = self.descendants_count.saturating_add(1);
+        self.descendants_size = self.descendants_size.saturating_add(entry.size);
+        self.descendants_cycles = self.descendants_cycles.saturating_add(entry.cycles);
+        self.descendants_fee = Capacity::shannons(
+            self.descendants_fee
+                .as_u64()
+                .saturating_add(entry.fee.as_u64()),
+        );
+    }
+
+    /// Update ancestor state for remove an entry
+    pub fn sub_descendant_weight(&mut self, entry: &TxEntry) {
+        self.descendants_count = self.descendants_count.saturating_sub(1);
+        self.descendants_size = self.descendants_size.saturating_sub(entry.size);
+        self.descendants_cycles = self.descendants_cycles.saturating_sub(entry.cycles);
+        self.descendants_fee = Capacity::shannons(
+            self.descendants_fee
+                .as_u64()
+                .saturating_sub(entry.fee.as_u64()),
+        );
+    }
+
+    /// Update ancestor state for add an entry
     pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_add(1);
         self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
@@ -130,11 +166,16 @@ impl TxEntry {
     }
 
     /// Reset ancestor state by remove
-    pub fn reset_ancestors_state(&mut self) {
+    pub fn reset_statistic_state(&mut self) {
         self.ancestors_count = 1;
         self.ancestors_size = self.size;
         self.ancestors_cycles = self.cycles;
         self.ancestors_fee = self.fee;
+
+        self.descendants_count = 1;
+        self.descendants_size = self.size;
+        self.descendants_cycles = self.cycles;
+        self.descendants_fee = self.fee;
     }
 
     /// Converts entry to a `TxEntryInfo`.
@@ -145,6 +186,8 @@ impl TxEntry {
             fee: self.fee,
             ancestors_size: self.ancestors_size as u64,
             ancestors_cycles: self.ancestors_cycles,
+            descendants_size: self.descendants_size as u64,
+            descendants_cycles: self.descendants_cycles,
             ancestors_count: self.ancestors_count as u64,
             timestamp: self.timestamp,
         }
@@ -190,22 +233,28 @@ impl Ord for TxEntry {
     }
 }
 
-/// Currently we do not have trace descendants,
-/// so first take the simplest strategy,
-/// first compare fee_rate, select the smallest fee_rate,
+/// First compare fee_rate, select the smallest fee_rate,
 /// and then select the latest timestamp, for eviction,
 /// the latest timestamp which also means that the fewer descendants may exist.
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct EvictKey {
-    fee_rate: FeeRate,
-    timestamp: u64,
+    pub fee_rate: FeeRate,
+    pub timestamp: u64,
+    pub descendants_count: usize,
 }
 
 impl From<&TxEntry> for EvictKey {
     fn from(entry: &TxEntry) -> Self {
+        let weight = get_transaction_weight(entry.size, entry.cycles);
+        let descendants_weight =
+            get_transaction_weight(entry.descendants_size, entry.descendants_cycles);
+
+        let descendants_feerate = FeeRate::calculate(entry.descendants_fee, descendants_weight);
+        let feerate = FeeRate::calculate(entry.fee, weight);
         EvictKey {
-            fee_rate: entry.fee_rate(),
+            fee_rate: descendants_feerate.max(feerate),
             timestamp: entry.timestamp,
+            descendants_count: entry.descendants_count,
         }
     }
 }
@@ -219,7 +268,11 @@ impl PartialOrd for EvictKey {
 impl Ord for EvictKey {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.fee_rate == other.fee_rate {
-            self.timestamp.cmp(&other.timestamp).reverse()
+            if self.descendants_count == other.descendants_count {
+                self.timestamp.cmp(&other.timestamp)
+            } else {
+                self.descendants_count.cmp(&other.descendants_count)
+            }
         } else {
             self.fee_rate.cmp(&other.fee_rate)
         }
