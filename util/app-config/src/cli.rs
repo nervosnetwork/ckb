@@ -1,6 +1,6 @@
 //! CKB command line arguments parser.
 use ckb_build_info::Version;
-use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
+use ckb_resource::{AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{Arg, ArgGroup, ArgMatches, Command};
 
 /// binary file name(ckb)
@@ -414,6 +414,12 @@ fn init() -> Command {
             Arg::new(ARG_CHAIN)
                 .short('c')
                 .long(ARG_CHAIN)
+                .value_parser(
+                    AVAILABLE_SPECS
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>(),
+                )
                 .default_value(DEFAULT_SPEC)
                 .help("Initializes CKB directory for <chain>"),
         )
