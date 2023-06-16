@@ -797,9 +797,18 @@ impl Consensus {
                     epoch_duration_in_milliseconds,
                 } => {
                     if self.permanent_difficulty() {
+                        let primary_epoch_reward =
+                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
+                        let block_reward =
+                            Capacity::shannons(primary_epoch_reward / epoch.length());
+                        let remainder_reward =
+                            Capacity::shannons(primary_epoch_reward % epoch.length());
+
                         let dummy_epoch_ext = epoch
                             .clone()
                             .into_builder()
+                            .base_block_reward(block_reward)
+                            .remainder_reward(remainder_reward)
                             .number(epoch.number() + 1)
                             .last_block_hash_in_previous_epoch(header.hash())
                             .start_number(header.number() + 1)
