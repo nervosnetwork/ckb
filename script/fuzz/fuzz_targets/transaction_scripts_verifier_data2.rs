@@ -101,7 +101,7 @@ fn run(data: &[u8]) {
         ckb2021: CKB2021::new_mirana().as_builder().build().unwrap(),
         ckb2023: CKB2023::new_mirana()
             .as_builder()
-            .rfc_0148(0)
+            .rfc_0049(0)
             .build()
             .unwrap(),
     };

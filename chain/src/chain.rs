@@ -193,14 +193,14 @@ impl ForkChanges {
             false
         } else {
             // This method assumes that the input blocks are sorted and unique.
-            let rfc_0148 = hardfork.ckb2023.rfc_0148();
+            let rfc_0049 = hardfork.ckb2023.rfc_0049();
             let epoch_first = blocks.front().unwrap().epoch().number();
             let epoch_next = blocks
                 .back()
                 .unwrap()
                 .epoch()
                 .minimum_epoch_number_after_n_blocks(1);
-            epoch_first < rfc_0148 && rfc_0148 <= epoch_next
+            epoch_first < rfc_0049 && rfc_0049 <= epoch_next
         }
     }
 }
