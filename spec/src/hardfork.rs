@@ -69,7 +69,7 @@ impl HardForkConfig {
         builder: CKB2023Builder,
         ckb2023: EpochNumber,
     ) -> Result<CKB2023Builder, String> {
-        let builder = builder.rfc_0146(ckb2023).rfc_0148(ckb2023);
+        let builder = builder.rfc_0048(ckb2023).rfc_0049(ckb2023);
         Ok(builder)
     }
 

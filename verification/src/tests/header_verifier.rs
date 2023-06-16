@@ -32,7 +32,7 @@ pub fn test_version() {
         ckb2021: CKB2021::new_mirana(),
         ckb2023: CKB2023::new_mirana()
             .as_builder()
-            .rfc_0146(10)
+            .rfc_0048(10)
             .build()
             .unwrap(),
     };

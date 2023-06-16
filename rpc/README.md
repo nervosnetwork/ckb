@@ -1666,8 +1666,8 @@ Response
                 { "rfc": "0038", "epoch_number": "0x0" }
             ],
             "ckb2023": [
-                 { "rfc": "0146", "epoch_number": null },
-                 { "rfc": "0148", "epoch_number": null }
+                 { "rfc": "0048", "epoch_number": null },
+                 { "rfc": "0049", "epoch_number": null }
             ]
         },
         "id": "main",

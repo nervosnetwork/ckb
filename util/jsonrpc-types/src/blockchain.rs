@@ -1403,8 +1403,8 @@ impl HardForks {
                 HardForkFeature::new("0038", convert(hardforks.ckb2021.rfc_0038())),
             ],
             ckb2023: vec![
-                HardForkFeature::new("0146", convert(hardforks.ckb2023.rfc_0146())),
-                HardForkFeature::new("0148", convert(hardforks.ckb2023.rfc_0148())),
+                HardForkFeature::new("0048", convert(hardforks.ckb2023.rfc_0048())),
+                HardForkFeature::new("0049", convert(hardforks.ckb2023.rfc_0049())),
             ],
         }
     }

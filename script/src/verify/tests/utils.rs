@@ -141,7 +141,7 @@ impl TransactionScriptsVerifierWithEnv {
             ckb2021: CKB2021::new_mirana(),
             ckb2023: CKB2023::new_mirana()
                 .as_builder()
-                .rfc_0148(version_2_enabled_at)
+                .rfc_0049(version_2_enabled_at)
                 .build()
                 .unwrap(),
         };
