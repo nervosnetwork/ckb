@@ -1028,13 +1028,13 @@ impl Consensus {
 
         let epoch_number = epoch.number();
 
-        let rfc_0148 = self.hardfork_switch.ckb2023.rfc_0148();
+        let rfc_0049 = self.hardfork_switch.ckb2023.rfc_0049();
 
         // dev default is 0
-        if rfc_0148 != 0 && rfc_0148 != EpochNumber::MAX {
-            return (epoch_number + 1 == rfc_0148
+        if rfc_0049 != 0 && rfc_0049 != EpochNumber::MAX {
+            return (epoch_number + 1 == rfc_0049
                 && (proposal_window.farthest() + index) >= epoch_length)
-                || (epoch_number == rfc_0148 && index <= proposal_window.farthest());
+                || (epoch_number == rfc_0049 && index <= proposal_window.farthest());
         }
         false
     }
