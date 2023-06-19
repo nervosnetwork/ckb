@@ -540,7 +540,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
             ScriptHashType::Data1 => Ok(ScriptVersion::V1),
-            ScriptHashType::Data2 => Ok(ScriptVersion::V2),
+            ScriptHashType::Data2 => {
+                if is_vm_version_2_and_syscalls_3_enabled {
+                    Ok(ScriptVersion::V2)
+                } else {
+                    Err(ScriptError::InvalidVmVersion(2))
+                }
+            }
             ScriptHashType::Type => {
                 if is_vm_version_2_and_syscalls_3_enabled {
                     Ok(ScriptVersion::V2)
