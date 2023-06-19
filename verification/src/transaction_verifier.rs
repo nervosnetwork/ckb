@@ -99,11 +99,13 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
+/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualTransactionVerifier<DL> {
+    pub(crate) compatible: CompatibleVerifier,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
     pub(crate) script: ScriptVerifier<DL>,
@@ -130,6 +132,11 @@ where
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualTransactionVerifier {
+            compatible: CompatibleVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&consensus),
+                Arc::clone(&tx_env),
+            ),
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
                 Arc::clone(&consensus),
@@ -149,6 +156,7 @@ where
 
     /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<(VerifyResult, Capacity), Error> {
+        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
@@ -160,6 +168,7 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
+        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -180,6 +189,7 @@ where
         skip_script_verify: bool,
         snapshot: &TransactionSnapshot,
     ) -> Result<Completed, Error> {
+        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -832,6 +842,68 @@ impl<'a> OutputsDataVerifier<'a> {
     }
 }
 
+/// Check compatible between different versions CKB clients.
+///
+/// When a new client with hardfork features released, before the hardfork started, the old CKB
+/// clients will still be able to work.
+/// So, the new CKB client have to add several necessary checks to avoid fork attacks.
+///
+/// After hardfork, the old clients will be no longer available. Then we can delete all code in
+/// this verifier until next hardfork.
+pub struct CompatibleVerifier {
+    rtx: Arc<ResolvedTransaction>,
+    consensus: Arc<Consensus>,
+    tx_env: Arc<TxVerifyEnv>,
+}
+
+impl CompatibleVerifier {
+    pub fn new(
+        rtx: Arc<ResolvedTransaction>,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+    ) -> Self {
+        Self {
+            rtx,
+            consensus,
+            tx_env,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let proposal_window = self.consensus.tx_proposal_window();
+        let epoch_number = self.tx_env.epoch_number(proposal_window);
+        if !self
+            .consensus
+            .hardfork_switch()
+            .ckb2023
+            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
+        {
+            for ht in self
+                .rtx
+                .transaction
+                .outputs()
+                .into_iter()
+                .map(|output| output.lock().hash_type())
+            {
+                let hash_type: ScriptHashType = ht.try_into().map_err(|_| {
+                    let val: u8 = ht.into();
+                    // This couldn't happen, because we already check it.
+                    TransactionError::Internal {
+                        description: format!("unknown hash type {:02x}", val),
+                    }
+                })?;
+                if hash_type == ScriptHashType::Data2 {
+                    return Err(TransactionError::Compatible {
+                        feature: "VM Version 2",
+                    }
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Context-dependent checks exclude script
 ///
 /// Contains:
@@ -839,6 +911,7 @@ impl<'a> OutputsDataVerifier<'a> {
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
 pub struct ContextualWithoutScriptTransactionVerifier<DL> {
+    pub(crate) compatible: CompatibleVerifier,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
     pub(crate) fee_calculator: FeeCalculator<DL>,
@@ -864,6 +937,11 @@ where
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualWithoutScriptTransactionVerifier {
+            compatible: CompatibleVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&consensus),
+                Arc::clone(&tx_env),
+            ),
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
                 Arc::clone(&consensus),
@@ -877,6 +955,7 @@ where
 
     /// Perform verification
     pub fn verify(&self) -> Result<Capacity, Error> {
+        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;

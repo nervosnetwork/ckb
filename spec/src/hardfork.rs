@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HardForkConfig {
-    ckb2023: Option<EpochNumber>,
+    /// ckb 2023 epoch
+    pub ckb2023: Option<EpochNumber>,
 }
 
 impl HardForkConfig {

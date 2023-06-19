@@ -530,7 +530,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckCellDeps),
         Box::new(CheckAbsoluteEpochSince),
         Box::new(CheckRelativeEpochSince),
-        Box::new(CheckVmVersion),
+        Box::new(CheckVmVersion1),
+        Box::new(CheckVmVersion2),
         Box::new(CheckVmBExtension),
     ];
     specs.shuffle(&mut thread_rng());
