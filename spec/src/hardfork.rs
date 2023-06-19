@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 /// Hard forks parameters for spec.
 #[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HardForkConfig {}
+pub struct HardForkConfig {
+    ckb2023: Option<EpochNumber>,
+}
 
 impl HardForkConfig {
     /// If all parameters which have been set are correct for mainnet, then
@@ -77,6 +79,22 @@ impl HardForkConfig {
     ///
     /// Enable features which are set to `None` at the dev default config.
     pub fn complete_with_dev_default(&self) -> Result<HardForks, String> {
-        Ok(HardForks::new_dev())
+        let mut ckb2021 = CKB2021::new_builder();
+        ckb2021 = self.update_2021(
+            ckb2021,
+            testnet::CKB2021_START_EPOCH,
+            testnet::RFC0028_START_EPOCH,
+        )?;
+
+        let ckb2023 = if let Some(epoch) = self.ckb2023 {
+            CKB2023::new_with_specified(epoch)
+        } else {
+            CKB2023::new_dev_default()
+        };
+
+        Ok(HardForks {
+            ckb2021: ckb2021.build()?,
+            ckb2023,
+        })
     }
 }

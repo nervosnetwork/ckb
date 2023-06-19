@@ -99,7 +99,7 @@ impl CKB2021 {
     }
 
     /// Creates a new dev instance.
-    pub fn new_dev() -> Self {
+    pub fn new_dev_default() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
             .rfc_0028(0)

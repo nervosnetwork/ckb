@@ -29,8 +29,8 @@ impl HardForks {
     /// construct dev configuration
     pub fn new_dev() -> HardForks {
         HardForks {
-            ckb2021: CKB2021::new_dev(),
-            ckb2023: CKB2023::new_dev(),
+            ckb2021: CKB2021::new_dev_default(),
+            ckb2023: CKB2023::new_dev_default(),
         }
     }
 }

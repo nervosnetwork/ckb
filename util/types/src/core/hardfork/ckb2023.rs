@@ -47,9 +47,19 @@ impl CKB2023 {
     }
 
     /// Creates a new dev instance.
-    pub fn new_dev() -> Self {
+    pub fn new_dev_default() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder().rfc_0048(0).rfc_0049(0).build().unwrap()
+    }
+
+    /// Creates a new instance with specified.
+    pub fn new_with_specified(epoch: EpochNumber) -> Self {
+        // Use a builder to ensure all features are set manually.
+        Self::new_builder()
+            .rfc_0048(epoch)
+            .rfc_0049(epoch)
+            .build()
+            .unwrap()
     }
 }
 
