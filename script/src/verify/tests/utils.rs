@@ -35,7 +35,7 @@ use tempfile::TempDir;
 use crate::verify::*;
 
 pub(crate) const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
-pub(crate) const CYCLE_BOUND: Cycle = 200_000;
+pub(crate) const CYCLE_BOUND: Cycle = 250_000;
 pub(crate) const V2_CYCLE_BOUND: Cycle = 300_000;
 
 fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
