@@ -1,6 +1,6 @@
 [package]
 name = "ckb-metrics-config"
-version = "0.111.0-rc2"
+version = "0.111.0-rc3"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2021"

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.111.0-rc2"
+version = "0.111.0-rc3"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -15,20 +15,20 @@ serde_plain = "0.3.0"
 serde_json = "1.0"
 toml = "0.5"
 path-clean = "0.1.0"
-ckb-logger = { path = "../../util/logger", version = "= 0.111.0-rc2" }
-ckb-logger-config = { path = "../../util/logger-config", version = "= 0.111.0-rc2" }
-ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.111.0-rc2" }
-ckb-chain-spec = {path = "../../spec", version = "= 0.111.0-rc2"}
-ckb-jsonrpc-types = {path = "../jsonrpc-types", version = "= 0.111.0-rc2"}
-ckb-pow = { path = "../../pow", version = "= 0.111.0-rc2" }
-ckb-resource = { path = "../../resource", version = "= 0.111.0-rc2"}
-ckb-build-info = { path = "../build-info", version = "= 0.111.0-rc2" }
-ckb-types = { path = "../types", version = "= 0.111.0-rc2" }
+ckb-logger = { path = "../../util/logger", version = "= 0.111.0-rc3" }
+ckb-logger-config = { path = "../../util/logger-config", version = "= 0.111.0-rc3" }
+ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.111.0-rc3" }
+ckb-chain-spec = {path = "../../spec", version = "= 0.111.0-rc3"}
+ckb-jsonrpc-types = {path = "../jsonrpc-types", version = "= 0.111.0-rc3"}
+ckb-pow = { path = "../../pow", version = "= 0.111.0-rc3" }
+ckb-resource = { path = "../../resource", version = "= 0.111.0-rc3"}
+ckb-build-info = { path = "../build-info", version = "= 0.111.0-rc3" }
+ckb-types = { path = "../types", version = "= 0.111.0-rc3" }
 secio = { version="0.5.7", package="tentacle-secio" }
 multiaddr = { version="0.3.0", package="tentacle-multiaddr" }
 rand = "0.7"
 sentry = { version = "0.26.0", optional = true }
-ckb-systemtime = { path = "../systemtime", version = "= 0.111.0-rc2" }
+ckb-systemtime = { path = "../systemtime", version = "= 0.111.0-rc3" }
 url = { version = "2.2.2", features = ["serde"] }
 ubyte = { version = "0.10", features = ["serde"] }
 
@@ -37,4 +37,4 @@ with_sentry = ["sentry"]
 
 [dev-dependencies]
 tempfile.workspace = true
-ckb-systemtime = { path = "../systemtime", version = "= 0.111.0-rc2" ,features = ["enable_faketime"]}
+ckb-systemtime = { path = "../systemtime", version = "= 0.111.0-rc3" ,features = ["enable_faketime"]}
