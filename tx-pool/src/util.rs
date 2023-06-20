@@ -150,11 +150,11 @@ pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
     let index = epoch.index();
     let epoch_number = epoch.number();
 
-    let rfc_0148 = snapshot.consensus().hardfork_switch.ckb2023.rfc_0148();
+    let rfc_0049 = snapshot.consensus().hardfork_switch.ckb2023.rfc_0049();
 
-    if rfc_0148 == 0 && rfc_0148 == EpochNumber::MAX {
+    if rfc_0049 == 0 && rfc_0049 == EpochNumber::MAX {
         return true;
     }
 
-    epoch_number > rfc_0148 || (epoch_number == rfc_0148 && index > proposal_window.farthest())
+    epoch_number > rfc_0049 || (epoch_number == rfc_0049 && index > proposal_window.farthest())
 }

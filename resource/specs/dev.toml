@@ -96,6 +96,7 @@ genesis_epoch_length = 1000
 permanent_difficulty_in_dummy = true
 
 [params.hardfork]
+ckb2023 = 0
 
 
 [pow]
