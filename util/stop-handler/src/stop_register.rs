@@ -1,4 +1,5 @@
-use ckb_logger::{info, trace, warn};
+use ckb_channel::TrySendError;
+use ckb_logger::{error, info, trace, warn};
 use ckb_util::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -54,13 +55,16 @@ pub fn new_crossbeam_exit_rx() -> ckb_channel::Receiver<()> {
 /// Broadcast exit signals to all threads and all tokio tasks
 pub fn broadcast_exit_signals() {
     TOKIO_EXIT.cancel();
-    CROSSBEAM_EXIT_SENDERS.lock().iter().for_each(|tx| {
-        if let Err(e) = tx.try_send(()) {
-            println!("broadcast thread: ERROR: {:?}", e)
-        } else {
-            println!("send a crossbeam exit signal");
-        }
-    });
+    CROSSBEAM_EXIT_SENDERS
+        .lock()
+        .iter()
+        .for_each(|tx| match tx.try_send(()) {
+            Ok(_) => {}
+            Err(TrySendError::Full(_)) => error!("send exit signal to channel failed since the channel is full, this should not happen"),
+            Err(TrySendError::Disconnected(_)) => {
+                info!("broadcast thread: channel is disconnected")
+            }
+        });
 }
 
 /// Register a thread `JoinHandle` to  `CKB_HANDLES`
