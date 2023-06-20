@@ -16,3 +16,4 @@ ckb-async-runtime = { path = "../runtime", version = "= 0.112.0-pre" }
 ckb-util = { path = "..", version = "= 0.112.0-pre" }
 prometheus = "0.13.3"
 hyper = { version = "0.14", features = ["http1", "tcp", "server"] }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.112.0-pre" }

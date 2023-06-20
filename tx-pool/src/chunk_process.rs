@@ -4,6 +4,7 @@ use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
+use ckb_logger::info;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -21,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::sync::RwLock;
 use tokio::task::block_in_place;
+use tokio_util::sync::CancellationToken;
 
 const MIN_STEP_CYCLE: Cycle = 10_000_000;
 
@@ -41,15 +43,15 @@ enum State {
 pub(crate) struct ChunkProcess {
     service: TxPoolService,
     recv: watch::Receiver<ChunkCommand>,
-    signal: watch::Receiver<u8>,
     current_state: ChunkCommand,
+    signal: CancellationToken,
 }
 
 impl ChunkProcess {
     pub fn new(
         service: TxPoolService,
         recv: watch::Receiver<ChunkCommand>,
-        signal: watch::Receiver<u8>,
+        signal: CancellationToken,
     ) -> Self {
         ChunkProcess {
             service,
@@ -73,7 +75,10 @@ impl ChunkProcess {
                         }
                     }
                 },
-                _ = self.signal.changed() => break,
+                _ = self.signal.cancelled() => {
+                    info!("TxPool received exit signal, exit now");
+                    break
+                },
                 _ = interval.tick() => {
                     if matches!(self.current_state, ChunkCommand::Resume) {
                         let stop = self.try_process().await;
@@ -136,7 +141,7 @@ impl ChunkProcess {
         let mut tmp_state: Option<ScriptVerifyState> = None;
 
         let completed: Cycle = loop {
-            if self.signal.has_changed().unwrap_or(false) {
+            if self.signal.is_cancelled() {
                 return Ok(State::Stopped);
             }
             if self.recv.has_changed().unwrap_or(false) {

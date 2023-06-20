@@ -23,15 +23,15 @@ use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_network::{
-    observe_listen_port_occupancy, CKBProtocol, DefaultExitHandler, Flags, NetworkController,
-    NetworkService, NetworkState, SupportProtocols,
+    observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController, NetworkService,
+    NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
-use ckb_stop_handler::StopHandler;
+
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -250,7 +250,7 @@ impl Launcher {
     }
 
     /// start block filter service
-    pub fn start_block_filter(&self, shared: &Shared) -> Option<StopHandler<()>> {
+    pub fn start_block_filter(&self, shared: &Shared) {
         if self
             .args
             .config
@@ -258,9 +258,7 @@ impl Launcher {
             .support_protocols
             .contains(&SupportProtocol::Filter)
         {
-            Some(BlockFilterService::new(shared.clone()).start())
-        } else {
-            None
+            BlockFilterService::new(shared.clone()).start();
         }
     }
 
@@ -269,7 +267,6 @@ impl Launcher {
         &self,
         shared: &Shared,
         chain_controller: ChainController,
-        exit_handler: &DefaultExitHandler,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
     ) -> (NetworkController, RpcServer) {
@@ -383,7 +380,6 @@ impl Launcher {
                 self.version.to_string(),
                 flags,
             ),
-            exit_handler.clone(),
         )
         .start(shared.async_handle())
         .expect("Start network service failed");

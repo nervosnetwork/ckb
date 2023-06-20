@@ -10,12 +10,12 @@ use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
 use ckb_error::{AnyError, Error};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
-    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
+    core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
     U256,
@@ -35,13 +35,11 @@ const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
 /// An owned permission to close on a freezer thread
 pub struct FreezerClose {
     stopped: Arc<AtomicBool>,
-    stop: StopHandler<()>,
 }
 
 impl Drop for FreezerClose {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
-        self.stop.try_send(());
     }
 }
 
@@ -86,10 +84,9 @@ impl Shared {
     pub fn spawn_freeze(&self) -> Option<FreezerClose> {
         if let Some(freezer) = self.store.freezer() {
             ckb_logger::info!("Freezer enable");
-            let (signal_sender, signal_receiver) =
-                ckb_channel::bounded::<()>(service::SIGNAL_CHANNEL_SIZE);
+            let signal_receiver = new_crossbeam_exit_rx();
             let shared = self.clone();
-            let thread = thread::Builder::new()
+            let freeze_jh = thread::Builder::new()
                 .spawn(move || loop {
                     match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
                         Err(_) => {
@@ -106,14 +103,10 @@ impl Shared {
                 })
                 .expect("Start FreezerService failed");
 
-            let stop = StopHandler::new(
-                SignalSender::Crossbeam(signal_sender),
-                Some(thread),
-                "freezer".to_string(),
-            );
+            register_thread("freeze", freeze_jh);
+
             return Some(FreezerClose {
                 stopped: Arc::clone(&freezer.stopped),
-                stop,
             });
         }
         None

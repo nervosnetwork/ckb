@@ -4,7 +4,8 @@ use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
-use ckb_network::{DefaultExitHandler, ExitHandler};
+use ckb_stop_handler::wait_all_ckb_services_exit;
+
 use ckb_types::core::cell::setup_system_cell_cache;
 
 pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
@@ -16,7 +17,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
     let miner_enable = block_assembler_config.is_some();
-    let exit_handler = DefaultExitHandler::default();
 
     let (shared, mut pack) = launcher.build_shared(block_assembler_config)?;
 
@@ -43,12 +43,11 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
-    let block_filter = launcher.start_block_filter(&shared);
+    launcher.start_block_filter(&shared);
 
-    let (network_controller, rpc_server) = launcher.start_network_and_rpc(
+    let (network_controller, _rpc_server) = launcher.start_network_and_rpc(
         &shared,
         chain_controller.non_owning_clone(),
-        &exit_handler,
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
@@ -56,22 +55,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let tx_pool_builder = pack.take_tx_pool_builder();
     tx_pool_builder.start(network_controller.non_owning_clone());
 
-    let exit_handler_clone = exit_handler.clone();
-    ctrlc::set_handler(move || {
-        exit_handler_clone.notify_exit();
-    })
-    .expect("Error setting Ctrl-C handler");
-    exit_handler.wait_for_exit();
+    wait_all_ckb_services_exit();
 
-    info!("Finishing work, please wait...");
-    shared.tx_pool_controller().save_pool().map_err(|err| {
-        eprintln!("TxPool Error: {err}");
-        ExitCode::Failure
-    })?;
-
-    drop(rpc_server);
-    drop(block_filter);
-    drop(network_controller);
-    drop(chain_controller);
     Ok(())
 }

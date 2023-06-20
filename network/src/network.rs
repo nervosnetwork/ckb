@@ -21,7 +21,7 @@ use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl}
 use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{broadcast_exit_signals, new_tokio_exit_rx, CancellationToken};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
@@ -490,18 +490,14 @@ impl NetworkState {
 }
 
 /// Used to handle global events of tentacle, such as session open/close
-pub struct EventHandler<T> {
+pub struct EventHandler {
     pub(crate) network_state: Arc<NetworkState>,
-    pub(crate) exit_handler: T,
 }
 
-impl<T> EventHandler<T> {
+impl EventHandler {
     /// init an event handler
-    pub fn new(network_state: Arc<NetworkState>, exit_handler: T) -> Self {
-        Self {
-            network_state,
-            exit_handler,
-        }
+    pub fn new(network_state: Arc<NetworkState>) -> Self {
+        Self { network_state }
     }
 }
 
@@ -531,7 +527,7 @@ impl ExitHandler for DefaultExitHandler {
     }
 }
 
-impl<T> EventHandler<T> {
+impl EventHandler {
     fn inbound_eviction(&self) -> Vec<PeerIndex> {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
@@ -560,7 +556,7 @@ impl<T> EventHandler<T> {
 }
 
 #[async_trait]
-impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
+impl ServiceHandle for EventHandler {
     async fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError { address, error } => {
@@ -763,8 +759,8 @@ impl<T: ExitHandler> ServiceHandle for EventHandler<T> {
 }
 
 /// Ckb network service, use to start p2p network
-pub struct NetworkService<T> {
-    p2p_service: Service<EventHandler<T>>,
+pub struct NetworkService {
+    p2p_service: Service<EventHandler>,
     network_state: Arc<NetworkState>,
     ping_controller: Option<Sender<()>>,
     // Background services
@@ -772,7 +768,7 @@ pub struct NetworkService<T> {
     version: String,
 }
 
-impl<T: ExitHandler> NetworkService<T> {
+impl NetworkService {
     /// init with all config
     pub fn new(
         network_state: Arc<NetworkState>,
@@ -780,7 +776,6 @@ impl<T: ExitHandler> NetworkService<T> {
         required_protocol_ids: Vec<ProtocolId>,
         // name, version, flags
         identify_announce: (String, String, Flags),
-        exit_handler: T,
     ) -> Self {
         let config = &network_state.config;
 
@@ -891,7 +886,6 @@ impl<T: ExitHandler> NetworkService<T> {
         }
         let event_handler = EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_handler,
         };
         service_builder = service_builder
             .key_pair(network_state.local_private_key.clone())
@@ -1098,7 +1092,7 @@ impl<T: ExitHandler> NetworkService<T> {
             })
             .unzip();
 
-        let (sender, mut receiver) = oneshot::channel();
+        let receiver: CancellationToken = new_tokio_exit_rx();
         let (start_sender, start_receiver) = mpsc::channel();
         {
             let network_state = Arc::clone(&network_state);
@@ -1130,7 +1124,8 @@ impl<T: ExitHandler> NetworkService<T> {
                 tokio::spawn(async move { p2p_service.run().await });
                 loop {
                     tokio::select! {
-                        _ = &mut receiver => {
+                        _ = receiver.cancelled() => {
+                            info!("NetworkService receive exit signal, start shutdown...");
                             let _ = p2p_control.shutdown().await;
                             // Drop senders to stop all corresponding background task
                             drop(bg_signals);
@@ -1163,13 +1158,11 @@ impl<T: ExitHandler> NetworkService<T> {
             return Err(e);
         }
 
-        let stop = StopHandler::new(SignalSender::Tokio(sender), None, "network".to_string());
         Ok(NetworkController {
             version,
             network_state,
             p2p_control,
             ping_controller,
-            stop: Some(stop),
         })
     }
 }
@@ -1181,7 +1174,6 @@ pub struct NetworkController {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     ping_controller: Option<Sender<()>>,
-    stop: Option<StopHandler<()>>,
 }
 
 impl NetworkController {
@@ -1397,19 +1389,10 @@ impl NetworkController {
     /// it will not prevent the value stored in the allocation from being dropped
     pub fn non_owning_clone(&self) -> Self {
         NetworkController {
-            stop: None,
             version: self.version.clone(),
             network_state: Arc::clone(&self.network_state),
             p2p_control: self.p2p_control.clone(),
             ping_controller: self.ping_controller.clone(),
-        }
-    }
-}
-
-impl Drop for NetworkController {
-    fn drop(&mut self) {
-        if let Some(ref mut stop) = self.stop {
-            stop.try_send(());
         }
     }
 }

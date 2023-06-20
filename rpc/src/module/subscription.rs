@@ -1,5 +1,6 @@
 use ckb_jsonrpc_types::Topic;
 use ckb_notify::NotifyController;
+
 use jsonrpc_core::{Metadata, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{

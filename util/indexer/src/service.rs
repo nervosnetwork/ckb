@@ -7,7 +7,7 @@ use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
 use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
 use ckb_async_runtime::{
-    tokio::{self, sync::watch, time},
+    tokio::{self, time},
     Handle,
 };
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
@@ -18,7 +18,7 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*, H256};
 use rocksdb::{prelude::*, Direction, IteratorMode};
@@ -39,8 +39,6 @@ pub struct IndexerService {
     pool: Option<Arc<RwLock<Pool>>>,
     poll_interval: Duration,
     async_handle: Handle,
-    stop_handler: StopHandler<()>,
-    stop: watch::Receiver<u8>,
     block_filter: Option<String>,
     cell_filter: Option<String>,
 }
@@ -48,13 +46,6 @@ pub struct IndexerService {
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
-        let (stop_sender, stop) = watch::channel(WATCH_INIT);
-        let stop_handler = StopHandler::new(
-            SignalSender::Watch(stop_sender),
-            None,
-            "indexer".to_string(),
-        );
-
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
@@ -82,8 +73,6 @@ impl IndexerService {
             secondary_db,
             pool,
             async_handle,
-            stop_handler,
-            stop,
             poll_interval: Duration::from_secs(config.poll_interval),
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
@@ -98,14 +87,13 @@ impl IndexerService {
         IndexerHandle {
             store: self.store.clone(),
             pool: self.pool.clone(),
-            stop_handler: self.stop_handler.clone(),
         }
     }
 
     /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
     pub fn index_tx_pool(&self, notify_controller: NotifyController) {
         let service = self.clone();
-        let mut stop = self.stop.clone();
+        let stop: CancellationToken = new_tokio_exit_rx();
 
         self.async_handle.spawn(async move {
             let mut new_transaction_receiver = notify_controller
@@ -129,7 +117,10 @@ impl IndexerService {
                             .transaction_rejected(&tx_entry.transaction);
                         }
                     }
-                    _ = stop.changed() => break,
+                    _ = stop.cancelled() => {
+                        info!("Indexer received exit signal, exit now");
+                        break
+                    },
                     else => break,
                 }
             }
@@ -183,7 +174,7 @@ impl IndexerService {
         let initial_syncing = self
             .async_handle
             .spawn_blocking(move || initial_service.try_loop_sync());
-        let mut stop = self.stop.clone();
+        let stop: CancellationToken = new_tokio_exit_rx();
         let async_handle = self.async_handle.clone();
         let poll_service = self.clone();
         self.async_handle.spawn(async move {
@@ -212,7 +203,10 @@ impl IndexerService {
                             error!("ckb indexer syncing join error {:?}", e);
                         }
                     }
-                    _ = stop.changed() => break,
+                    _ = stop.cancelled() => {
+                        info!("Indexer received exit signal, exit now");
+                        break
+                    },
                 }
             }
         });
@@ -262,13 +256,6 @@ impl IndexerService {
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
-    stop_handler: StopHandler<()>,
-}
-
-impl Drop for IndexerHandle {
-    fn drop(&mut self) {
-        self.stop_handler.try_send(());
-    }
 }
 
 impl IndexerHandle {
@@ -984,11 +971,9 @@ mod tests {
         let store = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let stop_handler = StopHandler::new(SignalSender::Dummy, None, "indexer-test".to_string());
         let rpc = IndexerHandle {
             store,
             pool: Some(Arc::clone(&pool)),
-            stop_handler,
         };
 
         // setup test data
@@ -1573,12 +1558,7 @@ mod tests {
     fn script_search_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let stop_handler = StopHandler::new(SignalSender::Dummy, None, "indexer-test".to_string());
-        let rpc = IndexerHandle {
-            store,
-            pool: None,
-            stop_handler,
-        };
+        let rpc = IndexerHandle { store, pool: None };
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()

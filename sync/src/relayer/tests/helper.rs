@@ -4,9 +4,9 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_launcher::SharedBuilder;
 use ckb_network::{
-    async_trait, bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, DefaultExitHandler,
-    Error, Flags, NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId,
-    SupportProtocols, TargetSession,
+    async_trait, bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Flags,
+    NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
+    TargetSession,
 };
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
@@ -122,7 +122,6 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
             "test".to_string(),
             Flags::COMPATIBILITY,
         ),
-        DefaultExitHandler::default(),
     )
     .start(shared.async_handle())
     .expect("Start network service failed")

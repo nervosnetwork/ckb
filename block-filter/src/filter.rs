@@ -1,7 +1,7 @@
-use ckb_async_runtime::tokio::{self, sync::oneshot, task::block_in_place};
-use ckb_logger::{debug, warn};
+use ckb_async_runtime::tokio::{self, task::block_in_place};
+use ckb_logger::{debug, info, warn};
 use ckb_shared::Shared;
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::HeaderView,
@@ -43,10 +43,10 @@ impl BlockFilter {
     }
 
     /// start background single-threaded service to create block filter data
-    pub fn start(self) -> StopHandler<()> {
+    pub fn start(self) {
         let notify_controller = self.shared.notify_controller().clone();
         let async_handle = self.shared.async_handle().clone();
-        let (stop, mut stop_rx) = oneshot::channel::<()>();
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
         let filter_data_builder = self.clone();
 
         let build_filter_data =
@@ -62,12 +62,14 @@ impl BlockFilter {
                         block_in_place(|| self.build_filter_data());
                         new_block_watcher.borrow_and_update();
                     }
-                    _ = &mut stop_rx => break,
+                    _ = stop_rx.cancelled() => {
+                        info!("BlockFilter received exit signal, exit now");
+                        break
+                    },
                     else => break,
                 }
             }
         });
-        StopHandler::new(SignalSender::Tokio(stop), None, NAME.to_string())
     }
 
     /// build block filter data to the latest block

@@ -4,7 +4,7 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, Flags, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -80,7 +80,7 @@ impl RpcTestResponse {
 
 #[allow(dead_code)]
 struct RpcTestSuite {
-    rpc_client: reqwest::blocking::Client,
+    rpc_client: Client,
     rpc_uri: String,
     shared: Shared,
     chain_controller: ChainController,
@@ -249,7 +249,6 @@ fn setup() -> RpcTestSuite {
                 "0.1.0".to_string(),
                 Flags::COMPATIBILITY,
             ),
-            DefaultExitHandler::default(),
         )
         .start(shared.async_handle())
         .expect("Start network service failed")

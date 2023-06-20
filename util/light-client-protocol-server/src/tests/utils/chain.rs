@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::Shared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::always_success_cell;
@@ -242,7 +242,6 @@ fn dummy_network(shared: &Shared) -> NetworkController {
             "test".to_string(),
             Flags::all(),
         ),
-        DefaultExitHandler::default(),
     )
     .start(shared.async_handle())
     .expect("Start network service failed")

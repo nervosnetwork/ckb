@@ -37,6 +37,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_stop_handler::register_thread;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{self, BlockNumber},
@@ -625,8 +626,9 @@ impl Synchronizer {
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
-                    thread
-                        .name("BlockDownload".to_string())
+                    const THREAD_NAME: &str = "BlockDownload";
+                    let blockdownload_jh = thread
+                        .name(THREAD_NAME.into())
                         .spawn(move || {
                             BlockFetchCMD {
                                 sync,
@@ -638,6 +640,7 @@ impl Synchronizer {
                             .run();
                         })
                         .expect("download thread can't start");
+                    register_thread(THREAD_NAME, blockdownload_jh);
                 }
             },
             None => {
