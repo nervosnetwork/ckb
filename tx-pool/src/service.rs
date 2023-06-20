@@ -17,7 +17,7 @@ use ckb_logger::error;
 use ckb_logger::info;
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
-use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
+use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
@@ -37,6 +37,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "internal")]
 use crate::{component::entry::TxEntry, process::PlugTarget};
@@ -128,16 +129,7 @@ pub struct TxPoolController {
     reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
     chunk_tx: Arc<watch::Sender<ChunkCommand>>,
     handle: Handle,
-    stop: StopHandler<()>,
     started: Arc<AtomicBool>,
-}
-
-impl Drop for TxPoolController {
-    fn drop(&mut self) {
-        if self.service_started() {
-            self.stop.try_send(());
-        }
-    }
 }
 
 macro_rules! send_message {
@@ -378,7 +370,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
-    pub(crate) signal_receiver: watch::Receiver<u8>,
+    pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
@@ -403,22 +395,16 @@ impl TxPoolServiceBuilder {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
+        let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
-        let stop = StopHandler::new(
-            SignalSender::Watch(signal_sender),
-            None,
-            "tx-pool".to_string(),
-        );
         let controller = TxPoolController {
             sender,
             reorg_sender,
             handle: handle.clone(),
             chunk_tx: Arc::new(chunk_tx),
-            stop,
             started: Arc::clone(&started),
         };
 
@@ -515,7 +501,7 @@ impl TxPoolServiceBuilder {
         let handle_clone = self.handle.clone();
 
         let process_service = service.clone();
-        let mut signal_receiver = self.signal_receiver.clone();
+        let signal_receiver = self.signal_receiver.clone();
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -523,7 +509,11 @@ impl TxPoolServiceBuilder {
                         let service_clone = process_service.clone();
                         handle_clone.spawn(process(service_clone, message));
                     },
-                    _ = signal_receiver.changed() => break,
+                    _ = signal_receiver.cancelled() => {
+                        info!("TxPool is saving, please wait...");
+                        process_service.save_pool().await;
+                        break
+                    },
                     else => break,
                 }
             }
@@ -531,7 +521,7 @@ impl TxPoolServiceBuilder {
 
         let process_service = service.clone();
         if let Some(ref block_assembler) = service.block_assembler {
-            let mut signal_receiver = self.signal_receiver.clone();
+            let signal_receiver = self.signal_receiver.clone();
             let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
             if interval.is_zero() {
                 // block_assembler.update_interval_millis set zero interval should only be used for tests,
@@ -547,7 +537,10 @@ impl TxPoolServiceBuilder {
                                 let service_clone = process_service.clone();
                                 block_assembler::process(service_clone, &message).await;
                             },
-                            _ = signal_receiver.changed() => break,
+                            _ = signal_receiver.cancelled() => {
+                                info!("TxPool received exit signal, exit now");
+                                break
+                            },
                             else => break,
                         }
                     }
@@ -579,7 +572,10 @@ impl TxPoolServiceBuilder {
                                 }
                                 queue.clear();
                             }
-                            _ = signal_receiver.changed() => break,
+                            _ = signal_receiver.cancelled() => {
+                                info!("TxPool received exit signal, exit now");
+                                break
+                            },
                             else => break,
                         }
                     }
@@ -587,7 +583,7 @@ impl TxPoolServiceBuilder {
             }
         }
 
-        let mut signal_receiver = self.signal_receiver;
+        let signal_receiver = self.signal_receiver;
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -614,7 +610,10 @@ impl TxPoolServiceBuilder {
 
                         service.update_block_assembler_after_tx_pool_reorg().await;
                     },
-                    _ = signal_receiver.changed() => break,
+                    _ = signal_receiver.cancelled() => {
+                        info!("TxPool received exit signal, exit now");
+                        break
+                    },
                     else => break,
                 }
             }

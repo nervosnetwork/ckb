@@ -5,7 +5,6 @@ use ckb_app_config::MinerWorkerConfig;
 use ckb_channel::{select, unbounded, Receiver};
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
-use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
     packed::{Byte32, Header},
     prelude::*,
@@ -27,7 +26,6 @@ pub struct Miner {
     pub(crate) worker_controllers: Vec<WorkerController>,
     pub(crate) work_rx: Receiver<Works>,
     pub(crate) nonce_rx: Receiver<(Byte32, Work, u128)>,
-    pub(crate) stop_rx: Receiver<()>,
     pub(crate) pb: ProgressBar,
     pub(crate) nonces_found: u128,
     pub(crate) stderr_is_tty: bool,
@@ -42,9 +40,8 @@ impl Miner {
         work_rx: Receiver<Works>,
         workers: &[MinerWorkerConfig],
         limit: u128,
-    ) -> (Miner, StopHandler<()>) {
+    ) -> Miner {
         let (nonce_tx, nonce_rx) = unbounded();
-        let (stop, stop_rx) = unbounded();
         let mp = MultiProgress::new();
 
         let worker_controllers = workers
@@ -61,9 +58,7 @@ impl Miner {
             mp.join().expect("MultiProgress join failed");
         });
 
-        let stop = StopHandler::new(SignalSender::Crossbeam(stop), None, "miner".to_string());
-
-        let miner = Miner {
+        Miner {
             legacy_work: LruCache::new(WORK_CACHE_SIZE),
             nonces_found: 0,
             _pow: pow,
@@ -71,16 +66,14 @@ impl Miner {
             worker_controllers,
             work_rx,
             nonce_rx,
-            stop_rx,
             pb,
             stderr_is_tty,
             limit,
-        };
-        (miner, stop)
+        }
     }
 
     /// TODO(doc): @quake
-    pub fn run(&mut self) {
+    pub fn run(&mut self, stop_rx: Receiver<()>) {
         loop {
             select! {
                 recv(self.work_rx) -> msg => match msg {
@@ -109,7 +102,8 @@ impl Miner {
                         break;
                     },
                 },
-                recv(self.stop_rx) -> _msg => {
+                recv(stop_rx) -> _msg => {
+                    info!("miner received exit signal, stopped");
                     break;
                 }
             };

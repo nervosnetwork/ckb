@@ -8,13 +8,15 @@ mod subcommand;
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
+use ckb_logger::info;
+use ckb_network::tokio;
+use ckb_stop_handler::broadcast_exit_signals;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
-use std::time::Duration;
+use std::sync::Arc;
 
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
-const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The executable main entry.
 ///
@@ -58,25 +60,49 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
-    let (handle, runtime) = new_global_runtime();
+    let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
 
+    // indicate whether the process is terminated by an exit signal
+    let caught_exit_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    ctrlc::set_handler({
+        let caught_exit_signal = Arc::clone(&caught_exit_signal);
+        move || {
+            broadcast_exit_signals();
+            caught_exit_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle),
-        cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle),
-        cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle),
-        cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle),
-        cli::CMD_IMPORT => subcommand::import(setup.import(matches)?, handle),
-        cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle),
+        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
+        cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
+        cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
+        cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),
+        cli::CMD_IMPORT => subcommand::import(setup.import(matches)?, handle.clone()),
+        cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle.clone()),
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(matches)?),
         _ => unreachable!(),
     };
 
-    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+    if !caught_exit_signal.load(std::sync::atomic::Ordering::SeqCst) {
+        // if `subcommand` finish normally, and we didn't catch exit signal, broadcast exit signals
+        broadcast_exit_signals();
+    }
+
+    handle.drop_guard();
+
+    tokio::task::block_in_place(|| {
+        info!("waiting all tokio tasks done");
+        handle_stop_rx.blocking_recv();
+        info!("all tokio tasks have been stopped");
+    });
+
     ret
 }
 

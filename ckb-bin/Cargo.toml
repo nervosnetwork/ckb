@@ -43,6 +43,7 @@ rayon = "1.0"
 sentry = { version = "0.26.0", optional = true }
 is-terminal = "0.4.7"
 fdlimit = "0.2.1"
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.111.0-rc8" }
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
