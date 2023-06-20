@@ -654,6 +654,7 @@ impl ServiceHandle for EventHandler {
                             )
                         },
                     );
+                    error!("ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}");
 
                     broadcast_exit_signals();
                 }
