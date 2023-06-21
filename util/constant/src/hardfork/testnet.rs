@@ -7,5 +7,5 @@ pub const RFC0028_START_EPOCH: u64 = 3113;
 // pub const CKB2021_START_EPOCH: u64 = 3113;
 pub const CKB2021_START_EPOCH: u64 = 0;
 
-/// hardcode ckb2023 epoch, about 2023/06/25 6:50 UTC
-pub const CKB2023_START_EPOCH: u64 = 6765;
+/// hardcode ckb2023 epoch, about 2023/06/30 6:50 UTC
+pub const CKB2023_START_EPOCH: u64 = 6795;
