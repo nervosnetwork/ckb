@@ -1382,18 +1382,16 @@ pub struct Consensus {
 
 /// Hardfork information
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(transparent)]
 pub struct HardForks {
-    /// ckb2021 information
-    pub ckb2021: Vec<HardForkFeature>,
-    /// ckb2023 information
-    pub ckb2023: Vec<HardForkFeature>,
+    inner: Vec<HardForkFeature>,
 }
 
 impl HardForks {
     /// Returns a list of hardfork features from a hardfork switch.
     pub fn new(hardforks: &core::hardfork::HardForks) -> Self {
         HardForks {
-            ckb2021: vec![
+            inner: vec![
                 HardForkFeature::new("0028", convert(hardforks.ckb2021.rfc_0028())),
                 HardForkFeature::new("0029", convert(hardforks.ckb2021.rfc_0029())),
                 HardForkFeature::new("0030", convert(hardforks.ckb2021.rfc_0030())),
@@ -1401,8 +1399,6 @@ impl HardForks {
                 HardForkFeature::new("0032", convert(hardforks.ckb2021.rfc_0032())),
                 HardForkFeature::new("0036", convert(hardforks.ckb2021.rfc_0036())),
                 HardForkFeature::new("0038", convert(hardforks.ckb2021.rfc_0038())),
-            ],
-            ckb2023: vec![
                 HardForkFeature::new("0048", convert(hardforks.ckb2023.rfc_0048())),
                 HardForkFeature::new("0049", convert(hardforks.ckb2023.rfc_0049())),
             ],
