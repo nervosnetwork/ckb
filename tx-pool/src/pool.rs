@@ -10,6 +10,11 @@ use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::cell::CellChecker;
+use ckb_types::core::cell::CellMetaBuilder;
+use ckb_types::core::cell::{CellProvider, CellStatus};
+use ckb_types::packed::OutPoint;
+use ckb_types::prelude::Unpack;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -305,6 +310,18 @@ impl TxPool {
             .map_err(Reject::Resolve)
     }
 
+    pub(crate) fn resolve_tx_from_pool_rbf(
+        &self,
+        tx: TransactionView,
+    ) -> Result<Arc<ResolvedTransaction>, Reject> {
+        let snapshot = self.snapshot();
+        let provider = OverlayCellProvider::new(self, snapshot);
+        let mut seen_inputs = HashSet::new();
+        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot)
+            .map(Arc::new)
+            .map_err(Reject::Resolve)
+    }
+
     pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
         match self.get_pool_entry(short_id) {
             Some(entry) => {
@@ -486,6 +503,50 @@ impl TxPool {
         } else {
             warn!("Recent reject database is disabled!");
             None
+        }
+    }
+}
+
+impl CellProvider for TxPool {
+    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
+        let tx_hash = out_point.tx_hash();
+        match self
+            .pool_map
+            .get_by_id(&ProposalShortId::from_tx_hash(&tx_hash))
+        {
+            Some(pool_entry) if pool_entry.status != Status::Proposed => {
+                match pool_entry
+                    .inner
+                    .transaction()
+                    .output_with_data(out_point.index().unpack())
+                {
+                    Some((output, data)) => {
+                        let cell_meta = CellMetaBuilder::from_cell_output(output, data)
+                            .out_point(out_point.to_owned())
+                            .build();
+                        CellStatus::live_cell(cell_meta)
+                    }
+                    None => CellStatus::Unknown,
+                }
+            }
+            _ => CellStatus::Unknown,
+        }
+    }
+}
+
+impl CellChecker for TxPool {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        let tx_hash = out_point.tx_hash();
+        match self
+            .pool_map
+            .get_by_id(&ProposalShortId::from_tx_hash(&tx_hash))
+        {
+            Some(pool_entry) if pool_entry.status != Status::Proposed => pool_entry
+                .inner
+                .transaction()
+                .output_with_data(out_point.index().unpack())
+                .map(|_| true),
+            _ => None,
         }
     }
 }
