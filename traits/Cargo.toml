@@ -1,6 +1,6 @@
 [package]
 name = "ckb-traits"
-version = "0.111.0-rc5"
+version = "0.111.0-rc6"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,4 +9,4 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.111.0-rc5" }
+ckb-types = { path = "../util/types", version = "= 0.111.0-rc6" }
