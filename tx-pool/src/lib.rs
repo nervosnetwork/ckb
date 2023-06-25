@@ -5,6 +5,7 @@ pub mod block_assembler;
 mod callback;
 mod chunk_process;
 mod component;
+mod pool_cell;
 pub mod error;
 mod persisted;
 pub mod pool;

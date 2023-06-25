@@ -47,10 +47,6 @@ impl Edges {
         self.deps.remove(out_point)
     }
 
-    pub(crate) fn remove_deps(&mut self, out_point: &OutPoint) -> Option<HashSet<ProposalShortId>> {
-        self.deps.remove(out_point)
-    }
-
     pub(crate) fn insert_deps(&mut self, out_point: OutPoint, txid: ProposalShortId) {
         self.deps.entry(out_point).or_default().insert(txid);
     }

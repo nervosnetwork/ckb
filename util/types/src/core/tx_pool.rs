@@ -52,6 +52,10 @@ pub enum Reject {
     /// Expired
     #[error("Expiry transaction, timestamp {0}")]
     Expiry(u64),
+
+    /// RBF rejected
+    #[error("RBF rejected: {0}")]
+    RBFRejected(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {

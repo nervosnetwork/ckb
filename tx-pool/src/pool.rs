@@ -6,15 +6,12 @@ use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
+use crate::pool_cell::PoolCell;
 use ckb_app_config::TxPoolConfig;
+use ckb_jsonrpc_types::Capacity;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::cell::CellChecker;
-use ckb_types::core::cell::CellMetaBuilder;
-use ckb_types::core::cell::{CellProvider, CellStatus};
-use ckb_types::packed::OutPoint;
-use ckb_types::prelude::Unpack;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -292,7 +289,8 @@ impl TxPool {
 
     pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
         let snapshot = self.snapshot();
-        let checker = OverlayCellChecker::new(&self.pool_map, snapshot);
+        let pool_cell = PoolCell::new(&self.pool_map, false);
+        let checker = OverlayCellChecker::new(&pool_cell, snapshot);
         let mut seen_inputs = HashSet::new();
         rtx.check(&mut seen_inputs, &checker, snapshot)
             .map_err(Reject::Resolve)
@@ -301,21 +299,11 @@ impl TxPool {
     pub(crate) fn resolve_tx_from_pool(
         &self,
         tx: TransactionView,
+        rbf: bool,
     ) -> Result<Arc<ResolvedTransaction>, Reject> {
         let snapshot = self.snapshot();
-        let provider = OverlayCellProvider::new(&self.pool_map, snapshot);
-        let mut seen_inputs = HashSet::new();
-        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot)
-            .map(Arc::new)
-            .map_err(Reject::Resolve)
-    }
-
-    pub(crate) fn resolve_tx_from_pool_rbf(
-        &self,
-        tx: TransactionView,
-    ) -> Result<Arc<ResolvedTransaction>, Reject> {
-        let snapshot = self.snapshot();
-        let provider = OverlayCellProvider::new(self, snapshot);
+        let pool_cell = PoolCell::new(&self.pool_map, rbf);
+        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
         let mut seen_inputs = HashSet::new();
         resolve_transaction(tx, &mut seen_inputs, &provider, snapshot)
             .map(Arc::new)
@@ -482,6 +470,17 @@ impl TxPool {
         (entries, size, cycles)
     }
 
+    pub(crate) fn check_rbf(&self, tx: &ResolvedTransaction, conflicts: &HashSet<ProposalShortId>, fee: Capacity) -> Result<(), Reject> {
+        if !self.config.enable_rbf {
+            return Err(Reject::RBFRejected("node disabled RBF".to_string()));
+        }
+        if conflicts.len() == 0 {
+            return Err(Reject::RBFRejected("can not find conflict txs to replace".to_string()));
+        }
+
+        Ok(())
+    }
+
     fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
         if !config.recent_reject.as_os_str().is_empty() {
             let recent_reject_ttl =
@@ -507,46 +506,3 @@ impl TxPool {
     }
 }
 
-impl CellProvider for TxPool {
-    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        match self
-            .pool_map
-            .get_by_id(&ProposalShortId::from_tx_hash(&tx_hash))
-        {
-            Some(pool_entry) if pool_entry.status != Status::Proposed => {
-                match pool_entry
-                    .inner
-                    .transaction()
-                    .output_with_data(out_point.index().unpack())
-                {
-                    Some((output, data)) => {
-                        let cell_meta = CellMetaBuilder::from_cell_output(output, data)
-                            .out_point(out_point.to_owned())
-                            .build();
-                        CellStatus::live_cell(cell_meta)
-                    }
-                    None => CellStatus::Unknown,
-                }
-            }
-            _ => CellStatus::Unknown,
-        }
-    }
-}
-
-impl CellChecker for TxPool {
-    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        let tx_hash = out_point.tx_hash();
-        match self
-            .pool_map
-            .get_by_id(&ProposalShortId::from_tx_hash(&tx_hash))
-        {
-            Some(pool_entry) if pool_entry.status != Status::Proposed => pool_entry
-                .inner
-                .transaction()
-                .output_with_data(out_point.index().unpack())
-                .map(|_| true),
-            _ => None,
-        }
-    }
-}

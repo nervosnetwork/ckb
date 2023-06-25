@@ -11,14 +11,11 @@ use ckb_logger::{debug, trace};
 use ckb_multi_index_map::MultiIndexMap;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
+use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::CellChecker, TransactionView},
+    core::TransactionView,
     packed::{Byte32, CellOutput, ProposalShortId},
-};
-use ckb_types::{
-    core::cell::{CellMetaBuilder, CellProvider, CellStatus},
-    prelude::*,
 };
 use std::collections::HashSet;
 
@@ -509,33 +506,5 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
-    }
-}
-
-impl CellProvider for PoolMap {
-    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        if self.edges.get_input_ref(out_point).is_some() {
-            return CellStatus::Dead;
-        }
-        if let Some((output, data)) = self.get_output_with_data(out_point) {
-            let cell_meta = CellMetaBuilder::from_cell_output(output, data)
-                .out_point(out_point.to_owned())
-                .build();
-            CellStatus::live_cell(cell_meta)
-        } else {
-            CellStatus::Unknown
-        }
-    }
-}
-
-impl CellChecker for PoolMap {
-    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        if self.edges.get_input_ref(out_point).is_some() {
-            return Some(false);
-        }
-        if self.get_output_with_data(out_point).is_some() {
-            return Some(true);
-        }
-        None
     }
 }

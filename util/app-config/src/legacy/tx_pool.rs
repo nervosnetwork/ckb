@@ -41,6 +41,8 @@ pub(crate) struct TxPoolConfig {
     recent_reject: PathBuf,
     #[serde(default = "default_expiry_hours")]
     expiry_hours: u8,
+    #[serde(default)]
+    enable_rbf: bool,
 }
 
 fn default_keep_rejected_tx_hashes_days() -> u8 {
@@ -82,6 +84,7 @@ impl Default for TxPoolConfig {
             persisted_data: Default::default(),
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
+            enable_rbf: false
         }
     }
 }
@@ -103,6 +106,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             persisted_data,
             recent_reject,
             expiry_hours,
+            enable_rbf,
         } = input;
 
         Self {
@@ -115,6 +119,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             persisted_data,
             recent_reject,
             expiry_hours,
+            enable_rbf,
         }
     }
 }

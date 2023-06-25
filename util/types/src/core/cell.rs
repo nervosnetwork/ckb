@@ -710,7 +710,7 @@ pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
-            eprintln!("resolve input: {:?}", out_point);
+            //eprintln!("resolve input: {:?}", out_point);
             if !current_inputs.insert(out_point.to_owned()) {
                 return Err(OutPointError::Dead(out_point));
             }

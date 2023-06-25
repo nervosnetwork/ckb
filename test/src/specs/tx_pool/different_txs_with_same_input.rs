@@ -39,7 +39,7 @@ impl Spec for DifferentTxsWithSameInput {
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
-        //assert!(res.is_err(), "tx2 should be rejected");
+        assert!(res.is_err(), "tx2 should be rejected");
 
         node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);

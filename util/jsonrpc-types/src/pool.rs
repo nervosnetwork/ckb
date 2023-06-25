@@ -241,6 +241,9 @@ pub enum PoolTransactionReject {
 
     /// Transaction expired
     Expiry(String),
+
+    /// RBF rejected
+    RBFRejected(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -260,6 +263,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
+            Reject::RBFRejected(_) => Self::RBFRejected(format!("{reject}")),
         }
     }
 }

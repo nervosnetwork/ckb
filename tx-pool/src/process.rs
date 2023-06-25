@@ -211,16 +211,20 @@ impl TxPoolService {
                 // It's not possible for RBF, reject it directly
                 check_txid_collision(tx_pool, tx)?;
 
-                // Try to find any conflicted tx in the pool
-                let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
-                let rbf = !conflicts.is_empty();
-                let res = resolve_tx(tx_pool, &snapshot, tx.clone(), rbf);
-                let (rtx, status) = res?;
-                let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                if rbf {
-                    // check_rbf()?
+                // Try normal path first, if double-spending check success we don't need RBF check
+                // this make sure RBF won't introduce extra performance cost for hot path
+                let res = resolve_tx(tx_pool, &snapshot, tx.clone(), false);
+                if let Ok((rtx, status)) = res {
+                    let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                    return Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()));
+                } else {
+                    // Try RBF check
+                    let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
+                    let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), false)?;
+                    let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                    tx_pool.check_rbf(&rtx, &conflicts, fee.into())?;
+                    return Ok((tip_hash, rtx, status, fee, tx_size, conflicts));
                 }
-                Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
             })
             .await;
 
@@ -251,11 +255,11 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        eprintln!(
-            "resumeble_process_tx: {:?} id: {:?}",
-            tx.hash(),
-            tx.proposal_short_id()
-        );
+        // eprintln!(
+        //     "resumeble_process_tx: {:?} id: {:?}",
+        //     tx.hash(),
+        //     tx.proposal_short_id()
+        // );
         if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
@@ -1007,12 +1011,9 @@ fn resolve_tx(
 ) -> ResolveResult {
     let short_id = tx.proposal_short_id();
     let tx_status = get_tx_status(snapshot, &short_id);
-    if !rbf {
-        tx_pool.resolve_tx_from_pool(tx)
-    } else {
-        tx_pool.resolve_tx_from_pool_rbf(tx)
-    }
-    .map(|rtx| (rtx, tx_status))
+    tx_pool
+        .resolve_tx_from_pool(tx, rbf)
+        .map(|rtx| (rtx, tx_status))
 }
 
 fn _submit_entry(
@@ -1021,7 +1022,7 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
-    eprintln!("_submit_entry: {:?}", entry.proposal_short_id());
+    //eprintln!("_submit_entry: {:?}", entry.proposal_short_id());
     match status {
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone())? {
@@ -1039,7 +1040,7 @@ fn _submit_entry(
             }
         }
     }
-    eprintln!("finished submit: {:?}", entry.proposal_short_id());
+    //eprintln!("finished submit: {:?}", entry.proposal_short_id());
     Ok(())
 }
 
