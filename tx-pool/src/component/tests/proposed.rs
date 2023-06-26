@@ -69,11 +69,9 @@ fn test_add_entry() {
     .unwrap();
 
     assert_eq!(pool.size(), 2);
-    assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 3);
 
     pool.remove_entry(&tx1.proposal_short_id());
-    assert_eq!(pool.edges.outputs_len(), 1);
     assert_eq!(pool.edges.inputs_len(), 1);
 }
 
@@ -99,7 +97,6 @@ fn test_add_entry_from_detached() {
     pool.add_proposed(entry3).unwrap();
 
     assert_eq!(pool.size(), 3);
-    assert_eq!(pool.edges.outputs_len(), 3);
     assert_eq!(pool.edges.inputs_len(), 4);
 
     assert_eq!(pool.size(), 3);
@@ -140,7 +137,6 @@ fn test_add_entry_from_detached() {
     }
 
     pool.remove_entry(&tx1.proposal_short_id());
-    assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
     assert_eq!(pool.entries.len(), 2);
 
@@ -218,12 +214,10 @@ fn test_add_roots() {
     ))
     .unwrap();
 
-    assert_eq!(pool.edges.outputs_len(), 4);
     assert_eq!(pool.edges.inputs_len(), 4);
 
     pool.remove_entry(&tx1.proposal_short_id());
 
-    assert_eq!(pool.edges.outputs_len(), 3);
     assert_eq!(pool.edges.inputs_len(), 2);
 }
 
@@ -279,12 +273,10 @@ fn test_add_no_roots() {
     ))
     .unwrap();
 
-    assert_eq!(pool.edges.outputs_len(), 13);
     assert_eq!(pool.edges.inputs_len(), 7);
 
     pool.remove_entry(&tx1.proposal_short_id());
 
-    assert_eq!(pool.edges.outputs_len(), 10);
     assert_eq!(pool.edges.inputs_len(), 6);
 }
 
@@ -639,14 +631,12 @@ fn test_disordered_remove_committed_tx() {
     pool.add_proposed(entry1).unwrap();
     pool.add_proposed(entry2).unwrap();
 
-    assert_eq!(pool.edges.outputs_len(), 2);
     assert_eq!(pool.edges.inputs_len(), 2);
 
     pool.remove_entry(&tx2.proposal_short_id());
     pool.remove_entry(&tx1.proposal_short_id());
 
     assert_eq!(pool.edges.inputs_len(), 0);
-    assert_eq!(pool.edges.outputs_len(), 0);
 }
 
 #[test]
@@ -671,7 +661,6 @@ fn test_max_ancestors() {
     assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);
-    assert_eq!(pool.edges.outputs_len(), 1);
 }
 
 #[test]
@@ -698,7 +687,6 @@ fn test_max_ancestors_with_dep() {
     assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);
-    assert_eq!(pool.edges.outputs_len(), 1);
 }
 
 #[test]

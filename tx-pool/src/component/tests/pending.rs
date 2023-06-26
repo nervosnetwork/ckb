@@ -30,7 +30,6 @@ fn test_basic() {
     assert!(pool.contains_key(&tx2.proposal_short_id()));
 
     assert_eq!(pool.inputs_len(), 4);
-    assert_eq!(pool.outputs_len(), 4);
 
     assert_eq!(
         pool.entries
@@ -47,7 +46,6 @@ fn test_basic() {
     assert!(pool.edges.deps.is_empty());
     assert!(pool.edges.inputs.is_empty());
     assert!(pool.edges.header_deps.is_empty());
-    assert!(pool.edges.outputs.is_empty());
 }
 
 #[test]
@@ -131,7 +129,6 @@ fn test_resolve_conflict_header_dep() {
 
     assert_eq!(pool.inputs_len(), 3);
     assert_eq!(pool.header_deps_len(), 1);
-    assert_eq!(pool.outputs_len(), 2);
 
     let mut headers = HashSet::new();
     headers.insert(header);
@@ -191,7 +188,6 @@ fn test_fill_proposals() {
 
     assert_eq!(pool.inputs_len(), 5);
     assert_eq!(pool.deps_len(), 1);
-    assert_eq!(pool.outputs_len(), 7);
 
     let id1 = tx1.proposal_short_id();
     let id2 = tx2.proposal_short_id();

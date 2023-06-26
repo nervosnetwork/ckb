@@ -1,7 +1,7 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
-use crate::component::edges::{Edges, OutPointStatus};
+use crate::component::edges::Edges;
 use crate::component::entry::EvictKey;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::score_key::AncestorsScoreSortKey;
@@ -73,11 +73,6 @@ impl PoolMap {
             links: TxLinksMap::new(),
             max_ancestors_count,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn outputs_len(&self) -> usize {
-        self.edges.outputs_len()
     }
 
     #[cfg(test)]
@@ -403,7 +398,8 @@ impl PoolMap {
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in inputs {
-            self.edges.set_output_consumed(&i, &tx_short_id);
+            // FIXME: This assertion is invalid only for plug_entry
+            // assert!(self.edges.get_input_ref(&i).is_none());
             self.edges.insert_input(i.to_owned(), tx_short_id.clone());
         }
 
@@ -413,10 +409,7 @@ impl PoolMap {
                 children.extend(ids);
             }
             if let Some(id) = self.edges.get_input_ref(&o).cloned() {
-                self.edges.insert_consumed_output(o, id.clone());
                 children.insert(id);
-            } else {
-                self.edges.insert_unconsumed_output(o);
             }
         }
         // update children
@@ -502,16 +495,9 @@ impl PoolMap {
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
         let inputs = entry.transaction().input_pts_iter();
-        let outputs = entry.transaction().output_pts();
-
-        for o in outputs {
-            self.edges.remove_output(&o);
-        }
-
         for i in inputs {
             // release input record
             self.edges.remove_input(&i);
-            self.edges.set_output_unconsumed(&i);
         }
     }
 
@@ -543,16 +529,13 @@ impl CellProvider for PoolMap {
         if self.edges.get_input_ref(out_point).is_some() {
             return CellStatus::Dead;
         }
-        match self.edges.get_output_ref(out_point) {
-            Some(OutPointStatus::UnConsumed) => {
-                let (output, data) = self.get_output_with_data(out_point).expect("output");
-                let cell_meta = CellMetaBuilder::from_cell_output(output, data)
-                    .out_point(out_point.to_owned())
-                    .build();
-                CellStatus::live_cell(cell_meta)
-            }
-            Some(OutPointStatus::Consumed(_id)) => CellStatus::Dead,
-            _ => CellStatus::Unknown,
+        if let Some((output, data)) = self.get_output_with_data(out_point) {
+            let cell_meta = CellMetaBuilder::from_cell_output(output, data)
+                .out_point(out_point.to_owned())
+                .build();
+            CellStatus::live_cell(cell_meta)
+        } else {
+            CellStatus::Unknown
         }
     }
 }
@@ -562,10 +545,9 @@ impl CellChecker for PoolMap {
         if self.edges.get_input_ref(out_point).is_some() {
             return Some(false);
         }
-        match self.edges.get_output_ref(out_point) {
-            Some(OutPointStatus::Consumed(_id)) => Some(false),
-            Some(OutPointStatus::UnConsumed) => Some(true),
-            _ => None,
+        if self.get_output_with_data(out_point).is_some() {
+            return Some(true);
         }
+        None
     }
 }

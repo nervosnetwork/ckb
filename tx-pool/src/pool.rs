@@ -423,7 +423,6 @@ impl TxPool {
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
         self.pool_map.clear();
-        // self.touch_last_txs_updated_at();
         txs
     }
 
