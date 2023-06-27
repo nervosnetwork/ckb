@@ -24,6 +24,7 @@ mod send_tx_chain;
 mod txs_relay_order;
 mod utils;
 mod valid_since;
+mod replace;
 
 pub use cellbase_maturity::*;
 pub use collision::*;
@@ -50,6 +51,7 @@ pub use send_secp_tx::*;
 pub use send_tx_chain::*;
 pub use txs_relay_order::*;
 pub use valid_since::*;
+pub use replace::*;
 
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};

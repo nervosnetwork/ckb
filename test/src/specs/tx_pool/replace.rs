@@ -7,9 +7,10 @@ use ckb_types::{
     prelude::*,
 };
 
-pub struct DifferentTxsWithSameInputWithOutRBF;
+pub struct RbfBasic;
+pub struct RbfSameInput;
 
-impl Spec for DifferentTxsWithSameInputWithOutRBF {
+impl Spec for RbfBasic {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
@@ -47,7 +48,7 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
-        assert!(res.is_err(), "tx2 should be rejected");
+        assert!(res.is_ok(), "tx2 should replace old tx");
 
         node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
@@ -60,46 +61,84 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
             .map(TransactionView::hash)
             .collect();
 
-        // RBF (Replace-By-Fees) is not enabled
-        assert!(commit_txs_hash.contains(&tx1.hash()));
-        assert!(!commit_txs_hash.contains(&tx2.hash()));
+        // RBF (Replace-By-Fees) is enabled
+        assert!(!commit_txs_hash.contains(&tx1.hash()));
+        assert!(commit_txs_hash.contains(&tx2.hash()));
 
         // when tx1 was confirmed, tx2 should be rejected
-        // let ret = node0.rpc_client().get_transaction(tx2.hash());
-        // assert!(
-        //     matches!(ret.tx_status.status, Status::Rejected),
-        //     "tx2 should be rejected"
-        // );
+        let ret = node0.rpc_client().get_transaction(tx2.hash());
+        assert!(
+            matches!(ret.tx_status.status, Status::Committed),
+            "tx2 should be committed"
+        );
 
         // verbosity = 1
         let ret = node0
             .rpc_client()
             .get_transaction_with_verbosity(tx1.hash(), 1);
+        eprintln!("ret: {:?}", ret);
         assert!(ret.transaction.is_none());
-        assert!(matches!(ret.tx_status.status, Status::Committed));
-
-        // let ret = node0
-        //     .rpc_client()
-        //     .get_transaction_with_verbosity(tx2.hash(), 1);
-        // assert!(ret.transaction.is_none());
-        // assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(ret.tx_status.reason.unwrap().contains("RBFRejected"));
 
         // verbosity = 2
         let ret = node0
             .rpc_client()
-            .get_transaction_with_verbosity(tx1.hash(), 2);
+            .get_transaction_with_verbosity(tx2.hash(), 2);
         assert!(ret.transaction.is_some());
         assert!(matches!(ret.tx_status.status, Status::Committed));
 
-        // let ret = node0
-        //     .rpc_client()
-        //     .get_transaction_with_verbosity(tx2.hash(), 2);
-        // assert!(ret.transaction.is_none());
-        // assert!(matches!(ret.tx_status.status, Status::Rejected));
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+        assert!(ret.transaction.is_none());
+        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(ret.tx_status.reason.unwrap().contains("RBFRejected"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = false;
+        config.tx_pool.enable_rbf = true;
     }
 }
 
+
+impl Spec for RbfSameInput {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        node0.new_block_with_blocking(|template| template.number.value() != 13);
+        let tx_hash_0 = node0.generate_transaction();
+        info!("Generate 2 txs with same input");
+        let tx1 = node0.new_transaction(tx_hash_0.clone());
+        let tx2_temp = node0.new_transaction(tx_hash_0);
+
+        eprintln!(
+            "tx1 hash: {:?} short_id: {:?}",
+            tx1.hash(),
+            tx1.proposal_short_id()
+        );
+        eprintln!(
+            "tx2 hash: {:?} short_id: {:?}",
+            tx2_temp.hash(),
+            tx2_temp.proposal_short_id()
+        );
+        let tx2 = tx2_temp
+            .as_advanced_builder()
+            .build();
+
+        eprintln!("tx1: {:?}", tx1);
+        eprintln!("tx2: {:?}", tx2);
+
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+    }
+
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.enable_rbf = true;
+    }
+}

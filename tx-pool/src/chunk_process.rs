@@ -252,9 +252,6 @@ impl ChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    if !conflicts.is_empty() {
-                        // remove conflict tx
-                    }
                     let (ret, submit_snapshot) = self
                         .service
                         .submit_entry(tip_hash, entry, status, conflicts)

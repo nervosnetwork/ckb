@@ -125,8 +125,31 @@ impl TxPoolService {
                 }
 
                 // try to remove conflicted tx here
-                for r in conflicts.iter() {
-                    eprintln!("removeing : {:?}", r);
+                for id in conflicts.iter() {
+                    let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
+                    if removed.is_empty() {
+                        return Err(Reject::RBFRejected(
+                            "RBF remove old entries error".to_string(),
+                        ));
+                    }
+                    eprintln!("removed: {:?}", id);
+                    for old in removed {
+                        let reject = Reject::RBFRejected(format!(
+                            "replaced by {}",
+                            entry.proposal_short_id()
+                        ));
+                        eprintln!(
+                            "add recent_reject: id: {:?} reject: {:?}",
+                            &old.proposal_short_id(),
+                            reject
+                        );
+                        // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
+                        // here we call them manually
+                        // TODO: how to call reject notify like service?
+                        tx_pool.put_recent_reject(&old.transaction().hash(), &reject);
+                        tx_pool.update_statics_for_remove_tx(old.size, old.cycles);
+                        self.callbacks.call_reject(tx_pool, &old, reject)
+                    }
                 }
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
                 Ok(())
@@ -205,7 +228,7 @@ impl TxPoolService {
 
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
-                let tip_hash = snapshot.tip_hash();
+                let tip_hash: Byte32 = snapshot.tip_hash();
 
                 // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
                 // It's not possible for RBF, reject it directly
@@ -214,16 +237,28 @@ impl TxPoolService {
                 // Try normal path first, if double-spending check success we don't need RBF check
                 // this make sure RBF won't introduce extra performance cost for hot path
                 let res = resolve_tx(tx_pool, &snapshot, tx.clone(), false);
-                if let Ok((rtx, status)) = res {
-                    let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                    return Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()));
-                } else {
-                    // Try RBF check
-                    let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
-                    let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), false)?;
-                    let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                    tx_pool.check_rbf(&rtx, &conflicts, fee.into())?;
-                    return Ok((tip_hash, rtx, status, fee, tx_size, conflicts));
+                match res {
+                    Ok((rtx, status)) => {
+                        let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                        Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "resolve_tx error: {:?}, try RBF check",
+                            tx_pool.config.enable_rbf
+                        );
+                        if tx_pool.config.enable_rbf {
+                            // Try RBF check
+                            eprintln!("begin RBF check ....");
+                            let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
+                            let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
+                            let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                            tx_pool.check_rbf(&rtx, &conflicts, fee.into())?;
+                            Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
+                        } else {
+                            Err(err)
+                        }
+                    }
                 }
             })
             .await;
@@ -310,11 +345,7 @@ impl TxPoolService {
 
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
         let mut tx_pool = self.tx_pool.write().await;
-        if let Some(ref mut recent_reject) = tx_pool.recent_reject {
-            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
-            }
-        }
+        tx_pool.put_recent_reject(tx_hash, reject);
     }
 
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
@@ -984,9 +1015,9 @@ type PreCheckedTx = (
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
 
 fn get_tx_status(snapshot: &Snapshot, short_id: &ProposalShortId) -> TxStatus {
-    if snapshot.proposals().contains_proposed(&short_id) {
+    if snapshot.proposals().contains_proposed(short_id) {
         TxStatus::Proposed
-    } else if snapshot.proposals().contains_gap(&short_id) {
+    } else if snapshot.proposals().contains_gap(short_id) {
         TxStatus::Gap
     } else {
         TxStatus::Fresh

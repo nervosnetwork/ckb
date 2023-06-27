@@ -790,15 +790,10 @@ async fn process(mut service: TxPoolService, message: Message) {
                     entry.timestamp,
                 ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
-                let recent_reject_result = recent_reject_db.get(&hash);
-                if let Ok(recent_reject) = recent_reject_result {
-                    if let Some(record) = recent_reject {
-                        Ok(TransactionWithStatus::with_rejected(record))
-                    } else {
-                        Ok(TransactionWithStatus::with_unknown())
-                    }
-                } else {
-                    Err(recent_reject_result.unwrap_err())
+                match recent_reject_db.get(&hash) {
+                    Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
+                    Ok(_) => Ok(TransactionWithStatus::with_unknown()),
+                    Err(err) => Err(err),
                 }
             } else {
                 Ok(TransactionWithStatus::with_unknown())

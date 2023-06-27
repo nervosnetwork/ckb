@@ -156,6 +156,14 @@ impl TxPool {
             .map(|entry| entry.inner.transaction())
     }
 
+    pub(crate) fn put_recent_reject(&mut self, tx_hash: &Byte32, reject: &Reject) {
+        if let Some(ref mut recent_reject) = self.recent_reject {
+            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
+                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+            }
+        }
+    }
+
     pub(crate) fn remove_committed_txs<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a TransactionView>,
@@ -470,12 +478,19 @@ impl TxPool {
         (entries, size, cycles)
     }
 
-    pub(crate) fn check_rbf(&self, tx: &ResolvedTransaction, conflicts: &HashSet<ProposalShortId>, fee: Capacity) -> Result<(), Reject> {
+    pub(crate) fn check_rbf(
+        &self,
+        _tx: &ResolvedTransaction,
+        conflicts: &HashSet<ProposalShortId>,
+        _fee: Capacity,
+    ) -> Result<(), Reject> {
         if !self.config.enable_rbf {
             return Err(Reject::RBFRejected("node disabled RBF".to_string()));
         }
-        if conflicts.len() == 0 {
-            return Err(Reject::RBFRejected("can not find conflict txs to replace".to_string()));
+        if conflicts.is_empty() {
+            return Err(Reject::RBFRejected(
+                "can not find conflict txs to replace".to_string(),
+            ));
         }
 
         Ok(())
@@ -505,4 +520,3 @@ impl TxPool {
         }
     }
 }
-

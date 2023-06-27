@@ -117,6 +117,8 @@ pub enum TxStatus {
     /// Status "rejected". The transaction has been recently removed from the pool.
     /// Due to storage limitations, the node can only hold the most recently removed transactions.
     Rejected(String),
+    /// Status "replaced", The transaction has been recently replaced for RBF.
+    Replaced(String),
 }
 
 /// Tx-pool entry info

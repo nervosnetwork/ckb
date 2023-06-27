@@ -84,7 +84,7 @@ impl Default for TxPoolConfig {
             persisted_data: Default::default(),
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
-            enable_rbf: false
+            enable_rbf: false,
         }
     }
 }
