@@ -117,7 +117,7 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 /// a chain of spawned machines.
 #[derive(Default)]
 pub struct MachineContext {
-    pub(crate) suspended_machines: Vec<ResumableMachine>,
+    pub suspended_machines: Vec<ResumableMachine>,
 }
 
 /// Data structure captured all environment data for a suspended machine
