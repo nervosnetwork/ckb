@@ -914,6 +914,7 @@ impl TxPoolService {
             total_tx_size: tx_pool.total_tx_size,
             total_tx_cycles: tx_pool.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
+            min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: 0,
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,

@@ -40,6 +40,10 @@ pub struct TxPoolInfo {
     ///
     /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
     pub min_fee_rate: Uint64,
+    /// RBF rate threshold. The pool reject to resort for transactions which fee rate is below this threshold.
+    ///
+    /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
+    pub min_rbf_rate: Uint64,
     /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: Timestamp,
     /// Limiting transactions to tx_size_limit
@@ -63,6 +67,7 @@ impl From<CoreTxPoolInfo> for TxPoolInfo {
             total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
             total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
             min_fee_rate: tx_pool_info.min_fee_rate.as_u64().into(),
+            min_rbf_rate: tx_pool_info.min_rbf_rate.as_u64().into(),
             last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
             tx_size_limit: tx_pool_info.tx_size_limit.into(),
             max_tx_pool_size: tx_pool_info.max_tx_pool_size.into(),

@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 // default min fee rate, 1000 shannons per kilobyte
 const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
+// default min rbf rate, 1500 shannons per kilobyte
+const DEFAULT_MIN_RBF_RATE: FeeRate = FeeRate::from_u64(1500);
 // default max tx verify cycles
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 // default max ancestors count
@@ -33,6 +35,8 @@ pub(crate) struct TxPoolConfig {
     keep_rejected_tx_hashes_count: u64,
     #[serde(with = "FeeRateDef")]
     min_fee_rate: FeeRate,
+    #[serde(with = "FeeRateDef")]
+    min_rbf_rate: FeeRate,
     max_tx_verify_cycles: Cycle,
     max_ancestors_count: usize,
     #[serde(default)]
@@ -79,6 +83,7 @@ impl Default for TxPoolConfig {
             keep_rejected_tx_hashes_days: default_keep_rejected_tx_hashes_days(),
             keep_rejected_tx_hashes_count: default_keep_rejected_tx_hashes_count(),
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
+            min_rbf_rate: DEFAULT_MIN_RBF_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
             persisted_data: Default::default(),
@@ -101,6 +106,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             keep_rejected_tx_hashes_days,
             keep_rejected_tx_hashes_count,
             min_fee_rate,
+            min_rbf_rate,
             max_tx_verify_cycles,
             max_ancestors_count,
             persisted_data,
@@ -112,6 +118,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
         Self {
             max_tx_pool_size,
             min_fee_rate,
+            min_rbf_rate,
             max_tx_verify_cycles,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
             keep_rejected_tx_hashes_days,

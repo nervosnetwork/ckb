@@ -102,4 +102,3 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
         config.tx_pool.enable_rbf = false;
     }
 }
-

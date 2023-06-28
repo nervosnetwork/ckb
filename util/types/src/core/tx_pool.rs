@@ -321,6 +321,12 @@ pub struct TxPoolInfo {
     ///
     /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
     pub min_fee_rate: FeeRate,
+
+    /// Min RBF rate threshold. The pool reject RBF transactions which fee rate is below this threshold.
+    ///
+    /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
+    pub min_rbf_rate: FeeRate,
+
     /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: u64,
     /// Limiting transactions to tx_size_limit

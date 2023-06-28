@@ -8,7 +8,6 @@ use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
 use ckb_app_config::TxPoolConfig;
-use ckb_jsonrpc_types::Capacity;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -16,7 +15,7 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
-        Cycle, TransactionView, UncleBlockView,
+        Capacity, Cycle, TransactionView, UncleBlockView,
     },
     packed::{Byte32, ProposalShortId},
 };
@@ -25,7 +24,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
-
+const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
@@ -480,17 +479,82 @@ impl TxPool {
 
     pub(crate) fn check_rbf(
         &self,
-        _tx: &ResolvedTransaction,
+        snapshot: &Snapshot,
+        rtx: &ResolvedTransaction,
         conflicts: &HashSet<ProposalShortId>,
-        _fee: Capacity,
+        fee: Capacity,
+        tx_size: usize,
     ) -> Result<(), Reject> {
-        if !self.config.enable_rbf {
-            return Err(Reject::RBFRejected("node disabled RBF".to_string()));
-        }
+        assert!(self.config.enable_rbf);
         if conflicts.is_empty() {
             return Err(Reject::RBFRejected(
                 "can not find conflict txs to replace".to_string(),
             ));
+        }
+
+        let conflicts = conflicts
+            .iter()
+            .map(|id| {
+                &self
+                    .get_pool_entry(id)
+                    .expect("conflict tx should be in pool or store")
+                    .inner
+            })
+            .collect::<Vec<_>>();
+
+        // TODO: Rule #1, the conflicted tx need to confirmed as `can_be_replaced`
+
+        // Rule #2, new tx don't contain any new unconfirmed inputs
+        // TODO: confirm whether this could be used in ckb
+        // https://github.com/bitcoin/bitcoin/blob/d9c7c2fd3ec7b0fcae7e0c9423bff6c6799dd67c/src/policy/rbf.cpp#L107
+        let mut inputs = HashSet::new();
+        for c in conflicts.iter() {
+            inputs.extend(c.transaction().input_pts_iter());
+        }
+        if rtx
+            .transaction
+            .input_pts_iter()
+            .any(|pt| !inputs.contains(&pt) && !snapshot.transaction_exists(&pt.tx_hash()))
+        {
+            return Err(Reject::RBFRejected(
+                "new tx contains unconfirmed inputs".to_string(),
+            ));
+        }
+
+        // Rule #4, new tx' fee need to higher than min_rbf_fee computed from the tx_pool configuration
+        let min_rbf_fee = self.config.min_rbf_rate.fee(tx_size as u64);
+        if fee <= min_rbf_fee {
+            return Err(Reject::RBFRejected(format!(
+                "tx fee lower than min_rbf_fee, min_rbf_fee: {}, tx fee: {}",
+                min_rbf_fee, fee,
+            )));
+        }
+
+        // Rule #3, new tx's fee need to higher than conflicts
+        for conflict in conflicts.iter() {
+            eprintln!("old fee: {:?} new_fee: {:?}", conflict.fee, fee);
+            if conflict.fee >= fee {
+                return Err(Reject::RBFRejected(format!(
+                    "tx fee lower than conflict tx fee, conflict id: {}, conflict fee: {}, tx fee: {}",
+                    conflict.proposal_short_id(),
+                    conflict.fee,
+                    fee,
+                )));
+            }
+        }
+
+        // Rule #5, new replaced tx's descendants can not more than 100
+        let mut replace_count: usize = 0;
+        for conflict in conflicts.iter() {
+            let id = conflict.proposal_short_id();
+            let descendants = self.pool_map.calc_descendants(&id);
+            replace_count += descendants.len() + 1;
+            if replace_count > MAX_REPLACEMENT_CANDIDATES {
+                return Err(Reject::RBFRejected(format!(
+                    "tx conflict too many txs, conflict txs count: {}",
+                    replace_count,
+                )));
+            }
         }
 
         Ok(())

@@ -132,17 +132,11 @@ impl TxPoolService {
                             "RBF remove old entries error".to_string(),
                         ));
                     }
-                    eprintln!("removed: {:?}", id);
                     for old in removed {
                         let reject = Reject::RBFRejected(format!(
                             "replaced by {}",
                             entry.proposal_short_id()
                         ));
-                        eprintln!(
-                            "add recent_reject: id: {:?} reject: {:?}",
-                            &old.proposal_short_id(),
-                            reject
-                        );
                         // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
                         // here we call them manually
                         // TODO: how to call reject notify like service?
@@ -243,17 +237,12 @@ impl TxPoolService {
                         Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
                     }
                     Err(err) => {
-                        eprintln!(
-                            "resolve_tx error: {:?}, try RBF check",
-                            tx_pool.config.enable_rbf
-                        );
                         if tx_pool.config.enable_rbf {
                             // Try RBF check
-                            eprintln!("begin RBF check ....");
                             let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
                             let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                             let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                            tx_pool.check_rbf(&rtx, &conflicts, fee.into())?;
+                            tx_pool.check_rbf(&snapshot, &rtx, &conflicts, fee, tx_size)?;
                             Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
                         } else {
                             Err(err)
@@ -290,11 +279,6 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        // eprintln!(
-        //     "resumeble_process_tx: {:?} id: {:?}",
-        //     tx.hash(),
-        //     tx.proposal_short_id()
-        // );
         if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }

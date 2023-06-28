@@ -101,7 +101,6 @@ impl Spec for RbfBasic {
     }
 }
 
-
 impl Spec for RbfSameInput {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -123,9 +122,7 @@ impl Spec for RbfSameInput {
             tx2_temp.hash(),
             tx2_temp.proposal_short_id()
         );
-        let tx2 = tx2_temp
-            .as_advanced_builder()
-            .build();
+        let tx2 = tx2_temp.as_advanced_builder().build();
 
         eprintln!("tx1: {:?}", tx1);
         eprintln!("tx2: {:?}", tx2);
@@ -136,7 +133,6 @@ impl Spec for RbfSameInput {
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
     }
-
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         config.tx_pool.enable_rbf = true;
