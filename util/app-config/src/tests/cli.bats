@@ -31,7 +31,7 @@ _full_help() {
 function short_version { #@test
   run _short
   assert_success
-  assert_output --regexp "^ckb [0-9.]+[-]?[a-z]*$"
+  assert_output --regexp "^ckb [0-9.]+[-]?[a-z0-9]*$"
 }
 
 #@test "ckb --version" {
