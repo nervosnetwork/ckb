@@ -24,7 +24,7 @@ function ckb_run { #@test
   run _ckb_run
   [ "$status" -eq 0 ]
   # assert_output --regexp "ckb_chain::chain.*block number:.*, hash:.*, size:.*, cycles:.*"
-  assert_output --regexp "ckb_bin::subcommand::run  Finishing work, please wait"
+  assert_output --regexp "ckb_bin  all tokio tasks have been stopped"
 }
 
 function ckb_replay { #@test
