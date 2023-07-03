@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.111.0-rc6"
+version = "0.111.0-rc7"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,27 +9,27 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.111.0-rc6" }
-ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc6" }
-ckb-store = { path = "../store", version = "= 0.111.0-rc6" }
-ckb-db = { path = "../db", version = "= 0.111.0-rc6" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.111.0-rc6" }
+ckb-types = { path = "../util/types", version = "= 0.111.0-rc7" }
+ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc7" }
+ckb-store = { path = "../store", version = "= 0.111.0-rc7" }
+ckb-db = { path = "../db", version = "= 0.111.0-rc7" }
+ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.111.0-rc7" }
 arc-swap = "1.3"
-ckb-error = { path = "../error", version = "= 0.111.0-rc6" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.111.0-rc6" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.111.0-rc6" }
-ckb-verification = { path = "../verification", version = "= 0.111.0-rc6" }
-ckb-notify = { path = "../notify", version = "= 0.111.0-rc6" }
-ckb-logger = { path = "../util/logger", version = "= 0.111.0-rc6" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.111.0-rc6" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.111.0-rc6" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.111.0-rc6" }
-ckb-channel = { path = "../util/channel", version = "= 0.111.0-rc6" }
-ckb-constant = { path = "../util/constant", version = "= 0.111.0-rc6" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc6" }
+ckb-error = { path = "../error", version = "= 0.111.0-rc7" }
+ckb-snapshot = { path = "../util/snapshot", version = "= 0.111.0-rc7" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.111.0-rc7" }
+ckb-verification = { path = "../verification", version = "= 0.111.0-rc7" }
+ckb-notify = { path = "../notify", version = "= 0.111.0-rc7" }
+ckb-logger = { path = "../util/logger", version = "= 0.111.0-rc7" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.111.0-rc7" }
+ckb-async-runtime = { path = "../util/runtime", version = "= 0.111.0-rc7" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.111.0-rc7" }
+ckb-channel = { path = "../util/channel", version = "= 0.111.0-rc7" }
+ckb-constant = { path = "../util/constant", version = "= 0.111.0-rc7" }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc7" }
 
 [dev-dependencies]
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc6", features = ["enable_faketime"] }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc7", features = ["enable_faketime"] }
 
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable"]

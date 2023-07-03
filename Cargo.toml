@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.111.0-rc6"
+version = "0.111.0-rc7"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,11 +11,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.67.1"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.111.0-rc6" }
+ckb-build-info = { path = "util/build-info", version = "= 0.111.0-rc7" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.111.0-rc6" }
-ckb-bin = { path = "ckb-bin", version = "= 0.111.0-rc6" }
+ckb-build-info = { path = "util/build-info", version = "= 0.111.0-rc7" }
+ckb-bin = { path = "ckb-bin", version = "= 0.111.0-rc7" }
 
 [dev-dependencies]
 
