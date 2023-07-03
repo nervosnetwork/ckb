@@ -1,6 +1,6 @@
 [package]
 name = "ckb-store"
-version = "0.111.0-rc7"
+version = "0.111.0-rc8"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,16 +9,16 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.111.0-rc7" }
-ckb-db = { path = "../db", version = "= 0.111.0-rc7" }
-ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc7" }
+ckb-types = { path = "../util/types", version = "= 0.111.0-rc8" }
+ckb-db = { path = "../db", version = "= 0.111.0-rc8" }
+ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc8" }
 lru = "0.7.1"
-ckb-traits = { path = "../traits", version = "= 0.111.0-rc7" }
-ckb-util = { path = "../util", version = "= 0.111.0-rc7" }
-ckb-error = { path = "../error", version = "= 0.111.0-rc7" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.111.0-rc7" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.111.0-rc7" }
-ckb-freezer = { path = "../freezer", version = "= 0.111.0-rc7" }
+ckb-traits = { path = "../traits", version = "= 0.111.0-rc8" }
+ckb-util = { path = "../util", version = "= 0.111.0-rc8" }
+ckb-error = { path = "../error", version = "= 0.111.0-rc8" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.111.0-rc8" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.111.0-rc8" }
+ckb-freezer = { path = "../freezer", version = "= 0.111.0-rc8" }
 ckb-merkle-mountain-range = "0.5.2"
 
 [dev-dependencies]

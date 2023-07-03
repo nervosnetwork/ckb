@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.111.0-rc7"
+version = "0.111.0-rc8"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -9,19 +9,19 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc7" }
-ckb-types = { path = "../util/types", version = "= 0.111.0-rc7" }
-ckb-network = { path = "../network", version = "= 0.111.0-rc7" }
-ckb-notify = { path = "../notify", version = "= 0.111.0-rc7" }
-ckb-shared = { path = "../shared", version = "= 0.111.0-rc7" }
-ckb-store = { path = "../store", version = "= 0.111.0-rc7" }
-ckb-sync = { path = "../sync", version = "= 0.111.0-rc7" }
-ckb-chain = { path = "../chain", version = "= 0.111.0-rc7" }
-ckb-logger = { path = "../util/logger", version = "= 0.111.0-rc7"}
-ckb-logger-service = { path = "../util/logger-service", version = "= 0.111.0-rc7"}
-ckb-network-alert = { path = "../util/network-alert", version = "= 0.111.0-rc7" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.111.0-rc7" }
-ckb-constant = { path = "../util/constant", version = "= 0.111.0-rc7" }
+ckb-chain-spec = { path = "../spec", version = "= 0.111.0-rc8" }
+ckb-types = { path = "../util/types", version = "= 0.111.0-rc8" }
+ckb-network = { path = "../network", version = "= 0.111.0-rc8" }
+ckb-notify = { path = "../notify", version = "= 0.111.0-rc8" }
+ckb-shared = { path = "../shared", version = "= 0.111.0-rc8" }
+ckb-store = { path = "../store", version = "= 0.111.0-rc8" }
+ckb-sync = { path = "../sync", version = "= 0.111.0-rc8" }
+ckb-chain = { path = "../chain", version = "= 0.111.0-rc8" }
+ckb-logger = { path = "../util/logger", version = "= 0.111.0-rc8"}
+ckb-logger-service = { path = "../util/logger-service", version = "= 0.111.0-rc8"}
+ckb-network-alert = { path = "../util/network-alert", version = "= 0.111.0-rc8" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.111.0-rc8" }
+ckb-constant = { path = "../util/constant", version = "= 0.111.0-rc8" }
 jsonrpc-core = "18.0"
 jsonrpc-derive = "18.0"
 jsonrpc-http-server = "18.0"
@@ -30,27 +30,27 @@ jsonrpc-ws-server = "18.0"
 jsonrpc-server-utils = "18.0"
 jsonrpc-pubsub = "18.0"
 serde_json = "1.0"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.111.0-rc7" }
-ckb-verification = { path = "../verification", version = "= 0.111.0-rc7" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.111.0-rc7" }
-ckb-traits = { path = "../traits", version = "= 0.111.0-rc7" }
-ckb-util = { path = "../util", version = "= 0.111.0-rc7" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc7" }
-ckb-dao = { path = "../util/dao", version = "= 0.111.0-rc7" }
-ckb-error = { path = "../error", version = "= 0.111.0-rc7" }
-ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.111.0-rc7" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.111.0-rc7" }
-ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.111.0-rc7" }
-ckb-pow = { path = "../pow", version = "= 0.111.0-rc7" }
-ckb-indexer = { path = "../util/indexer", version = "= 0.111.0-rc7" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.111.0-rc8" }
+ckb-verification = { path = "../verification", version = "= 0.111.0-rc8" }
+ckb-verification-traits = { path = "../verification/traits", version = "= 0.111.0-rc8" }
+ckb-traits = { path = "../traits", version = "= 0.111.0-rc8" }
+ckb-util = { path = "../util", version = "= 0.111.0-rc8" }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.111.0-rc8" }
+ckb-dao = { path = "../util/dao", version = "= 0.111.0-rc8" }
+ckb-error = { path = "../error", version = "= 0.111.0-rc8" }
+ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.111.0-rc8" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.111.0-rc8" }
+ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.111.0-rc8" }
+ckb-pow = { path = "../pow", version = "= 0.111.0-rc8" }
+ckb-indexer = { path = "../util/indexer", version = "= 0.111.0-rc8" }
 itertools = "0.10.5"
 tokio = "1"
 
 [dev-dependencies]
 reqwest = { version = "0.11.4", features = ["blocking", "json"] }
 serde = { version = "1.0", features = ["derive"] }
-ckb-launcher = { path = "../util/launcher", version = "= 0.111.0-rc7" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.111.0-rc7" }
+ckb-launcher = { path = "../util/launcher", version = "= 0.111.0-rc8" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.111.0-rc8" }
 tempfile.workspace = true
 pretty_assertions = "1.3.0"
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.111.0-rc7" }
+ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.111.0-rc8" }
