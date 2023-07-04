@@ -97,8 +97,16 @@ impl<'a> BlockFetcher<'a> {
             }
         }
 
-        // This peer has nothing interesting.
-        let best_known = self.peer_best_known_header()?;
+        let best_known = match self.peer_best_known_header() {
+            Some(t) => t,
+            None => {
+                debug!(
+                    "peer {} doesn't have best known header, ignore it",
+                    self.peer
+                );
+                return None;
+            }
+        };
         if !best_known.is_better_than(self.active_chain.total_difficulty()) {
             // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
             // However, RPC `get_peers`, returns peers information which includes
