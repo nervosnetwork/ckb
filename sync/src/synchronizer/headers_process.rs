@@ -108,6 +108,11 @@ impl<'a> HeadersProcess<'a> {
         }
 
         if headers.is_empty() {
+            // Empty means that the other peer's tip may be consistent with our own best known,
+            // but empty cannot 100% confirm this, so it does not set the other peer's best header
+            // to the shared best known.
+            // This action means that if the newly connected node has not been sync with headers,
+            // it cannot be used as a synchronization node.
             debug!("HeadersProcess is_empty (synchronized)");
             if let Some(mut state) = self.synchronizer.peers().state.get_mut(&self.peer) {
                 self.synchronizer
