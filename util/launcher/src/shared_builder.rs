@@ -463,7 +463,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
 
             let tx_hash = entry.transaction().hash();
             // record recent reject
-            if matches!(reject, Reject::Resolve(..)) {
+            if matches!(reject, Reject::Resolve(..) | Reject::RBFRejected(..) ) {
                 if let Some(ref mut recent_reject) = tx_pool.recent_reject {
                     if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
                         error!("record recent_reject failed {} {} {}", tx_hash, reject, e);

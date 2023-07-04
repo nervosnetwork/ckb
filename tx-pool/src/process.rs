@@ -140,8 +140,6 @@ impl TxPoolService {
                         // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
                         // here we call them manually
                         // TODO: how to call reject notify like service?
-                        tx_pool.put_recent_reject(&old.transaction().hash(), &reject);
-                        tx_pool.update_statics_for_remove_tx(old.size, old.cycles);
                         self.callbacks.call_reject(tx_pool, &old, reject)
                     }
                 }
@@ -225,7 +223,7 @@ impl TxPoolService {
                 let tip_hash: Byte32 = snapshot.tip_hash();
 
                 // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
-                // It's not possible for RBF, reject it directly
+                // It's also not possible for RBF, reject it directly
                 check_txid_collision(tx_pool, tx)?;
 
                 // Try normal path first, if double-spending check success we don't need RBF check
@@ -408,7 +406,12 @@ impl TxPoolService {
                             });
                         }
 
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -433,7 +436,12 @@ impl TxPoolService {
                         });
                     }
                     Err(reject) => {
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -533,8 +541,12 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
-                                {
+                                if matches!(
+                                    reject,
+                                    Reject::Resolve(..)
+                                        | Reject::Verification(..)
+                                        | Reject::RBFRejected(..)
+                                ) {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
