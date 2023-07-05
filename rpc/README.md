@@ -4510,6 +4510,7 @@ Response
   "result": {
     "last_txs_updated_at": "0x0",
     "min_fee_rate": "0x3e8",
+    "min_rbf_rate": "0x5dc",
     "max_tx_pool_size": "0xaba9500",
     "orphan": "0x0",
     "pending": "0x1",
@@ -5071,6 +5072,10 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 ### Error `PoolRejectedTransactionBySizeLimit`
 
 (-1110): The transaction exceeded maximum size limit.
+
+### Error `PoolRejctedRBF`
+
+(-1111): The transaction is rejected for RBF checking.
 
 ### Error `Indexer`
 
@@ -6426,7 +6431,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry" | "RBFRejected"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -6441,6 +6446,7 @@ Different reject types:
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 *   `Expiry`: Transaction expired
+*   `RBFRejected`: RBF rejected
 
 
 ### Type `ProposalShortId`
@@ -7030,6 +7036,10 @@ Transaction pool information.
 *   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
 *   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+
+    The unit is Shannons per 1000 bytes transaction serialization size in the block.
+
+*   `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold. The pool reject to resort for transactions which fee rate is below this threshold.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 

@@ -486,27 +486,20 @@ impl TxPool {
         tx_size: usize,
     ) -> Result<(), Reject> {
         assert!(self.config.enable_rbf);
-        if conflicts.is_empty() {
-            return Err(Reject::RBFRejected(
-                "can not find conflict txs to replace".to_string(),
-            ));
-        }
+        assert!(!conflicts.is_empty());
 
+        let short_id = rtx.transaction.proposal_short_id();
         let conflicts = conflicts
             .iter()
             .map(|id| {
                 &self
                     .get_pool_entry(id)
-                    .expect("conflict tx should be in pool or store")
+                    .expect("conflict Tx should be in pool")
                     .inner
             })
             .collect::<Vec<_>>();
 
-        // TODO: Rule #1, the conflicted tx need to confirmed as `can_be_replaced`
-
         // Rule #2, new tx don't contain any new unconfirmed inputs
-        // TODO: confirm whether this could be used in ckb
-        // https://github.com/bitcoin/bitcoin/blob/d9c7c2fd3ec7b0fcae7e0c9423bff6c6799dd67c/src/policy/rbf.cpp#L107
         let mut inputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.transaction().input_pts_iter());
@@ -517,7 +510,7 @@ impl TxPool {
             .any(|pt| !inputs.contains(&pt) && !snapshot.transaction_exists(&pt.tx_hash()))
         {
             return Err(Reject::RBFRejected(
-                "new tx contains unconfirmed inputs".to_string(),
+                "new Tx contains unconfirmed inputs".to_string(),
             ));
         }
 
@@ -525,35 +518,56 @@ impl TxPool {
         let min_rbf_fee = self.config.min_rbf_rate.fee(tx_size as u64);
         if fee <= min_rbf_fee {
             return Err(Reject::RBFRejected(format!(
-                "tx fee lower than min_rbf_fee, min_rbf_fee: {}, tx fee: {}",
+                "Tx fee lower than min_rbf_fee, min_rbf_fee: {}, tx fee: {}",
                 min_rbf_fee, fee,
             )));
         }
 
-        // Rule #3, new tx's fee need to higher than conflicts
+        // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
         for conflict in conflicts.iter() {
-            eprintln!("old fee: {:?} new_fee: {:?}", conflict.fee, fee);
             if conflict.fee >= fee {
                 return Err(Reject::RBFRejected(format!(
-                    "tx fee lower than conflict tx fee, conflict id: {}, conflict fee: {}, tx fee: {}",
-                    conflict.proposal_short_id(),
-                    conflict.fee,
-                    fee,
+                    "Tx fee lower than old conflict Tx fee, tx fee: {}, conflict fee: {}",
+                    fee, conflict.fee,
                 )));
             }
         }
 
-        // Rule #5, new replaced tx's descendants can not more than 100
+        // Rule #5, the replaced tx's descendants can not more than 100
+        // and the ancestor of the new tx don't have common set with the replaced tx's descendants
         let mut replace_count: usize = 0;
+        let ancestors = self.pool_map.calc_ancestors(&short_id);
         for conflict in conflicts.iter() {
             let id = conflict.proposal_short_id();
             let descendants = self.pool_map.calc_descendants(&id);
             replace_count += descendants.len() + 1;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
                 return Err(Reject::RBFRejected(format!(
-                    "tx conflict too many txs, conflict txs count: {}",
+                    "Tx conflict too many txs, conflict txs count: {}",
                     replace_count,
                 )));
+            }
+
+            if !descendants.is_disjoint(&ancestors) {
+                return Err(Reject::RBFRejected(
+                    "Tx ancestors have common with conflict Tx descendants".to_string(),
+                ));
+            }
+
+            for id in descendants.iter() {
+                if let Some(entry) = self.get_pool_entry(id) {
+                    let hash = entry.inner.transaction().hash();
+                    if rtx
+                        .transaction
+                        .input_pts_iter()
+                        .any(|pt| pt.tx_hash() == hash)
+                    {
+                        return Err(Reject::RBFRejected(
+                            "new Tx contains inputs in descendants of to be replaced Tx"
+                                .to_string(),
+                        ));
+                    }
+                }
             }
         }
 

@@ -127,11 +127,6 @@ impl TxPoolService {
                 // try to remove conflicted tx here
                 for id in conflicts.iter() {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
-                    if removed.is_empty() {
-                        return Err(Reject::RBFRejected(
-                            "RBF remove old entries error".to_string(),
-                        ));
-                    }
                     for old in removed {
                         let reject = Reject::RBFRejected(format!(
                             "replaced by {}",
@@ -220,7 +215,7 @@ impl TxPoolService {
 
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
-                let tip_hash: Byte32 = snapshot.tip_hash();
+                let tip_hash = snapshot.tip_hash();
 
                 // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
                 // It's also not possible for RBF, reject it directly
@@ -235,7 +230,7 @@ impl TxPoolService {
                         Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
                     }
                     Err(err) => {
-                        if tx_pool.config.enable_rbf {
+                        if tx_pool.config.enable_rbf && matches!(err, Reject::Resolve(_)) {
                             // Try RBF check
                             let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
                             let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
@@ -1049,7 +1044,6 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
-    //eprintln!("_submit_entry: {:?}", entry.proposal_short_id());
     match status {
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone())? {
@@ -1067,7 +1061,6 @@ fn _submit_entry(
             }
         }
     }
-    //eprintln!("finished submit: {:?}", entry.proposal_short_id());
     Ok(())
 }
 

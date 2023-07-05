@@ -20,16 +20,6 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
 
-        eprintln!(
-            "tx1 hash: {:?} short_id: {:?}",
-            tx1.hash(),
-            tx1.proposal_short_id()
-        );
-        eprintln!(
-            "tx2 hash: {:?} short_id: {:?}",
-            tx2_temp.hash(),
-            tx2_temp.proposal_short_id()
-        );
         // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(80).pack())
@@ -39,9 +29,6 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
             .as_advanced_builder()
             .set_outputs(vec![output])
             .build();
-
-        eprintln!("tx1: {:?}", tx1);
-        eprintln!("tx2: {:?}", tx2);
 
         node0.rpc_client().send_transaction(tx1.data().into());
         let res = node0

@@ -577,8 +577,6 @@ pub enum Status {
     /// Status "rejected". The transaction has been recently removed from the pool.
     /// Due to storage limitations, the node can only hold the most recently removed transactions.
     Rejected,
-    /// Status "replaced". The transaction has been recently replace from the pool.
-    Replaced,
 }
 
 /// Transaction status and the block hash if it is committed.
@@ -599,7 +597,6 @@ impl From<tx_pool::TxStatus> for TxStatus {
             tx_pool::TxStatus::Proposed => TxStatus::proposed(),
             tx_pool::TxStatus::Committed(hash) => TxStatus::committed(hash),
             tx_pool::TxStatus::Rejected(reason) => TxStatus::rejected(reason),
-            tx_pool::TxStatus::Replaced(reason) => TxStatus::replaced(reason),
             tx_pool::TxStatus::Unknown => TxStatus::unknown(),
         }
     }
@@ -645,19 +642,6 @@ impl TxStatus {
     pub fn rejected(reason: String) -> Self {
         Self {
             status: Status::Rejected,
-            block_hash: None,
-            reason: Some(reason),
-        }
-    }
-
-    /// Transaction which has already been replaced recently.
-    ///
-    /// ## Params
-    ///
-    /// * `reason` - the reason why the transaction is replaced.
-    pub fn replaced(reason: String) -> Self {
-        Self {
-            status: Status::Replaced,
             block_hash: None,
             reason: Some(reason),
         }
