@@ -1188,7 +1188,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "jsonrpc-core",
  "jsonrpc-derive",
  "jsonrpc-http-server",
