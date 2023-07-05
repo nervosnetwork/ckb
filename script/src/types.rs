@@ -133,6 +133,7 @@ pub enum ResumePoint {
         caller_exit_code_addr: u64,
         caller_content_addr: u64,
         caller_content_length_addr: u64,
+        cycles_base: u64,
     },
 }
 
@@ -146,6 +147,7 @@ pub struct SpawnData {
     pub(crate) caller_exit_code_addr: u64,
     pub(crate) caller_content_addr: u64,
     pub(crate) caller_content_length_addr: u64,
+    pub(crate) cycles_base: u64,
 }
 
 impl TryFrom<&SpawnData> for ResumePoint {
@@ -160,6 +162,7 @@ impl TryFrom<&SpawnData> for ResumePoint {
             caller_exit_code_addr,
             caller_content_addr,
             caller_content_length_addr,
+            cycles_base,
         } = value;
         Ok(ResumePoint::Spawn {
             callee_peak_memory: *callee_peak_memory,
@@ -172,6 +175,7 @@ impl TryFrom<&SpawnData> for ResumePoint {
             caller_exit_code_addr: *caller_exit_code_addr,
             caller_content_addr: *caller_content_addr,
             caller_content_length_addr: *caller_content_length_addr,
+            cycles_base: *cycles_base,
         })
     }
 }
