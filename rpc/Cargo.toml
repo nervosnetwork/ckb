@@ -43,7 +43,7 @@ ckb-tx-pool = { path = "../tx-pool", version = "= 0.112.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.112.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.112.0-pre" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.112.0-pre" }
-itertools = "0.10.5"
+itertools.workspace = true
 tokio = "1"
 
 [dev-dependencies]
