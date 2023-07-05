@@ -39,6 +39,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::Mutex;
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -238,9 +239,9 @@ impl Relayer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block_hash_and_number: BlockNumberAndHash,
-        mut proposals: Vec<packed::ProposalShortId>,
+        proposals: Vec<packed::ProposalShortId>,
     ) {
-        proposals.dedup();
+        let proposals: Vec<ProposalShortId> = proposals.into_iter().unique().collect_vec();
         let tx_pool = self.shared.shared().tx_pool_controller();
         let fresh_proposals = match tx_pool.fresh_proposals_filter(proposals) {
             Err(err) => {
