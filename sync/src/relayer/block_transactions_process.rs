@@ -97,10 +97,9 @@ impl<'a> BlockTransactionsProcess<'a> {
 
                 // Request proposal
                 {
-                    let proposals: Vec<_> = received_uncles
+                    let proposals = received_uncles
                         .into_iter()
-                        .flat_map(|u| u.data().proposals().into_iter())
-                        .collect();
+                        .flat_map(|u| u.data().proposals().into_iter());
                     self.relayer.request_proposal_txs(
                         self.nc.as_ref(),
                         self.peer,

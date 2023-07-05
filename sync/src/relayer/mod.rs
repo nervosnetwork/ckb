@@ -239,9 +239,9 @@ impl Relayer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block_hash_and_number: BlockNumberAndHash,
-        proposals: Vec<packed::ProposalShortId>,
+        proposals: impl Iterator<Item = packed::ProposalShortId>,
     ) {
-        let proposals: Vec<ProposalShortId> = proposals.into_iter().unique().collect_vec();
+        let proposals: Vec<ProposalShortId> = proposals.unique().collect_vec();
         let tx_pool = self.shared.shared().tx_pool_controller();
         let fresh_proposals = match tx_pool.fresh_proposals_filter(proposals) {
             Err(err) => {

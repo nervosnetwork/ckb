@@ -10,6 +10,7 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
+use ckb_types::packed::ProposalShortIdVecIterator;
 use ckb_types::{
     core::{EpochNumberWithFraction, HeaderView},
     packed::{self, Byte32, CompactBlock},
@@ -76,7 +77,7 @@ impl<'a> CompactBlockProcess<'a> {
         shared.insert_valid_header(self.peer, &header);
 
         // Request proposal
-        let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
+        let proposals: ProposalShortIdVecIterator = compact_block.proposals().into_iter();
         self.relayer.request_proposal_txs(
             self.nc.as_ref(),
             self.peer,
