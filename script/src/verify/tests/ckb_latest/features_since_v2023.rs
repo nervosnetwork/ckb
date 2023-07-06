@@ -24,7 +24,7 @@ use crate::verify::{tests::utils::*, *};
 // check_peak_memory_2m_to_32m: spawn should success when peak memory <= 32M
 // check_spawn_snapshot: A spawn B, then B gets suspended to snapshot and resume again.
 // check_spawn_state: Like check_spawn_snapshot but invoking verifier.resume_from_state instead.
-// check_spawn_peak_memory: Use peak_memory() to terminate infinite recursion.
+// check_spawn_current_memory: Use current_memory() to terminate infinite recursion.
 
 #[test]
 fn check_vm_version() {
@@ -682,11 +682,11 @@ fn check_spawn_state() {
 }
 
 #[test]
-fn check_spawn_peak_memory() {
+fn check_spawn_current_memory() {
     let script_version = SCRIPT_VERSION;
 
     let (spawn_caller_cell, spawn_caller_data_hash) =
-        load_cell_from_path("testdata/spawn_peak_memory");
+        load_cell_from_path("testdata/spawn_current_memory");
 
     let spawn_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
