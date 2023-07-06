@@ -4,7 +4,7 @@
 #include "ckb_syscalls.h"
 
 int main(int argc, char *argv[]) {
-  int peak_memory = ckb_peak_memory();
+  int peak_memory = ckb_current_memory();
   if (peak_memory != (argc + 1) * 8) {
     return 1;
   }

@@ -1,4 +1,5 @@
 mod current_cycles;
+mod current_memory;
 mod debugger;
 mod exec;
 mod get_memory_limit;
@@ -11,7 +12,6 @@ mod load_script;
 mod load_script_hash;
 mod load_tx;
 mod load_witness;
-mod peak_memory;
 mod set_content;
 pub(crate) mod spawn;
 mod utils;
@@ -24,6 +24,7 @@ mod pause;
 mod tests;
 
 pub use self::current_cycles::CurrentCycles;
+pub use self::current_memory::CurrentMemory;
 pub use self::debugger::Debugger;
 pub use self::exec::Exec;
 pub use self::get_memory_limit::GetMemoryLimit;
@@ -36,7 +37,6 @@ pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
-pub use self::peak_memory::PeakMemory;
 pub use self::set_content::SetContent;
 pub use self::spawn::Spawn;
 pub use self::vm_version::VMVersion;
@@ -79,7 +79,7 @@ pub const SPAWN: u64 = 2101;
 pub const GET_MEMORY_LIMIT: u64 = 2102;
 pub const SET_CONTENT: u64 = 2103;
 pub const LOAD_EXTENSION: u64 = 2104;
-pub const PEAK_MEMORY: u64 = 2105;
+pub const CURRENT_MEMORY: u64 = 2105;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;

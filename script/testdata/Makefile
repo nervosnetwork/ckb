@@ -69,7 +69,7 @@ ALL_BINS := jalr_zero \
             spawn_caller_strcat \
             spawn_caller_strcat_data_hash \
             spawn_recursive \
-            spawn_peak_memory
+            spawn_current_memory
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 
@@ -155,4 +155,4 @@ spawn_caller_strcat_data_hash: spawn_caller_strcat_data_hash.c
 spawn_peak_memory_2m_to_32m: spawn_peak_memory_2m_to_32m.c
 spawn_peak_memory_4m_to_32m: spawn_peak_memory_4m_to_32m.c
 spawn_recursive: spawn_recursive.c
-spawn_peak_memory: spawn_peak_memory.c
+spawn_current_memory: spawn_current_memory.c
