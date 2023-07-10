@@ -155,6 +155,7 @@ where
             caller_exit_code_addr: exit_code_addr.to_u64(),
             caller_content_addr: content_addr.to_u64(),
             caller_content_length_addr: content_length_addr.to_u64(),
+            cycles_base: machine.cycles(),
         };
         let mut machine_child = build_child_machine(
             &self.script_group,
@@ -258,6 +259,7 @@ pub fn build_child_machine<
         callee_memory_limit,
         content,
         content_length,
+        cycles_base,
         ..
     } = spawn_data;
 
@@ -275,6 +277,9 @@ pub fn build_child_machine<
     let machine_builder = machine_syscalls
         .into_iter()
         .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
+    let machine_builder = machine_builder.syscall(Box::new(
+        syscalls_generator.build_current_cycles(*cycles_base),
+    ));
     let machine_builder = machine_builder.syscall(Box::new(
         syscalls_generator.build_get_memory_limit(*callee_memory_limit),
     ));

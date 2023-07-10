@@ -137,8 +137,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     TransactionScriptsSyscallsGenerator<DL>
 {
     /// Build syscall: current_cycles
-    pub fn build_current_cycles(&self) -> CurrentCycles {
-        CurrentCycles::new()
+    pub fn build_current_cycles(&self, base: u64) -> CurrentCycles {
+        CurrentCycles::new(base)
     }
 
     /// Build syscall: vm_version
@@ -299,7 +299,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
-                Box::new(self.build_current_cycles()),
                 Box::new(self.build_exec(
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
@@ -323,6 +322,9 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         context: Arc<Mutex<MachineContext>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let mut syscalls = self.generate_same_syscalls(script_version, script_group);
+        if script_version >= ScriptVersion::V1 {
+            syscalls.push(Box::new(self.build_current_cycles(0)));
+        }
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
@@ -1044,6 +1046,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         caller_exit_code_addr,
                         caller_content_addr,
                         caller_content_length_addr,
+                        cycles_base,
                     } => {
                         let spawn_data = SpawnData {
                             callee_peak_memory: *callee_peak_memory,
@@ -1053,6 +1056,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                             caller_exit_code_addr: *caller_exit_code_addr,
                             caller_content_addr: *caller_content_addr,
                             caller_content_length_addr: *caller_content_length_addr,
+                            cycles_base: *cycles_base,
                         };
                         let machine = build_child_machine(
                             script_group,

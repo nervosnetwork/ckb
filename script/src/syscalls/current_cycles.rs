@@ -5,11 +5,13 @@ use ckb_vm::{
 };
 
 #[derive(Debug, Default)]
-pub struct CurrentCycles {}
+pub struct CurrentCycles {
+    base: u64,
+}
 
 impl CurrentCycles {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(base: u64) -> Self {
+        Self { base }
     }
 }
 
@@ -22,7 +24,11 @@ impl<Mac: SupportMachine> Syscalls<Mac> for CurrentCycles {
         if machine.registers()[A7].to_u64() != CURRENT_CYCLES {
             return Ok(false);
         }
-        machine.set_register(A0, Mac::REG::from_u64(machine.cycles()));
+        let cycles = self
+            .base
+            .checked_add(machine.cycles())
+            .ok_or(VMError::CyclesOverflow)?;
+        machine.set_register(A0, Mac::REG::from_u64(cycles));
         Ok(true)
     }
 }
