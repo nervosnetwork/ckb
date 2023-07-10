@@ -287,6 +287,9 @@ pub fn build_child_machine<
         *callee_peak_memory,
         Arc::clone(context),
     )));
+    let machine_builder = machine_builder.syscall(Box::new(
+        syscalls_generator.build_current_memory(*callee_peak_memory),
+    ));
     let mut machine_child = Machine::new(machine_builder.build());
     set_vm_max_cycles(&mut machine_child, cycles_limit);
     Ok(machine_child)

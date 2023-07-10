@@ -1,4 +1,5 @@
 mod current_cycles;
+mod current_memory;
 mod debugger;
 mod exec;
 mod get_memory_limit;
@@ -23,6 +24,7 @@ mod pause;
 mod tests;
 
 pub use self::current_cycles::CurrentCycles;
+pub use self::current_memory::CurrentMemory;
 pub use self::debugger::Debugger;
 pub use self::exec::Exec;
 pub use self::get_memory_limit::GetMemoryLimit;
@@ -77,6 +79,7 @@ pub const SPAWN: u64 = 2101;
 pub const GET_MEMORY_LIMIT: u64 = 2102;
 pub const SET_CONTENT: u64 = 2103;
 pub const LOAD_EXTENSION: u64 = 2104;
+pub const CURRENT_MEMORY: u64 = 2105;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;

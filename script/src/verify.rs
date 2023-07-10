@@ -5,9 +5,9 @@ use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{
         spawn::{build_child_machine, update_caller_machine},
-        CurrentCycles, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData, LoadExtension,
-        LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, SetContent, Spawn,
-        VMVersion,
+        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData,
+        LoadExtension, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
+        SetContent, Spawn, VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{
@@ -257,6 +257,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         )
     }
 
+    /// Build syscall: current_memory
+    pub fn build_current_memory(&self, current_memory: u64) -> CurrentMemory {
+        CurrentMemory::new(current_memory)
+    }
+
     /// Generate same syscalls. The result does not contain spawn syscalls.
     pub fn generate_same_syscalls(
         &self,
@@ -323,6 +328,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 Box::new(self.build_get_memory_limit(8)),
                 Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
                 Box::new(self.build_spawn(script_version, script_group, 8, Arc::clone(&context))),
+                Box::new(self.build_current_memory(8)),
             ])
         }
         syscalls
