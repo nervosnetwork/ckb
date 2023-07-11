@@ -71,7 +71,10 @@ ALL_BINS := jalr_zero \
             spawn_recursive \
             spawn_current_memory \
             spawn_caller_current_cycles \
-            spawn_callee_current_cycles
+            spawn_callee_current_cycles \
+            spawn_peak_memory_512k_to_32m \
+            spawn_peak_memory_2m_to_32m \
+            spawn_peak_memory_4m_to_32m
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 
@@ -156,6 +159,7 @@ spawn_caller_set_content: spawn_caller_set_content.c
 spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c
 spawn_caller_strcat: spawn_caller_strcat.c
 spawn_caller_strcat_data_hash: spawn_caller_strcat_data_hash.c
+spawn_peak_memory_512k_to_32m: spawn_peak_memory_512k_to_32m.c
 spawn_peak_memory_2m_to_32m: spawn_peak_memory_2m_to_32m.c
 spawn_peak_memory_4m_to_32m: spawn_peak_memory_4m_to_32m.c
 spawn_recursive: spawn_recursive.c
