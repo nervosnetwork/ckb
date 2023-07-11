@@ -22,6 +22,7 @@ use crate::verify::{tests::utils::*, *};
 // check_spawn_big_content_length: fails when content_length > 256K.
 // check_peak_memory_4m_to_32m: spawn should success when peak memory <= 32M
 // check_peak_memory_2m_to_32m: spawn should success when peak memory <= 32M
+// check_peak_memory_512k_to_32m: spawn should success when peak memory <= 32M
 // check_spawn_snapshot: A spawn B, then B gets suspended to snapshot and resume again.
 // check_spawn_state: Like check_spawn_snapshot but invoking verifier.resume_from_state instead.
 // check_spawn_current_memory: Use current_memory() to terminate infinite recursion.
@@ -547,6 +548,37 @@ fn check_peak_memory_2m_to_32m() {
 
     let (spawn_caller_cell, spawn_caller_data_hash) =
         load_cell_from_path("testdata/spawn_peak_memory_2m_to_32m");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_peak_memory_512k_to_32m() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_peak_memory_512k_to_32m");
 
     let spawn_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
