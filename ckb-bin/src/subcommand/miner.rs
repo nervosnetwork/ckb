@@ -1,8 +1,11 @@
 use ckb_app_config::{ExitCode, MinerArgs, MinerConfig};
 use ckb_async_runtime::Handle;
 use ckb_channel::unbounded;
+use ckb_logger::info;
 use ckb_miner::{Client, Miner};
-use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread, wait_all_ckb_services_exit};
+use ckb_stop_handler::{
+    broadcast_exit_signals, new_crossbeam_exit_rx, register_thread, wait_all_ckb_services_exit,
+};
 use std::thread;
 
 pub fn miner(args: MinerArgs, async_handle: Handle) -> Result<(), ExitCode> {
@@ -29,6 +32,12 @@ pub fn miner(args: MinerArgs, async_handle: Handle) -> Result<(), ExitCode> {
         .spawn(move || miner.run(stop_rx))
         .expect("Start client failed!");
     register_thread(THREAD_NAME, miner_jh);
+
+    ctrlc::set_handler(|| {
+        info!("Trapped exit signal, exiting...");
+        broadcast_exit_signals();
+    })
+    .expect("Error setting Ctrl-C handler");
 
     wait_all_ckb_services_exit();
 
