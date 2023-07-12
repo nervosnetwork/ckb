@@ -195,6 +195,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95916998c798756098a4eb1b3f2cd510659705a9817bf203d61abd30fbec3e7b"
 
 [[package]]
+name = "blake2b-ref"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "294d17c72e0ba59fad763caa112368d0672083779cdebbb97164f4bb4c1e339a"
+
+[[package]]
 name = "blake2b-rs"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -720,10 +726,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-gen-types"
+version = "0.112.0-pre"
+dependencies = [
+ "blake2b-ref 0.3.1",
+ "cfg-if 1.0.0",
+ "molecule",
+]
+
+[[package]]
 name = "ckb-hash"
 version = "0.111.0-rc11"
 dependencies = [
- "blake2b-ref",
+ "blake2b-ref 0.2.1",
  "blake2b-rs",
 ]
 
