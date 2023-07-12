@@ -4,7 +4,7 @@ use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_logger::info;
+use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -75,10 +75,6 @@ impl ChunkProcess {
                         }
                     }
                 },
-                _ = self.signal.cancelled() => {
-                    info!("TxPool received exit signal, exit now");
-                    break
-                },
                 _ = interval.tick() => {
                     if matches!(self.current_state, ChunkCommand::Resume) {
                         let stop = self.try_process().await;
@@ -86,6 +82,10 @@ impl ChunkProcess {
                             break;
                         }
                     }
+                },
+                _ = self.signal.cancelled() => {
+                    debug!("TxPool received exit signal, exit now");
+                    break
                 },
                 else => break,
             }

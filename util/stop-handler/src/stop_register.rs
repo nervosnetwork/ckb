@@ -1,5 +1,5 @@
 use ckb_channel::TrySendError;
-use ckb_logger::{error, info, trace, warn};
+use ckb_logger::{debug, error, info, trace, warn};
 use ckb_util::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -12,19 +12,19 @@ pub fn wait_all_ckb_services_exit() {
     info!("waiting exit signal...");
     let exit_signal = new_crossbeam_exit_rx();
     let _ = exit_signal.recv();
-    info!("received exit signal, broadcasting exit signal to all threads");
+    debug!("received exit signal, broadcasting exit signal to all threads");
     let mut handles = CKB_HANDLES.lock();
     for (name, join_handle) in handles.thread_handles.drain(..) {
         match join_handle.join() {
             Ok(_) => {
-                info!("wait thread {} done", name);
+                debug!("wait thread {} done", name);
             }
             Err(e) => {
                 warn!("wait thread {}: ERROR: {:?}", name, e)
             }
         }
     }
-    info!("all ckb threads have been stopped");
+    debug!("all ckb threads have been stopped");
 }
 
 static CKB_HANDLES: once_cell::sync::Lazy<Mutex<CkbServiceHandles>> =

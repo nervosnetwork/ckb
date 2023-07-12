@@ -4,7 +4,7 @@ use ckb_app_config::MinerClientConfig;
 use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
-use ckb_logger::{debug, error, info};
+use ckb_logger::{debug, error};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::{
     packed::{Block, Byte32},
@@ -87,7 +87,7 @@ impl Rpc {
                         });
                     },
                     _ = stop_rx.cancelled() => {
-                        info!("Rpc server received exit signal, exit now");
+                        debug!("Rpc server received exit signal, exit now");
                         break
                     },
                     else => break
@@ -235,7 +235,7 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
         let stop_rx: CancellationToken = new_tokio_exit_rx();
         let graceful = server.with_graceful_shutdown(async move {
             stop_rx.cancelled().await;
-            info!("Miner client received exit signal, exit now");
+            debug!("Miner client received exit signal, exit now");
         });
 
         if let Err(e) = graceful.await {
@@ -255,7 +255,7 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
                     self.fetch_block_template().await;
                 }
                 _ = stop_rx.cancelled() => {
-                    info!("Miner client pool_block_template received exit signal, exit now");
+                    debug!("Miner client pool_block_template received exit signal, exit now");
                     break
                 },
                 else => break,

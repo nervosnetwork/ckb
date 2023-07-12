@@ -56,6 +56,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     tx_pool_builder.start(network_controller.non_owning_clone());
 
     ctrlc::set_handler(|| {
+        info!("Trapped exit signal, exiting...");
         broadcast_exit_signals();
     })
     .expect("Error setting Ctrl-C handler");

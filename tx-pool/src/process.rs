@@ -920,6 +920,8 @@ impl TxPoolService {
         let mut tx_pool = self.tx_pool.write().await;
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
+        } else {
+            info!("TxPool save successfully")
         }
     }
 

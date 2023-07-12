@@ -1,7 +1,7 @@
 //! TODO(doc): @quake
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
-use ckb_logger::{debug, error, info, trace};
+use ckb_logger::{debug, error, trace};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use ckb_types::{
@@ -178,7 +178,7 @@ impl NotifyService {
                     Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
                     Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
                     _ = signal_receiver.cancelled() => {
-                        info!("NotifyService received exit signal, exit now");
+                        debug!("NotifyService received exit signal, exit now");
                         break;
                     }
                     else => break,
