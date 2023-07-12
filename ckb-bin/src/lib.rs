@@ -10,10 +10,8 @@ use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use ckb_logger::info;
 use ckb_network::tokio;
-use ckb_stop_handler::broadcast_exit_signals;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
-use std::sync::Arc;
 
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
@@ -66,18 +64,6 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
 
     raise_fd_limit();
 
-    // indicate whether the process is terminated by an exit signal
-    let caught_exit_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
-
-    ctrlc::set_handler({
-        let caught_exit_signal = Arc::clone(&caught_exit_signal);
-        move || {
-            broadcast_exit_signals();
-            caught_exit_signal.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    })
-    .expect("Error setting Ctrl-C handler");
-
     let ret = match cmd {
         cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
@@ -90,18 +76,15 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         _ => unreachable!(),
     };
 
-    if !caught_exit_signal.load(std::sync::atomic::Ordering::SeqCst) {
-        // if `subcommand` finish normally, and we didn't catch exit signal, broadcast exit signals
-        broadcast_exit_signals();
+    if matches!(cmd, cli::CMD_RUN) {
+        handle.drop_guard();
+
+        tokio::task::block_in_place(|| {
+            info!("waiting all tokio tasks done");
+            handle_stop_rx.blocking_recv();
+            info!("all tokio tasks have been stopped");
+        });
     }
-
-    handle.drop_guard();
-
-    tokio::task::block_in_place(|| {
-        info!("waiting all tokio tasks done");
-        handle_stop_rx.blocking_recv();
-        info!("all tokio tasks have been stopped");
-    });
 
     ret
 }
