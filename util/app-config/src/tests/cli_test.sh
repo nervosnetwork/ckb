@@ -38,7 +38,7 @@ bash ${CKB_BATS_CORE_DIR}/bats-assert/load.bash
 
 cd ${CKB_BATS_TESTBED}
 
-./ckb init --force && ./ckb import ckb_mainnet_4000.json
+./ckb init --force && sed -i 's/filter = "info"/filter = "debug"/g' ckb.toml && ./ckb import ckb_mainnet_4000.json
 
 export PATH=${CKB_BATS_TESTBED}:/tmp/ckb_bats_bin/tmp_install/bin:${PATH}
 export BATS_LIB_PATH=${CKB_BATS_CORE_DIR}
@@ -47,7 +47,7 @@ export TMP_DIR=${CKB_BATS_TESTBED}/tmp_dir
 mkdir ${TMP_DIR}
 
 for bats_cases in *.bats; do
-  bats --trace "$bats_cases"
+  bats "$bats_cases"
   ret=$?
   if [ "$ret" -ne "0" ]; then
     exit "$ret"
