@@ -8,7 +8,7 @@ mod subcommand;
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_network::tokio;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
@@ -80,9 +80,9 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         handle.drop_guard();
 
         tokio::task::block_in_place(|| {
-            info!("waiting all tokio tasks done");
+            debug!("waiting all tokio tasks done");
             handle_stop_rx.blocking_recv();
-            info!("all tokio tasks have been stopped");
+            info!("ckb shutdown");
         });
     }
 

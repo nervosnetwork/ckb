@@ -13,8 +13,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::error;
 use ckb_logger::info;
+use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
@@ -538,7 +538,7 @@ impl TxPoolServiceBuilder {
                                 block_assembler::process(service_clone, &message).await;
                             },
                             _ = signal_receiver.cancelled() => {
-                                info!("TxPool received exit signal, exit now");
+                                debug!("TxPool received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -573,7 +573,7 @@ impl TxPoolServiceBuilder {
                                 queue.clear();
                             }
                             _ = signal_receiver.cancelled() => {
-                                info!("TxPool received exit signal, exit now");
+                                debug!("TxPool received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -611,7 +611,7 @@ impl TxPoolServiceBuilder {
                         service.update_block_assembler_after_tx_pool_reorg().await;
                     },
                     _ = signal_receiver.cancelled() => {
-                        info!("TxPool received exit signal, exit now");
+                        debug!("TxPool received exit signal, exit now");
                         break
                     },
                     else => break,

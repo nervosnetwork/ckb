@@ -1,5 +1,5 @@
 use ckb_async_runtime::Handle;
-use ckb_logger::info;
+use ckb_logger::debug;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ impl HeaderMap {
                         map.limit_memory();
                     }
                     _ = stop_rx.cancelled() => {
-                        info!("HeaderMap limit_memory received exit signal, exit now");
+                        debug!("HeaderMap limit_memory received exit signal, exit now");
                         break
                     },
                 }

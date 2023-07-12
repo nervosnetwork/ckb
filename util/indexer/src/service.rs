@@ -16,7 +16,7 @@ use ckb_jsonrpc_types::{
     IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
-use ckb_logger::{error, info};
+use ckb_logger::{debug, error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
@@ -118,7 +118,7 @@ impl IndexerService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        info!("Indexer received exit signal, exit now");
+                        debug!("Indexer received exit signal, exit now");
                         break
                     },
                     else => break,
@@ -204,7 +204,7 @@ impl IndexerService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        info!("Indexer received exit signal, exit now");
+                        debug!("Indexer received exit signal, exit now");
                         break
                     },
                 }

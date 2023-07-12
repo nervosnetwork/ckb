@@ -243,10 +243,6 @@ impl ChainService {
         let chain_jh = thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(signal_receiver) -> _ => {
-                        info!("ChainService received exit signal, stopped");
-                        break;
-                    },
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
                             let _ = tx_control.suspend_chunk_process();
@@ -268,6 +264,10 @@ impl ChainService {
                             error!("truncate_receiver closed");
                             break;
                         },
+                    },
+                    recv(signal_receiver) -> _ => {
+                        debug!("ChainService received exit signal, exit now");
+                        break;
                     }
                 }
             })

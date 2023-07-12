@@ -1,5 +1,5 @@
 use ckb_async_runtime::tokio::{self, task::block_in_place};
-use ckb_logger::{debug, info, warn};
+use ckb_logger::{debug, warn};
 use ckb_shared::Shared;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::{ChainDB, ChainStore};
@@ -63,7 +63,7 @@ impl BlockFilter {
                         new_block_watcher.borrow_and_update();
                     }
                     _ = stop_rx.cancelled() => {
-                        info!("BlockFilter received exit signal, exit now");
+                        debug!("BlockFilter received exit signal, exit now");
                         break
                     },
                     else => break,

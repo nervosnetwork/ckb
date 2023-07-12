@@ -8,7 +8,7 @@ pub fn deadlock_detection() {}
 #[cfg(feature = "deadlock_detection")]
 pub fn deadlock_detection() {
     use ckb_channel::select;
-    use ckb_logger::warn;
+    use ckb_logger::{debug, warn};
     use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
     use ckb_util::parking_lot::deadlock;
     use std::{thread, time::Duration};
@@ -36,7 +36,7 @@ pub fn deadlock_detection() {
 
                 },
                 recv(stop_rx) -> _ =>{
-                    info!("deadlock_detection received exit signal, stopped");
+                    debug!("deadlock_detection received exit signal, stopped");
                     return;
                 }
             }
