@@ -166,10 +166,6 @@ impl NotifyService {
         handle.spawn(async move {
             loop {
                 tokio::select! {
-                    _ = signal_receiver.cancelled() => {
-                        info!("NotifyService received exit signal, exit now");
-                        break;
-                    }
                     Some(msg) = new_block_register_receiver.recv() => { self.handle_register_new_block(msg) },
                     Some(msg) = new_block_watcher_receiver.recv() => { self.handle_watch_new_block(msg) },
                     Some(msg) = new_block_receiver.recv() => { self.handle_notify_new_block(msg) },
@@ -181,6 +177,10 @@ impl NotifyService {
                     Some(msg) = reject_transaction_receiver.recv() => { self.handle_notify_reject_transaction(msg) },
                     Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
                     Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
+                    _ = signal_receiver.cancelled() => {
+                        info!("NotifyService received exit signal, exit now");
+                        break;
+                    }
                     else => break,
                 }
             }
