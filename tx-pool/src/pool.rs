@@ -364,17 +364,16 @@ impl TxPool {
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {
-        let pending: Vec<Byte32> = self
-            .get_by_status(&Status::Pending)
-            .iter()
-            .chain(self.get_by_status(&Status::Gap).iter())
-            .map(|entry| entry.inner.transaction().hash())
+        let pending = self
+            .pool_map
+            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .map(|entry| entry.transaction().hash())
             .collect();
 
-        let proposed: Vec<Byte32> = self
-            .get_by_status(&Status::Proposed)
-            .iter()
-            .map(|entry| entry.inner.transaction().hash())
+        let proposed = self
+            .pool_map
+            .sorted_proposed_iter()
+            .map(|entry| entry.transaction().hash())
             .collect();
 
         TxPoolIds { pending, proposed }
@@ -382,16 +381,15 @@ impl TxPool {
 
     pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
         let pending = self
-            .get_by_status(&Status::Pending)
-            .iter()
-            .chain(self.get_by_status(&Status::Gap).iter())
-            .map(|entry| (entry.inner.transaction().hash(), entry.inner.to_info()))
+            .pool_map
+            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
         let proposed = self
-            .get_by_status(&Status::Proposed)
-            .iter()
-            .map(|entry| (entry.inner.transaction().hash(), entry.inner.to_info()))
+            .pool_map
+            .sorted_proposed_iter()
+            .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
         TxPoolEntryInfo { pending, proposed }

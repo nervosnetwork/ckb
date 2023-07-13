@@ -314,7 +314,7 @@ fn test_sorted_by_tx_fee_rate() {
     .unwrap();
 
     let txs_sorted_by_fee_rate = pool
-        .score_sorted_iter()
+        .sorted_proposed_iter()
         .map(|entry| entry.transaction().hash())
         .collect::<Vec<_>>();
     let expect_result = vec![tx2.hash(), tx3.hash(), tx1.hash()];
@@ -365,7 +365,7 @@ fn test_sorted_by_ancestors_score() {
     .unwrap();
 
     let txs_sorted_by_fee_rate = pool
-        .score_sorted_iter()
+        .sorted_proposed_iter()
         .map(|entry| entry.transaction().hash())
         .collect::<Vec<_>>();
     let expect_result = vec![tx4.hash(), tx2.hash(), tx3.hash(), tx1.hash()];
@@ -406,7 +406,7 @@ fn test_sorted_by_ancestors_score_competitive() {
     }
 
     let txs_sorted_by_fee_rate = pool
-        .score_sorted_iter()
+        .sorted_proposed_iter()
         .map(|entry| format!("{}", entry.transaction().hash()))
         .collect::<Vec<_>>();
     // the entry with most ancestors score will win
