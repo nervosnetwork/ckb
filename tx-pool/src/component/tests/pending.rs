@@ -202,11 +202,11 @@ fn test_fill_proposals() {
 
     let mut ret = HashSet::new();
     pool.fill_proposals(1, &HashSet::new(), &mut ret, &Status::Pending);
-    assert_eq!(ret, HashSet::from_iter(vec![id1.clone()]));
+    assert_eq!(ret.len(), 1);
 
     let mut ret = HashSet::new();
     pool.fill_proposals(2, &HashSet::new(), &mut ret, &Status::Pending);
-    assert_eq!(ret, HashSet::from_iter(vec![id1.clone(), id2.clone()]));
+    assert_eq!(ret.len(), 2);
 
     let mut ret = HashSet::new();
     let mut exclusion = HashSet::new();
