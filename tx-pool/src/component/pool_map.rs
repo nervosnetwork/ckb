@@ -129,8 +129,8 @@ impl PoolMap {
         self.entries.get_by_status(&Status::Proposed).len()
     }
 
-    pub(crate) fn score_sorted_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        self.score_sorted_iter_by(Status::Proposed)
+    pub(crate) fn sorted_proposed_iter(&self) -> impl Iterator<Item = &TxEntry> {
+        self.score_sorted_iter_by(vec![Status::Proposed])
     }
 
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
@@ -284,7 +284,7 @@ impl PoolMap {
         proposals: &mut HashSet<ProposalShortId>,
         status: &Status,
     ) {
-        for entry in self.score_sorted_iter_by(*status) {
+        for entry in self.score_sorted_iter_by(vec![*status]) {
             if proposals.len() == limit {
                 break;
             }
@@ -312,11 +312,14 @@ impl PoolMap {
         self.links.clear();
     }
 
-    fn score_sorted_iter_by(&self, status: Status) -> impl Iterator<Item = &TxEntry> {
+    pub(crate) fn score_sorted_iter_by(
+        &self,
+        statuses: Vec<Status>,
+    ) -> impl Iterator<Item = &TxEntry> {
         self.entries
             .iter_by_score()
             .rev()
-            .filter(move |entry| entry.status == status)
+            .filter(move |entry| statuses.contains(&entry.status))
             .map(|entry| &entry.inner)
     }
 
