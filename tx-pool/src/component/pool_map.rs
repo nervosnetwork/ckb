@@ -173,10 +173,10 @@ impl PoolMap {
             return Ok(false);
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.record_entry_links(&mut entry)?;
+        self.check_record_ancestors(&mut entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_deps(&entry);
-        self.record_entry_edges(&entry);
+        self.record_entry_descendants(&entry);
         Ok(true)
     }
 
@@ -379,6 +379,13 @@ impl PoolMap {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
+        let inputs = entry.transaction().input_pts_iter();
+
+        // if input reference a in-pool output, connect it
+        // otherwise, record input for conflict check
+        for i in inputs {
+            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+        }
 
         // record dep-txid
         for d in related_dep_out_points {
@@ -392,21 +399,12 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) {
+    fn record_entry_descendants(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
-        let inputs = entry.transaction().input_pts_iter();
         let outputs = entry.transaction().output_pts();
-
         let mut children = HashSet::new();
-        // if input reference a in-pool output, connect it
-        // otherwise, record input for conflict check
-        for i in inputs {
-            // FIXME: This assertion is invalid only for plug_entry
-            // assert!(self.edges.get_input_ref(&i).is_none());
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
-        }
 
-        // record tx output
+        // collect children
         for o in outputs {
             if let Some(ids) = self.edges.get_deps_ref(&o).cloned() {
                 children.extend(ids);
@@ -425,13 +423,12 @@ impl PoolMap {
             }
             self.update_descendants_index_key(entry, EntryOp::Add);
         }
-        // update ancestors
+        // update ancestor's index key for adding new entry
         self.update_ancestors_index_key(entry, EntryOp::Add);
     }
 
-    /// Record the links for entry
-    fn record_entry_links(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
-        // find in pool parents
+    /// Check ancestors and record for entry
+    fn check_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
@@ -472,15 +469,6 @@ impl PoolMap {
         if entry.ancestors_count > self.max_ancestors_count {
             eprintln!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
-        }
-
-        for cell_dep in entry.transaction().cell_deps() {
-            let dep_pt = cell_dep.out_point();
-            self.edges
-                .deps
-                .entry(dep_pt)
-                .or_insert_with(HashSet::new)
-                .insert(short_id.clone());
         }
 
         for parent in &parents {
