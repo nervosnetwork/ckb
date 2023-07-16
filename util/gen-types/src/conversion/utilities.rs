@@ -1,5 +1,3 @@
-// https://github.com/nervosnetwork/ckb/blob/develop/util/types/src/conversion/utilities.rs
-
 macro_rules! impl_conversion_for_entity_unpack {
     ($original:ty, $entity:ident) => {
         impl Unpack<$original> for packed::$entity {
@@ -21,6 +19,24 @@ macro_rules! impl_conversion_for_option_pack {
                 }
             }
         }
+    };
+}
+
+macro_rules! impl_conversion_for_option_unpack {
+    ($original:ty, $entity:ident, $reader:ident) => {
+        impl<'r> Unpack<Option<$original>> for packed::$reader<'r> {
+            fn unpack(&self) -> Option<$original> {
+                self.to_opt().map(|x| x.unpack())
+            }
+        }
+        impl_conversion_for_entity_unpack!(Option<$original>, $entity);
+    };
+}
+
+macro_rules! impl_conversion_for_option {
+    ($original:ty, $entity:ident, $reader:ident) => {
+        impl_conversion_for_option_pack!($original, $entity);
+        impl_conversion_for_option_unpack!($original, $entity, $reader);
     };
 }
 
