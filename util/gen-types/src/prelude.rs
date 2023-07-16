@@ -1,5 +1,6 @@
 pub use molecule::prelude::{Builder, Entity, Reader};
 
+/// A syntactic sugar to convert binary data into rust types.
 pub trait Unpack<T> {
     fn unpack(&self) -> T;
 }
