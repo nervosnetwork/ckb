@@ -1,0 +1,442 @@
+import blockchain;
+
+/* Basic Types */
+
+option BoolOpt (Bool);
+option Byte32Opt (Byte32);
+
+array Bool [byte; 1];
+
+// The `BeUintN` is used to store a `N` bits unsigned integer
+// as a byte array in big endian.
+array BeUint32 [byte; 4];
+array BeUint64 [byte; 8];
+
+vector Uint32Vec <Uint32>;
+vector Uint64Vec <Uint64>;
+vector Uint256Vec <Uint256>;
+
+/* Extension Types for Chain */
+
+option CellOutputOpt (CellOutput);
+
+vector HeaderVec <Header>;
+vector OutPointVec <OutPoint>;
+
+option Uint64VecOpt (Uint64Vec);
+
+/* Types for Light Client */
+
+struct HeaderDigest {
+    children_hash:          Byte32,
+
+    total_difficulty:       Uint256,
+
+    start_number:           Uint64,
+    end_number:             Uint64,
+
+    start_epoch:            Uint64,
+    end_epoch:              Uint64,
+
+    start_timestamp:        Uint64,
+    end_timestamp:          Uint64,
+
+    start_compact_target:   Uint32,
+    end_compact_target:     Uint32,
+}
+
+/* Types for Storage */
+
+struct HeaderView {
+    hash:               Byte32,
+    data:               Header,
+}
+
+table UncleBlockVecView {
+    hashes:             Byte32Vec,
+    data:               UncleBlockVec,
+}
+
+table TransactionView {
+    hash:               Byte32,
+    witness_hash:       Byte32,
+    data:               Transaction,
+}
+
+table BlockExt {
+    total_difficulty:   Uint256,
+    total_uncles_count: Uint64,
+    received_at:        Uint64,
+    txs_fees:           Uint64Vec,
+    verified:           BoolOpt,
+}
+
+table BlockExtV1 {
+    total_difficulty:   Uint256,
+    total_uncles_count: Uint64,
+    received_at:        Uint64,
+    txs_fees:           Uint64Vec,
+    verified:           BoolOpt,
+    cycles:             Uint64VecOpt,
+    txs_sizes:          Uint64VecOpt,
+}
+
+struct EpochExt {
+    previous_epoch_hash_rate:           Uint256,
+    last_block_hash_in_previous_epoch:  Byte32,
+    compact_target:                     Uint32,
+    number:                             Uint64,
+    base_block_reward:                  Uint64,
+    remainder_reward:                   Uint64,
+    start_number:                       Uint64,
+    length:                             Uint64,
+}
+
+struct TransactionKey {
+    block_hash:     Byte32,
+    index:          BeUint32,
+}
+
+struct NumberHash {
+    number:         Uint64,
+    block_hash:     Byte32,
+}
+
+struct TransactionInfo {
+    block_number:   Uint64,
+    block_epoch:    Uint64,
+    key:            TransactionKey,
+}
+
+table CellEntry {
+    output:                CellOutput,
+    block_hash:            Byte32,
+    block_number:          Uint64,
+    block_epoch:           Uint64,
+    index:                 Uint32,
+    data_size:             Uint64,
+}
+
+table CellDataEntry {
+    output_data:           Bytes,
+    output_data_hash:      Byte32,
+}
+
+/* Types for Network/Relay */
+
+union RelayMessage {
+    CompactBlock,
+    RelayTransactions,
+    RelayTransactionHashes,
+    GetRelayTransactions,
+    GetBlockTransactions,
+    BlockTransactions,
+    GetBlockProposal,
+    BlockProposal,
+}
+
+table CompactBlock {
+    header:                     Header,
+    short_ids:                  ProposalShortIdVec,
+    prefilled_transactions:     IndexTransactionVec,
+    uncles:                     Byte32Vec,
+    proposals:                  ProposalShortIdVec,
+}
+
+table CompactBlockV1 {
+    header:                     Header,
+    short_ids:                  ProposalShortIdVec,
+    prefilled_transactions:     IndexTransactionVec,
+    uncles:                     Byte32Vec,
+    proposals:                  ProposalShortIdVec,
+    extension:                  Bytes,
+}
+
+table RelayTransaction {
+    cycles:                     Uint64,
+    transaction:                Transaction,
+}
+vector RelayTransactionVec <RelayTransaction>;
+
+table RelayTransactions {
+    transactions:               RelayTransactionVec,
+}
+
+table RelayTransactionHashes {
+    tx_hashes:                  Byte32Vec,
+}
+
+table GetRelayTransactions {
+    tx_hashes:                  Byte32Vec,
+}
+
+table GetBlockTransactions {
+    block_hash:                 Byte32,
+    indexes:                    Uint32Vec,
+    uncle_indexes:              Uint32Vec,
+}
+
+table BlockTransactions {
+    block_hash:                 Byte32,
+    transactions:               TransactionVec,
+    uncles:                     UncleBlockVec,
+}
+
+table GetBlockProposal {
+    block_hash:                 Byte32,
+    proposals:                  ProposalShortIdVec,
+}
+
+table BlockProposal {
+    transactions:               TransactionVec,
+}
+
+table IndexTransaction {
+    index:                      Uint32,
+    transaction:                Transaction,
+}
+vector IndexTransactionVec <IndexTransaction>;
+
+/* Types for Network/BlockFilter */
+
+union BlockFilterMessage {
+    GetBlockFilters,
+    BlockFilters,
+    GetBlockFilterHashes,
+    BlockFilterHashes,
+    GetBlockFilterCheckPoints,
+    BlockFilterCheckPoints,
+}
+
+struct GetBlockFilters {
+    start_number:   Uint64,
+}
+
+table BlockFilters {
+    start_number:   Uint64,
+    block_hashes:   Byte32Vec,
+    filters:        BytesVec,
+}
+
+struct GetBlockFilterHashes {
+    start_number:   Uint64,
+}
+
+table BlockFilterHashes {
+    start_number:               Uint64,
+    parent_block_filter_hash:   Byte32,
+    block_filter_hashes:        Byte32Vec,
+}
+
+struct GetBlockFilterCheckPoints {
+    start_number:   Uint64,
+}
+
+table BlockFilterCheckPoints {
+    start_number:           Uint64,
+    block_filter_hashes:    Byte32Vec,
+}
+
+
+/* Types for Network/Sync */
+
+union SyncMessage {
+    GetHeaders,
+    SendHeaders,
+    GetBlocks,
+    SendBlock,
+    SetFilter,
+    AddFilter,
+    ClearFilter,
+    FilteredBlock,
+    InIBD,
+}
+
+table GetHeaders {
+    hash_stop:              Byte32,
+    block_locator_hashes:   Byte32Vec,
+}
+
+table GetBlocks {
+    block_hashes:           Byte32Vec,
+}
+
+table SendHeaders {
+    headers:                HeaderVec,
+}
+
+table SendBlock {
+    block:                  Block,
+}
+
+table SetFilter {
+    hash_seed:              Uint32,
+    filter:                 Bytes,
+    num_hashes:             byte,
+}
+
+table AddFilter {
+    filter:                 Bytes,
+}
+
+table ClearFilter {
+}
+
+table FilteredBlock {
+    header:                 Header,
+    witnesses_root:         Byte32,
+    transactions:           TransactionVec,
+    proof:                  MerkleProof,
+}
+
+table MerkleProof {
+    indices:                Uint32Vec,
+    lemmas:                 Byte32Vec,
+}
+
+table InIBD {
+}
+
+/* Types for Network/LightClient */
+
+vector HeaderDigestVec <HeaderDigest>;
+
+table VerifiableHeader {
+    header:                 Header,
+    uncles_hash:            Byte32,
+    extension:              BytesOpt,
+    parent_chain_root:      HeaderDigest,
+}
+
+vector VerifiableHeaderVec <VerifiableHeader>;
+
+vector FilteredBlockVec <FilteredBlock>;
+
+union LightClientMessage {
+    // A client asks the server for the last state of the chain.
+    GetLastState,
+    SendLastState,
+    // A client asks the server for the proof of the last state which the
+    // client known.
+    GetLastStateProof,
+    SendLastStateProof,
+    // A client asks the server for the proof of some blocks.
+    GetBlocksProof,
+    SendBlocksProof,
+    // A client asks the server for the proof of some transactions.
+    GetTransactionsProof,
+    SendTransactionsProof,
+}
+
+table GetLastState {
+    // Whether the server is requested to push the state automatically.
+    subscribe:                  Bool,
+}
+
+table SendLastState {
+    // The verifiable header for the tip block in the server.
+    last_header:                VerifiableHeader,
+}
+
+table GetLastStateProof {
+    // The last block hash known by the client.
+    // It could be different with the tip hash in the server.
+    last_hash:                  Byte32,
+
+    // The hash of the last proved block.
+    start_hash:                 Byte32,
+    // The block number of the last proved block.
+    start_number:               Uint64,
+
+    // How many continuous blocks before the tip block should be included at
+    // least, if possible?
+    last_n_blocks:              Uint64,
+    // All blocks, whose total difficulty is not less than this difficulty
+    // boundary, should be included in the proof.
+    difficulty_boundary:        Uint256,
+    // The sampled difficulties.
+    difficulties:               Uint256Vec,
+}
+
+table SendLastStateProof {
+    // If the block whose hash is sent from the client is on the chain, then
+    // returns its verifiable header; otherwise, returns the verifiable
+    // header for the tip block in the server.
+    last_header:                VerifiableHeader,
+    // The MMR proof for the chain root whose hash is in the last header.
+    // Be empty if the block hash sent from the client isn't on the chain.
+    proof:                      HeaderDigestVec,
+
+    // Verifiable headers for all sampled blocks.
+    headers:                    VerifiableHeaderVec,
+}
+
+table GetBlocksProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Block hashes for the blocks which require verifying.
+    block_hashes:               Byte32Vec,
+}
+
+table SendBlocksProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // Block headers for the blocks which require verifying.
+    headers:                    HeaderVec,
+
+    // Block hashes for the blocks which were not found.
+    missing_block_hashes:       Byte32Vec,
+}
+
+table GetTransactionsProof {
+    // Refer to `GetLastStateProof.last_hash`.
+    last_hash:                  Byte32,
+
+    // Transaction hashes for the transactions which require verifying.
+    tx_hashes:                  Byte32Vec,
+}
+
+table SendTransactionsProof {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // A collection of filtered blocks, which include all requested
+    // transactions, and be verified in the proof.
+    filtered_blocks:            FilteredBlockVec,
+
+    // Transaction hashes for the blocks which were not found.
+    missing_tx_hashes:          Byte32Vec,
+}
+
+/* Types for Network/Others */
+
+table Time {
+    timestamp:                  Uint64,
+}
+
+table RawAlert {
+    notice_until:   Uint64,
+    id:             Uint32,
+    cancel:         Uint32,
+    priority:       Uint32,
+    message:        Bytes,
+    min_version:    BytesOpt,
+    max_version:    BytesOpt,
+}
+
+table Alert {
+    raw:                        RawAlert,
+    signatures:                 BytesVec,
+}
+
+table Identify {
+    flag:                       Uint64,         // Flag
+    name:                       Bytes,          // Network Name
+    client_version:             Bytes,
+}
