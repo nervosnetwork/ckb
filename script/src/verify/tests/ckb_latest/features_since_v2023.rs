@@ -27,6 +27,8 @@ use crate::verify::{tests::utils::*, *};
 // check_spawn_state: Like check_spawn_snapshot but invoking verifier.resume_from_state instead.
 // check_spawn_current_memory: Use current_memory() to terminate infinite recursion.
 // check_spawn_current_cycles: callee's current_cycles should inherit caller's current_cycles.
+// check_spawn_times_bug_1: BUG: execution results may be inconsistent
+// check_spawn_times_bug_2: BUG: execution results may be inconsistent
 
 #[test]
 fn check_vm_version() {
@@ -776,4 +778,99 @@ fn check_spawn_current_cycles() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_times_bug_1() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) = load_cell_from_path("testdata/spawn_times");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_times_bug_2() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+    let (spawn_caller_cell, spawn_caller_data_hash) = load_cell_from_path("testdata/spawn_times");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_pause(script_version, &rtx, Cycle::MAX);
+    let cycles_once = result.unwrap();
+
+    let (cycles, _) = verifier
+        .verify_map(script_version, &rtx, |verifier| {
+            let max_cycles = Cycle::MAX;
+            let cycles;
+            let mut times = 0usize;
+            times += 1;
+            let mut init_state = match verifier.resumable_verify(max_cycles).unwrap() {
+                VerifyResult::Suspended(state) => Some(state),
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    return Ok((cycles, times));
+                }
+            };
+
+            loop {
+                times += 1;
+                let state = init_state.take().unwrap();
+                match verifier.resume_from_state(state, max_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        init_state = Some(state);
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
+                }
+            }
+
+            Ok::<(u64, usize), Error>((cycles, times))
+        })
+        .unwrap();
+    assert_eq!(cycles, cycles_once);
 }
