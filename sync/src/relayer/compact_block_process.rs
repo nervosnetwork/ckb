@@ -185,6 +185,16 @@ fn non_contextual_check(
     consensus: &Consensus,
     active_chain: &ActiveChain,
 ) -> Status {
+    if compact_block.serialized_size_without_short_ids_and_prefilled_txs_indexes()
+        > consensus.max_block_bytes()
+    {
+        return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+            "CompactBlock's serialized_size({}) > consensus max_block_bytes({})",
+            block.serialized_size_without_short_ids_and_prefilled_txs_indexes(),
+            consensus.max_block_bytes()
+        ));
+    }
+
     if compact_block.uncles().len() > consensus.max_uncles_num() {
         return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
             "CompactBlock uncles count({}) > consensus max_uncles_num({})",

@@ -73,6 +73,49 @@ impl<'r> packed::BlockReader<'r> {
 }
 impl_serialized_size_for_entity!(Block, serialized_size_without_uncle_proposals);
 
+impl<'r> packed::CompactBlockReader<'r> {
+    /// Calculates the serialized size of [`CompactBlock`] without [short ids] field
+    /// and [overhead of IndexTransactionVec than TransactionVec].
+    ///
+    /// table CompactBlock {
+    ///     header:                     Header,
+    ///     short_ids:                  ProposalShortIdVec,
+    ///     prefilled_transactions:     IndexTransactionVec,
+    ///     uncles:                     Byte32Vec,
+    ///     proposals:                  ProposalShortIdVec,
+    /// }
+    ///
+    /// table Block {
+    ///     header:                 Header,
+    ///     uncles:                 UncleBlockVec,
+    ///     transactions:           TransactionVec,
+    ///     proposals:              ProposalShortIdVec,
+    /// }
+    ///
+    ///
+    /// # Computational Steps
+    /// 1. Calculates the total serialized size of [`CompactBlock`], marks it as `B`.
+    /// 2. Calculates the serialized size of [short ids] field, marks it as `S`.
+    /// (Note that we also need to cauclate the offset of [short ids] field for `CompactBlock`)
+    /// 3. Calculates the overhead of `IndexTransactionVec` than `TransactionVec`, marks it as `IoT`.
+    /// 4. So the serialized size of [`CompactBlock`] without [short ids] field
+    /// and [overhead of IndexTransactionVec than TransactionVec] is:
+    /// `B - (S + molecule::NUMBER_SIZE) - IoT`.
+    pub fn serialized_size_without_short_ids_and_prefilled_txs_indexes(&self) -> usize {
+        let block_size = self.as_slice().len();
+        let short_ids_size = self.short_ids().as_slice().len();
+        let prefilled_txs_indexes_size = self.prefilled_transactions().len()
+            * (packed::IndexTransaction::default().total_size()
+                - packed::Transaction::default().total_size());
+        block_size - (molecule::NUMBER_SIZE + short_ids_size) - prefilled_txs_indexes_size
+    }
+}
+
+impl_serialized_size_for_entity!(
+    CompactBlock,
+    serialized_size_without_short_ids_and_prefilled_txs_indexes
+);
+
 impl packed::UncleBlock {
     /// Calculates the serialized size of a UncleBlock in Block.
     /// The block has 1 more uncle:
