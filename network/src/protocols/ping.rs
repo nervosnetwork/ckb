@@ -1,7 +1,7 @@
 use crate::network::async_disconnect_with_message;
 use crate::NetworkState;
+use ckb_gen_types::{packed, prelude::*};
 use ckb_logger::{debug, error, trace, warn};
-use ckb_types::{packed, prelude::*};
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
     prelude::*,

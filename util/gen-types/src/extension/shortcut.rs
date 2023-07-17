@@ -66,6 +66,30 @@ impl packed::OutPoint {
     pub fn is_null(&self) -> bool {
         self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
     }
+
+    /// Generates a binary data to be used as a key for indexing cells in storage.
+    ///
+    /// # Notice
+    ///
+    /// The difference between [`Self::as_slice()`](../prelude/trait.Entity.html#tymethod.as_slice)
+    /// and [`Self::to_cell_key()`](#method.to_cell_key) is the byteorder of the field `index`.
+    ///
+    /// - Uses little endian for the field `index` in serialization.
+    ///
+    ///   Because in the real world, the little endian machines make up the majority, we can cast
+    ///   it as a number without re-order the bytes.
+    ///
+    /// - Uses big endian for the field `index` to index cells in storage.
+    ///
+    ///   So we can use `tx_hash` as key prefix to seek the cells from storage in the forward
+    ///   order, so as to traverse cells in the forward order too.
+    pub fn to_cell_key(&self) -> Vec<u8> {
+        let mut key = Vec::with_capacity(36);
+        let index: u32 = self.index().unpack();
+        key.extend_from_slice(self.tx_hash().as_slice());
+        key.extend_from_slice(&index.to_be_bytes());
+        key
+    }
 }
 
 impl packed::CellInput {
@@ -202,5 +226,26 @@ impl<'r> packed::BlockV1Reader<'r> {
     /// Converts to a compatible [`BlockReader`](struct.BlockReader.html) with an extra field.
     pub fn as_v0(&self) -> packed::BlockReader {
         packed::BlockReader::new_unchecked(self.as_slice())
+    }
+}
+
+impl packed::CompactBlockV1 {
+    /// Converts to a compatible [`CompactBlock`](struct.CompactBlock.html) with an extra field.
+    pub fn as_v0(&self) -> packed::CompactBlock {
+        packed::CompactBlock::new_unchecked(self.as_bytes())
+    }
+}
+
+impl<'r> packed::CompactBlockV1Reader<'r> {
+    /// Converts to a compatible [`CompactBlockReader`](struct.CompactBlockReader.html) with an extra field.
+    pub fn as_v0(&self) -> packed::CompactBlockReader {
+        packed::CompactBlockReader::new_unchecked(self.as_slice())
+    }
+}
+
+impl AsRef<[u8]> for packed::TransactionKey {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
     }
 }

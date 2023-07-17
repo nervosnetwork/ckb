@@ -1,7 +1,6 @@
 use crate::generated::packed;
-use crate::hash::hash::{blake2b_256, new_blake2b};
 use crate::prelude::*;
-use crate::vec::Vec;
+use crate::util::hash::{blake2b_256, new_blake2b};
 
 /*
  * Calculate simple hash for packed bytes wrappers.

@@ -8,8 +8,6 @@
 mod blockchain;
 #[allow(clippy::all)]
 mod extensions;
-#[allow(clippy::all)]
-mod protocols;
 
 pub mod packed {
     //! Various newtypes of [`bytes::Bytes`], and their associated types.
@@ -30,5 +28,4 @@ pub mod packed {
 
     pub use super::blockchain::*;
     pub use super::extensions::*;
-    pub use super::protocols::*;
 }
