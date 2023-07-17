@@ -16,14 +16,14 @@ pub enum ScriptHashType {
     Data2 = 3,
 }
 
-impl Into<u8> for ScriptHashType {
-    fn into(self) -> u8 {
-        self as u8
+impl From<ScriptHashType> for u8 {
+    fn from(val: ScriptHashType) -> Self {
+        val as u8
     }
 }
 
-impl Into<packed::Byte> for ScriptHashType {
-    fn into(self) -> packed::Byte {
-        (self as u8).into()
+impl From<ScriptHashType> for packed::Byte {
+    fn from(val: ScriptHashType) -> Self {
+        (val as u8).into()
     }
 }

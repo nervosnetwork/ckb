@@ -3,12 +3,18 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+pub mod prelude;
+
+#[cfg(feature = "std")]
+pub use ckb_fixed_hash::{h160, h256, H160, H256};
+#[cfg(feature = "std")]
+pub use numext_fixed_uint::{u256, U128, U256};
+
 mod conversion;
 pub mod core;
 pub mod extension;
 mod generated;
 pub use generated::packed;
-pub mod prelude;
 pub mod util;
 
 //re-exports
