@@ -1269,7 +1269,7 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
     }
 }
 
-// <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>, timestamp)>
+// <CompactBlockHash, (CompactBlock, <PeerIndex, (Vec<TransactionsIndex>, Vec<UnclesIndex>)>, timestamp)>
 pub(crate) type PendingCompactBlockMap = HashMap<
     Byte32,
     (
