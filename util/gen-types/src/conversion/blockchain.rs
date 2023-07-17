@@ -52,12 +52,16 @@ impl Unpack<Bytes> for packed::Bytes {
 }
 
 impl_conversion_for_vector!(Bytes, BytesVec, BytesVecReader);
+impl_conversion_for_packed_optional_pack!(Byte32, Byte32Opt);
+impl_conversion_for_packed_optional_pack!(CellOutput, CellOutputOpt);
 impl_conversion_for_packed_optional_pack!(Script, ScriptOpt);
 impl_conversion_for_packed_iterator_pack!(ProposalShortId, ProposalShortIdVec);
 impl_conversion_for_packed_iterator_pack!(Bytes, BytesVec);
 impl_conversion_for_packed_iterator_pack!(Transaction, TransactionVec);
+impl_conversion_for_packed_iterator_pack!(OutPoint, OutPointVec);
 impl_conversion_for_packed_iterator_pack!(CellDep, CellDepVec);
 impl_conversion_for_packed_iterator_pack!(CellOutput, CellOutputVec);
 impl_conversion_for_packed_iterator_pack!(CellInput, CellInputVec);
 impl_conversion_for_packed_iterator_pack!(UncleBlock, UncleBlockVec);
+impl_conversion_for_packed_iterator_pack!(Header, HeaderVec);
 impl_conversion_for_packed_iterator_pack!(Byte32, Byte32Vec);

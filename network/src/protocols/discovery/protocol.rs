@@ -1,6 +1,6 @@
 use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
-use ckb_types::{packed, prelude::*};
+use ckb_gen_types::{packed, prelude::*};
 
 use crate::Flags;
 

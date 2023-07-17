@@ -18,6 +18,7 @@ ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.111.0-rc
 ckb-hash = { path = "../hash", version = "= 0.111.0-rc11" }
 ckb-channel = { path = "../channel", version = "= 0.111.0-rc11" }
 ckb-constant = { path = "../constant", version = "= 0.111.0-rc11" }
+ckb-gen-types = { path = "../gen-types", version = "= 0.111.0-rc11" }
 bit-vec = "0.6.3"
 ckb-error = { path = "../../error", version = "= 0.111.0-rc11" }
 ckb-rational = { path = "../rational", version = "= 0.111.0-rc11" }
