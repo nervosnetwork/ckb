@@ -731,7 +731,10 @@ version = "0.112.0-pre"
 dependencies = [
  "blake2b-ref 0.3.1",
  "cfg-if 1.0.0",
+ "ckb-fixed-hash",
+ "ckb-occupied-capacity",
  "molecule",
+ "numext-fixed-uint",
 ]
 
 [[package]]
