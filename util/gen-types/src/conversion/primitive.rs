@@ -1,6 +1,5 @@
-use crate::{bytes::Bytes, prelude::*};
+use crate::{bytes::Bytes, generated::packed, prelude::*};
 
-use crate::generated::packed;
 #[cfg(not(feature = "std"))]
 use alloc::{borrow::ToOwned, str, string::String, vec::Vec};
 #[cfg(feature = "std")]

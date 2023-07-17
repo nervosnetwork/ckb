@@ -1,6 +1,6 @@
 use crate::generated::packed;
-use crate::hash::hash::new_blake2b;
 use crate::prelude::*;
+use crate::util::hash::new_blake2b;
 use molecule::prelude::*;
 
 /// A readonly and immutable struct which includes extra hash and the decoupled

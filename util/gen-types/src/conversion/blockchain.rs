@@ -1,4 +1,5 @@
 use crate::{bytes::Bytes, generated::packed, prelude::*, vec::Vec};
+
 impl Pack<packed::Byte32> for [u8; 32] {
     fn pack(&self) -> packed::Byte32 {
         packed::Byte32::from_slice(&self[..]).expect("impossible: fail to pack [u8; 32]")
