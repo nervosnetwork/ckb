@@ -5,10 +5,11 @@ extern crate alloc;
 
 mod conversion;
 pub mod core;
+pub mod extension;
 mod generated;
 pub use generated::packed;
-pub mod hash;
 pub mod prelude;
+pub mod util;
 
 //re-exports
 pub use molecule::bytes;
