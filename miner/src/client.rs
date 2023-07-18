@@ -5,7 +5,7 @@ use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
 use ckb_logger::{debug, error};
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::{
     packed::{Block, Byte32},
     H256,
@@ -45,13 +45,12 @@ pub enum RpcError {
 #[derive(Debug, Clone)]
 pub struct Rpc {
     sender: mpsc::Sender<RpcRequest>,
-    stop: StopHandler<()>,
 }
 
 impl Rpc {
     pub fn new(url: Uri, handle: Handle) -> Rpc {
         let (sender, mut receiver) = mpsc::channel(65_535);
-        let (stop, mut stop_rx) = oneshot::channel::<()>();
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
 
         let https = hyper_tls::HttpsConnector::new();
         let client = HttpClient::builder().build(https);
@@ -87,16 +86,16 @@ impl Rpc {
                             }
                         });
                     },
-                    _ = &mut stop_rx => break,
+                    _ = stop_rx.cancelled() => {
+                        debug!("Rpc server received exit signal, exit now");
+                        break
+                    },
                     else => break
                 }
             }
         });
 
-        Rpc {
-            sender,
-            stop: StopHandler::new(SignalSender::Tokio(stop), None, "miner-rpc".to_string()),
-        }
+        Rpc { sender }
     }
 
     pub fn request(
@@ -125,12 +124,6 @@ impl Rpc {
                 .await?
                 .and_then(|chunk| serde_json::from_slice(&chunk).map_err(RpcError::Json))
         }
-    }
-}
-
-impl Drop for Rpc {
-    fn drop(&mut self) {
-        self.stop.try_send(());
     }
 }
 
@@ -200,8 +193,7 @@ impl Client {
     }
 
     /// spawn background update process
-    pub fn spawn_background(self) -> StopHandler<()> {
-        let (stop, stop_rx) = oneshot::channel::<()>();
+    pub fn spawn_background(self) {
         let client = self.clone();
         if let Some(addr) = self.config.listen {
             ckb_logger::info!("listen notify mode : {}", addr);
@@ -220,19 +212,18 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
                 addr
             );
             self.handle.spawn(async move {
-                client.listen_block_template_notify(addr, stop_rx).await;
+                client.listen_block_template_notify(addr).await;
             });
-            self.blocking_fetch_block_template()
+            self.blocking_fetch_block_template();
         } else {
             ckb_logger::info!("loop poll mode: interval {}ms", self.config.poll_interval);
             self.handle.spawn(async move {
-                client.poll_block_template(stop_rx).await;
+                client.poll_block_template().await;
             });
         }
-        StopHandler::new(SignalSender::Tokio(stop), None, "miner-updater".to_string())
     }
 
-    async fn listen_block_template_notify(&self, addr: SocketAddr, stop_rx: oneshot::Receiver<()>) {
+    async fn listen_block_template_notify(&self, addr: SocketAddr) {
         let client = self.clone();
         let make_service = make_service_fn(move |_conn| {
             let client = client.clone();
@@ -241,8 +232,10 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
         });
 
         let server = Server::bind(&addr).serve(make_service);
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
         let graceful = server.with_graceful_shutdown(async move {
-            stop_rx.await.ok();
+            stop_rx.cancelled().await;
+            debug!("Miner client received exit signal, exit now");
         });
 
         if let Err(e) = graceful.await {
@@ -250,17 +243,21 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
         }
     }
 
-    async fn poll_block_template(&self, mut stop_rx: oneshot::Receiver<()>) {
+    async fn poll_block_template(&self) {
         let poll_interval = time::Duration::from_millis(self.config.poll_interval);
         let mut interval = tokio::time::interval(poll_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     debug!("poll block template...");
                     self.fetch_block_template().await;
                 }
-                _ = &mut stop_rx => break,
+                _ = stop_rx.cancelled() => {
+                    debug!("Miner client pool_block_template received exit signal, exit now");
+                    break
+                },
                 else => break,
             }
         }

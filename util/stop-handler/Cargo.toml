@@ -9,7 +9,16 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-parking_lot = "0.12"
 ckb-logger = { path = "../logger", version = "= 0.112.0-pre" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 ckb-channel = { path = "../channel", version = "= 0.112.0-pre" }
+ckb-util = { path = "..", version = "= 0.112.0-pre" }
+once_cell = "1.8.0"
+ckb-async-runtime = { path = "../runtime", version = "= 0.112.0-pre" }
+tokio-util = "0.7.8"
+
+
+[dev-dependencies]
+ctrlc = { version = "3.1", features = ["termination"] }
+libc = "0.2"
+rand = "0.8.5"

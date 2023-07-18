@@ -1226,8 +1226,6 @@ fn test_internal_db_error() {
         InternalErrorKind::Database.other("mocked db error").into(),
     ));
 
-    faux::when!(chain_controller.try_stop()).then_return(());
-
     let synchronizer = Synchronizer::new(chain_controller, sync_shared);
 
     let status = synchronizer

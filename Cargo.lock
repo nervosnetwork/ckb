@@ -437,7 +437,6 @@ version = "0.112.0-pre"
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
- "ckb-stop-handler",
  "tokio",
 ]
 
@@ -492,6 +491,7 @@ dependencies = [
  "ckb-network",
  "ckb-resource",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "ckb-util",
@@ -804,7 +804,6 @@ dependencies = [
  "ckb-rpc",
  "ckb-shared",
  "ckb-snapshot",
- "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
  "ckb-systemtime",
@@ -934,6 +933,7 @@ dependencies = [
  "ckb-logger",
  "ckb-metrics",
  "ckb-metrics-config",
+ "ckb-stop-handler",
  "ckb-util",
  "hyper",
  "prometheus",
@@ -1020,7 +1020,7 @@ dependencies = [
  "tempfile",
  "tentacle",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "trust-dns-resolver",
 ]
 
@@ -1037,7 +1037,6 @@ dependencies = [
  "ckb-multisig",
  "ckb-network",
  "ckb-notify",
- "ckb-stop-handler",
  "ckb-systemtime",
  "ckb-types",
  "ckb-util",
@@ -1243,7 +1242,6 @@ dependencies = [
  "arc-swap",
  "ckb-async-runtime",
  "ckb-chain-spec",
- "ckb-channel",
  "ckb-constant",
  "ckb-db",
  "ckb-db-schema",
@@ -1284,10 +1282,16 @@ version = "0.112.0-pre"
 name = "ckb-stop-handler"
 version = "0.112.0-pre"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-channel",
  "ckb-logger",
- "parking_lot 0.12.1",
+ "ckb-util",
+ "ctrlc",
+ "libc",
+ "once_cell",
+ "rand 0.8.5",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
@@ -1429,6 +1433,7 @@ dependencies = [
  "slab",
  "tempfile",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
@@ -2403,7 +2408,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tracing",
 ]
 
@@ -4479,7 +4484,7 @@ dependencies = [
  "tentacle-secio",
  "thiserror",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tokio-yamux",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4521,7 +4526,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "unsigned-varint",
  "x25519-dalek",
 ]
@@ -4733,9 +4738,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
+checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
 dependencies = [
  "bytes 1.4.0",
  "futures-core",
@@ -4756,7 +4761,7 @@ dependencies = [
  "log",
  "nohash-hasher",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]

@@ -916,10 +916,12 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn save_pool(&mut self) {
+    pub(crate) async fn save_pool(&self) {
         let mut tx_pool = self.tx_pool.write().await;
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
+        } else {
+            info!("TxPool save successfully")
         }
     }
 

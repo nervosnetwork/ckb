@@ -2,7 +2,7 @@
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
 use ckb_logger::{debug, error, trace};
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use ckb_types::{
     core::{tx_pool::Reject, BlockView},
@@ -88,7 +88,6 @@ impl NotifyTimeout {
 /// TODO(doc): @quake
 #[derive(Clone)]
 pub struct NotifyController {
-    stop: StopHandler<()>,
     new_block_register: NotifyRegister<BlockView>,
     new_block_watcher: NotifyWatcher<Byte32>,
     new_block_notifier: Sender<BlockView>,
@@ -101,12 +100,6 @@ pub struct NotifyController {
     network_alert_register: NotifyRegister<Alert>,
     network_alert_notifier: Sender<Alert>,
     handle: Handle,
-}
-
-impl Drop for NotifyController {
-    fn drop(&mut self) {
-        self.stop.try_send(());
-    }
 }
 
 /// TODO(doc): @quake
@@ -142,7 +135,7 @@ impl NotifyService {
 
     /// start background tokio spawned task.
     pub fn start(mut self) -> NotifyController {
-        let (signal_sender, mut signal_receiver) = oneshot::channel();
+        let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let handle = self.handle.clone();
 
         let (new_block_register, mut new_block_register_receiver) =
@@ -173,9 +166,6 @@ impl NotifyService {
         handle.spawn(async move {
             loop {
                 tokio::select! {
-                    _ = &mut signal_receiver => {
-                        break;
-                    }
                     Some(msg) = new_block_register_receiver.recv() => { self.handle_register_new_block(msg) },
                     Some(msg) = new_block_watcher_receiver.recv() => { self.handle_watch_new_block(msg) },
                     Some(msg) = new_block_receiver.recv() => { self.handle_notify_new_block(msg) },
@@ -187,6 +177,10 @@ impl NotifyService {
                     Some(msg) = reject_transaction_receiver.recv() => { self.handle_notify_reject_transaction(msg) },
                     Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
                     Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
+                    _ = signal_receiver.cancelled() => {
+                        debug!("NotifyService received exit signal, exit now");
+                        break;
+                    }
                     else => break,
                 }
             }
@@ -204,11 +198,6 @@ impl NotifyService {
             reject_transaction_notifier: reject_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
-            stop: StopHandler::new(
-                SignalSender::Tokio(signal_sender),
-                None,
-                "notify".to_string(),
-            ),
             handle,
         }
     }

@@ -39,7 +39,6 @@ ckb-freezer = { path = "../../freezer", version = "= 0.112.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.112.0-pre" }
 ckb-snapshot = { path = "../snapshot", version = "= 0.112.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.112.0-pre" }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.112.0-pre" }
 ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.112.0-pre" }
 ckb-block-filter = { path = "../../block-filter", version = "= 0.112.0-pre" }
 ckb-hash = { path = "../hash", version = "= 0.112.0-pre" }

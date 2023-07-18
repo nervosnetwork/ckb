@@ -1,10 +1,11 @@
 use ckb_async_runtime::Handle;
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_logger::debug;
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{mem::size_of, path};
-use tokio::sync::oneshot;
+
 use tokio::time::MissedTickBehavior;
 
 mod backend;
@@ -21,13 +22,6 @@ use super::HeaderIndexView;
 
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
-    stop: StopHandler<()>,
-}
-
-impl Drop for HeaderMap {
-    fn drop(&mut self) {
-        self.stop.try_send(());
-    }
 }
 
 const INTERVAL: Duration = Duration::from_millis(500);
@@ -51,7 +45,7 @@ impl HeaderMap {
         let size_limit = memory_limit / ITEM_BYTES_SIZE;
         let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit));
         let map = Arc::clone(&inner);
-        let (stop, mut stop_rx) = oneshot::channel::<()>();
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
 
         async_handle.spawn(async move {
             let mut interval = tokio::time::interval(INTERVAL);
@@ -61,15 +55,15 @@ impl HeaderMap {
                     _ = interval.tick() => {
                         map.limit_memory();
                     }
-                    _ = &mut stop_rx => break,
+                    _ = stop_rx.cancelled() => {
+                        debug!("HeaderMap limit_memory received exit signal, exit now");
+                        break
+                    },
                 }
             }
         });
 
-        Self {
-            inner,
-            stop: StopHandler::new(SignalSender::Tokio(stop), None, "HeaderMap".to_string()),
-        }
+        Self { inner }
     }
 
     pub(crate) fn contains_key(&self, hash: &Byte32) -> bool {
