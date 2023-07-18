@@ -5,6 +5,7 @@ use ckb_app_config::MinerWorkerConfig;
 use ckb_channel::{select, unbounded, Receiver};
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
+use ckb_stop_handler::broadcast_exit_signals;
 use ckb_types::{
     packed::{Byte32, Header},
     prelude::*,
@@ -94,7 +95,8 @@ impl Miner {
                     Ok((pow_hash, work, nonce)) => {
                         self.submit_nonce(pow_hash, work, nonce);
                         if self.limit != 0 && self.nonces_found >= self.limit {
-                            break;
+                            debug!("miner nonce limit reached, terminate ...");
+                            broadcast_exit_signals();
                         }
                     },
                     _ => {
