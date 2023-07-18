@@ -13,7 +13,18 @@ use tokio_util::sync::CancellationToken;
 fn send_ctrlc_later(duration: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(duration);
-        // send SIGINT to myself
+
+        // send CTRL_C event to myself on windows platform
+        #[cfg(windows)]
+        {
+            let pid = std::process::id();
+            unsafe {
+                winapi::um::wincon::GenerateConsoleCtrlEvent(winapi::um::wincon::CTRL_C_EVENT, pid);
+            }
+        }
+
+        // send SIGINT to myself on Linux and MacOS platform
+        #[cfg(not(windows))]
         unsafe {
             libc::raise(libc::SIGINT);
             println!("[ $$ sent SIGINT to myself $$ ]");
