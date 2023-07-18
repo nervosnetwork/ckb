@@ -21,4 +21,5 @@ tokio-util = "0.7.8"
 [dev-dependencies]
 ctrlc = { version = "3.1", features = ["termination"] }
 libc = "0.2"
+winapi = "0.3.9"
 rand = "0.8.5"
