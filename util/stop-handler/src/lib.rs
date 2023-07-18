@@ -8,5 +8,6 @@ pub use stop_register::{
 pub use tokio_util::sync::CancellationToken;
 
 mod stop_register;
-#[cfg(test)]
+
+#[cfg(all(test, unix))]
 mod tests;
