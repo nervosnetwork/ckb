@@ -4343,6 +4343,8 @@ RPC Module Pool for transaction memory pool.
 
 Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
+Please note that `send_transaction` is an asynchronous process. The return of `send_transaction` does NOT indicate that the transaction have been fully verified. If you want to track the status of the transaction, please use the `get_transaction`rpc.
+
 ###### Params
 
 *   `transaction` - The transaction.
