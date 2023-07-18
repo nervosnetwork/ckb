@@ -14,17 +14,7 @@ fn send_ctrlc_later(duration: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(duration);
 
-        // send CTRL_C event to myself on windows platform
-        #[cfg(windows)]
-        {
-            let pid = std::process::id();
-            unsafe {
-                winapi::um::wincon::GenerateConsoleCtrlEvent(winapi::um::wincon::CTRL_C_EVENT, pid);
-            }
-        }
-
         // send SIGINT to myself on Linux and MacOS platform
-        #[cfg(not(windows))]
         unsafe {
             libc::raise(libc::SIGINT);
             println!("[ $$ sent SIGINT to myself $$ ]");
@@ -120,6 +110,7 @@ impl TestStopMemo {
         }
     }
 }
+
 #[test]
 fn basic() {
     let (mut handle, mut stop_recv, _runtime) = new_global_runtime();
