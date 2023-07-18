@@ -136,7 +136,12 @@ impl packed::Transaction {
         let raw_tx = self.raw();
         raw_tx.inputs().len() == 1
             && self.witnesses().len() == 1
-            && raw_tx.inputs().get(0).unwrap().previous_output().is_null()
+            && raw_tx
+                .inputs()
+                .get(0)
+                .should_be_ok()
+                .previous_output()
+                .is_null()
     }
 
     /// Generates a proposal short id after calculating the transaction hash.
@@ -152,6 +157,42 @@ impl packed::Block {
             .header(self.header())
             .proposals(self.proposals())
             .build()
+    }
+
+    /// Gets the i-th extra field if it exists; i started from 0.
+    pub fn extra_field(&self, index: usize) -> Option<bytes::Bytes> {
+        let count = self.count_extra_fields();
+        if count > index {
+            let slice = self.as_slice();
+            let i = (1 + Self::FIELD_COUNT + index) * molecule::NUMBER_SIZE;
+            let start = molecule::unpack_number(&slice[i..]) as usize;
+            if count == index + 1 {
+                Some(self.as_bytes().slice(start..))
+            } else {
+                let j = i + molecule::NUMBER_SIZE;
+                let end = molecule::unpack_number(&slice[j..]) as usize;
+                Some(self.as_bytes().slice(start..end))
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Gets the extension field if it existed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the first extra field exists but not a valid [`Bytes`](struct.Bytes.html).
+    pub fn extension(&self) -> Option<packed::Bytes> {
+        self.extra_field(0)
+            .map(|data| packed::Bytes::from_slice(&data).unwrap())
+    }
+}
+
+impl packed::CompactBlock {
+    /// Calculates the length of transactions.
+    pub fn txs_len(&self) -> usize {
+        self.prefilled_transactions().len() + self.short_ids().len()
     }
 
     /// Gets the i-th extra field if it exists; i started from 0.
@@ -247,5 +288,12 @@ impl AsRef<[u8]> for packed::TransactionKey {
     #[inline]
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+impl packed::HeaderDigest {
+    pub fn is_default(&self) -> bool {
+        let default = Self::default();
+        self.as_slice() == default.as_slice()
     }
 }

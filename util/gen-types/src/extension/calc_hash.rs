@@ -1,3 +1,4 @@
+use crate::core::ExtraHashView;
 use crate::generated::packed;
 use crate::prelude::*;
 use crate::util::hash::{blake2b_256, new_blake2b};
@@ -285,5 +286,48 @@ impl_calc_special_hash_for_entity!(Block, calc_header_hash);
 impl_calc_special_hash_for_entity!(Block, calc_proposals_hash);
 impl_calc_special_hash_for_entity!(Block, calc_uncles_hash);
 impl_calc_special_hash_for_entity!(Block, calc_extension_hash, Option<packed::Byte32>);
+impl_calc_special_hash_for_entity!(Block, calc_extra_hash, ExtraHashView);
 impl_calc_special_hash_for_entity!(Block, calc_tx_hashes, Vec<packed::Byte32>);
 impl_calc_special_hash_for_entity!(Block, calc_tx_witness_hashes, Vec<packed::Byte32>);
+
+impl<'r> packed::CompactBlockReader<'r> {
+    /// Calls [`HeaderReader.calc_header_hash()`] for [`self.header()`].
+    ///
+    /// [`HeaderReader.calc_header_hash()`]: struct.HeaderReader.html#method.calc_header_hash
+    /// [`self.header()`]: #method.header
+    pub fn calc_header_hash(&self) -> packed::Byte32 {
+        self.header().calc_header_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(CompactBlock, calc_header_hash);
+
+impl<'r> packed::RawAlertReader<'r> {
+    /// Calculates the hash for [self.as_slice()] as the alert hash.
+    ///
+    /// [self.as_slice()]: ../prelude/trait.Reader.html#tymethod.as_slice
+    pub fn calc_alert_hash(&self) -> packed::Byte32 {
+        self.calc_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(RawAlert, calc_alert_hash);
+
+impl<'r> packed::AlertReader<'r> {
+    /// Calls [`RawAlertReader.calc_alert_hash()`] for [`self.raw()`].
+    ///
+    /// [`RawAlertReader.calc_alert_hash()`]: struct.RawAlertReader.html#method.calc_alert_hash
+    /// [`self.raw()`]: #method.raw
+    pub fn calc_alert_hash(&self) -> packed::Byte32 {
+        self.raw().calc_alert_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(Alert, calc_alert_hash);
+
+impl<'r> packed::HeaderDigestReader<'r> {
+    /// Calculates the hash for [self.as_slice()] as the MMR node hash.
+    ///
+    /// [self.as_slice()]: ../prelude/trait.Reader.html#tymethod.as_slice
+    pub fn calc_mmr_hash(&self) -> packed::Byte32 {
+        self.calc_hash()
+    }
+}
+impl_calc_special_hash_for_entity!(HeaderDigest, calc_mmr_hash);
