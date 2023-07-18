@@ -618,10 +618,10 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
+        self.started.store(true, Ordering::Relaxed);
         if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persisted txs, cause: {}", err);
         }
-        self.started.store(true, Ordering::Relaxed);
     }
 }
 
