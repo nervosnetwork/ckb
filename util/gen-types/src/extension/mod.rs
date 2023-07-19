@@ -1,7 +1,7 @@
 #[cfg(feature = "calc-hash")]
 mod calc_hash;
-// #[cfg(feature = "capacity")]
-// mod capacity;
+#[cfg(feature = "std")]
+mod capacity;
 #[cfg(feature = "check-data")]
 mod check_data;
 #[cfg(feature = "serialized-size")]

@@ -1,10 +1,8 @@
-// #[cfg(not(feature = "std"))]
-// use alloc::format;
-// #[cfg(feature = "std")]
-// use std::format;
+#[cfg(feature = "std")]
+mod std_env;
+#[cfg(feature = "std")]
+pub use std_env::*;
 
-// use ckb_error::OtherError;
-//
 use crate::generated::packed;
 
 pub type BlockNumber = u64;
@@ -28,33 +26,11 @@ impl Default for ScriptHashType {
     }
 }
 
-// impl TryFrom<u8> for ScriptHashType {
-//     type Error = OtherError;
-
-//     fn try_from(v: u8) -> Result<Self, Self::Error> {
-//         match v {
-//             0 => Ok(ScriptHashType::Data),
-//             1 => Ok(ScriptHashType::Type),
-//             2 => Ok(ScriptHashType::Data1),
-//             3 => Ok(ScriptHashType::Data2),
-//             _ => Err(OtherError::new(format!("Invalid script hash type {v}"))),
-//         }
-//     }
-// }
-
 impl From<ScriptHashType> for u8 {
     fn from(val: ScriptHashType) -> Self {
         val as u8
     }
 }
-
-// impl TryFrom<packed::Byte> for ScriptHashType {
-//     type Error = OtherError;
-
-//     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
-//         Into::<u8>::into(v).try_into()
-//     }
-// }
 
 impl From<ScriptHashType> for packed::Byte {
     fn from(val: ScriptHashType) -> Self {
@@ -83,18 +59,6 @@ impl Default for DepType {
         DepType::Code
     }
 }
-
-// impl TryFrom<packed::Byte> for DepType {
-//     type Error = OtherError;
-
-//     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
-//         match Into::<u8>::into(v) {
-//             0 => Ok(DepType::Code),
-//             1 => Ok(DepType::DepGroup),
-//             _ => Err(OtherError::new(format!("Invalid dep type {v}"))),
-//         }
-//     }
-// }
 
 impl From<DepType> for u8 {
     #[inline]
