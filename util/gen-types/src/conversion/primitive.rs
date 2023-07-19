@@ -1,9 +1,9 @@
-use crate::{bytes::Bytes, generated::packed, prelude::*};
-
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned, str, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, str, string::String};
 #[cfg(feature = "std")]
 use std::str;
+
+use crate::{bytes::Bytes, generated::packed, prelude::*, vec, vec::Vec};
 
 impl Pack<packed::Bool> for bool {
     fn pack(&self) -> packed::Bool {
@@ -151,8 +151,8 @@ impl Pack<packed::Bytes> for str {
 
 impl<'r> packed::BytesReader<'r> {
     /// Converts self to a string slice.
-    pub fn as_utf8(&self) -> Result<&str, ::std::str::Utf8Error> {
-        ::std::str::from_utf8(self.raw_data())
+    pub fn as_utf8(&self) -> Result<&str, str::Utf8Error> {
+        str::from_utf8(self.raw_data())
     }
 
     /// Converts self to a string slice without checking that the string contains valid UTF-8.
@@ -163,7 +163,7 @@ impl<'r> packed::BytesReader<'r> {
     /// it are valid UTF-8. If this constraint is violated, undefined behavior
     /// results, as the rest of Rust assumes that [`&str`]s are valid UTF-8.
     pub unsafe fn as_utf8_unchecked(&self) -> &str {
-        ::std::str::from_utf8_unchecked(self.raw_data())
+        str::from_utf8_unchecked(self.raw_data())
     }
 
     /// Checks whether self is contains valid UTF-8 binary data.

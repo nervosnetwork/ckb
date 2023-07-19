@@ -1,4 +1,4 @@
-use crate::{core, packed};
+use crate::{base, packed};
 
 /*
  * Blockchain
@@ -6,14 +6,14 @@ use crate::{core, packed};
 
 impl<'r> packed::ScriptReader<'r> {
     fn check_data(&self) -> bool {
-        core::ScriptHashType::verify_value(self.hash_type().into())
+        base::ScriptHashType::verify_value(self.hash_type().into())
     }
 }
 
 impl<'r> packed::ScriptOptReader<'r> {
     fn check_data(&self) -> bool {
         self.to_opt()
-            .map(|i| core::ScriptHashType::verify_value(i.hash_type().into()))
+            .map(|i| base::ScriptHashType::verify_value(i.hash_type().into()))
             .unwrap_or(true)
     }
 }
@@ -32,7 +32,7 @@ impl<'r> packed::CellOutputVecReader<'r> {
 
 impl<'r> packed::CellDepReader<'r> {
     fn check_data(&self) -> bool {
-        core::DepType::verify_value(self.dep_type().into())
+        base::DepType::verify_value(self.dep_type().into())
     }
 }
 

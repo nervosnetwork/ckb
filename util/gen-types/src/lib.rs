@@ -1,19 +1,17 @@
+//! # The Generated Types Library
+//!
+//! This Library provides the generated types for CKB.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-pub mod prelude;
-
-#[cfg(feature = "std")]
-pub use ckb_fixed_hash::{h160, h256, H160, H256};
-#[cfg(feature = "std")]
-pub use numext_fixed_uint::{u256, U128, U256};
-
+pub mod base;
 mod conversion;
-pub mod core;
 pub mod extension;
 mod generated;
+pub mod prelude;
 pub use generated::packed;
 pub mod util;
 

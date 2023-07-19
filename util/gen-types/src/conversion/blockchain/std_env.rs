@@ -1,4 +1,7 @@
-use crate::{packed, prelude::*, H256, U256};
+pub use ckb_fixed_hash::{h160, h256, H160, H256};
+pub use numext_fixed_uint::{u256, U128, U256};
+
+use crate::{packed, prelude::*};
 
 impl Pack<packed::Uint256> for U256 {
     fn pack(&self) -> packed::Uint256 {

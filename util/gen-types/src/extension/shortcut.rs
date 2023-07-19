@@ -1,8 +1,9 @@
 use crate::{
+    base::{self, BlockNumber},
     bytes,
-    core::{self, BlockNumber},
     generated::packed,
     prelude::*,
+    vec::Vec,
 };
 
 impl packed::Byte32 {
@@ -126,7 +127,7 @@ impl packed::Script {
     /// Checks whether the own [`hash_type`](#method.hash_type) is
     /// [`Type`](../core/enum.ScriptHashType.html#variant.Type).
     pub fn is_hash_type_type(&self) -> bool {
-        Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Type)
+        Into::<u8>::into(self.hash_type()) == Into::<u8>::into(base::ScriptHashType::Type)
     }
 }
 

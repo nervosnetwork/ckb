@@ -1,0 +1,118 @@
+// #[cfg(not(feature = "std"))]
+// use alloc::format;
+// #[cfg(feature = "std")]
+// use std::format;
+
+// use ckb_error::OtherError;
+//
+use crate::generated::packed;
+
+pub type BlockNumber = u64;
+
+/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScriptHashType {
+    /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    Data = 0,
+    /// Type "type" matches script code via cell type script hash.
+    Type = 1,
+    /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
+    Data1 = 2,
+    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+    Data2 = 3,
+}
+
+impl Default for ScriptHashType {
+    fn default() -> Self {
+        ScriptHashType::Data
+    }
+}
+
+// impl TryFrom<u8> for ScriptHashType {
+//     type Error = OtherError;
+
+//     fn try_from(v: u8) -> Result<Self, Self::Error> {
+//         match v {
+//             0 => Ok(ScriptHashType::Data),
+//             1 => Ok(ScriptHashType::Type),
+//             2 => Ok(ScriptHashType::Data1),
+//             3 => Ok(ScriptHashType::Data2),
+//             _ => Err(OtherError::new(format!("Invalid script hash type {v}"))),
+//         }
+//     }
+// }
+
+impl From<ScriptHashType> for u8 {
+    fn from(val: ScriptHashType) -> Self {
+        val as u8
+    }
+}
+
+// impl TryFrom<packed::Byte> for ScriptHashType {
+//     type Error = OtherError;
+
+//     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
+//         Into::<u8>::into(v).try_into()
+//     }
+// }
+
+impl From<ScriptHashType> for packed::Byte {
+    fn from(val: ScriptHashType) -> Self {
+        (val as u8).into()
+    }
+}
+
+impl ScriptHashType {
+    #[inline]
+    pub fn verify_value(v: u8) -> bool {
+        v <= 3
+    }
+}
+
+/// TODO(doc): @quake
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum DepType {
+    /// TODO(doc): @quake
+    Code = 0,
+    /// TODO(doc): @quake
+    DepGroup = 1,
+}
+
+impl Default for DepType {
+    fn default() -> Self {
+        DepType::Code
+    }
+}
+
+// impl TryFrom<packed::Byte> for DepType {
+//     type Error = OtherError;
+
+//     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
+//         match Into::<u8>::into(v) {
+//             0 => Ok(DepType::Code),
+//             1 => Ok(DepType::DepGroup),
+//             _ => Err(OtherError::new(format!("Invalid dep type {v}"))),
+//         }
+//     }
+// }
+
+impl From<DepType> for u8 {
+    #[inline]
+    fn from(val: DepType) -> Self {
+        val as u8
+    }
+}
+
+impl From<DepType> for packed::Byte {
+    #[inline]
+    fn from(val: DepType) -> Self {
+        (val as u8).into()
+    }
+}
+
+impl DepType {
+    #[inline]
+    pub fn verify_value(v: u8) -> bool {
+        v <= 1
+    }
+}
