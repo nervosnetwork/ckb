@@ -13,7 +13,7 @@ impl TryFrom<u8> for ScriptHashType {
             0 => Ok(ScriptHashType::Data),
             1 => Ok(ScriptHashType::Type),
             2 => Ok(ScriptHashType::Data1),
-            3 => Ok(ScriptHashType::Data2),
+            4 => Ok(ScriptHashType::Data2),
             _ => Err(OtherError::new(::std::format!(
                 "Invalid script hash type {v}"
             ))),

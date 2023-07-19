@@ -1,86 +1,72 @@
 //! This module includes several traits.
 //!
 //! Few traits are re-exported from other crates, few are used as aliases and others are syntactic sugar.
+//!
 
-pub use molecule::{
-    hex_string,
-    prelude::{Builder, Entity, Reader},
+use crate::{
+    core::{
+        BlockBuilder, BlockView, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
+        UncleBlockView,
+    },
+    U256,
 };
+use ckb_gen_types::packed;
+use std::collections::HashSet;
 
 pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
 
-/// An alias of `unwrap()` to mark where we are really have confidence to do unwrap.
-///
-/// We can also customize the panic message or do something else in this alias.
-pub trait ShouldBeOk<T> {
-    /// Unwraps an `Option` or a `Result` with confidence and we assume that it's impossible to fail.
-    fn should_be_ok(self) -> T;
+pub trait IntoTransactionView {
+    fn into_view(self) -> TransactionView;
 }
 
-// Use for Option
-impl<T> ShouldBeOk<T> for Option<T> {
-    fn should_be_ok(self) -> T {
-        self.unwrap_or_else(|| panic!("should not be None"))
-    }
+pub trait IntoHeaderView {
+    fn into_view(self) -> HeaderView;
 }
 
-// Use for verify
-impl<T> ShouldBeOk<T> for molecule::error::VerificationResult<T> {
-    fn should_be_ok(self) -> T {
-        self.unwrap_or_else(|err| panic!("verify slice should be ok, but {err}"))
-    }
+pub trait IntoUncleBlockView {
+    fn into_view(self) -> UncleBlockView;
 }
 
-/// An alias of `from_slice(..)` to mark where we are really have confidence to do unwrap on the result of `from_slice(..)`.
-pub trait FromSliceShouldBeOk<'r>: Reader<'r> {
-    /// Unwraps the result of `from_slice(..)` with confidence and we assume that it's impossible to fail.
-    fn from_slice_should_be_ok(slice: &'r [u8]) -> Self;
-
-    /// Unwraps the result of `from_compatible_slice(..)` with confidence and we assume that it's impossible to fail.
-    fn from_compatible_slice_should_be_ok(slice: &'r [u8]) -> Self;
+pub trait IntoBlockView {
+    fn into_view_without_reset_header(self) -> BlockView;
+    fn into_view(self) -> BlockView;
+    fn block_into_view_internal(
+        block: packed::Block,
+        tx_hashes: Vec<packed::Byte32>,
+        tx_witness_hashes: Vec<packed::Byte32>,
+    ) -> BlockView;
 }
 
-impl<'r, R> FromSliceShouldBeOk<'r> for R
-where
-    R: Reader<'r>,
-{
-    fn from_slice_should_be_ok(slice: &'r [u8]) -> Self {
-        match Self::from_slice(slice) {
-            Ok(ret) => ret,
-            Err(err) => panic!(
-                "failed to convert from slice: reason: {}; data: 0x{}.",
-                err,
-                hex_string(slice)
-            ),
-        }
-    }
-
-    fn from_compatible_slice_should_be_ok(slice: &'r [u8]) -> Self {
-        match Self::from_compatible_slice(slice) {
-            Ok(ret) => ret,
-            Err(err) => panic!(
-                "failed to convert from slice: reason: {}; data: 0x{}.",
-                err,
-                hex_string(slice)
-            ),
-        }
-    }
+pub trait AsBlockBuilder {
+    fn new_advanced_builder() -> BlockBuilder;
+    fn as_advanced_builder(&self) -> BlockBuilder;
+}
+pub trait AsTransactionBuilder {
+    fn as_advanced_builder(&self) -> TransactionBuilder;
 }
 
-/// A syntactic sugar to convert binary data into rust types.
-pub trait Unpack<T> {
-    /// Unpack binary data into rust types.
-    fn unpack(&self) -> T;
+pub trait AsHeaderBuilder {
+    fn as_advanced_builder(&self) -> HeaderBuilder;
 }
 
-/// A syntactic sugar to convert a rust type into binary data.
-pub trait Pack<T: Entity> {
-    /// Packs a rust type into binary data.
-    fn pack(&self) -> T;
+pub trait Difficulty {
+    fn difficulty(&self) -> U256;
 }
 
-/// A syntactic sugar to convert a vector of binary data into one binary data.
-pub trait PackVec<T: Entity, I: Entity>: IntoIterator<Item = I> {
-    /// Packs a vector of binary data into one binary data.
-    fn pack(self) -> T;
+pub trait BuildCompactBlock {
+    fn build_from_block(
+        block: &BlockView,
+        prefilled_transactions_indexes: &HashSet<usize>,
+    ) -> packed::CompactBlock;
+    fn block_short_ids(&self) -> Vec<Option<packed::ProposalShortId>>;
+    fn short_id_indexes(&self) -> Vec<usize>;
+}
+
+pub trait ResetBlock {
+    fn reset_header(self) -> packed::Block;
+    fn reset_header_with_hashes(
+        self,
+        tx_hashes: &[packed::Byte32],
+        tx_witness_hashes: &[packed::Byte32],
+    ) -> packed::Block;
 }

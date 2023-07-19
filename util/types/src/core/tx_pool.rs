@@ -1,13 +1,16 @@
 //! Tx-pool shared type define.
-use crate::core::{
-    error::{OutPointError, TransactionError},
-    BlockNumber, Capacity, Cycle, FeeRate,
+use crate::{
+    core::{
+        self,
+        error::{OutPointError, TransactionError},
+        BlockNumber, Capacity, Cycle, FeeRate,
+    },
+    H256,
 };
-use crate::packed::Byte32;
-use crate::{core, H256};
 use ckb_error::{
     impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
 };
+use ckb_gen_types::packed::Byte32;
 use std::collections::HashMap;
 
 /// TX reject message

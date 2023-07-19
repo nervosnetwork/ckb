@@ -4,13 +4,13 @@
 //!
 //! - [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md)
 
+use ckb_gen_types::{base::ExtraHashView, packed, prelude::*};
 use ckb_hash::new_blake2b;
 use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as MMRResult, MMR};
 
 use crate::{
     core,
-    core::{BlockNumber, EpochNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
-    packed,
+    core::{BlockNumber, EpochNumber, EpochNumberWithFraction, HeaderView},
     prelude::*,
     utilities::compact_to_difficulty,
     U256,
@@ -58,14 +58,13 @@ impl core::HeaderView {
     }
 }
 
-impl packed::HeaderDigest {
-    fn is_default(&self) -> bool {
-        let default = Self::default();
-        self.as_slice() == default.as_slice()
-    }
+pub trait HeaderDigest {
+    fn verify(&self) -> Result<(), String>;
+}
 
+impl HeaderDigest for packed::HeaderDigest {
     /// Verify the MMR header digest
-    pub fn verify(&self) -> Result<(), String> {
+    fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
         let start_number: BlockNumber = self.start_number().unpack();
         let end_number: BlockNumber = self.end_number().unpack();

@@ -1,5 +1,5 @@
-use crate::{
-    core::{DepType, ScriptHashType},
+use ckb_gen_types::{
+    base::{DepType, ScriptHashType},
     packed,
 };
 

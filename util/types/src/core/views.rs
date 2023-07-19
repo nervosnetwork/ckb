@@ -2,13 +2,12 @@
 
 use std::collections::HashSet;
 
-use ckb_hash::new_blake2b;
+use ckb_gen_types::{base::ExtraHashView, packed, prelude::*};
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
     bytes::Bytes,
     core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
-    packed,
     prelude::*,
     utilities::merkle_root,
     U256,
@@ -36,17 +35,6 @@ pub struct TransactionView {
     pub(crate) data: packed::Transaction,
     pub(crate) hash: packed::Byte32,
     pub(crate) witness_hash: packed::Byte32,
-}
-
-/// A readonly and immutable struct which includes extra hash and the decoupled
-/// parts of it.
-#[derive(Debug, Clone)]
-pub struct ExtraHashView {
-    /// The uncles hash which is used to combine to the extra hash.
-    pub(crate) uncles_hash: packed::Byte32,
-    /// The first item is the new field hash, which is used to combine to the extra hash.
-    /// The second item is the extra hash.
-    pub(crate) extension_hash_and_extra_hash: Option<(packed::Byte32, packed::Byte32)>,
 }
 
 /// A readonly and immutable struct which includes [`Header`] and its hash.
@@ -123,24 +111,6 @@ impl ::std::fmt::Display for TransactionView {
             "TransactionView {{ data: {}, hash: {}, witness_hash: {} }}",
             self.data, self.hash, self.witness_hash
         )
-    }
-}
-
-impl ::std::fmt::Display for ExtraHashView {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        if let Some((ref extension_hash, ref extra_hash)) = self.extension_hash_and_extra_hash {
-            write!(
-                f,
-                "uncles_hash: {}, extension_hash: {}, extra_hash: {}",
-                self.uncles_hash, extension_hash, extra_hash
-            )
-        } else {
-            write!(
-                f,
-                "uncles_hash: {}, extension_hash: None, extra_hash: uncles_hash",
-                self.uncles_hash
-            )
-        }
     }
 }
 
@@ -421,44 +391,6 @@ impl TransactionView {
     /// Creates a new `ProposalShortId` from the transaction hash.
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
-    }
-}
-
-impl ExtraHashView {
-    /// Creates `ExtraHashView` with `uncles_hash` and optional `extension_hash`.
-    pub fn new(uncles_hash: packed::Byte32, extension_hash_opt: Option<packed::Byte32>) -> Self {
-        let extension_hash_and_extra_hash = extension_hash_opt.map(|extension_hash| {
-            let mut ret = [0u8; 32];
-            let mut blake2b = new_blake2b();
-            blake2b.update(uncles_hash.as_slice());
-            blake2b.update(extension_hash.as_slice());
-            blake2b.finalize(&mut ret);
-            (extension_hash, ret.pack())
-        });
-        Self {
-            uncles_hash,
-            extension_hash_and_extra_hash,
-        }
-    }
-
-    /// Gets `uncles_hash`.
-    pub fn uncles_hash(&self) -> packed::Byte32 {
-        self.uncles_hash.clone()
-    }
-
-    /// Gets `extension_hash`.
-    pub fn extension_hash(&self) -> Option<packed::Byte32> {
-        self.extension_hash_and_extra_hash
-            .as_ref()
-            .map(|(ref extension_hash, _)| extension_hash.clone())
-    }
-
-    /// Gets `extra_hash`.
-    pub fn extra_hash(&self) -> packed::Byte32 {
-        self.extension_hash_and_extra_hash
-            .as_ref()
-            .map(|(_, ref extra_hash)| extra_hash.clone())
-            .unwrap_or_else(|| self.uncles_hash.clone())
     }
 }
 
@@ -869,11 +801,8 @@ impl BlockView {
  * Convert packed bytes wrappers to views.
  */
 
-impl packed::Transaction {
-    /// Calculates the associated hashes and converts into [`TransactionView`] with those hashes.
-    ///
-    /// [`TransactionView`]: ../core/struct.TransactionView.html
-    pub fn into_view(self) -> TransactionView {
+impl IntoTransactionView for packed::Transaction {
+    fn into_view(self) -> TransactionView {
         let hash = self.calc_tx_hash();
         let witness_hash = self.calc_witness_hash();
         TransactionView {
@@ -884,27 +813,27 @@ impl packed::Transaction {
     }
 }
 
-impl packed::Header {
+impl IntoHeaderView for packed::Header {
     /// Calculates the header hash and converts into [`HeaderView`] with the hash.
     ///
     /// [`HeaderView`]: ../core/struct.HeaderView.html
-    pub fn into_view(self) -> HeaderView {
+    fn into_view(self) -> HeaderView {
         let hash = self.calc_header_hash();
         HeaderView { data: self, hash }
     }
 }
 
-impl packed::UncleBlock {
+impl IntoUncleBlockView for packed::UncleBlock {
     /// Calculates the header hash and converts into [`UncleBlockView`] with the hash.
     ///
     /// [`UncleBlockView`]: ../core/struct.UncleBlockView.html
-    pub fn into_view(self) -> UncleBlockView {
+    fn into_view(self) -> UncleBlockView {
         let hash = self.calc_header_hash();
         UncleBlockView { data: self, hash }
     }
 }
 
-impl packed::Block {
+impl IntoBlockView for packed::Block {
     /// Calculates transaction associated hashes and converts them into [`BlockView`].
     ///
     /// # Notice
@@ -913,7 +842,7 @@ impl packed::Block {
     /// invalid merkle roots in the header.
     ///
     /// [`BlockView`]: ../core/struct.BlockView.html
-    pub fn into_view_without_reset_header(self) -> BlockView {
+    fn into_view_without_reset_header(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
         Self::block_into_view_internal(self, tx_hashes, tx_witness_hashes)
@@ -922,7 +851,7 @@ impl packed::Block {
     /// Calculates transaction associated hashes, resets all hashes and merkle roots in the header, then converts them into [`BlockView`].
     ///
     /// [`BlockView`]: ../core/struct.BlockView.html
-    pub fn into_view(self) -> BlockView {
+    fn into_view(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
         let block = self.reset_header_with_hashes(&tx_hashes[..], &tx_witness_hashes[..]);

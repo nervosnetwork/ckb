@@ -1,4 +1,5 @@
-use crate::{core::Capacity, packed::Byte32};
+use crate::core::Capacity;
+use ckb_gen_types::packed::Byte32;
 
 /// Details of miner rewards issued by block cellbase transaction.
 ///

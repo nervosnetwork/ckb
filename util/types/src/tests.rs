@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use ckb_gen_types::{packed, prelude::*};
 
 #[test]
 #[should_panic]

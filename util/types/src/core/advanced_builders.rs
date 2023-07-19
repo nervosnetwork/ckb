@@ -1,7 +1,9 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
+use ckb_gen_types::{base::ExtraHashView, packed, prelude::*};
+
 use crate::{
-    constants, core, packed,
+    constants, core,
     prelude::*,
     utilities::{merkle_root, DIFF_TWO},
 };
@@ -405,7 +407,7 @@ impl BlockBuilder {
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
             let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
-            let extra_hash_view = core::ExtraHashView::new(
+            let extra_hash_view = ExtraHashView::new(
                 uncles.calc_uncles_hash(),
                 extension.as_ref().map(packed::Bytes::calc_raw_data_hash),
             );
@@ -467,9 +469,9 @@ impl BlockBuilder {
  * Convert a struct to an advanced builder
  */
 
-impl packed::Transaction {
+impl AsTransactionBuilder for packed::Transaction {
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> TransactionBuilder {
+    fn as_advanced_builder(&self) -> TransactionBuilder {
         TransactionBuilder::default()
             .version(self.raw().version())
             .cell_deps(self.raw().cell_deps())
@@ -481,9 +483,9 @@ impl packed::Transaction {
     }
 }
 
-impl packed::Header {
+impl AsHeaderBuilder for packed::Header {
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> HeaderBuilder {
+    fn as_advanced_builder(&self) -> HeaderBuilder {
         HeaderBuilder::default()
             .version(self.raw().version())
             .parent_hash(self.raw().parent_hash())
@@ -499,14 +501,14 @@ impl packed::Header {
     }
 }
 
-impl packed::Block {
+impl AsBlockBuilder for packed::Block {
     /// Creates an empty advanced builder.
-    pub fn new_advanced_builder() -> BlockBuilder {
+    fn new_advanced_builder() -> BlockBuilder {
         Default::default()
     }
 
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> BlockBuilder {
+    fn as_advanced_builder(&self) -> BlockBuilder {
         BlockBuilder::default()
             .header(self.header().into_view())
             .uncles(

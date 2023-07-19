@@ -44,3 +44,4 @@ impl<'r> Unpack<H256> for packed::Byte32Reader<'r> {
 impl_conversion_for_entity_unpack!(H256, Byte32);
 
 impl_conversion_for_option!(H256, Byte32Opt, Byte32OptReader);
+impl_conversion_for_vector!(Capacity, Uint64Vec, Uint64VecReader);
