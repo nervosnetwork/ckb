@@ -15,9 +15,8 @@ ckb-hash = {path = "../hash", version = "= 0.112.0-pre"}
 default = ["calc-hash", "check-data", "serialized-size", "std"]
 calc-hash = ["blake2b-ref"]
 check-data = []
-capacity = []
 serialized-size = []
-std = ["molecule/std", "ckb-fixed-hash", "numext-fixed-uint"]
+std = ["molecule/std", "ckb-fixed-hash", "numext-fixed-uint", "ckb-error", "ckb-occupied-capacity"]
 
 [dependencies]
 molecule = { version = "0.7.5", default-features = false }
@@ -25,3 +24,5 @@ ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.112.0-pre", optional =
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"], optional = true}
 cfg-if = "1.0"
 blake2b-ref = { version = "0.3.1", default-features = false, optional = true }
+ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.112.0-pre", optional = true}
+ckb-error = { path = "../../error", version = "= 0.112.0-pre", optional = true }

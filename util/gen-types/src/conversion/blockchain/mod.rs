@@ -5,21 +5,6 @@ pub use std_env::*;
 
 use crate::{bytes::Bytes, generated::packed, prelude::*, vec::Vec};
 
-// use ckb_occupied_capacity::Capacity;
-
-// impl Pack<packed::Uint64> for Capacity {
-//     fn pack(&self) -> packed::Uint64 {
-//         self.as_u64().pack()
-//     }
-// }
-
-// impl<'r> Unpack<Capacity> for packed::Uint64Reader<'r> {
-//     fn unpack(&self) -> Capacity {
-//         Capacity::shannons(self.unpack())
-//     }
-// }
-// impl_conversion_for_entity_unpack!(Capacity, Uint64);
-
 impl Pack<packed::Byte32> for [u8; 32] {
     fn pack(&self) -> packed::Byte32 {
         packed::Byte32::from_slice(&self[..]).expect("impossible: fail to pack [u8; 32]")

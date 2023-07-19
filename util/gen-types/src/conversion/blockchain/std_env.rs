@@ -1,7 +1,21 @@
-pub use ckb_fixed_hash::{h160, h256, H160, H256};
-pub use numext_fixed_uint::{u256, U128, U256};
+use ckb_fixed_hash::H256;
+use ckb_occupied_capacity::Capacity;
+use numext_fixed_uint::U256;
 
 use crate::{packed, prelude::*};
+
+impl Pack<packed::Uint64> for Capacity {
+    fn pack(&self) -> packed::Uint64 {
+        self.as_u64().pack()
+    }
+}
+
+impl<'r> Unpack<Capacity> for packed::Uint64Reader<'r> {
+    fn unpack(&self) -> Capacity {
+        Capacity::shannons(self.unpack())
+    }
+}
+impl_conversion_for_entity_unpack!(Capacity, Uint64);
 
 impl Pack<packed::Uint256> for U256 {
     fn pack(&self) -> packed::Uint256 {
