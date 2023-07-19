@@ -14,7 +14,7 @@ pub struct TxPoolConfig {
     /// txs with lower fee rate than this will not be relayed or be mined
     #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,
-    /// txs need to pay more than this for RBF
+    /// txs need to pay larger fee rate than this for RBF
     #[serde(with = "FeeRateDef")]
     pub min_rbf_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
@@ -37,8 +37,6 @@ pub struct TxPoolConfig {
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
     pub expiry_hours: u8,
-    /// Enable RBF
-    pub enable_rbf: bool,
 }
 
 /// Block assembler config options.

@@ -85,6 +85,11 @@ impl TxPool {
         self.total_tx_cycles += cycles;
     }
 
+    /// Check whether tx-pool enable RBF
+    pub fn enable_rbf(&self) -> bool {
+        self.config.min_rbf_rate > self.config.min_fee_rate
+    }
+
     /// Update size and cycles statics for remove tx
     /// cycles overflow is possible, currently obtaining cycles is not accurate
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
@@ -485,7 +490,7 @@ impl TxPool {
         fee: Capacity,
         tx_size: usize,
     ) -> Result<(), Reject> {
-        assert!(self.config.enable_rbf);
+        assert!(self.enable_rbf());
         assert!(!conflicts.is_empty());
 
         let short_id = rtx.transaction.proposal_short_id();
@@ -515,22 +520,20 @@ impl TxPool {
         }
 
         // Rule #4, new tx' fee need to higher than min_rbf_fee computed from the tx_pool configuration
-        let min_rbf_fee = self.config.min_rbf_rate.fee(tx_size as u64);
-        if fee <= min_rbf_fee {
-            return Err(Reject::RBFRejected(format!(
-                "Tx fee lower than min_rbf_fee, min_rbf_fee: {}, tx fee: {}",
-                min_rbf_fee, fee,
-            )));
-        }
-
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        for conflict in conflicts.iter() {
-            if conflict.fee >= fee {
-                return Err(Reject::RBFRejected(format!(
-                    "Tx fee lower than old conflict Tx fee, tx fee: {}, conflict fee: {}",
-                    fee, conflict.fee,
-                )));
-            }
+        let min_rbf_fee = self.config.min_rbf_rate.fee(tx_size as u64);
+        let max_fee = conflicts
+            .iter()
+            .map(|c| c.fee)
+            .max()
+            .unwrap_or(min_rbf_fee)
+            .max(min_rbf_fee);
+
+        if fee <= max_fee {
+            return Err(Reject::RBFRejected(format!(
+                "Tx's current fee is {}, expect it to be larger than: {} to replace old txs",
+                fee, max_fee,
+            )));
         }
 
         // Rule #5, the replaced tx's descendants can not more than 100

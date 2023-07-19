@@ -7039,7 +7039,7 @@ Transaction pool information.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
-*   `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold. The pool reject to resort for transactions which fee rate is below this threshold.
+*   `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold. The pool reject to replace for transactions which fee rate is below this threshold.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 

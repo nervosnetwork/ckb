@@ -27,10 +27,10 @@ pub enum Pow {
     /// Mocking dummy PoW engine
     Dummy,
     /// The Eaglesong PoW engine
-    /// Check details of Eaglesong from: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md
+    /// Check details of Eaglesong from: <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md>
     Eaglesong,
     /// The Eaglesong PoW engine, similar to `Eaglesong`, but using `blake2b` hash as the final output.
-    /// Check details of blake2b from: https://tools.ietf.org/html/rfc7693 and blake2b-rs from: https://github.com/nervosnetwork/blake2b-rs
+    /// Check details of blake2b from: <https://tools.ietf.org/html/rfc7693> and blake2b-rs from: <https://github.com/nervosnetwork/blake2b-rs>
     EaglesongBlake2b,
 }
 

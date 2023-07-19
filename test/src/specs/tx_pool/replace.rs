@@ -82,7 +82,7 @@ impl Spec for RbfBasic {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
 
@@ -108,7 +108,7 @@ impl Spec for RbfSameInput {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
 
@@ -147,15 +147,13 @@ impl Spec for RbfSameInputwithLessFee {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("Tx fee lower than old conflict Tx fee"));
+        let message = res.err().unwrap().to_string();
+        eprintln!("res: {:?}", message);
+        assert!(message.contains("Tx's current fee is 1000000000, expect it to be larger than"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
 
@@ -215,7 +213,7 @@ impl Spec for RbfTooManyDescendants {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
 
@@ -287,7 +285,7 @@ impl Spec for RbfContainNewTx {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
 
@@ -359,6 +357,6 @@ impl Spec for RbfContainInvalidInput {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = true;
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }

@@ -1,10 +1,10 @@
 //! CKB node has initial block download phase (IBD mode) like Bitcoin:
-//! https://btcinformation.org/en/glossary/initial-block-download
+//! <https://btcinformation.org/en/glossary/initial-block-download>
 //!
 //! When CKB node is in IBD mode, it will respond `packed::InIBD` to `GetHeaders` and `GetBlocks` requests
 //!
 //! And CKB has a headers-first synchronization style like Bitcoin:
-//! https://btcinformation.org/en/glossary/headers-first-sync
+//! <https://btcinformation.org/en/glossary/headers-first-sync>
 //!
 mod block_fetcher;
 mod block_process;

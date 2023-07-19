@@ -1,4 +1,6 @@
-use crate::util::check::{is_transaction_committed, is_transaction_pending};
+use crate::util::check::{
+    is_transaction_committed, is_transaction_pending, is_transaction_rejected,
+};
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
@@ -173,6 +175,8 @@ impl Spec for RemoveConflictFromPending {
         node.wait_for_tx_pool();
 
         assert!(is_transaction_committed(node, &txa));
+        assert!(is_transaction_rejected(node, &txb));
+        assert!(is_transaction_rejected(node, &txc));
     }
 }
 

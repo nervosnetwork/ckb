@@ -84,8 +84,4 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
         // assert!(ret.transaction.is_none());
         // assert!(matches!(ret.tx_status.status, Status::Rejected));
     }
-
-    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.enable_rbf = false;
-    }
 }
