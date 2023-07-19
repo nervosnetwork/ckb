@@ -1,9 +1,8 @@
 use crate::{
     core::{BlockNumber, Capacity, CapacityResult, Cycle, EpochNumber},
-    packed,
-    prelude::*,
     U256,
 };
+use ckb_gen_types::{packed, prelude::*};
 use ckb_rational::RationalU256;
 use std::cmp::Ordering;
 use std::fmt;

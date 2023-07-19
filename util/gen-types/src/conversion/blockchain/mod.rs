@@ -56,7 +56,6 @@ impl Unpack<Bytes> for packed::Bytes {
     }
 }
 
-// impl_conversion_for_vector!(Capacity, Uint64Vec, Uint64VecReader);
 impl_conversion_for_vector!(Bytes, BytesVec, BytesVecReader);
 impl_conversion_for_packed_optional_pack!(Byte32, Byte32Opt);
 impl_conversion_for_packed_optional_pack!(CellOutput, CellOutputOpt);

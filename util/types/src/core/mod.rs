@@ -21,22 +21,18 @@ pub mod tx_pool;
 mod tests;
 
 mod advanced_builders;
-mod blockchain;
 mod extras;
 mod fee_rate;
 mod reward;
 mod transaction_meta;
 mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
-pub use blockchain::{DepType, ScriptHashType};
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use tx_pool::TransactionWithStatus;
-pub use views::{
-    BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
-};
+pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 
 pub use ckb_occupied_capacity::{
     capacity_bytes, Capacity, Error as CapacityError, Ratio, Result as CapacityResult,

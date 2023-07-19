@@ -1,7 +1,7 @@
 use ckb_hash::new_blake2b;
 use merkle_cbt::{merkle_tree::Merge, MerkleProof as ExMerkleProof, CBMT as ExCBMT};
 
-use crate::{packed::Byte32, prelude::*};
+use ckb_gen_types::{packed::Byte32, prelude::*};
 
 /// TODO(doc): @quake
 pub struct MergeByte32;

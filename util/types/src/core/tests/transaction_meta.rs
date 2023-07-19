@@ -1,9 +1,8 @@
 use crate::{
     core::{TransactionMeta, TransactionMetaBuilder},
     h256,
-    packed::Byte32,
-    prelude::*,
 };
+use ckb_gen_types::{packed::Byte32, prelude::*};
 
 #[test]
 fn set_unset_dead_out_of_bounds() {

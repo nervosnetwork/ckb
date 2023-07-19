@@ -1,8 +1,8 @@
 use crate::{
     core::{BlockView, EpochNumberWithFraction},
-    packed,
     prelude::*,
 };
+use ckb_gen_types::{packed, prelude::*};
 
 #[test]
 fn test_block_view_convert_from_packed_block() {

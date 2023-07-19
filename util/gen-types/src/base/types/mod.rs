@@ -8,6 +8,12 @@ use crate::generated::packed;
 pub type BlockNumber = u64;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
+/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
+/// The hash type is split into the high 7 bits and the low 1 bit,
+/// when the low 1 bit is 1, it indicates the type,
+/// when the low 1 bit is 0, it indicates the data,
+/// and then it relies on the high 7 bits to indicate
+/// that the data actually corresponds to the version.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
@@ -17,7 +23,7 @@ pub enum ScriptHashType {
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
-    Data2 = 3,
+    Data2 = 4,
 }
 
 impl Default for ScriptHashType {
@@ -26,22 +32,29 @@ impl Default for ScriptHashType {
     }
 }
 
-impl From<ScriptHashType> for u8 {
-    fn from(val: ScriptHashType) -> Self {
-        val as u8
-    }
-}
-
-impl From<ScriptHashType> for packed::Byte {
-    fn from(val: ScriptHashType) -> Self {
-        (val as u8).into()
-    }
-}
-
 impl ScriptHashType {
     #[inline]
     pub fn verify_value(v: u8) -> bool {
-        v <= 3
+        v <= 4 && v != 3
+    }
+}
+
+impl Into<u8> for ScriptHashType {
+    #[inline]
+    fn into(self) -> u8 {
+        match self {
+            Self::Data => 0,
+            Self::Type => 1,
+            Self::Data1 => 2,
+            Self::Data2 => 4,
+        }
+    }
+}
+
+impl Into<packed::Byte> for ScriptHashType {
+    #[inline]
+    fn into(self) -> packed::Byte {
+        Into::<u8>::into(self).into()
     }
 }
 
