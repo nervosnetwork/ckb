@@ -11,6 +11,7 @@ use crate::{
     U256,
 };
 use ckb_gen_types::packed;
+pub use ckb_gen_types::prelude::*;
 use std::collections::HashSet;
 
 pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;

@@ -1,4 +1,4 @@
-use crate::base::ExtraHashView;
+use crate::core::ExtraHashView;
 
 impl ::std::fmt::Display for ExtraHashView {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {

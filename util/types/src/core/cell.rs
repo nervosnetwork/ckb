@@ -2,14 +2,11 @@
 use crate::{
     bytes::Bytes,
     core::error::OutPointError,
-    core::{BlockView, Capacity, TransactionInfo, TransactionView},
-};
-use ckb_error::Error;
-use ckb_gen_types::{
-    base::DepType,
+    core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
     packed::{Byte32, CellDep, CellOutput, CellOutputVec, OutPoint, OutPointVec},
     prelude::*,
 };
+use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use once_cell::sync::OnceCell;
 use std::collections::{hash_map::Entry, HashMap, HashSet};

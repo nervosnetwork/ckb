@@ -1,5 +1,4 @@
-use crate::core;
-use ckb_gen_types::{packed, prelude::*};
+use crate::{core, packed, prelude::*};
 
 impl Pack<packed::HeaderView> for core::HeaderView {
     fn pack(&self) -> packed::HeaderView {

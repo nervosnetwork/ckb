@@ -3,11 +3,10 @@ mod std_env;
 #[cfg(feature = "std")]
 pub use std_env::*;
 
-use crate::generated::packed;
+use crate::packed;
 
 pub type BlockNumber = u64;
 
-/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 /// The hash type is split into the high 7 bits and the low 1 bit,
 /// when the low 1 bit is 1, it indicates the type,
@@ -34,7 +33,7 @@ impl Default for ScriptHashType {
 
 impl ScriptHashType {
     #[inline]
-    pub fn verify_value(v: u8) -> bool {
+    pub(crate) fn verify_value(v: u8) -> bool {
         v <= 4 && v != 3
     }
 }
@@ -73,23 +72,23 @@ impl Default for DepType {
     }
 }
 
-impl From<DepType> for u8 {
+impl Into<u8> for DepType {
     #[inline]
-    fn from(val: DepType) -> Self {
-        val as u8
+    fn into(self) -> u8 {
+        self as u8
     }
 }
 
-impl From<DepType> for packed::Byte {
+impl Into<packed::Byte> for DepType {
     #[inline]
-    fn from(val: DepType) -> Self {
-        (val as u8).into()
+    fn into(self) -> packed::Byte {
+        (self as u8).into()
     }
 }
 
 impl DepType {
     #[inline]
-    pub fn verify_value(v: u8) -> bool {
+    pub(crate) fn verify_value(v: u8) -> bool {
         v <= 1
     }
 }

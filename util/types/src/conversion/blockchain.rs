@@ -1,5 +1,4 @@
-use crate::core;
-use ckb_gen_types::{packed, prelude::*};
+use crate::{core, packed, prelude::*};
 
 impl Pack<packed::Uint64> for core::EpochNumberWithFraction {
     fn pack(&self) -> packed::Uint64 {

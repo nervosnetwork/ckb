@@ -3,7 +3,7 @@ use ckb_network::{CKBProtocolHandler, PeerIndex, SupportProtocols};
 use ckb_types::{
     packed,
     prelude::*,
-    utilities::merkle_mountain_range::{MMRProof, VerifiableHeader},
+    utilities::merkle_mountain_range::{HeaderDigest, MMRProof, VerifiableHeader},
 };
 
 use crate::tests::{

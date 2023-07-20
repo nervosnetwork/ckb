@@ -7,8 +7,8 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-pub mod base;
 mod conversion;
+pub mod core;
 pub mod extension;
 mod generated;
 pub mod prelude;

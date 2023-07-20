@@ -1,5 +1,5 @@
+use crate::packed::Byte32;
 use bit_vec::BitVec;
-use ckb_gen_types::packed::Byte32;
 
 /// TODO(doc): @quake
 #[derive(Default, Debug, PartialEq, Eq, Clone)]

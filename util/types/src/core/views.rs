@@ -2,12 +2,12 @@
 
 use std::collections::HashSet;
 
-use ckb_gen_types::{base::ExtraHashView, packed, prelude::*};
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
     bytes::Bytes,
-    core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
+    core::{BlockNumber, Capacity, EpochNumberWithFraction, ExtraHashView, Version},
+    packed,
     prelude::*,
     utilities::merkle_root,
     U256,
