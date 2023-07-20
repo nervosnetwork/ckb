@@ -175,6 +175,13 @@ pub enum TransactionError {
         feature: &'static str,
     },
 
+    /// Nervos DAO lock size mismatch.
+    #[error("The lock script size of deposit cell at index {} does not match the withdrawing cell at the same index", index)]
+    DaoLockSizeMismatch {
+        /// The index of mismatched DAO cells.
+        index: usize,
+    },
+
     /// The internal error.
     #[error("Internal: {description}, this error shouldn't happen, please report this bug to developers.")]
     Internal {
@@ -202,6 +209,7 @@ impl TransactionError {
             | TransactionError::CellbaseImmaturity { .. }
             | TransactionError::MismatchedVersion { .. }
             | TransactionError::Compatible { .. }
+            | TransactionError::DaoLockSizeMismatch { .. }
             | TransactionError::Internal { .. } => false,
         }
     }
