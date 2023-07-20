@@ -1,5 +1,5 @@
 use crate::{
-    base::ExtraHashView,
+    core::ExtraHashView,
     generated::packed,
     prelude::*,
     util::hash::{blake2b_256, new_blake2b},
@@ -264,8 +264,8 @@ impl<'r> packed::BlockReader<'r> {
     /// - If there is no extension, extra hash is the same as the uncles hash.
     /// - If there is a extension, then extra hash it the hash of the combination
     /// of uncles hash and the extension hash.
-    pub fn calc_extra_hash(&self) -> crate::base::ExtraHashView {
-        crate::base::ExtraHashView::new(self.calc_uncles_hash(), self.calc_extension_hash())
+    pub fn calc_extra_hash(&self) -> crate::core::ExtraHashView {
+        crate::core::ExtraHashView::new(self.calc_uncles_hash(), self.calc_extension_hash())
     }
 
     /// Calculates transaction hashes for all transactions in the block.

@@ -34,6 +34,7 @@ pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use tx_pool::TransactionWithStatus;
 pub use views::{BlockView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView};
 
+pub use ckb_gen_types::core::*;
 pub use ckb_occupied_capacity::{
     capacity_bytes, Capacity, Error as CapacityError, Ratio, Result as CapacityResult,
 };

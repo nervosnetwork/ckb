@@ -1,9 +1,4 @@
 use ckb_error::assert_error_eq;
-use ckb_gen_types::{
-    base::DepType,
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
-    prelude::*,
-};
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -15,10 +10,12 @@ use crate::{
             HeaderChecker,
         },
         error::OutPointError,
-        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, TransactionBuilder,
+        BlockBuilder, BlockView, Capacity, DepType, EpochNumberWithFraction, TransactionBuilder,
         TransactionInfo, TransactionView,
     },
     h256,
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
+    prelude::*,
 };
 
 #[derive(Default)]

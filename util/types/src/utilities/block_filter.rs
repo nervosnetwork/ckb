@@ -1,10 +1,9 @@
 use std::io::{Cursor, Write};
 
-use ckb_gen_types::{packed, prelude::*};
 use ckb_hash::blake2b_256;
 use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
 
-use crate::core::TransactionView;
+use crate::{core::TransactionView, packed, prelude::*};
 
 /// Provides data for building block filter data.
 pub trait FilterDataProvider {

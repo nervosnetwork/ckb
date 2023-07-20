@@ -1,9 +1,7 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use ckb_gen_types::{base::ExtraHashView, packed, prelude::*};
-
 use crate::{
-    constants, core,
+    constants, core, packed,
     prelude::*,
     utilities::{merkle_root, DIFF_TWO},
 };
@@ -407,7 +405,7 @@ impl BlockBuilder {
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
             let transactions_root = merkle_root(&[raw_transactions_root, witnesses_root]);
             let proposals_hash = proposals.calc_proposals_hash();
-            let extra_hash_view = ExtraHashView::new(
+            let extra_hash_view = core::ExtraHashView::new(
                 uncles.calc_uncles_hash(),
                 extension.as_ref().map(packed::Bytes::calc_raw_data_hash),
             );

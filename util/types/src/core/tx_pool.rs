@@ -5,12 +5,12 @@ use crate::{
         error::{OutPointError, TransactionError},
         BlockNumber, Capacity, Cycle, FeeRate,
     },
+    packed::Byte32,
     H256,
 };
 use ckb_error::{
     impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
 };
-use ckb_gen_types::packed::Byte32;
 use std::collections::HashMap;
 
 /// TX reject message

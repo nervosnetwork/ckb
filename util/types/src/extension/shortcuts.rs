@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-use ckb_gen_types::{packed, prelude::*};
-
 use crate::{
     core::{self},
+    packed,
     prelude::*,
     utilities::{compact_to_difficulty, merkle_root},
     U256,
