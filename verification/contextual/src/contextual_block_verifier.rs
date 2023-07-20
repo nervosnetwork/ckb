@@ -27,7 +27,7 @@ use ckb_verification::cache::{
 };
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier, UnknownParentError,
+    DaoScriptSizeVerifier, TimeRelativeTransactionVerifier, UnknownParentError,
 };
 use ckb_verification::{BlockTransactionsError, EpochError, TxVerifyEnv};
 use ckb_verification_traits::Switch;
@@ -327,25 +327,28 @@ impl<'a, 'b, 'c, CS: ChainStore + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 
     }
 }
 
-struct BlockTxsVerifier<'a, CS> {
+struct BlockTxsVerifier<'a, 'b, CS> {
     context: VerifyContext<CS>,
     header: HeaderView,
     handle: &'a Handle,
     txs_verify_cache: &'a Arc<RwLock<TxVerificationCache>>,
+    parent: &'b HeaderView,
 }
 
-impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS> {
+impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, 'b, CS> {
     pub fn new(
         context: VerifyContext<CS>,
         header: HeaderView,
         handle: &'a Handle,
         txs_verify_cache: &'a Arc<RwLock<TxVerificationCache>>,
+        parent: &'b HeaderView,
     ) -> Self {
         BlockTxsVerifier {
             context,
             header,
             handle,
             txs_verify_cache,
+            parent,
         }
     }
 
@@ -463,7 +466,16 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a, CS>
                         .into()
                     })
                     .map(|completed| (tx_hash, completed))
-                }
+                }.and_then(|result| {
+                    if self.context.versionbits_active(DeploymentPos::LightClient, self.parent) {
+                        DaoScriptSizeVerifier::new(
+                            Arc::clone(tx),
+                            self.context.consensus.dao_type_hash(),
+                            self.context.store.as_data_loader(),
+                        ).verify()?;
+                    }
+                    Ok(result)
+                })
             })
             .skip(1) // skip cellbase tx
             .collect::<Result<Vec<(Byte32, Completed)>, Error>>()?;
@@ -695,6 +707,7 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
             header,
             self.handle,
             &self.txs_verify_cache,
+            &parent,
         )
         .verify(resolved, self.switch.disable_script())?;
         Ok(ret)

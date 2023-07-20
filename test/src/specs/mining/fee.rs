@@ -146,7 +146,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         });
 
         (0..multiple).for_each(|_| {
-            let block = node.new_block(None, None, None);
+            let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
             node.submit_block(&block);
             assert_eq!(
                 max_block_proposals_limit as usize,

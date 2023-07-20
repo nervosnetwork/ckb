@@ -24,8 +24,8 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualTransactionVerifier, ScriptVerifyResult, TimeRelativeTransactionVerifier,
-    TxVerifyEnv,
+    ContextualTransactionVerifier, DaoScriptSizeVerifier, ScriptVerifyResult,
+    TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -564,6 +564,15 @@ impl TxPoolService {
 
                 match ret {
                     ScriptVerifyResult::Completed(cycles) => {
+                        if let Err(e) = DaoScriptSizeVerifier::new(
+                            Arc::clone(&rtx),
+                            self.consensus.dao_type_hash(),
+                            snapshot.as_data_loader(),
+                        )
+                        .verify()
+                        {
+                            return Err(Reject::Verification(e));
+                        }
                         if let Some((declared, _)) = remote {
                             if declared != cycles {
                                 return Err(Reject::DeclaredWrongCycles(declared, cycles));
