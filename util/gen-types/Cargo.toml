@@ -12,11 +12,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-hash = {path = "../hash", version = "= 0.112.0-pre"}
 
 [features]
-default = ["calc-hash", "check-data", "serialized-size", "std"]
+default = ["std"]
 calc-hash = ["blake2b-ref"]
 check-data = []
-serialized-size = []
-std = ["molecule/std", "ckb-fixed-hash", "numext-fixed-uint", "ckb-error", "ckb-occupied-capacity"]
+serialized-size = ["calc-hash"]
+std = [ 
+    "calc-hash",
+    "check-data", 
+    "serialized-size", 
+    "molecule/std", "ckb-fixed-hash", "numext-fixed-uint", "ckb-error", "ckb-occupied-capacity", "ckb-hash" ]
 
 [dependencies]
 molecule = { version = "0.7.5", default-features = false }
@@ -25,4 +29,5 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 cfg-if = "1.0"
 blake2b-ref = { version = "0.3.1", default-features = false, optional = true }
 ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.112.0-pre", optional = true}
+ckb-hash = { path = "../hash", version = "= 0.112.0-pre", optional = true}
 ckb-error = { path = "../../error", version = "= 0.112.0-pre", optional = true }

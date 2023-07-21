@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use crate::{packed, prelude::*, vec};
 use ckb_fixed_hash::h256;
 use ckb_hash::blake2b_256;
 

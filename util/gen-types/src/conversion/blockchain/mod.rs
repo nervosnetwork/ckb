@@ -3,7 +3,7 @@ mod std_env;
 #[cfg(feature = "std")]
 pub use std_env::*;
 
-use crate::{bytes::Bytes, generated::packed, prelude::*, vec::Vec};
+use crate::{borrow::ToOwned, bytes::Bytes, generated::packed, prelude::*, vec::Vec};
 
 impl Pack<packed::Byte32> for [u8; 32] {
     fn pack(&self) -> packed::Byte32 {
