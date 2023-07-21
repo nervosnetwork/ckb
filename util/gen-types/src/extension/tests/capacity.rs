@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use crate::{packed, prelude::*, vec};
 use ckb_occupied_capacity::{capacity_bytes, Capacity};
 
 #[test]

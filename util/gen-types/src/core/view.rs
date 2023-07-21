@@ -1,11 +1,10 @@
+#[cfg(not(feature = "std"))]
+use crate::util::hash::new_blake2b;
 #[cfg(feature = "std")]
-mod std_env;
-#[cfg(feature = "std")]
-pub use std_env::*;
+use ckb_hash::new_blake2b;
 
 use crate::generated::packed;
 use crate::prelude::*;
-use crate::util::hash::new_blake2b;
 
 /// A readonly and immutable struct which includes extra hash and the decoupled
 /// parts of it.

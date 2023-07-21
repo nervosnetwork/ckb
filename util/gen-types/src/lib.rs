@@ -20,8 +20,8 @@ pub use molecule::bytes;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "std")] {
-        use std::vec;
+        use std::{vec, borrow};
     } else {
-        use alloc::vec;
+        use alloc::{vec, borrow};
     }
 }

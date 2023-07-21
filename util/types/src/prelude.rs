@@ -3,18 +3,18 @@
 //! Few traits are re-exported from other crates, few are used as aliases and others are syntactic sugar.
 //!
 
+pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
 use crate::{
     core::{
         BlockBuilder, BlockView, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
         UncleBlockView,
     },
-    U256,
+    packed, U256,
 };
-use ckb_gen_types::packed;
-pub use ckb_gen_types::prelude::*;
-use std::collections::HashSet;
 
-pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
+pub use ckb_gen_types::prelude::*;
+
+use std::collections::HashSet;
 
 pub trait IntoTransactionView {
     fn into_view(self) -> TransactionView;

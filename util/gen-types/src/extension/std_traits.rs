@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use crate::{core, packed, prelude::*};
 
 macro_rules! impl_std_cmp_eq_and_hash {
     ($struct:ident) => {
@@ -43,5 +43,23 @@ impl ::std::cmp::PartialOrd for packed::Byte32 {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl ::std::fmt::Display for core::ExtraHashView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        if let Some((ref extension_hash, ref extra_hash)) = self.extension_hash_and_extra_hash {
+            write!(
+                f,
+                "uncles_hash: {}, extension_hash: {}, extra_hash: {}",
+                self.uncles_hash, extension_hash, extra_hash
+            )
+        } else {
+            write!(
+                f,
+                "uncles_hash: {}, extension_hash: None, extra_hash: uncles_hash",
+                self.uncles_hash
+            )
+        }
     }
 }
