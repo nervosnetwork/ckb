@@ -1,3 +1,5 @@
+//! The essential rust types for CKB contracts.
+
 #![allow(clippy::from_over_into)]
 
 #[cfg(feature = "std")]
@@ -6,8 +8,6 @@ mod std_env;
 pub use std_env::*;
 
 use crate::packed;
-
-pub(crate) type BlockNumber = u64;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 /// The hash type is split into the high 7 bits and the low 1 bit,

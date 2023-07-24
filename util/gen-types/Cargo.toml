@@ -16,11 +16,7 @@ default = ["std"]
 calc-hash = ["blake2b-ref"]
 check-data = []
 serialized-size = ["calc-hash"]
-std = [ 
-    "calc-hash",
-    "check-data", 
-    "serialized-size", 
-    "molecule/std", "ckb-fixed-hash", "numext-fixed-uint", "ckb-error", "ckb-occupied-capacity", "ckb-hash" ]
+std = ["calc-hash", "check-data", "serialized-size", "molecule/std", "ckb-fixed-hash", "numext-fixed-uint", "ckb-error", "ckb-occupied-capacity", "ckb-hash"]
 
 [dependencies]
 molecule = { version = "0.7.5", default-features = false }

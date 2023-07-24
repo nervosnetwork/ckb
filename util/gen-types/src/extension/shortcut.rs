@@ -1,10 +1,6 @@
-use crate::{
-    bytes,
-    core::{self, BlockNumber},
-    generated::packed,
-    prelude::*,
-    vec::Vec,
-};
+use crate::{bytes, core, generated::packed, prelude::*, vec::Vec};
+
+type BlockNumber = u64;
 
 impl packed::Byte32 {
     /// Creates a new `Bytes32` whose bits are all zeros.
@@ -293,6 +289,7 @@ impl AsRef<[u8]> for packed::TransactionKey {
 }
 
 impl packed::HeaderDigest {
+    /// Checks if the `HeaderDigest` is the default value.
     pub fn is_default(&self) -> bool {
         let default = Self::default();
         self.as_slice() == default.as_slice()
