@@ -21,12 +21,14 @@ pub mod tx_pool;
 mod tests;
 
 mod advanced_builders;
+mod blockchain;
 mod extras;
 mod fee_rate;
 mod reward;
 mod transaction_meta;
 mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
+pub use blockchain::DepType;
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};

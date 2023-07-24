@@ -1,7 +1,4 @@
-use crate::{
-    core::{DepType, ScriptHashType},
-    packed,
-};
+use crate::{core::ScriptHashType, packed};
 use ckb_error::OtherError;
 
 impl TryFrom<u8> for ScriptHashType {
@@ -23,17 +20,5 @@ impl TryFrom<packed::Byte> for ScriptHashType {
 
     fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
         Into::<u8>::into(v).try_into()
-    }
-}
-
-impl TryFrom<packed::Byte> for DepType {
-    type Error = OtherError;
-
-    fn try_from(v: packed::Byte) -> Result<Self, Self::Error> {
-        match Into::<u8>::into(v) {
-            0 => Ok(DepType::Code),
-            1 => Ok(DepType::DepGroup),
-            _ => Err(OtherError::new(format!("Invalid dep type {v}"))),
-        }
     }
 }

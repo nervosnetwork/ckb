@@ -56,39 +56,3 @@ impl Into<packed::Byte> for ScriptHashType {
         Into::<u8>::into(self).into()
     }
 }
-
-/// TODO(doc): @quake
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum DepType {
-    /// TODO(doc): @quake
-    Code = 0,
-    /// TODO(doc): @quake
-    DepGroup = 1,
-}
-
-impl Default for DepType {
-    fn default() -> Self {
-        DepType::Code
-    }
-}
-
-impl Into<u8> for DepType {
-    #[inline]
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
-
-impl Into<packed::Byte> for DepType {
-    #[inline]
-    fn into(self) -> packed::Byte {
-        (self as u8).into()
-    }
-}
-
-impl DepType {
-    #[inline]
-    pub(crate) fn verify_value(v: u8) -> bool {
-        v <= 1
-    }
-}
