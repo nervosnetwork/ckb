@@ -91,13 +91,6 @@ fn empty_uncles_hash() {
 }
 
 #[test]
-fn empty_extra_hash() {
-    let block = packed::Block::new_builder().build();
-    let expect = h256!("0x0");
-    assert_eq!(block.calc_extra_hash().extra_hash(), expect.pack());
-}
-
-#[test]
 fn empty_script_hash() {
     let script = packed::Script::new_builder().build();
     let expect = h256!("0x77c93b0632b5b6c3ef922c5b7cea208fb0a7c427a13d50e13d3fefad17e0c590");

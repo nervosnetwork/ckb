@@ -6,8 +6,8 @@
 pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
 use crate::{
     core::{
-        BlockBuilder, BlockView, HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
-        UncleBlockView,
+        BlockBuilder, BlockView, ExtraHashView, HeaderBuilder, HeaderView, TransactionBuilder,
+        TransactionView, UncleBlockView,
     },
     packed, U256,
 };
@@ -70,4 +70,8 @@ pub trait ResetBlock {
         tx_hashes: &[packed::Byte32],
         tx_witness_hashes: &[packed::Byte32],
     ) -> packed::Block;
+}
+
+pub trait CalcExtraHash {
+    fn calc_extra_hash(&self) -> ExtraHashView;
 }
