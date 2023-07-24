@@ -58,7 +58,9 @@ impl core::HeaderView {
     }
 }
 
+/// Trait for representing a header digest.
 pub trait HeaderDigest {
+    /// Verify the header digest
     fn verify(&self) -> Result<(), String>;
 }
 

@@ -9,10 +9,11 @@ extern crate alloc;
 
 mod conversion;
 pub mod core;
-pub mod extension;
+mod extension;
 mod generated;
 pub mod prelude;
 pub use generated::packed;
+#[allow(missing_docs)]
 pub mod util;
 
 //re-exports
