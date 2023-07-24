@@ -152,3 +152,34 @@ impl BuildCompactBlock for packed::CompactBlock {
             .collect()
     }
 }
+
+impl<'r> CalcExtraHash for packed::BlockReader<'r> {
+    /// Calculates the extra hash, which is a combination of the uncles hash and
+    /// the extension hash.
+    ///
+    /// - If there is no extension, extra hash is the same as the uncles hash.
+    /// - If there is a extension, then extra hash it the hash of the combination
+    /// of uncles hash and the extension hash.
+    fn calc_extra_hash(&self) -> core::ExtraHashView {
+        crate::core::ExtraHashView::new(self.calc_uncles_hash(), self.calc_extension_hash())
+    }
+}
+
+impl CalcExtraHash for packed::Block {
+    /// Calls [`BlockReader.calc_extra_hash()`](struct.BlockReader.html#method.calc_extra_hash)
+    /// for [`self.as_reader()`](struct.Block.html#method.as_reader).
+    fn calc_extra_hash(&self) -> core::ExtraHashView {
+        self.as_reader().calc_extra_hash()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{h256, packed, prelude::*};
+    #[test]
+    fn empty_extra_hash() {
+        let block = packed::Block::new_builder().build();
+        let expect = h256!("0x0");
+        assert_eq!(block.calc_extra_hash().extra_hash(), expect.pack());
+    }
+}
