@@ -12,8 +12,8 @@ pub fn wait_all_ckb_services_exit() {
     info!("waiting exit signal...");
     let exit_signal = new_crossbeam_exit_rx();
     let _ = exit_signal.recv();
-    debug!("received exit signal, broadcasting exit signal to all threads");
     let mut handles = CKB_HANDLES.lock();
+    debug!("wait_all_ckb_services_exit wait all threads to exit");
     for (name, join_handle) in handles.thread_handles.drain(..) {
         match join_handle.join() {
             Ok(_) => {
@@ -54,6 +54,7 @@ pub fn new_crossbeam_exit_rx() -> ckb_channel::Receiver<()> {
 
 /// Broadcast exit signals to all threads and all tokio tasks
 pub fn broadcast_exit_signals() {
+    debug!("received exit signal, broadcasting exit signal to all threads");
     TOKIO_EXIT.cancel();
     CROSSBEAM_EXIT_SENDERS
         .lock()
