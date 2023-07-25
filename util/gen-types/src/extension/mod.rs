@@ -1,11 +1,11 @@
-#[cfg(feature = "calc-hash")]
+#[cfg(any(feature = "calc-hash", feature = "std"))]
 mod calc_hash;
-#[cfg(feature = "calc-hash")]
+#[cfg(any(feature = "calc-hash", feature = "std"))]
 mod shortcut;
 
-#[cfg(feature = "check-data")]
+#[cfg(any(feature = "check-data", feature = "std"))]
 mod check_data;
-#[cfg(feature = "serialized-size")]
+#[cfg(any(feature = "serialized-size", feature = "std"))]
 mod serialized_size;
 
 #[cfg(feature = "std")]
