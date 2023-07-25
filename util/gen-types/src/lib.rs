@@ -13,8 +13,6 @@ mod extension;
 mod generated;
 pub mod prelude;
 pub use generated::packed;
-#[allow(missing_docs)]
-pub mod util;
 
 //re-exports
 pub use molecule::bytes;

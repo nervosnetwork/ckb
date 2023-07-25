@@ -1,6 +1,3 @@
-#[cfg(not(feature = "std"))]
-use crate::util::hash::{blake2b_256, new_blake2b};
-#[cfg(feature = "std")]
 use ckb_hash::{blake2b_256, new_blake2b};
 
 use crate::{packed, prelude::*, vec::Vec};

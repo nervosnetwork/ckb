@@ -3,8 +3,8 @@ mod calc_hash;
 #[cfg(feature = "std")]
 mod capacity;
 
-#[cfg(feature = "check-data")]
+#[cfg(any(feature = "check-data", feature = "std"))]
 mod check_data;
 
-#[cfg(feature = "serialized-size")]
+#[cfg(any(feature = "serialized-size", feature = "std"))]
 mod serialized_size;
