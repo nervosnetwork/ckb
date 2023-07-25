@@ -494,15 +494,26 @@ impl TxPool {
         assert!(!conflicts.is_empty());
 
         let short_id = rtx.transaction.proposal_short_id();
-        let conflicts = conflicts
+        let entries = conflicts
             .iter()
             .map(|id| {
-                &self
-                    .get_pool_entry(id)
+                self.get_pool_entry(id)
                     .expect("conflict Tx should be in pool")
-                    .inner
             })
             .collect::<Vec<_>>();
+
+        // Rule #6, any old Tx should be in `Pending` or `Gap` status
+        if entries
+            .iter()
+            .any(|e| ![Status::Pending, Status::Gap].contains(&e.status))
+        {
+            // Here we only refer to `Pending` status, since `Gap` is an internal status
+            return Err(Reject::RBFRejected(
+                "all conflict Txs should be in Pending status".to_string(),
+            ));
+        }
+
+        let conflicts = entries.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();

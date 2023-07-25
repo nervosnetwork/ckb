@@ -148,7 +148,6 @@ impl Spec for RbfSameInputwithLessFee {
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
         let message = res.err().unwrap().to_string();
-        eprintln!("res: {:?}", message);
         assert!(message.contains("Tx's current fee is 1000000000, expect it to be larger than"));
     }
 
@@ -354,6 +353,79 @@ impl Spec for RbfContainInvalidInput {
             .unwrap()
             .to_string()
             .contains("new Tx contains inputs in descendants of to be replaced Tx"));
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfRejectReplaceProposed;
+
+// RBF Rule #6
+impl Spec for RbfRejectReplaceProposed {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+
+        // build txs chain
+        let tx0 = node0.new_transaction_spend_tip_cellbase();
+        let mut txs = vec![tx0];
+        let max_count = 5;
+        while txs.len() <= max_count {
+            let parent = txs.last().unwrap();
+            let child = parent
+                .as_advanced_builder()
+                .set_inputs(vec![{
+                    CellInput::new_builder()
+                        .previous_output(OutPoint::new(parent.hash(), 0))
+                        .build()
+                }])
+                .set_outputs(vec![parent.output(0).unwrap()])
+                .build();
+            txs.push(child);
+        }
+        assert_eq!(txs.len(), max_count + 1);
+        // send Tx chain
+        for tx in txs[..=max_count - 1].iter() {
+            let ret = node0.rpc_client().send_transaction_result(tx.data().into());
+            assert!(ret.is_ok());
+        }
+
+        node0.mine_with_blocking(|template| template.proposals.len() != max_count);
+        let ret = node0.rpc_client().get_transaction(txs[2].hash());
+        assert!(
+            matches!(ret.tx_status.status, Status::Pending),
+            "tx1 should be pending"
+        );
+        node0.mine(1);
+        let ret = node0.rpc_client().get_transaction(txs[2].hash());
+        assert!(
+            matches!(ret.tx_status.status, Status::Proposed),
+            "tx1 should be proposed"
+        );
+
+        let clone_tx = txs[2].clone();
+        // Set tx2 fee to a higher value
+        let output2 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(70).pack())
+            .build();
+
+        let tx2 = clone_tx
+            .as_advanced_builder()
+            .set_outputs(vec![output2])
+            .build();
+
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("all conflict Txs should be in Pending status"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
