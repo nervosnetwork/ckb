@@ -1,10 +1,9 @@
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, TransactionBuilder},
-    packed::{CellInput, OutPoint, ProposalShortId},
+    packed::{CellInput, OutPoint},
     prelude::*,
 };
-use std::mem::size_of;
 
 use crate::component::{entry::TxEntry, pool_map::PoolMap, sort_key::AncestorsScoreSortKey};
 
@@ -27,7 +26,6 @@ fn test_min_fee_and_weight() {
         let key = AncestorsScoreSortKey {
             fee: Capacity::shannons(fee),
             weight,
-            id: ProposalShortId::new([0u8; 10]),
             ancestors_fee: Capacity::shannons(ancestors_fee),
             ancestors_weight,
         };
@@ -51,7 +49,7 @@ fn test_min_fee_and_weight() {
 
 #[test]
 fn test_ancestors_sorted_key_order() {
-    let mut keys = vec![
+    let table = vec![
         (0, 0, 0, 0),
         (1, 0, 1, 0),
         (500, 10, 1000, 30),
@@ -62,33 +60,39 @@ fn test_ancestors_sorted_key_order() {
         (std::u64::MAX, 0, std::u64::MAX, 0),
         (std::u64::MAX, 100, std::u64::MAX, 2000),
         (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(i, (fee, weight, ancestors_fee, ancestors_weight))| {
-        let mut id = [0u8; 10];
-        id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
-        AncestorsScoreSortKey {
-            fee: Capacity::shannons(fee),
-            weight,
-            id: ProposalShortId::new(id),
-            ancestors_fee: Capacity::shannons(ancestors_fee),
-            ancestors_weight,
-        }
-    })
-    .collect::<Vec<_>>();
+    ];
+    let mut keys = table
+        .clone()
+        .into_iter()
+        .enumerate()
+        .map(
+            |(_i, (fee, weight, ancestors_fee, ancestors_weight))| AncestorsScoreSortKey {
+                fee: Capacity::shannons(fee),
+                weight,
+                ancestors_fee: Capacity::shannons(ancestors_fee),
+                ancestors_weight,
+            },
+        )
+        .collect::<Vec<_>>();
     keys.sort();
-    assert_eq!(
-        keys.into_iter().map(|k| k.id).collect::<Vec<_>>(),
-        [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
-            .iter()
-            .map(|&i| {
-                let mut id = [0u8; 10];
-                id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
-                ProposalShortId::new(id)
-            })
-            .collect::<Vec<_>>()
-    );
+    let now = keys
+        .into_iter()
+        .map(|k| (k.fee, k.weight, k.ancestors_fee, k.ancestors_weight))
+        .collect::<Vec<_>>();
+    let expect = [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
+        .iter()
+        .map(|&i| {
+            let key = table[i as usize];
+            (
+                Capacity::shannons(key.0),
+                key.1,
+                Capacity::shannons(key.2),
+                key.3,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(now, expect);
 }
 
 #[test]

@@ -1,7 +1,4 @@
-use ckb_types::{
-    core::{Capacity, FeeRate},
-    packed::ProposalShortId,
-};
+use ckb_types::core::{Capacity, FeeRate};
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -9,7 +6,6 @@ use std::cmp::Ordering;
 pub struct AncestorsScoreSortKey {
     pub fee: Capacity,
     pub weight: u64,
-    pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_weight: u64,
 }
@@ -44,11 +40,7 @@ impl Ord for AncestorsScoreSortKey {
         let other_weight = u128::from(other_fee.as_u64()) * u128::from(weight);
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor weight
-            if self.ancestors_weight == other.ancestors_weight {
-                self.id.raw_data().cmp(&other.id.raw_data())
-            } else {
-                self.ancestors_weight.cmp(&other.ancestors_weight)
-            }
+            self.ancestors_weight.cmp(&other.ancestors_weight)
         } else {
             self_weight.cmp(&other_weight)
         }
