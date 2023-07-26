@@ -169,33 +169,24 @@ pub struct TransactionWithStatus {
     pub tx_status: TxStatus,
     /// The transaction verification consumed cycles
     pub cycles: Option<core::Cycle>,
+    /// The transaction fee of the transaction
+    pub fee: Option<Capacity>,
     /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
 
 impl TransactionWithStatus {
-    /// Build with pending status
-    pub fn with_pending(
+    /// Build with tx status
+    pub fn with_status(
         tx: Option<core::TransactionView>,
         cycles: core::Cycle,
         time_added_to_pool: u64,
+        tx_status: TxStatus,
+        fee: Option<Capacity>,
     ) -> Self {
         Self {
-            tx_status: TxStatus::Pending,
-            transaction: tx,
-            cycles: Some(cycles),
-            time_added_to_pool: Some(time_added_to_pool),
-        }
-    }
-
-    /// Build with proposed status
-    pub fn with_proposed(
-        tx: Option<core::TransactionView>,
-        cycles: core::Cycle,
-        time_added_to_pool: u64,
-    ) -> Self {
-        Self {
-            tx_status: TxStatus::Proposed,
+            tx_status,
+            fee,
             transaction: tx,
             cycles: Some(cycles),
             time_added_to_pool: Some(time_added_to_pool),
@@ -207,11 +198,13 @@ impl TransactionWithStatus {
         tx: Option<core::TransactionView>,
         hash: H256,
         cycles: Option<core::Cycle>,
+        fee: Option<Capacity>,
     ) -> Self {
         Self {
             tx_status: TxStatus::Committed(hash),
             transaction: tx,
             cycles,
+            fee,
             time_added_to_pool: None,
         }
     }
@@ -222,6 +215,7 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
             cycles: None,
+            fee: None,
             time_added_to_pool: None,
         }
     }
@@ -232,6 +226,7 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Unknown,
             transaction: None,
             cycles: None,
+            fee: None,
             time_added_to_pool: None,
         }
     }
@@ -242,6 +237,7 @@ impl TransactionWithStatus {
             tx_status,
             transaction: None,
             cycles,
+            fee: None,
             time_added_to_pool: None,
         }
     }

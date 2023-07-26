@@ -2130,11 +2130,11 @@ impl ChainRpcImpl {
                             .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
                     })
             };
-
             return Ok(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_hash.unpack(),
                 cycles,
+                None,
             ));
         }
 
@@ -2181,6 +2181,7 @@ impl ChainRpcImpl {
                 Some(tx),
                 tx_info.block_hash.unpack(),
                 cycles,
+                None,
             ));
         }
 

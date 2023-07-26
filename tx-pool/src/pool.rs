@@ -90,6 +90,38 @@ impl TxPool {
         self.config.min_rbf_rate > self.config.min_fee_rate
     }
 
+    /// The least required fee rate to allow tx to be replaced
+    pub fn min_replace_fee(&self, tx: &TxEntry) -> Option<Capacity> {
+        if !self.enable_rbf() {
+            return None;
+        }
+        let conflicts = self.pool_map.find_conflict_tx(tx.transaction());
+        self.calculate_min_replace_fee(&conflicts, tx.size)
+    }
+
+    fn calculate_min_replace_fee(
+        &self,
+        conflicts: &HashSet<ProposalShortId>,
+        size: usize,
+    ) -> Option<Capacity> {
+        let entries = conflicts
+            .iter()
+            .map(|id| {
+                self.get_pool_entry(id)
+                    .expect("conflict Tx should be in pool")
+            })
+            .collect::<Vec<_>>();
+        let min_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
+        Some(
+            entries
+                .iter()
+                .map(|c| c.inner.fee)
+                .max()
+                .unwrap_or(min_rbf_fee)
+                .max(min_rbf_fee),
+        )
+    }
+
     /// Update size and cycles statics for remove tx
     /// cycles overflow is possible, currently obtaining cycles is not accurate
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
@@ -486,7 +518,20 @@ impl TxPool {
         assert!(!conflicts.is_empty());
 
         let short_id = rtx.transaction.proposal_short_id();
-        let entries = conflicts
+        // Rule #4, new tx' fee need to higher than min_rbf_fee computed from the tx_pool configuration
+        // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(conflicts, tx_size) {
+            if fee < min_replace_fee {
+                return Err(Reject::RBFRejected(format!(
+                    "Tx's current fee is {}, expect it to be larger than: {} to replace old txs",
+                    fee, min_replace_fee,
+                )));
+            }
+        } else {
+            panic!("calculate_min_replace_fee must success");
+        }
+
+        let pool_entries = conflicts
             .iter()
             .map(|id| {
                 self.get_pool_entry(id)
@@ -494,18 +539,12 @@ impl TxPool {
             })
             .collect::<Vec<_>>();
 
-        // Rule #6, any old Tx should be in `Pending` or `Gap` status
-        if entries
-            .iter()
-            .any(|e| ![Status::Pending, Status::Gap].contains(&e.status))
-        {
-            // Here we only refer to `Pending` status, since `Gap` is an internal status
-            return Err(Reject::RBFRejected(
-                "all conflict Txs should be in Pending status".to_string(),
-            ));
-        }
+        let mut all_statuses = pool_entries.iter().map(|e| e.status).collect::<Vec<_>>();
 
-        let conflicts = entries.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        let conflicts = pool_entries
+            .iter()
+            .map(|e| e.inner.clone())
+            .collect::<Vec<_>>();
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
@@ -520,23 +559,6 @@ impl TxPool {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
             ));
-        }
-
-        // Rule #4, new tx' fee need to higher than min_rbf_fee computed from the tx_pool configuration
-        // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        let min_rbf_fee = self.config.min_rbf_rate.fee(tx_size as u64);
-        let max_fee = conflicts
-            .iter()
-            .map(|c| c.fee)
-            .max()
-            .unwrap_or(min_rbf_fee)
-            .max(min_rbf_fee);
-
-        if fee <= max_fee {
-            return Err(Reject::RBFRejected(format!(
-                "Tx's current fee is {}, expect it to be larger than: {} to replace old txs",
-                fee, max_fee,
-            )));
         }
 
         // Rule #5, the replaced tx's descendants can not more than 100
@@ -562,6 +584,7 @@ impl TxPool {
 
             for id in descendants.iter() {
                 if let Some(entry) = self.get_pool_entry(id) {
+                    all_statuses.push(entry.status);
                     let hash = entry.inner.transaction().hash();
                     if rtx
                         .transaction
@@ -575,6 +598,17 @@ impl TxPool {
                     }
                 }
             }
+        }
+
+        // Rule #6, any old Tx should be in `Pending` or `Gap` status
+        if all_statuses
+            .iter()
+            .any(|s| ![Status::Pending, Status::Gap].contains(s))
+        {
+            // Here we only refer to `Pending` status, since `Gap` is an internal status
+            return Err(Reject::RBFRejected(
+                "all conflict Txs should be in Pending status".to_string(),
+            ));
         }
 
         Ok(())
