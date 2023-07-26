@@ -325,7 +325,11 @@ impl TxPoolService {
 
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
         let mut tx_pool = self.tx_pool.write().await;
-        tx_pool.put_recent_reject(tx_hash, reject);
+        if let Some(ref mut recent_reject) = tx_pool.recent_reject {
+            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
+                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+            }
+        }
     }
 
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {

@@ -160,14 +160,6 @@ impl TxPool {
             .map(|entry| entry.inner.transaction())
     }
 
-    pub(crate) fn put_recent_reject(&mut self, tx_hash: &Byte32, reject: &Reject) {
-        if let Some(ref mut recent_reject) = self.recent_reject {
-            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
-            }
-        }
-    }
-
     pub(crate) fn remove_committed_txs<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a TransactionView>,
