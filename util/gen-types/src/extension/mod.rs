@@ -1,3 +1,5 @@
+mod rust_core_traits;
+
 #[cfg(any(feature = "calc-hash", feature = "std"))]
 mod calc_hash;
 #[cfg(any(feature = "calc-hash", feature = "std"))]
@@ -10,8 +12,6 @@ mod serialized_size;
 
 #[cfg(feature = "std")]
 mod capacity;
-#[cfg(feature = "std")]
-mod std_traits;
 
 #[cfg(test)]
 mod tests;
