@@ -534,6 +534,10 @@ pub struct TransactionWithStatusResponse {
     pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
+    /// The transaction fee of the transaction
+    pub fee: Option<Capacity>,
+    /// The minimal fee required to replace this transaction
+    pub min_replace_fee: Option<Capacity>,
 }
 
 impl TransactionWithStatusResponse {
@@ -548,6 +552,8 @@ impl TransactionWithStatusResponse {
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
                 time_added_to_pool: t.time_added_to_pool.map(Into::into),
+                fee: t.fee.map(Into::into),
+                min_replace_fee: t.min_replace_fee.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
@@ -556,6 +562,8 @@ impl TransactionWithStatusResponse {
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
                 time_added_to_pool: t.time_added_to_pool.map(Into::into),
+                fee: t.fee.map(Into::into),
+                min_replace_fee: t.min_replace_fee.map(Into::into),
             },
         }
     }

@@ -171,6 +171,8 @@ pub struct TransactionWithStatus {
     pub cycles: Option<core::Cycle>,
     /// The transaction fee of the transaction
     pub fee: Option<Capacity>,
+    /// The minimal fee required to replace this transaction
+    pub min_replace_fee: Option<Capacity>,
     /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
@@ -183,10 +185,12 @@ impl TransactionWithStatus {
         time_added_to_pool: u64,
         tx_status: TxStatus,
         fee: Option<Capacity>,
+        min_replace_fee: Option<Capacity>,
     ) -> Self {
         Self {
             tx_status,
             fee,
+            min_replace_fee,
             transaction: tx,
             cycles: Some(cycles),
             time_added_to_pool: Some(time_added_to_pool),
@@ -205,6 +209,7 @@ impl TransactionWithStatus {
             transaction: tx,
             cycles,
             fee,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -216,6 +221,7 @@ impl TransactionWithStatus {
             transaction: None,
             cycles: None,
             fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -227,6 +233,7 @@ impl TransactionWithStatus {
             transaction: None,
             cycles: None,
             fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -238,6 +245,7 @@ impl TransactionWithStatus {
             transaction: None,
             cycles,
             fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }

@@ -6955,6 +6955,10 @@ The JSON view of a transaction as well as its status.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
+*   `fee`: [`Capacity`](#type-capacity) `|` `null` - The transaction fee of the transaction
+
+*   `min_replace_fee`: [`Capacity`](#type-capacity) `|` `null` - The minimal fee required to replace this transaction
+
 
 ### Type `TxPoolEntries`
 
