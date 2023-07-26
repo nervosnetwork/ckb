@@ -96,6 +96,8 @@ impl TxPool {
             return None;
         }
         let conflicts = self.pool_map.find_conflict_tx(tx.transaction());
+        // we don't allow conflicted Tx in pool now
+        assert!(conflicts.len() == 1);
         self.calculate_min_replace_fee(&conflicts, tx.size)
     }
 
@@ -111,15 +113,36 @@ impl TxPool {
                     .expect("conflict Tx should be in pool")
             })
             .collect::<Vec<_>>();
-        let min_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
-        Some(
+
+        for x in entries.iter() {
+            eprintln!(
+                "old tx: {:?} fee: {:?}",
+                x.inner.transaction().hash(),
+                x.inner.fee
+            );
+        }
+
+        let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
+        let replaced_sum_fee: Capacity =
             entries
                 .iter()
                 .map(|c| c.inner.fee)
-                .max()
-                .unwrap_or(min_rbf_fee)
-                .max(min_rbf_fee),
-        )
+                .fold(Capacity::zero(), |acc, x| {
+                    acc.safe_add(x).unwrap_or_else(|_| {
+                        error!("replaced_sum_fee {} overflow by add {}", acc, x);
+                        Capacity::zero()
+                    })
+                });
+        let res = replaced_sum_fee.safe_add(extra_rbf_fee);
+        if let Ok(res) = res {
+            Some(res)
+        } else {
+            error!(
+                "replaced_sum_fee {} overflow by add {}",
+                replaced_sum_fee, extra_rbf_fee
+            );
+            None
+        }
     }
 
     /// Update size and cycles statics for remove tx
@@ -523,7 +546,7 @@ impl TxPool {
         if let Some(min_replace_fee) = self.calculate_min_replace_fee(conflicts, tx_size) {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
-                    "Tx's current fee is {}, expect it to be larger than: {} to replace old txs",
+                    "Tx's current fee is {}, expect it to >= {} to replace old txs",
                     fee, min_replace_fee,
                 )));
             }

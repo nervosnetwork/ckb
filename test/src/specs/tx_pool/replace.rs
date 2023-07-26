@@ -114,7 +114,7 @@ impl Spec for RbfSameInput {
 
 pub struct RbfSameInputwithLessFee;
 
-// RBF Rule #3
+// RBF Rule #3, #4
 impl Spec for RbfSameInputwithLessFee {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -148,7 +148,9 @@ impl Spec for RbfSameInputwithLessFee {
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
         let message = res.err().unwrap().to_string();
-        assert!(message.contains("Tx's current fee is 1000000000, expect it to be larger than"));
+        assert!(message.contains(
+            "Tx's current fee is 1000000000, expect it to >= 2000000363 to replace old txs"
+        ));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
