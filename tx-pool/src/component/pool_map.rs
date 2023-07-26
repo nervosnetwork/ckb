@@ -2,9 +2,8 @@
 extern crate rustc_hash;
 extern crate slab;
 use crate::component::edges::Edges;
-use crate::component::entry::EvictKey;
 use crate::component::links::{Relation, TxLinksMap};
-use crate::component::score_key::AncestorsScoreSortKey;
+use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
 use ckb_logger::{debug, trace};

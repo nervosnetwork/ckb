@@ -1,4 +1,7 @@
-use ckb_types::{core::Capacity, packed::ProposalShortId};
+use ckb_types::{
+    core::{Capacity, FeeRate},
+    packed::ProposalShortId,
+};
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -48,6 +51,36 @@ impl Ord for AncestorsScoreSortKey {
             }
         } else {
             self_weight.cmp(&other_weight)
+        }
+    }
+}
+
+/// First compare fee_rate, select the smallest fee_rate,
+/// and then select the latest timestamp, for eviction,
+/// the latest timestamp which also means that the fewer descendants may exist.
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct EvictKey {
+    pub fee_rate: FeeRate,
+    pub timestamp: u64,
+    pub descendants_count: usize,
+}
+
+impl PartialOrd for EvictKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for EvictKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.fee_rate == other.fee_rate {
+            if self.descendants_count == other.descendants_count {
+                self.timestamp.cmp(&other.timestamp)
+            } else {
+                self.descendants_count.cmp(&other.descendants_count)
+            }
+        } else {
+            self.fee_rate.cmp(&other.fee_rate)
         }
     }
 }

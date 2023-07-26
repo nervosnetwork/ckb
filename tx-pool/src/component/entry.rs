@@ -1,4 +1,4 @@
-use crate::component::score_key::AncestorsScoreSortKey;
+use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
@@ -194,21 +194,6 @@ impl TxEntry {
     }
 }
 
-impl From<&TxEntry> for AncestorsScoreSortKey {
-    fn from(entry: &TxEntry) -> Self {
-        let weight = get_transaction_weight(entry.size, entry.cycles);
-        let ancestors_weight = get_transaction_weight(entry.ancestors_size, entry.ancestors_cycles);
-        AncestorsScoreSortKey {
-            fee: entry.fee,
-            weight,
-            id: entry.proposal_short_id(),
-            ancestors_fee: entry.ancestors_fee,
-            ancestors_weight,
-            //timestamp: entry.timestamp,
-        }
-    }
-}
-
 impl Hash for TxEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(self.transaction(), state);
@@ -233,14 +218,18 @@ impl Ord for TxEntry {
     }
 }
 
-/// First compare fee_rate, select the smallest fee_rate,
-/// and then select the latest timestamp, for eviction,
-/// the latest timestamp which also means that the fewer descendants may exist.
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub struct EvictKey {
-    pub fee_rate: FeeRate,
-    pub timestamp: u64,
-    pub descendants_count: usize,
+impl From<&TxEntry> for AncestorsScoreSortKey {
+    fn from(entry: &TxEntry) -> Self {
+        let weight = get_transaction_weight(entry.size, entry.cycles);
+        let ancestors_weight = get_transaction_weight(entry.ancestors_size, entry.ancestors_cycles);
+        AncestorsScoreSortKey {
+            fee: entry.fee,
+            weight,
+            id: entry.proposal_short_id(),
+            ancestors_fee: entry.ancestors_fee,
+            ancestors_weight,
+        }
+    }
 }
 
 impl From<&TxEntry> for EvictKey {
@@ -255,26 +244,6 @@ impl From<&TxEntry> for EvictKey {
             fee_rate: descendants_feerate.max(feerate),
             timestamp: entry.timestamp,
             descendants_count: entry.descendants_count,
-        }
-    }
-}
-
-impl PartialOrd for EvictKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for EvictKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.fee_rate == other.fee_rate {
-            if self.descendants_count == other.descendants_count {
-                self.timestamp.cmp(&other.timestamp)
-            } else {
-                self.descendants_count.cmp(&other.descendants_count)
-            }
-        } else {
-            self.fee_rate.cmp(&other.fee_rate)
         }
     }
 }

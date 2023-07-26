@@ -1,5 +1,5 @@
 use crate::component::pool_map::PoolMap;
-use crate::component::{entry::TxEntry, score_key::AncestorsScoreSortKey};
+use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
