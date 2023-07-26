@@ -1,44 +1,45 @@
+extern crate slab;
 use crate::component::pool_map::PoolMap;
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
+use ckb_multi_index_map::MultiIndexMap;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashSet;
 
 // A template data struct used to store modified entries when package txs
-#[derive(Default)]
-pub struct TxModifiedEntries {
-    entries: HashMap<ProposalShortId, TxEntry>,
-    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+#[derive(MultiIndexMap, Clone)]
+pub struct ModifiedTx {
+    #[multi_index(hashed_unique)]
+    pub id: ProposalShortId,
+    #[multi_index(ordered_non_unique)]
+    pub score: AncestorsScoreSortKey,
+    pub inner: TxEntry,
 }
 
-impl TxModifiedEntries {
+impl MultiIndexModifiedTxMap {
     pub fn next_best_entry(&self) -> Option<&TxEntry> {
-        self.sorted_index
-            .iter()
-            .max()
-            .map(|key| self.entries.get(&key.id).expect("consistent"))
+        self.iter_by_score().last().map(|x| &x.inner)
     }
 
     pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
-        self.entries.get(id)
+        self.get_by_id(id).map(|x| &x.inner)
     }
 
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.entries.contains_key(id)
+        self.get_by_id(id).is_some()
     }
 
-    pub fn insert(&mut self, entry: TxEntry) {
-        let key = AncestorsScoreSortKey::from(&entry);
-        let short_id = entry.proposal_short_id();
-        self.entries.insert(short_id, entry);
-        self.sorted_index.insert(key);
+    pub fn insert_entry(&mut self, entry: TxEntry) {
+        let score = AncestorsScoreSortKey::from(&entry);
+        self.insert(ModifiedTx {
+            id: entry.proposal_short_id(),
+            score,
+            inner: entry,
+        });
     }
 
     pub fn remove(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
-        self.entries.remove(id).map(|entry| {
-            self.sorted_index.remove(&(&entry).into());
-            entry
-        })
+        self.remove_by_id(id).map(|x| x.inner)
     }
 }
 
@@ -53,7 +54,7 @@ pub struct CommitTxsScanner<'a> {
     entries: Vec<TxEntry>,
     // modified_entries will store sorted packages after they are modified
     // because some of their txs are already in the block
-    modified_entries: TxModifiedEntries,
+    modified_entries: MultiIndexModifiedTxMap,
     // txs that packaged in block
     fetched_txs: HashSet<ProposalShortId>,
     // Keep track of entries that failed inclusion, to avoid duplicate work
@@ -65,7 +66,7 @@ impl<'a> CommitTxsScanner<'a> {
         CommitTxsScanner {
             entries: Vec::new(),
             pool_map,
-            modified_entries: TxModifiedEntries::default(),
+            modified_entries: MultiIndexModifiedTxMap::default(),
             fetched_txs: HashSet::default(),
             failed_txs: HashSet::default(),
         }
@@ -210,7 +211,7 @@ impl<'a> CommitTxsScanner<'a> {
                     .or_else(|| self.pool_map.get(desc_id).cloned())
                 {
                     desc.sub_ancestor_weight(entry);
-                    self.modified_entries.insert(desc);
+                    self.modified_entries.insert_entry(desc);
                 }
             }
         }
