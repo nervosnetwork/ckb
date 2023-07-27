@@ -1,7 +1,5 @@
 #[cfg(feature = "std")]
 mod std_env;
-#[cfg(feature = "std")]
-pub use std_env::*;
 
 use crate::{borrow::ToOwned, bytes::Bytes, generated::packed, prelude::*, vec::Vec};
 
