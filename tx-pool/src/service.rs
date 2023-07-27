@@ -779,10 +779,10 @@ async fn process(mut service: TxPoolService, message: Message) {
                 ..
             }) = tx_pool.pool_map.get_by_id(&id)
             {
-                let tx_status = if status == &Status::Proposed {
-                    TxStatus::Proposed
+                let (tx_status, min_replace_fee) = if status == &Status::Proposed {
+                    (TxStatus::Proposed, None)
                 } else {
-                    TxStatus::Pending
+                    (TxStatus::Pending, tx_pool.min_replace_fee(entry))
                 };
                 Ok(TransactionWithStatus::with_status(
                     Some(entry.transaction().clone()),
@@ -790,7 +790,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                     entry.timestamp,
                     tx_status,
                     Some(entry.fee),
-                    tx_pool.min_replace_fee(entry),
+                    min_replace_fee,
                 ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 match recent_reject_db.get(&hash) {
