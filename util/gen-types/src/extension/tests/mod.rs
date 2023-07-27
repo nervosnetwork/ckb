@@ -8,3 +8,6 @@ mod check_data;
 
 #[cfg(any(feature = "serialized-size", feature = "std"))]
 mod serialized_size;
+
+#[cfg(feature = "std")]
+mod rust_core_traits;
