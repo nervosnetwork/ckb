@@ -113,7 +113,7 @@ pub enum RPCError {
     /// (-1110): The transaction exceeded maximum size limit.
     PoolRejectedTransactionBySizeLimit = -1110,
     /// (-1111): The transaction is rejected for RBF checking.
-    PoolRejctedRBF = -1111,
+    PoolRejectedRBF = -1111,
     /// (-1200): The indexer error.
     Indexer = -1200,
 }
@@ -175,7 +175,7 @@ impl RPCError {
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,
             Reject::Resolve(_) => RPCError::TransactionFailedToResolve,
             Reject::Verification(_) => RPCError::TransactionFailedToVerify,
-            Reject::RBFRejected(_) => RPCError::PoolRejctedRBF,
+            Reject::RBFRejected(_) => RPCError::PoolRejectedRBF,
             Reject::ExceededTransactionSizeLimit(_, _) => {
                 RPCError::PoolRejectedTransactionBySizeLimit
             }

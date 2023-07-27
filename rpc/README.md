@@ -5075,7 +5075,7 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
 (-1110): The transaction exceeded maximum size limit.
 
-### Error `PoolRejctedRBF`
+### Error `PoolRejectedRBF`
 
 (-1111): The transaction is rejected for RBF checking.
 
