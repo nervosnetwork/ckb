@@ -8,7 +8,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::error_target;
-use ckb_merkle_mountain_range::MMRStore;
+use ckb_merkle_mountain_range::MMRStoreReadOps;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
 use ckb_traits::HeaderProvider;
@@ -534,7 +534,7 @@ pub struct BlockExtensionVerifier<'a, 'b, CS, MS> {
     parent: &'b HeaderView,
 }
 
-impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
+impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStoreReadOps<HeaderDigest>>
     BlockExtensionVerifier<'a, 'b, CS, MS>
 {
     pub fn new(
@@ -621,7 +621,7 @@ pub struct ContextualBlockVerifier<'a, CS, MS> {
     chain_root_mmr: &'a ChainRootMMR<MS>,
 }
 
-impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDigest>>
+impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStoreReadOps<HeaderDigest>>
     ContextualBlockVerifier<'a, CS, MS>
 {
     /// Create new ContextualBlockVerifier

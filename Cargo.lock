@@ -915,9 +915,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-merkle-mountain-range"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56ccb671c5921be8a84686e6212ca184cb1d7c51cadcdbfcbd1cc3f042f5dfb8"
+version = "0.6.0"
+source = "git+https://github.com/quake/merkle-mountain-range?branch=quake/updatable#267702ae1391d817abf782142a1c245f516866a3"
 dependencies = [
  "cfg-if 1.0.0",
 ]

@@ -15,7 +15,9 @@ use ckb_db_schema::{
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
-use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
+use ckb_merkle_mountain_range::{
+    Error as MMRError, MMRStoreReadOps, MMRStoreWriteOps, Result as MMRResult,
+};
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus},
@@ -408,18 +410,15 @@ impl StoreTransaction {
     }
 }
 
-impl MMRStore<packed::HeaderDigest> for &StoreTransaction {
-    fn get_elem(&self, pos: u64) -> MMRResult<Option<packed::HeaderDigest>> {
+impl MMRStoreReadOps<packed::HeaderDigest> for &StoreTransaction {
+    fn get(&self, pos: u64) -> MMRResult<Option<packed::HeaderDigest>> {
         Ok(self.get_header_digest(pos))
     }
+}
 
-    fn append(&mut self, pos: u64, elems: Vec<packed::HeaderDigest>) -> MMRResult<()> {
-        for (offset, elem) in elems.iter().enumerate() {
-            let pos: u64 = pos + (offset as u64);
-            self.insert_header_digest(pos, elem).map_err(|err| {
-                MMRError::StoreError(format!("Failed to append to MMR, DB error {err}"))
-            })?;
-        }
-        Ok(())
+impl MMRStoreWriteOps<packed::HeaderDigest> for &StoreTransaction {
+    fn insert(&mut self, pos: u64, elem: packed::HeaderDigest) -> MMRResult<()> {
+        self.insert_header_digest(pos, &elem)
+            .map_err(|err| MMRError::StoreError(format!("Failed to append to MMR, DB error {err}")))
     }
 }

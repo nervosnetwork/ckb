@@ -11,9 +11,7 @@ use ckb_db::{
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
-use ckb_merkle_mountain_range::{
-    leaf_index_to_mmr_size, Error as MMRError, MMRStore, Result as MMRResult,
-};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRStoreReadOps, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::{HeaderFields, HeaderFieldsProvider, HeaderProvider};
@@ -292,14 +290,8 @@ impl ConsensusProvider for Snapshot {
     }
 }
 
-impl MMRStore<HeaderDigest> for &Snapshot {
-    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
+impl MMRStoreReadOps<HeaderDigest> for &Snapshot {
+    fn get(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
         Ok(self.store.get_header_digest(pos))
-    }
-
-    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
-        Err(MMRError::StoreError(
-            "Failed to append to MMR, snapshot MMR is readonly".into(),
-        ))
     }
 }
