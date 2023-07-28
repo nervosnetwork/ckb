@@ -12,8 +12,8 @@
 
 use crate::consensus::{
     build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
-    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TESTNET_ACTIVATION_THRESHOLD,
-    TYPE_ID_CODE_HASH,
+    LC_MAINNET_ACTIVATION_THRESHOLD, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+    TESTNET_ACTIVATION_THRESHOLD, TYPE_ID_CODE_HASH,
 };
 use crate::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_constant::hardfork::{mainnet, testnet};
@@ -506,7 +506,20 @@ impl ChainSpec {
 
     fn softfork_deployments(&self) -> Option<HashMap<DeploymentPos, Deployment>> {
         match self.name.as_str() {
-            mainnet::CHAIN_SPEC_NAME => None,
+            mainnet::CHAIN_SPEC_NAME => {
+                let mut deployments = HashMap::new();
+                let light_client = Deployment {
+                    bit: 1,
+                    start: 8_282,                // 2023/09/01 00:00:00 utc
+                    timeout: 8_552,              // 8_282 + 270
+                    min_activation_epoch: 8_648, // 2023/11/01 00:00:00 utc
+                    period: 42,
+                    active_mode: ActiveMode::Normal,
+                    threshold: LC_MAINNET_ACTIVATION_THRESHOLD,
+                };
+                deployments.insert(DeploymentPos::LightClient, light_client);
+                Some(deployments)
+            }
             testnet::CHAIN_SPEC_NAME => {
                 let mut deployments = HashMap::new();
                 let light_client = Deployment {
