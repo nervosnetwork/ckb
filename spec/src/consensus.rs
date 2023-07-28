@@ -92,7 +92,7 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
-// pub(crate) const MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(9, 10);
+pub(crate) const LC_MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(8, 10);
 pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 
 /// The struct represent CKB two-step-transaction-confirmation params
