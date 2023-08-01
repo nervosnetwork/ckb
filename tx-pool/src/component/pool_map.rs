@@ -110,6 +110,14 @@ impl PoolMap {
         self.entries.get_by_id(id)
     }
 
+    fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
+        self.get_by_id(id).expect("unconsistent pool")
+    }
+
+    fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
+        self.get_by_id(id).expect("unconsistent pool")
+    }
+
     pub(crate) fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
         self.entries.get_by_status(&status)
     }
@@ -450,10 +458,7 @@ impl PoolMap {
 
         // update parents references
         for ancestor_id in &ancestors {
-            let ancestor = self
-                .entries
-                .get_by_id(ancestor_id)
-                .expect("pool consistent");
+            let ancestor = self.get_by_id_checked(ancestor_id);
             entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
