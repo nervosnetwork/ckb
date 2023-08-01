@@ -167,9 +167,9 @@ impl PoolMap {
             return Ok(false);
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.check_record_ancestors(&mut entry)?;
+        self.check_and_record_ancestors(&mut entry)?;
         self.insert_entry(&entry, status);
-        self.record_entry_deps(&entry);
+        self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
         Ok(true)
     }
@@ -187,7 +187,6 @@ impl PoolMap {
         self.entries.remove_by_id(id).map(|entry| {
             self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
-            self.remove_entry_deps(&entry.inner);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
             entry.inner
@@ -366,7 +365,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_deps(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -419,7 +418,7 @@ impl PoolMap {
     }
 
     /// Check ancestors and record for entry
-    fn check_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
+    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
@@ -480,9 +479,7 @@ impl PoolMap {
             // release input record
             self.edges.remove_input(&i);
         }
-    }
 
-    fn remove_entry_deps(&mut self, entry: &TxEntry) {
         let id = entry.proposal_short_id();
         for d in entry.related_dep_out_points().cloned() {
             self.edges.delete_txid_by_dep(d, &id);
