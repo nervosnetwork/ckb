@@ -51,7 +51,7 @@ case $GITHUB_WORKFLOW in
     if [[ $github_workflow_os == 'macos' ]]; then
       export CKB_FEATURES="deadlock_detection,with_sentry,portable"
     fi
-    make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report" integration
+    make CKB_TEST_SEC_COEFFICIENT=5 CKB_TEST_ARGS="-c 4 --no-report --max-time 3600 " integration
     ;;
   ci_quick_checks*)
     echo "ci_quick_check"

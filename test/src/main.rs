@@ -125,7 +125,7 @@ fn main() {
 
     let (notify_tx, notify_rx) = unbounded();
 
-    let cloned_running_names = running_spec_names.clone();
+    let cloned_running_names = Arc::clone(&running_spec_names);
     ctrlc::set_handler(move || {
         std::thread::sleep(Duration::from_secs(1));
         warn!(
@@ -153,6 +153,7 @@ fn main() {
         if max_time > 0 && start_time.elapsed().as_secs() > max_time {
             // shutdown, specs running to long
             workers.shutdown();
+            break;
         }
 
         let msg = match notify_rx.recv_timeout(Duration::from_secs(5)) {
