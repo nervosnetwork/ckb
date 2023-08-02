@@ -135,8 +135,7 @@ fn main() {
         for name in cloned_running_names.lock().iter() {
             warn!("spec {} is still not finished", name);
         }
-        // sleep 1 second to wait for the log flush
-        std::thread::sleep(Duration::from_secs(1));
+        log::logger().flush();
         std::process::exit(1);
     })
     .expect("Error setting Ctrl-C handler");
