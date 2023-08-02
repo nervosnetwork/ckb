@@ -12,6 +12,7 @@ use clap::{App, Arg};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
+use std::collections::HashSet;
 use std::env;
 use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
@@ -113,6 +114,8 @@ fn main() {
     info!("max time: {:?}", max_time);
 
     let specs = filter_specs(all_specs(), spec_names_to_run);
+    let running_spec_names = Arc::new(Mutex::new(HashSet::new()));
+
     let total = specs.len();
     let worker_count = min(worker_count, total);
     let specs = Arc::new(Mutex::new(specs));
@@ -121,6 +124,21 @@ fn main() {
     let mut error_spec_names = Vec::new();
 
     let (notify_tx, notify_rx) = unbounded();
+
+    let cloned_running_names = Arc::clone(&running_spec_names);
+    ctrlc::set_handler(move || {
+        std::thread::sleep(Duration::from_secs(1));
+        warn!(
+            "Total {} specs are not finished",
+            cloned_running_names.lock().len()
+        );
+        for name in cloned_running_names.lock().iter() {
+            warn!("spec {} is still not finished", name);
+        }
+        log::logger().flush();
+        std::process::exit(1);
+    })
+    .expect("Error setting Ctrl-C handler");
 
     info!("start {} workers...", worker_count);
     let mut workers = Workers::new(worker_count, Arc::clone(&specs), notify_tx, start_port);
@@ -134,6 +152,7 @@ fn main() {
         if max_time > 0 && start_time.elapsed().as_secs() > max_time {
             // shutdown, specs running to long
             workers.shutdown();
+            break;
         }
 
         let msg = match notify_rx.recv_timeout(Duration::from_secs(5)) {
@@ -148,6 +167,7 @@ fn main() {
         match msg {
             Notify::Start { spec_name } => {
                 info!("[{}] Start executing", spec_name);
+                running_spec_names.lock().insert(spec_name);
             }
             Notify::Error {
                 spec_error,
@@ -166,6 +186,7 @@ fn main() {
                     workers.shutdown();
                     worker_running -= 1;
                 }
+                running_spec_names.lock().remove(&spec_name);
                 spec_errors.push(Some(spec_error));
                 if verbose {
                     info!("[{}] Error", spec_name);
@@ -189,6 +210,7 @@ fn main() {
                     worker_running -= 1;
                 }
                 spec_errors.push(None);
+                running_spec_names.lock().remove(&spec_name);
                 if verbose {
                     info!("[{}] Panic", spec_name);
                     print_panicked_logs(&node_log_paths);
@@ -204,6 +226,7 @@ fn main() {
                     status: TestResultStatus::Passed,
                     duration: seconds,
                 });
+                running_spec_names.lock().remove(&spec_name);
                 done_specs += 1;
                 info!(
                     "{}/{} .............. [{}] Done in {} seconds",
@@ -222,6 +245,7 @@ fn main() {
             }
         }
     }
+
     // join all workers threads
     workers.join_all();
 
@@ -294,8 +318,12 @@ fn clap_app() -> App<'static> {
                 .value_name("SECONDS")
                 .help("Exit when total running time exceeds this limit"),
         )
-        .arg(Arg::with_name("list-specs").long("list-specs"))
-        .arg(Arg::with_name("specs").multiple(true))
+        .arg(
+            Arg::with_name("list-specs")
+                .long("list-specs")
+                .help("list all specs"),
+        )
+        .arg(Arg::with_name("specs").multiple(true).help("Specs to run"))
         .arg(
             Arg::with_name("concurrent")
                 .short('c')
@@ -626,13 +654,13 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
 
 fn print_results(mut test_results: Vec<TestResult>) {
     println!("{}", "-".repeat(20));
-    println!("{:50} | {:10} | {:10}", "TEST", "STATUS", "DURATION");
+    println!("{:65} | {:10} | {:10}", "TEST", "STATUS", "DURATION");
 
     test_results.sort_by(|a, b| (&a.status, a.duration).cmp(&(&b.status, b.duration)));
 
     for result in test_results.iter() {
         println!(
-            "{:50} | {:10} | {:<10}",
+            "{:65} | {:10} | {:<10}",
             result.spec_name,
             format!("{:?}", result.status),
             format!("{} s", result.duration),
