@@ -1002,11 +1002,13 @@ impl TxPoolService {
 }
 
 type PreCheckedTx = (
-    Byte32,
-    Arc<ResolvedTransaction>,
-    TxStatus,
-    Capacity,
-    usize,
+    Byte32,                   // tip_hash
+    Arc<ResolvedTransaction>, // rtx
+    TxStatus,                 // status
+    Capacity,                 // tx fee
+    usize,                    // tx size
+    // the conflicted txs, used for latter `check_rbf`
+    // the root txs for removing from `tx-pool` when RBF is checked
     HashSet<ProposalShortId>,
 );
 

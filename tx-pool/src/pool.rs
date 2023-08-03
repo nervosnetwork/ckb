@@ -541,7 +541,7 @@ impl TxPool {
         assert!(!conflicts.is_empty());
 
         let short_id = rtx.transaction.proposal_short_id();
-        // Rule #4, new tx' fee need to higher than min_rbf_fee computed from the tx_pool configuration
+        // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
         if let Some(min_replace_fee) = self.calculate_min_replace_fee(conflicts, tx_size) {
             if fee < min_replace_fee {
