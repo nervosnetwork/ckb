@@ -11,6 +11,7 @@ use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::CapacityError;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -114,32 +115,21 @@ impl TxPool {
             })
             .collect::<Vec<_>>();
 
-        for x in entries.iter() {
-            eprintln!(
-                "old tx: {:?} fee: {:?}",
-                x.inner.transaction().hash(),
-                x.inner.fee
-            );
-        }
-
         let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
-        let replaced_sum_fee: Capacity =
-            entries
-                .iter()
-                .map(|c| c.inner.fee)
-                .fold(Capacity::zero(), |acc, x| {
-                    acc.safe_add(x).unwrap_or_else(|_| {
-                        error!("replaced_sum_fee {} overflow by add {}", acc, x);
-                        Capacity::zero()
-                    })
-                });
-        let res = replaced_sum_fee.safe_add(extra_rbf_fee);
+        let replaced_sum_fee = entries
+            .iter()
+            .map(|c| c.inner.fee)
+            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(x));
+        let res = replaced_sum_fee.map_or(Err(CapacityError::Overflow), |sum| {
+            sum.safe_add(extra_rbf_fee)
+        });
         if let Ok(res) = res {
             Some(res)
         } else {
+            let fees = entries.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
             error!(
-                "replaced_sum_fee {} overflow by add {}",
-                replaced_sum_fee, extra_rbf_fee
+                "conflicts: {:?} replaced_sum_fee {:?} overflow by add {}",
+                conflicts, fees, extra_rbf_fee
             );
             None
         }
@@ -551,7 +541,9 @@ impl TxPool {
                 )));
             }
         } else {
-            panic!("calculate_min_replace_fee must success");
+            return Err(Reject::RBFRejected(
+                "calculate_min_replace_fee failed".to_string(),
+            ));
         }
 
         let pool_entries = conflicts

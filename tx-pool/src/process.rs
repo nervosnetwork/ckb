@@ -134,7 +134,6 @@ impl TxPoolService {
                         ));
                         // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
                         // here we call them manually
-                        // TODO: how to call reject notify like service?
                         self.callbacks.call_reject(tx_pool, &old, reject)
                     }
                 }
