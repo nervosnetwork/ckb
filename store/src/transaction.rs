@@ -6,12 +6,13 @@ use ckb_db::{
     DBPinnableSlice, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
-    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    Col, CELLS_ROOT_MMR_ELEMENT_KEY_PREFIX, CELLS_ROOT_MMR_SIZE_KEY_PREFIX,
+    CELLS_ROOT_MMR_STATUS_KEY_PREFIX, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELLS_ROOT_MMR,
+    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX,
+    COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
 use ckb_freezer::Freezer;
@@ -21,11 +22,15 @@ use ckb_merkle_mountain_range::{
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus},
-        BlockExt, BlockView, EpochExt, HeaderView, TransactionView,
+        BlockExt, BlockNumber, BlockView, EpochExt, HeaderView, TransactionView,
     },
     packed::{self, Byte32, OutPoint},
     prelude::*,
-    utilities::calc_filter_hash,
+    utilities::{
+        calc_filter_hash,
+        merkle_mountain_range::{self, CellsRootMMR},
+    },
+    H256,
 };
 use std::sync::Arc;
 
@@ -408,6 +413,86 @@ impl StoreTransaction {
             block_hash.as_slice(),
         )
     }
+
+    /// Returns the `CellsRootMMR` struct of the given block number.
+    pub fn cells_root_mmr(
+        &self,
+        block_number: BlockNumber,
+    ) -> CellsRootMMR<CellsRootMMRStoreTransaction> {
+        let s = CellsRootMMRStoreTransaction::new(self, block_number);
+        CellsRootMMR::new(s.mmr_size(), s)
+    }
+
+    /// Updates the cells root mmr size of the given block number.
+    pub fn insert_cells_root_mmr_size(
+        &self,
+        block_number: BlockNumber,
+        size: u64,
+    ) -> Result<(), Error> {
+        let key = [CELLS_ROOT_MMR_SIZE_KEY_PREFIX, &block_number.to_be_bytes()].concat();
+        self.insert_raw(
+            COLUMN_CELLS_ROOT_MMR,
+            key.as_slice(),
+            size.to_le_bytes().as_ref(),
+        )
+    }
+
+    /// An internal method to update the cells root mmr element of the given position and block number.
+    pub fn insert_cells_root_mmr_element(
+        &self,
+        position: u64,
+        block_number: BlockNumber,
+        elem: H256,
+    ) -> Result<(), Error> {
+        let key = [
+            CELLS_ROOT_MMR_ELEMENT_KEY_PREFIX,
+            &position.to_le_bytes(),
+            &block_number.to_be_bytes(),
+        ]
+        .concat();
+        self.insert_raw(COLUMN_CELLS_ROOT_MMR, key.as_slice(), elem.as_bytes())
+    }
+
+    /// Updates the cells root mmr status of the given out point.
+    pub fn insert_cells_root_mmr_status(
+        &self,
+        out_point: &OutPoint,
+        cell_status: &merkle_mountain_range::CellStatus,
+    ) -> Result<(), Error> {
+        let key = [CELLS_ROOT_MMR_STATUS_KEY_PREFIX, out_point.as_slice()].concat();
+        self.insert_raw(
+            COLUMN_CELLS_ROOT_MMR,
+            key.as_slice(),
+            cell_status.to_vec().as_slice(),
+        )
+    }
+
+    /// Deletes the cells root mmr size of the given block number.
+    pub fn delete_cells_root_mmr_size(&self, block_number: BlockNumber) -> Result<(), Error> {
+        let key = [CELLS_ROOT_MMR_SIZE_KEY_PREFIX, &block_number.to_be_bytes()].concat();
+        self.delete(COLUMN_CELLS_ROOT_MMR, key.as_slice())
+    }
+
+    /// Deletes the cells root mmr element of the given position and block number.
+    pub fn delete_cells_root_mmr_element(
+        &self,
+        position: u64,
+        block_number: BlockNumber,
+    ) -> Result<(), Error> {
+        let key = [
+            CELLS_ROOT_MMR_ELEMENT_KEY_PREFIX,
+            &position.to_le_bytes(),
+            &block_number.to_be_bytes(),
+        ]
+        .concat();
+        self.delete(COLUMN_CELLS_ROOT_MMR, key.as_slice())
+    }
+
+    /// Deletes the cells root mmr status of the given out point.
+    pub fn delete_cells_root_mmr_status(&self, out_point: &OutPoint) -> Result<(), Error> {
+        let key = [CELLS_ROOT_MMR_STATUS_KEY_PREFIX, out_point.as_slice()].concat();
+        self.delete(COLUMN_CELLS_ROOT_MMR, key.as_slice())
+    }
 }
 
 impl MMRStoreReadOps<packed::HeaderDigest> for &StoreTransaction {
@@ -419,6 +504,42 @@ impl MMRStoreReadOps<packed::HeaderDigest> for &StoreTransaction {
 impl MMRStoreWriteOps<packed::HeaderDigest> for &StoreTransaction {
     fn insert(&mut self, pos: u64, elem: packed::HeaderDigest) -> MMRResult<()> {
         self.insert_header_digest(pos, &elem)
+            .map_err(|err| MMRError::StoreError(format!("Failed to append to MMR, DB error {err}")))
+    }
+}
+
+/// A store tranaction wrapper for cells root MMR
+pub struct CellsRootMMRStoreTransaction<'a> {
+    store_transaction: &'a StoreTransaction,
+    block_number: BlockNumber,
+}
+
+impl<'a> CellsRootMMRStoreTransaction<'a> {
+    fn new(store_transaction: &'a StoreTransaction, block_number: BlockNumber) -> Self {
+        CellsRootMMRStoreTransaction {
+            store_transaction,
+            block_number,
+        }
+    }
+
+    fn mmr_size(&self) -> u64 {
+        self.store_transaction
+            .get_cells_root_mmr_size(self.block_number)
+    }
+}
+
+impl<'a> MMRStoreReadOps<H256> for CellsRootMMRStoreTransaction<'a> {
+    fn get(&self, pos: u64) -> MMRResult<Option<H256>> {
+        Ok(self
+            .store_transaction
+            .get_cells_root_mmr_element(pos, self.block_number))
+    }
+}
+
+impl<'a> MMRStoreWriteOps<H256> for CellsRootMMRStoreTransaction<'a> {
+    fn insert(&mut self, pos: u64, elem: H256) -> MMRResult<()> {
+        self.store_transaction
+            .insert_cells_root_mmr_element(pos, self.block_number, elem)
             .map_err(|err| MMRError::StoreError(format!("Failed to append to MMR, DB error {err}")))
     }
 }

@@ -10,18 +10,35 @@ use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as
 use crate::{
     core,
     core::{BlockNumber, EpochNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
-    packed,
+    packed::{self, OutPoint},
     prelude::*,
     utilities::compact_to_difficulty,
-    U256,
+    H256, U256,
 };
 
-/// A struct to implement MMR `Merge` trait
+/// A struct to implement MMR `Merge` trait, which is used for MMR of chain
 pub struct MergeHeaderDigest;
-/// MMR root
+/// MMR for chain root
 pub type ChainRootMMR<S> = MMR<packed::HeaderDigest, MergeHeaderDigest, S>;
-/// MMR proof
-pub type MMRProof = MerkleProof<packed::HeaderDigest, MergeHeaderDigest>;
+/// MMR proof for chain root
+pub type ChainRootMMRProof = MerkleProof<packed::HeaderDigest, MergeHeaderDigest>;
+
+/// A struct to implement MMR `Merge` trait, which is used for MMR of transaction output
+pub struct MergeH256;
+/// MMR for transaction output root
+pub type CellsRootMMR<S> = MMR<H256, MergeH256, S>;
+/// MMR proof for transaction output root
+pub type CellsRootMMRProof = MerkleProof<H256, MergeH256>;
+/// A struct represents the status of a transaction output
+#[derive(Debug, Clone)]
+pub struct CellStatus {
+    /// The position of the transaction output in MMR
+    pub mmr_position: u64,
+    /// The block number when the transaction output is created
+    pub created_by: BlockNumber,
+    /// The block number when the transaction output is consumed, default is `BlockNumber::MAX`, which means the transaction output is live
+    pub consumed_by: BlockNumber,
+}
 
 /// A Header and the fields which are used to do verification for its extra hash.
 #[derive(Debug, Clone)]
@@ -336,4 +353,84 @@ impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     fn set_missing_items(self, items: Self::MissingItems) -> Self {
         self.missing_tx_hashes(items)
     }
+}
+
+impl Merge for MergeH256 {
+    type Item = H256;
+
+    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> MMRResult<Self::Item> {
+        let mut hasher = new_blake2b();
+        let mut hash = [0u8; 32];
+        hasher.update(&lhs.0);
+        hasher.update(&rhs.0);
+        hasher.finalize(&mut hash);
+        Ok(H256(hash))
+    }
+
+    fn merge_peaks(lhs: &Self::Item, rhs: &Self::Item) -> MMRResult<Self::Item> {
+        Self::merge(rhs, lhs)
+    }
+}
+
+impl CellStatus {
+    /// Creates a new `CellStatus`, the default `CellStatus` is live
+    pub fn new(mmr_position: u64, created_by: BlockNumber) -> Self {
+        Self {
+            mmr_position,
+            created_by,
+            consumed_by: BlockNumber::MAX,
+        }
+    }
+
+    /// Creates a new `CellStatus` from slice, the length of slice must be 24
+    pub fn new_unchecked(data: &[u8]) -> Self {
+        let mmr_position =
+            u64::from_le_bytes(data[0..8].try_into().expect("slice with incorrect length"));
+        let created_by =
+            u64::from_le_bytes(data[8..16].try_into().expect("slice with incorrect length"));
+        let consumed_by = u64::from_le_bytes(
+            data[16..24]
+                .try_into()
+                .expect("slice with incorrect length"),
+        );
+        Self {
+            mmr_position,
+            created_by,
+            consumed_by,
+        }
+    }
+
+    /// Mark the `CellStatus` as dead
+    pub fn mark_as_consumed(&mut self, consumed_by: BlockNumber) {
+        self.consumed_by = consumed_by;
+    }
+
+    /// Mark the `CellStatus` as live
+    pub fn mark_as_live(&mut self) {
+        self.consumed_by = BlockNumber::MAX;
+    }
+
+    /// Convert `CellStatus` to bytes
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(24);
+        buf.extend_from_slice(&self.mmr_position.to_le_bytes());
+        buf.extend_from_slice(&self.created_by.to_le_bytes());
+        buf.extend_from_slice(&self.consumed_by.to_le_bytes());
+        buf
+    }
+}
+
+/// Hash out_point and status, the result is used as mmr leaf node
+pub fn hash_out_point_and_status(
+    out_point: &OutPoint,
+    created_by: BlockNumber,
+    consumed_by: BlockNumber,
+) -> H256 {
+    let mut hasher = new_blake2b();
+    hasher.update(out_point.as_slice());
+    hasher.update(created_by.to_le_bytes().as_slice());
+    hasher.update(consumed_by.to_le_bytes().as_slice());
+    let mut hash = [0u8; 32];
+    hasher.finalize(&mut hash);
+    H256(hash)
 }

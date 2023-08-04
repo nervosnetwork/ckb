@@ -11,6 +11,8 @@ pub enum DeploymentPos {
     Testdummy,
     /// light client protocol
     LightClient,
+    /// Tranaction output commitments
+    CellsCommitments,
 }
 
 /// The possible softfork deployment state

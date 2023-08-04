@@ -3,7 +3,7 @@ use ckb_network::{CKBProtocolHandler, PeerIndex, SupportProtocols};
 use ckb_types::{
     packed,
     prelude::*,
-    utilities::merkle_mountain_range::{HeaderDigest, MMRProof, VerifiableHeader},
+    utilities::merkle_mountain_range::{ChainRootMMRProof, HeaderDigest, VerifiableHeader},
 };
 
 use crate::tests::{
@@ -63,10 +63,10 @@ async fn get_last_state_proof_with_the_genesis_block() {
     // Verify MMR Proof
     {
         let parent_chain_root = verifiable_tip_header.parent_chain_root();
-        let proof: MMRProof = {
+        let proof = {
             let mmr_size = leaf_index_to_mmr_size(parent_chain_root.end_number().unpack());
             let proof = content.proof().into_iter().collect();
-            MMRProof::new(mmr_size, proof)
+            ChainRootMMRProof::new(mmr_size, proof)
         };
         let digests_with_positions = {
             let result = content

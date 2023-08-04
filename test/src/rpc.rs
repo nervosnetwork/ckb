@@ -261,11 +261,13 @@ impl RpcClient {
             .pack()
     }
 
-    pub fn generate_block_with_template(&self, block_template: BlockTemplate) -> Byte32 {
+    pub fn generate_block_with_template(
+        &self,
+        block_template: BlockTemplate,
+    ) -> Result<Byte32, AnyError> {
         self.inner()
             .generate_block_with_template(block_template)
-            .expect("rpc call generate_block_with_template")
-            .pack()
+            .map(|x| x.pack())
     }
 
     pub fn calculate_dao_maximum_withdraw(

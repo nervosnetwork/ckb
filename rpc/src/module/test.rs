@@ -534,12 +534,31 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(tx_hash.unpack())
     }
 
-    fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
+    fn generate_block_with_template(&self, mut block_template: BlockTemplate) -> Result<H256> {
         let dao_field = self.calculate_dao_field(block_template.clone())?;
 
-        let mut update_dao_template = block_template;
-        update_dao_template.dao = dao_field;
-        let block = update_dao_template.into();
+        let cellbase = packed::Transaction::from(block_template.cellbase.data.clone()).into_view();
+        let txs = block_template
+            .transactions
+            .iter()
+            .map(|t| packed::Transaction::from(t.data.clone()).into_view())
+            .collect::<Vec<_>>();
+        let extension = self
+            .shared
+            .snapshot()
+            .build_extension(&cellbase, txs.iter())
+            .map_err(|err| {
+                error!(
+                    "build extension error when generating block \
+                 with block template, error: {:?}",
+                    err
+                );
+                RPCError::invalid_params(err.to_string())
+            })?;
+
+        block_template.dao = dao_field;
+        block_template.extension = extension.map(|e| e.into());
+        let block = block_template.into();
         self.process_and_announce_block(block)
     }
 

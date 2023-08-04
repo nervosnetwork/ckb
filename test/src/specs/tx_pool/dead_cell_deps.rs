@@ -57,23 +57,11 @@ impl Spec for CellBeingCellDepThenSpentInSameBlockTestSubmitBlock {
         };
 
         // Propose B and C, to prepare testing
-        let block = node0
-            .new_block_builder(None, None, None)
-            .proposal(tx_b.proposal_short_id())
-            .proposal(tx_c.proposal_short_id())
-            .build();
-        node0.submit_block(&block);
+        node0.submit_blank_block_with_proposals(&[&tx_b, &tx_c]);
         node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Create block commits B and C in order
-        let block = node0
-            .new_block_builder(None, None, None)
-            .transactions(vec![tx_c, tx_b])
-            .build();
-
-        let ret = node0
-            .rpc_client()
-            .submit_block("".to_owned(), block.data().into());
+        let ret = node0.submit_blank_block_with_transactions(&[&tx_c, &tx_b]);
         assert!(
             ret.is_ok(),
             "a block commits transactions [C, B] should be valid, ret: {ret:?}"
@@ -129,23 +117,11 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
         };
 
         // Propose B and C, to prepare testing
-        let block = node0
-            .new_block_builder(None, None, None)
-            .proposal(tx_b.proposal_short_id())
-            .proposal(tx_c.proposal_short_id())
-            .build();
-        node0.submit_block(&block);
+        node0.submit_blank_block_with_proposals(&[&tx_b, &tx_c]);
         node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Create block commits B and C in order
-        let block = node0
-            .new_block_builder(None, None, None)
-            .transactions(vec![tx_b, tx_c])
-            .build();
-
-        let ret = node0
-            .rpc_client()
-            .submit_block("".to_owned(), block.data().into());
+        let ret = node0.submit_blank_block_with_transactions(&[&tx_b, &tx_c]);
         assert!(
             ret.is_err(),
             "a block commits transactions [B, C] should be invalid, ret: {ret:?}"
@@ -256,12 +232,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
         }
 
         // Propose B and C, to prepare testing
-        let block = node0
-            .new_block_builder(None, None, None)
-            .proposal(tx_b.proposal_short_id())
-            .proposal(tx_c.proposal_short_id())
-            .build();
-        node0.submit_block(&block);
+        node0.submit_blank_block_with_proposals(&[&tx_b, &tx_c]);
         node0.mine(node0.consensus().tx_proposal_window().closest());
 
         // Submit B and C

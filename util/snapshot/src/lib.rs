@@ -10,23 +10,30 @@ use ckb_db::{
     DBPinnableSlice,
 };
 use ckb_db_schema::Col;
+use ckb_error::{InternalError, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRStoreReadOps, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::{HeaderFields, HeaderFieldsProvider, HeaderProvider};
-use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
+        error::OutPointError,
         BlockNumber, EpochExt, HeaderView, TransactionView, Version,
     },
-    packed::{Byte32, HeaderDigest, OutPoint},
-    utilities::merkle_mountain_range::ChainRootMMR,
-    U256,
+    packed::{Byte32, Bytes, HeaderDigest, OutPoint},
+    prelude::{Entity, Pack},
+    utilities::merkle_mountain_range::{
+        self, hash_out_point_and_status, CellsRootMMR, ChainRootMMR,
+    },
+    H256, U256,
 };
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+};
 
 /// An Atomic wrapper for Snapshot
 pub struct SnapshotMgr {
@@ -180,6 +187,122 @@ impl Snapshot {
         let mmr_size = leaf_index_to_mmr_size(block_number);
         ChainRootMMR::new(mmr_size, self)
     }
+
+    /// Returns the `CellsRootMMR` struct of the given block number.
+    pub fn cells_root_mmr(&self, block_number: BlockNumber) -> CellsRootMMR<CellsRootMMRSnapshot> {
+        let s = CellsRootMMRSnapshot::new(self, block_number);
+        CellsRootMMR::new(s.mmr_size(), s)
+    }
+
+    /// Build dummy extension for current tip.
+    pub fn build_dummy_extension(&self) -> Option<Bytes> {
+        let lc_activate = self.versionbits_active(DeploymentPos::LightClient);
+        let tc_activate = self.versionbits_active(DeploymentPos::CellsCommitments);
+        match (lc_activate, tc_activate) {
+            (true, true) => {
+                let extension = [0u8; 64];
+                Some(extension.as_slice().pack())
+            }
+            (true, false) => {
+                let extension = [0u8; 32];
+                Some(extension.as_slice().pack())
+            }
+            (false, true) => {
+                let extension = [0u8; 32];
+                Some(extension.as_slice().pack())
+            }
+            (false, false) => None,
+        }
+    }
+
+    /// Build extension for current tip with given cellbase and txs.
+    pub fn build_extension<'a>(
+        &self,
+        cellbase: &TransactionView,
+        txs: impl Iterator<Item = &'a TransactionView>,
+    ) -> Result<Option<Bytes>, InternalError> {
+        let tip_header = self.tip_header();
+        let lc_activate = self.versionbits_active(DeploymentPos::LightClient);
+        let tc_activate = self.versionbits_active(DeploymentPos::CellsCommitments);
+        match (lc_activate, tc_activate) {
+            (true, true) => {
+                let chain_root = self
+                    .chain_root_mmr(tip_header.number())
+                    .get_root()
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let cells_root = self.build_cells_root(cellbase, txs)?;
+                let bytes = [chain_root.calc_mmr_hash().as_slice(), cells_root.as_bytes()]
+                    .concat()
+                    .pack();
+                Ok(Some(bytes))
+            }
+            (true, false) => {
+                let chain_root = self
+                    .chain_root_mmr(tip_header.number())
+                    .get_root()
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+                Ok(Some(bytes))
+            }
+            (false, true) => {
+                let cells_root = self.build_cells_root(cellbase, txs)?;
+                let bytes = cells_root.as_bytes().pack();
+                Ok(Some(bytes))
+            }
+            (false, false) => Ok(None),
+        }
+    }
+
+    fn build_cells_root<'a>(
+        &self,
+        cellbase: &TransactionView,
+        txs: impl Iterator<Item = &'a TransactionView>,
+    ) -> Result<H256, InternalError> {
+        let tip_number = self.tip_header().number();
+        let created_by = tip_number + 1;
+        let consumed_by = tip_number + 1;
+        let mut uncommitted_out_points = HashMap::new();
+        let mut cells_root_mmr = self.cells_root_mmr(created_by);
+
+        for out_point in cellbase.output_pts().into_iter() {
+            let hash = hash_out_point_and_status(&out_point, created_by, BlockNumber::MAX);
+            cells_root_mmr
+                .push(hash.clone())
+                .map_err(|e| InternalErrorKind::MMR.other(e))?;
+        }
+
+        for tx in txs {
+            for input in tx.inputs().into_iter() {
+                let out_point = input.previous_output();
+                let cell_status = self
+                    .get_cells_root_mmr_status(&out_point)
+                    .or_else(|| uncommitted_out_points.get(&out_point).cloned())
+                    .expect("out_point must exist");
+                let hash =
+                    hash_out_point_and_status(&out_point, cell_status.created_by, consumed_by);
+                cells_root_mmr
+                    .update(cell_status.mmr_position, hash)
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+            }
+
+            for out_point in tx.output_pts().into_iter() {
+                let hash = hash_out_point_and_status(&out_point, created_by, BlockNumber::MAX);
+                let mmr_position = cells_root_mmr
+                    .push(hash.clone())
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let cell_status = merkle_mountain_range::CellStatus::new(mmr_position, created_by);
+                uncommitted_out_points.insert(out_point, cell_status);
+            }
+        }
+        if cells_root_mmr.is_empty() {
+            // cells root mmr may be empty when there is no txs in the block and cellbase has no outputs (block_number < finalization_delay_length)
+            Ok(H256([0u8; 32]))
+        } else {
+            cells_root_mmr
+                .get_root()
+                .map_err(|e| InternalErrorKind::MMR.other(e))
+        }
+    }
 }
 
 impl ChainStore for Snapshot {
@@ -293,5 +416,34 @@ impl ConsensusProvider for Snapshot {
 impl MMRStoreReadOps<HeaderDigest> for &Snapshot {
     fn get(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
         Ok(self.store.get_header_digest(pos))
+    }
+}
+
+/// A snapshot wrapper for cells root MMR
+pub struct CellsRootMMRSnapshot<'a> {
+    snapshot: &'a Snapshot,
+    block_number: BlockNumber,
+}
+
+impl<'a> CellsRootMMRSnapshot<'a> {
+    fn new(snapshot: &'a Snapshot, block_number: BlockNumber) -> Self {
+        CellsRootMMRSnapshot {
+            snapshot,
+            block_number,
+        }
+    }
+
+    fn mmr_size(&self) -> u64 {
+        self.snapshot
+            .store
+            .get_cells_root_mmr_size(self.block_number)
+    }
+}
+
+impl<'a> MMRStoreReadOps<H256> for CellsRootMMRSnapshot<'a> {
+    fn get(&self, pos: u64) -> MMRResult<Option<H256>> {
+        Ok(self
+            .snapshot
+            .get_cells_root_mmr_element(pos, self.block_number))
     }
 }

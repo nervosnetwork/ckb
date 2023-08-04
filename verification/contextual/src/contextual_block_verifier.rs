@@ -10,17 +10,18 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::error_target;
 use ckb_merkle_mountain_range::MMRStoreReadOps;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
+use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore, StoreTransaction};
 use ckb_traits::HeaderProvider;
 use ckb_types::{
-    core::error::OutPointError,
     core::{
         cell::{HeaderChecker, ResolvedTransaction},
         BlockReward, BlockView, Capacity, Cycle, EpochExt, HeaderView, TransactionView,
     },
+    core::{error::OutPointError, BlockNumber},
     packed::{Byte32, CellOutput, HeaderDigest, Script},
     prelude::*,
-    utilities::merkle_mountain_range::ChainRootMMR,
+    utilities::merkle_mountain_range::{hash_out_point_and_status, CellStatus, ChainRootMMR},
+    H256,
 };
 use ckb_verification::cache::{
     TxVerificationCache, {CacheEntry, Completed},
@@ -531,6 +532,7 @@ impl<'a> EpochVerifier<'a> {
 pub struct BlockExtensionVerifier<'a, 'b, CS, MS> {
     context: &'a VerifyContext<CS>,
     chain_root_mmr: &'a ChainRootMMR<MS>,
+    store_transaction: &'a StoreTransaction,
     parent: &'b HeaderView,
 }
 
@@ -540,25 +542,29 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStoreReadOps<HeaderDige
     pub fn new(
         context: &'a VerifyContext<CS>,
         chain_root_mmr: &'a ChainRootMMR<MS>,
+        store_transaction: &'a StoreTransaction,
         parent: &'b HeaderView,
     ) -> Self {
         BlockExtensionVerifier {
             context,
             chain_root_mmr,
+            store_transaction,
             parent,
         }
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let extra_fields_count = block.data().count_extra_fields();
-
-        let mmr_active = self
+        let lc_activate = self
             .context
             .versionbits_active(DeploymentPos::LightClient, self.parent);
+        let tc_activate = self
+            .context
+            .versionbits_active(DeploymentPos::CellsCommitments, self.parent);
 
         match extra_fields_count {
             0 => {
-                if mmr_active {
+                if lc_activate || tc_activate {
                     return Err(BlockErrorKind::NoBlockExtension.into());
                 }
             }
@@ -574,20 +580,58 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStoreReadOps<HeaderDige
                 if extension.len() > 96 {
                     return Err(BlockErrorKind::ExceededMaximumBlockExtensionBytes.into());
                 }
-                if mmr_active {
-                    if extension.len() < 32 {
-                        return Err(BlockErrorKind::InvalidBlockExtension.into());
-                    }
+                match (lc_activate, tc_activate) {
+                    (true, true) => {
+                        if extension.len() < 64 {
+                            return Err(BlockErrorKind::InvalidBlockExtension.into());
+                        }
 
-                    let chain_root = self
-                        .chain_root_mmr
-                        .get_root()
-                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                    let actual_root_hash = chain_root.calc_mmr_hash();
-                    let expected_root_hash =
-                        Byte32::new_unchecked(extension.raw_data().slice(..32));
-                    if actual_root_hash != expected_root_hash {
-                        return Err(BlockErrorKind::InvalidChainRoot.into());
+                        let chain_root = self
+                            .chain_root_mmr
+                            .get_root()
+                            .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                        let actual_root_hash = chain_root.calc_mmr_hash();
+                        let expected_root_hash =
+                            Byte32::new_unchecked(extension.raw_data().slice(..32));
+                        if actual_root_hash != expected_root_hash {
+                            return Err(BlockErrorKind::InvalidChainRoot.into());
+                        }
+
+                        let cells_root = self.get_cells_root(block)?;
+                        let expected_root_hash = extension.raw_data().slice(32..64);
+                        if cells_root.as_bytes() != expected_root_hash.as_ref() {
+                            return Err(BlockErrorKind::InvalidCellsRoot.into());
+                        }
+                    }
+                    (false, true) => {
+                        if extension.len() < 32 {
+                            return Err(BlockErrorKind::InvalidBlockExtension.into());
+                        }
+
+                        let cells_root = self.get_cells_root(block)?;
+                        let expected_root_hash = extension.raw_data().slice(..32);
+                        if cells_root.as_bytes() != expected_root_hash.as_ref() {
+                            return Err(BlockErrorKind::InvalidCellsRoot.into());
+                        }
+                    }
+                    (true, false) => {
+                        if extension.len() < 32 {
+                            return Err(BlockErrorKind::InvalidBlockExtension.into());
+                        }
+
+                        let chain_root = self
+                            .chain_root_mmr
+                            .get_root()
+                            .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                        let actual_root_hash = chain_root.calc_mmr_hash();
+                        let expected_root_hash =
+                            Byte32::new_unchecked(extension.raw_data().slice(..32));
+                        if actual_root_hash != expected_root_hash {
+                            return Err(BlockErrorKind::InvalidChainRoot.into());
+                        }
+                    }
+                    (false, false) => {
+                        // ignore
                     }
                 }
             }
@@ -601,6 +645,43 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStoreReadOps<HeaderDige
             return Err(BlockErrorKind::InvalidExtraHash.into());
         }
         Ok(())
+    }
+
+    fn get_cells_root(&self, block: &BlockView) -> Result<H256, Error> {
+        let block_number = block.header().number();
+        let txn = self.store_transaction;
+        let mut cells_root_mmr = txn.cells_root_mmr(block_number);
+        for tx in block.transactions().iter() {
+            for input in tx.inputs().into_iter() {
+                let out_point = input.previous_output();
+                if let Some(mut cell_status) = txn.get_cells_root_mmr_status(&out_point) {
+                    let hash =
+                        hash_out_point_and_status(&out_point, cell_status.created_by, block_number);
+                    cells_root_mmr
+                        .update(cell_status.mmr_position, hash)
+                        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                    cell_status.mark_as_consumed(block_number);
+                    txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
+                }
+            }
+
+            for out_point in tx.output_pts().into_iter() {
+                let hash = hash_out_point_and_status(&out_point, block_number, BlockNumber::MAX);
+                let mmr_position = cells_root_mmr
+                    .push(hash.clone())
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                let cell_status = CellStatus::new(mmr_position, block_number);
+                txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
+            }
+        }
+        if cells_root_mmr.is_empty() {
+            // cells root mmr may be empty when there is no txs in the block and cellbase has no outputs (block_number < finalization_delay_length)
+            Ok(H256([0u8; 32]))
+        } else {
+            cells_root_mmr
+                .get_root()
+                .map_err(|e| InternalErrorKind::MMR.other(e).into())
+        }
     }
 }
 
@@ -619,6 +700,7 @@ pub struct ContextualBlockVerifier<'a, CS, MS> {
     handle: &'a Handle,
     txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     chain_root_mmr: &'a ChainRootMMR<MS>,
+    store_transaction: &'a StoreTransaction,
 }
 
 impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStoreReadOps<HeaderDigest>>
@@ -631,6 +713,7 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStoreReadOps<Head
         switch: Switch,
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         chain_root_mmr: &'a ChainRootMMR<MS>,
+        store_transaction: &'a StoreTransaction,
     ) -> Self {
         ContextualBlockVerifier {
             context,
@@ -638,6 +721,7 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStoreReadOps<Head
             switch,
             txs_verify_cache,
             chain_root_mmr,
+            store_transaction,
         }
     }
 
@@ -690,7 +774,13 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStoreReadOps<Head
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent).verify(block)?;
+        BlockExtensionVerifier::new(
+            &self.context,
+            self.chain_root_mmr,
+            self.store_transaction,
+            &parent,
+        )
+        .verify(block)?;
 
         let ret = BlockTxsVerifier::new(
             self.context.clone(),

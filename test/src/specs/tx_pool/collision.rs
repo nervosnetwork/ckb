@@ -1,7 +1,7 @@
 use crate::util::check::{
     is_transaction_committed, is_transaction_pending, is_transaction_rejected,
 };
-use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
+use crate::utils::assert_send_transaction_fail;
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
 use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
@@ -70,12 +70,12 @@ impl Spec for ConflictInPending {
         let res = node.submit_transaction_with_result(&txb);
         assert!(res.is_err());
 
-        node.submit_block(&propose(node, &[&txa]));
+        node.submit_blank_block_with_proposals(&[&txa]);
         (0..window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
 
-        node.submit_block(&commit(node, &[&txa]));
+        node.submit_blank_block_with_transactions(&[&txa]).unwrap();
         node.mine(window.farthest());
     }
 }
@@ -93,12 +93,11 @@ impl Spec for ConflictInGap {
         let res = node.submit_transaction_with_result(&txb);
         assert!(res.is_err());
 
-        node.submit_block(&propose(node, &[&txa]));
+        node.submit_blank_block_with_proposals(&[&txa]);
         (0..window.closest() - 1).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
-        node.submit_block(&propose(node, &[&txb]));
-
+        node.submit_blank_block_with_proposals(&[&txb]);
         let block = node.new_block(None, None, None);
         assert_eq!(&[txa], &block.transactions()[1..]);
 
@@ -120,7 +119,7 @@ impl Spec for ConflictInProposed {
         let res = node.submit_transaction_with_result(&txb);
         assert!(res.is_err());
 
-        node.submit_block(&propose(node, &[&txa, &txb]));
+        node.submit_blank_block_with_proposals(&[&txa, &txb]);
         node.mine(window.farthest());
     }
 }
@@ -167,11 +166,11 @@ impl Spec for RemoveConflictFromPending {
         assert!(is_transaction_rejected(node, &txb));
         assert!(is_transaction_rejected(node, &txc));
 
-        node.submit_block(&propose(node, &[&txa]));
+        node.submit_blank_block_with_proposals(&[&txa]);
         (0..window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
-        node.submit_block(&commit(node, &[&txa]));
+        node.submit_blank_block_with_transactions(&[&txa]).unwrap();
         node.wait_for_tx_pool();
 
         assert!(is_transaction_committed(node, &txa));

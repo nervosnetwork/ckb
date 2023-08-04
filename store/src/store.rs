@@ -5,11 +5,13 @@ use ckb_db::{
     DBPinnableSlice,
 };
 use ckb_db_schema::{
-    Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    Col, CELLS_ROOT_MMR_ELEMENT_KEY_PREFIX, CELLS_ROOT_MMR_SIZE_KEY_PREFIX,
+    CELLS_ROOT_MMR_STATUS_KEY_PREFIX, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELLS_ROOT_MMR,
+    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -20,6 +22,8 @@ use ckb_types::{
     },
     packed::{self, OutPoint},
     prelude::*,
+    utilities::merkle_mountain_range::CellStatus,
+    H256,
 };
 
 /// The `ChainStore` trait provides chain data store interface
@@ -574,6 +578,44 @@ pub trait ChainStore: Send + Sync + Sized {
                 let reader = packed::HeaderDigestReader::from_slice_should_be_ok(slice.as_ref());
                 reader.to_entity()
             })
+    }
+
+    /// Gets cells root mmr size by block number
+    fn get_cells_root_mmr_size(&self, block_number: BlockNumber) -> u64 {
+        let start_key = [CELLS_ROOT_MMR_SIZE_KEY_PREFIX, &block_number.to_be_bytes()].concat();
+        self.get_iter(
+            COLUMN_CELLS_ROOT_MMR,
+            IteratorMode::From(&start_key, Direction::Reverse),
+        )
+        .take_while(|(key, _)| key.starts_with(CELLS_ROOT_MMR_SIZE_KEY_PREFIX))
+        .next()
+        .map(|(_key, value)| u64::from_le_bytes(value.as_ref().try_into().expect("stored u64")))
+        .unwrap_or_default()
+    }
+
+    /// Gets cells root mmr status by out point
+    fn get_cells_root_mmr_status(&self, out_point: &OutPoint) -> Option<CellStatus> {
+        let key = [CELLS_ROOT_MMR_STATUS_KEY_PREFIX, out_point.as_slice()].concat();
+        self.get(COLUMN_CELLS_ROOT_MMR, &key)
+            .map(|slice| CellStatus::new_unchecked(slice.as_ref()))
+    }
+
+    /// Gets cells root mmr element by position and block number
+    fn get_cells_root_mmr_element(&self, position: u64, block_number: BlockNumber) -> Option<H256> {
+        // block_number is stored as big endian for prefix search in lexicographical order
+        let start_key = [
+            CELLS_ROOT_MMR_ELEMENT_KEY_PREFIX,
+            &position.to_le_bytes(),
+            &block_number.to_be_bytes(),
+        ]
+        .concat();
+        self.get_iter(
+            COLUMN_CELLS_ROOT_MMR,
+            IteratorMode::From(&start_key, Direction::Reverse),
+        )
+        .take_while(|(key, _)| key.starts_with(&start_key[0..9]))
+        .next()
+        .map(|(_key, value)| H256::from_slice(value.as_ref()).expect("stored H256"))
     }
 
     /// Gets ancestor block header by a base block hash and number
