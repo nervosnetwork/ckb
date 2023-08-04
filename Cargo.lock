@@ -1518,6 +1518,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "dashmap",
  "once_cell",
  "sled",
  "tempfile",
