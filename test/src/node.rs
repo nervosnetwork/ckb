@@ -27,6 +27,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 struct ProcessGuard {
+    pub name: String,
     pub child: Child,
     pub killed: bool,
 }
@@ -35,8 +36,8 @@ impl Drop for ProcessGuard {
     fn drop(&mut self) {
         if !self.killed {
             match self.child.kill() {
-                Err(e) => error!("Could not kill ckb process: {}", e),
-                Ok(_) => debug!("Successfully killed ckb process"),
+                Err(e) => error!("Could not kill ckb process ({}): {}", self.name, e),
+                Ok(_) => debug!("Successfully killed ckb process ({})", self.name),
             }
             let _ = self.child.wait();
         }
@@ -44,6 +45,7 @@ impl Drop for ProcessGuard {
 }
 
 pub struct Node {
+    spec_node_name: String,
     working_dir: PathBuf,
     consensus: Consensus,
     p2p_listen: String,
@@ -74,8 +76,9 @@ impl Node {
                 .unwrap_or_else(|_| panic!("cp {:?} {}", src.display(), dest.display()));
         }
 
+        let spec_node_name = format!("{}_{}", spec_name, node_name);
         // Allocate rpc port and p2p port, and fill into app config
-        let mut node = Self::init(working_dir);
+        let mut node = Self::init(working_dir, spec_node_name);
         node.modify_app_config(|app_config| {
             let rpc_port = find_available_port();
             let p2p_port = find_available_port();
@@ -99,7 +102,7 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir());
+        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
@@ -112,11 +115,11 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir());
+        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
     }
 
     // Initialize Node instance based on working directory
-    fn init(working_dir: PathBuf) -> Self {
+    fn init(working_dir: PathBuf, spec_node_name: String) -> Self {
         let app_config = {
             let app_config_path = working_dir.join("ckb.toml");
             let toml = fs::read(app_config_path).unwrap();
@@ -144,6 +147,7 @@ impl Node {
             chain_spec.build_consensus().unwrap()
         };
         Self {
+            spec_node_name,
             working_dir,
             consensus,
             p2p_listen,
@@ -626,6 +630,7 @@ impl Node {
         self.wait_tx_pool_ready();
 
         self.guard = Some(ProcessGuard {
+            name: self.spec_node_name.clone(),
             child: child_process,
             killed: false,
         });
