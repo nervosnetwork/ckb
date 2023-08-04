@@ -7,8 +7,7 @@ use crate::component::links::{Relation, TxLinksMap};
 use crate::component::score_key::AncestorsScoreSortKey;
 use crate::error::Reject;
 use crate::TxEntry;
-
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use ckb_multi_index_map::MultiIndexMap;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
@@ -189,20 +188,18 @@ impl PoolMap {
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
-        if let Some(entry) = self.entries.remove_by_id(id) {
+        self.entries.remove_by_id(id).map(|entry| {
             self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_deps(&entry.inner);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
-            return Some(entry.inner);
-        }
-        None
+            entry.inner
+        })
     }
 
     pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
         let mut removed_ids = vec![id.to_owned()];
-        let mut removed = vec![];
         removed_ids.extend(self.calc_descendants(id));
 
         // update links state for remove, so that we won't update_descendants_index_key in remove_entry
@@ -210,12 +207,10 @@ impl PoolMap {
             self.remove_entry_links(id);
         }
 
-        for id in removed_ids {
-            if let Some(entry) = self.remove_entry(&id) {
-                removed.push(entry);
-            }
-        }
-        removed
+        removed_ids
+            .iter()
+            .filter_map(|id| self.remove_entry(id))
+            .collect()
     }
 
     pub(crate) fn resolve_conflict_header_dep(
@@ -341,16 +336,12 @@ impl PoolMap {
             self.links.calc_ancestors(&child.proposal_short_id());
         for anc_id in &ancestors {
             // update parent score
-            let entry = self.entries.get_by_id(anc_id).unwrap().clone();
-            let mut parent = entry.inner.clone();
-            match op {
-                EntryOp::Remove => parent.sub_descendant_weight(child),
-                EntryOp::Add => parent.add_descendant_weight(child),
-            }
-            let short_id = parent.proposal_short_id();
-            self.entries.modify_by_id(&short_id, |e| {
-                e.evict_key = parent.as_evict_key();
-                e.inner = parent;
+            self.entries.modify_by_id(anc_id, |e| {
+                match op {
+                    EntryOp::Remove => e.inner.sub_descendant_weight(child),
+                    EntryOp::Add => e.inner.add_descendant_weight(child),
+                };
+                e.evict_key = e.inner.as_evict_key();
             });
         }
     }
@@ -360,16 +351,12 @@ impl PoolMap {
             self.links.calc_descendants(&parent.proposal_short_id());
         for desc_id in &descendants {
             // update child score
-            let entry = self.entries.get_by_id(desc_id).unwrap().clone();
-            let mut child = entry.inner.clone();
-            match op {
-                EntryOp::Remove => child.sub_ancestor_weight(parent),
-                EntryOp::Add => child.add_ancestor_weight(parent),
-            }
-            let short_id = child.proposal_short_id();
-            self.entries.modify_by_id(&short_id, |e| {
-                e.score = child.as_score_key();
-                e.inner = child;
+            self.entries.modify_by_id(desc_id, |e| {
+                match op {
+                    EntryOp::Remove => e.inner.sub_ancestor_weight(parent),
+                    EntryOp::Add => e.inner.add_ancestor_weight(parent),
+                };
+                e.score = e.inner.as_score_key();
             });
         }
     }
@@ -466,7 +453,7 @@ impl PoolMap {
             entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
-            eprintln!("debug: exceeded maximum ancestors count");
+            debug!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
