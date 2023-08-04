@@ -1,5 +1,4 @@
 use ckb_types::packed::ProposalShortId;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug, Clone)]
@@ -47,33 +46,27 @@ impl TxLinksMap {
             .cloned()
             .unwrap_or_default();
 
-        self.calc_relation_ids(Cow::Owned(direct), relation)
+        self.calc_relation_ids(direct, relation)
     }
 
     pub fn calc_relation_ids(
         &self,
-        stage: Cow<HashSet<ProposalShortId>>,
+        mut stage: HashSet<ProposalShortId>,
         relation: Relation,
     ) -> HashSet<ProposalShortId> {
-        let mut stage = stage.into_owned();
         let mut relation_ids = HashSet::with_capacity(stage.len());
 
         while let Some(id) = stage.iter().next().cloned() {
-            relation_ids.insert(id.clone());
-            stage.remove(&id);
-
             //recursively
-            for id in self
-                .inner
-                .get(&id)
-                .map(|link| link.get_direct_ids(relation))
-                .cloned()
-                .unwrap_or_default()
-            {
-                if !relation_ids.contains(&id) {
-                    stage.insert(id);
+            if let Some(tx_links) = self.inner.get(&id) {
+                for direct_id in tx_links.get_direct_ids(relation) {
+                    if !relation_ids.contains(direct_id) {
+                        stage.insert(direct_id.clone());
+                    }
                 }
             }
+            stage.remove(&id);
+            relation_ids.insert(id);
         }
         relation_ids
     }

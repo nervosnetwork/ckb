@@ -21,7 +21,6 @@ use ckb_types::{
     core::cell::{CellMetaBuilder, CellProvider, CellStatus},
     prelude::*,
 };
-use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::links::TxLinks;
@@ -456,7 +455,7 @@ impl PoolMap {
 
         let ancestors = self
             .links
-            .calc_relation_ids(Cow::Borrowed(&parents), Relation::Parents);
+            .calc_relation_ids(parents.clone(), Relation::Parents);
 
         // update parents references
         for ancestor_id in &ancestors {
