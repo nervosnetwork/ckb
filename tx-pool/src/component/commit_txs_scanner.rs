@@ -1,9 +1,9 @@
 extern crate slab;
 use crate::component::pool_map::PoolMap;
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
-use ckb_multi_index_map::MultiIndexMap;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
+use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
 // A template data struct used to store modified entries when package txs

@@ -6,8 +6,8 @@ use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-use ckb_logger::{debug, trace};
-use ckb_multi_index_map::MultiIndexMap;
+
+use ckb_logger::trace;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
@@ -16,6 +16,7 @@ use ckb_types::{
     core::TransactionView,
     packed::{Byte32, CellOutput, ProposalShortId},
 };
+use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
 use super::links::TxLinks;
@@ -108,10 +109,6 @@ impl PoolMap {
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
-    }
-
-    fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
-        self.get_by_id(id).expect("unconsistent pool")
     }
 
     fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
