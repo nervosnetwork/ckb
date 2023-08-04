@@ -115,8 +115,8 @@ impl PoolMap {
         self.entries.get_by_id(id)
     }
 
-    pub(crate) fn get_by_status(&self, status: &Status) -> Vec<&PoolEntry> {
-        self.entries.get_by_status(status)
+    pub(crate) fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
+        self.entries.get_by_status(&status)
     }
 
     pub(crate) fn pending_size(&self) -> usize {
@@ -281,9 +281,9 @@ impl PoolMap {
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
         proposals: &mut HashSet<ProposalShortId>,
-        status: &Status,
+        status: Status,
     ) {
-        for entry in self.score_sorted_iter_by(vec![*status]) {
+        for entry in self.score_sorted_iter_by(vec![status]) {
             if proposals.len() == limit {
                 break;
             }

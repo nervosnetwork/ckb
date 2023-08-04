@@ -69,12 +69,12 @@ impl TxPool {
         Arc::clone(&self.snapshot)
     }
 
-    fn get_by_status(&self, status: &Status) -> Vec<&PoolEntry> {
+    fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
         self.pool_map.get_by_status(status)
     }
 
     /// Get tx-pool size
-    pub fn status_size(&self, status: &Status) -> usize {
+    pub fn status_size(&self, status: Status) -> usize {
         self.get_by_status(status).len()
     }
 
@@ -345,9 +345,9 @@ impl TxPool {
     ) -> HashSet<ProposalShortId> {
         let mut proposals = HashSet::with_capacity(limit);
         self.pool_map
-            .fill_proposals(limit, exclusion, &mut proposals, &Status::Pending);
+            .fill_proposals(limit, exclusion, &mut proposals, Status::Pending);
         self.pool_map
-            .fill_proposals(limit, exclusion, &mut proposals, &Status::Gap);
+            .fill_proposals(limit, exclusion, &mut proposals, Status::Gap);
         proposals
     }
 
