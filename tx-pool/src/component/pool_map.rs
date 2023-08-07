@@ -502,4 +502,3 @@ impl PoolMap {
         });
     }
 }
-
