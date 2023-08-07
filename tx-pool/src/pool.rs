@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
+
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,

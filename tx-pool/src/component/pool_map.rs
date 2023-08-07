@@ -481,7 +481,6 @@ impl PoolMap {
             // release input record
             self.edges.remove_input(&i);
         }
-
         let id = entry.proposal_short_id();
         for d in entry.related_dep_out_points().cloned() {
             self.edges.delete_txid_by_dep(d, &id);
@@ -503,3 +502,4 @@ impl PoolMap {
         });
     }
 }
+
