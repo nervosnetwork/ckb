@@ -6681,9 +6681,11 @@ Describes the lock script and type script for a cell.
 
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
-Allowed kinds: “data”, “type” and “data1”.
+Allowed kinds: “data”, “type”, “data1” and “data2”
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
+
+The hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.
 
 `ScriptHashType` is equivalent to `"data" | "type" | "data1" | "data2"`.
 
