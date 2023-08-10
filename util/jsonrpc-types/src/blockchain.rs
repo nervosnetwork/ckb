@@ -13,11 +13,17 @@ use std::fmt;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 ///
-/// Allowed kinds: "data", "type" and "data1".
+/// Allowed kinds: "data", "type", "data1" and “data2”
 ///
 /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
 /// in the RFC *CKB Transaction Structure*.
+///
+/// The hash type is split into the high 7 bits and the low 1 bit,
+/// when the low 1 bit is 1, it indicates the type,
+/// when the low 1 bit is 0, it indicates the data,
+/// and then it relies on the high 7 bits to indicate
+/// that the data actually corresponds to the version.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
@@ -28,7 +34,7 @@ pub enum ScriptHashType {
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
-    Data2 = 3,
+    Data2 = 4,
 }
 
 impl Default for ScriptHashType {

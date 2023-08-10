@@ -10,10 +10,10 @@ fn test_script_hash_type() {
     let default_value: u8 = default.into();
     assert_eq!(default_value, 0);
 
-    let max_value = 3u8;
+    let max_value = 4u8;
     for v in 0..32 {
         let res = ScriptHashType::try_from(v);
-        if v <= max_value {
+        if v <= max_value && v != 3 {
             let value: u8 = res.unwrap().into();
             assert_eq!(value, v);
         } else {
