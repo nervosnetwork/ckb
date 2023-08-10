@@ -123,7 +123,6 @@ gen-hashes: ## Generate docs/hashes.toml
 .PHONY: check
 check: setup-ckb-test ## Runs all of the compiler's checks.
 	cargo check ${VERBOSE} --all --all-targets --features ${ALL_FEATURES}
-	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 .PHONY: build
 build: ## Build binary with release profile.
@@ -176,12 +175,10 @@ docker-publish-rc:
 .PHONY: fmt
 fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 	cargo fmt ${VERBOSE} --all -- --check
-	cd test && cargo fmt ${VERBOSE} --all -- --check
 
 .PHONY: clippy
 clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
-	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: security-audit
 security-audit: ## Use cargo-deny to audit Cargo.lock for crates with security vulnerabilities.

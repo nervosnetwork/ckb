@@ -399,6 +399,7 @@ version = "0.112.0-pre"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
+ "ckb-test",
  "tikv-jemallocator",
 ]
 
@@ -1375,6 +1376,43 @@ name = "ckb-systemtime"
 version = "0.112.0-pre"
 
 [[package]]
+name = "ckb-test"
+version = "0.112.0-pre"
+dependencies = [
+ "byteorder",
+ "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-chain-spec",
+ "ckb-channel",
+ "ckb-constant",
+ "ckb-crypto",
+ "ckb-dao-utils",
+ "ckb-error",
+ "ckb-hash",
+ "ckb-jsonrpc-types",
+ "ckb-logger",
+ "ckb-logger-config",
+ "ckb-logger-service",
+ "ckb-network",
+ "ckb-resource",
+ "ckb-systemtime",
+ "ckb-test-chain-utils",
+ "ckb-types",
+ "ckb-util",
+ "clap 3.2.21",
+ "ctrlc",
+ "jsonrpc-core",
+ "lazy_static",
+ "log",
+ "nix 0.24.3",
+ "rand 0.7.3",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "ckb-test-chain-utils"
 version = "0.112.0-pre"
 dependencies = [
@@ -1566,13 +1604,16 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.23"
+version = "3.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71655c45cb9845d3270c9d6df84ebe72b4dad3c2ba3f7023ad47c144e4e473a5"
+checksum = "1ed5341b2301a26ab80be5cbdced622e80ed808483c52e45e3310a877d3b37d7"
 dependencies = [
+ "atty",
  "bitflags",
  "clap_lex 0.2.3",
  "indexmap",
+ "strsim",
+ "termcolor",
  "textwrap",
 ]
 
@@ -1707,7 +1748,7 @@ dependencies = [
  "atty",
  "cast",
  "ciborium",
- "clap 3.2.23",
+ "clap 3.2.21",
  "criterion-plot",
  "itertools 0.10.5",
  "lazy_static",
@@ -1810,7 +1851,7 @@ version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a19c6cedffdc8c03a3346d723eb20bd85a13362bb96dc2ac000842c6381ec7bf"
 dependencies = [
- "nix",
+ "nix 0.23.1",
  "winapi 0.3.9",
 ]
 
@@ -3186,6 +3227,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa52e972a9a719cecb6864fb88568781eb706bac2cd1d4f04a648542dbf78069"
+dependencies = [
+ "bitflags",
+ "cfg-if 1.0.0",
+ "libc",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4545,9 +4597,9 @@ dependencies = [
 
 [[package]]
 name = "textwrap"
-version = "0.16.0"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "222a222a5bfe1bba4a77b45ec488a741b3cb8872e5e499451fd7d0129c9c7c3d"
+checksum = "b7b3e525a49ec206798b40326a44121291b530c963cfb01018f63e135bac543d"
 
 [[package]]
 name = "thiserror"

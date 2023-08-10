@@ -43,16 +43,6 @@ log = "0.4"
 [target.'cfg(not(target_os="windows"))'.dependencies]
 nix = { version = "0.24.0", default-features = false, features = ["signal"] }
 
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
-
-[profile.release.build-override]
-opt-level = 3
-
-[profile.bench.build-override]
-opt-level = 3
-
 [features]
 default = []
 deadlock_detection = ["ckb-util/deadlock_detection"]

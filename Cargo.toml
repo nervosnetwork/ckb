@@ -18,6 +18,7 @@ ckb-build-info = { path = "util/build-info", version = "= 0.112.0-pre" }
 ckb-bin = { path = "ckb-bin", version = "= 0.112.0-pre" }
 
 [dev-dependencies]
+ckb-test = { path = "test", version = "= 0.112.0-pre" }
 
 [workspace]
 # To get a list sorted by dependencies, run devtools/ci/check-cyclic-dependencies.py

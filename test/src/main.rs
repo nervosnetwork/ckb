@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use ckb_channel::unbounded;
 use ckb_logger::{error, info, warn};
 use ckb_test::specs::*;
