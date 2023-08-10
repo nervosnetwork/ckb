@@ -94,6 +94,9 @@ genesis_epoch_length = 1000
 # For development and testing purposes only.
 # Keep difficulty be permanent if the pow is Dummy. (default: false)
 permanent_difficulty_in_dummy = true
+# For development and testing purposes only.
+# Specify the epoch length if permanent_difficulty_in_dummy is true, and it should not be 0
+epoch_length_in_dummy = 1000
 
 [params.hardfork]
 ckb2023 = 0
