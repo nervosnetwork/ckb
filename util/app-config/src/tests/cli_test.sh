@@ -11,7 +11,7 @@ function cleanup {
 
 trap cleanup EXIT
 
-cp target/release/ckb ${CKB_BATS_TESTBED}
+cp target/prod/ckb ${CKB_BATS_TESTBED}
 cp util/app-config/src/tests/*.bats ${CKB_BATS_TESTBED}
 cp -r util/app-config/src/tests/later_bats_job ${CKB_BATS_TESTBED}
 cp util/app-config/src/tests/*.sh ${CKB_BATS_TESTBED}
