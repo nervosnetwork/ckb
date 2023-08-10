@@ -45,7 +45,7 @@ pub struct PoolEntry {
     pub id: ProposalShortId,
     #[multi_index(ordered_non_unique)]
     pub score: AncestorsScoreSortKey,
-    #[multi_index(ordered_non_unique)]
+    #[multi_index(hashed_non_unique)]
     pub status: Status,
     #[multi_index(ordered_non_unique)]
     pub evict_key: EvictKey,
