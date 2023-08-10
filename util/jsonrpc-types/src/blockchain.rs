@@ -1380,6 +1380,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: Uint64,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// Specify the epoch length if the permanent_difficulty_in_dummy is true, and it should not be 0
+    pub epoch_length_in_dummy: Uint64,
     /// Hardfork features
     pub hardfork_features: HardForks,
     /// Softforks

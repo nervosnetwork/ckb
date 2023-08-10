@@ -1336,6 +1336,7 @@ pub trait ChainRpc {
     ///         "cellbase_maturity": "0x10000000000",
     ///         "dao_type_hash": null,
     ///         "epoch_duration_target": "0x3840",
+    ///         "epoch_length_in_dummy": "0x0",
     ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
     ///         "hardfork_features": [
     ///             { "rfc": "0028", "epoch_number": "0x1526" },

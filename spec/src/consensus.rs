@@ -286,6 +286,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
+                epoch_length_in_dummy: 0,
                 hardfork_switch: HardForks::new_mirana(),
                 deployments: HashMap::new(),
                 versionbits_caches: VersionbitsCache::default(),
@@ -464,6 +465,15 @@ impl ConsensusBuilder {
         self
     }
 
+    /// Sets epoch_length_in_dummy for the new Consensus.
+    ///
+    /// Work only under dummy Pow
+    #[must_use]
+    pub fn epoch_length_in_dummy(mut self, epoch_length: u64) -> Self {
+        self.inner.epoch_length_in_dummy = epoch_length;
+        self
+    }
+
     /// Sets max_block_proposals_limit for the new Consensus.
     #[must_use]
     pub fn max_block_proposals_limit(mut self, max_block_proposals_limit: u64) -> Self {
@@ -557,6 +567,8 @@ pub struct Consensus {
     pub primary_epoch_reward_halving_interval: EpochNumber,
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
+    /// Specify the epoch length if permanent_difficulty_in_dummy is true, and it should not be 0
+    pub epoch_length_in_dummy: u64,
     /// A switch to select hard fork features base on the epoch number.
     pub hardfork_switch: HardForks,
     /// Soft fork deployments
@@ -696,6 +708,15 @@ impl Consensus {
         self.pow.is_dummy() && self.permanent_difficulty_in_dummy
     }
 
+    /// The epoch length in dummy mode
+    pub fn epoch_length_in_dummy(&self) -> Option<u64> {
+        if self.permanent_difficulty() && self.epoch_length_in_dummy != 0 {
+            Some(self.epoch_length_in_dummy)
+        } else {
+            None
+        }
+    }
+
     /// The cellbase_maturity
     pub fn cellbase_maturity(&self) -> EpochNumberWithFraction {
         self.cellbase_maturity
@@ -804,15 +825,23 @@ impl Consensus {
                         let remainder_reward =
                             Capacity::shannons(primary_epoch_reward % epoch.length());
 
-                        let dummy_epoch_ext = epoch
+                        let dummy_epoch_ext_builder = epoch
                             .clone()
                             .into_builder()
                             .base_block_reward(block_reward)
                             .remainder_reward(remainder_reward)
                             .number(epoch.number() + 1)
                             .last_block_hash_in_previous_epoch(header.hash())
-                            .start_number(header.number() + 1)
-                            .build();
+                            .start_number(header.number() + 1);
+
+                        let dummy_epoch_ext =
+                            if let Some(epoch_length_in_dummy) = self.epoch_length_in_dummy() {
+                                dummy_epoch_ext_builder
+                                    .length(epoch_length_in_dummy)
+                                    .build()
+                            } else {
+                                dummy_epoch_ext_builder.build()
+                            };
                         NextBlockEpoch::HeadBlock(dummy_epoch_ext)
                     } else {
                         // (1) Computing the Adjusted Hash Rate Estimation
@@ -1113,6 +1142,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 .primary_epoch_reward_halving_interval
                 .into(),
             permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
+            epoch_length_in_dummy: consensus.epoch_length_in_dummy.into(),
             hardfork_features: ckb_jsonrpc_types::HardForks::new(&consensus.hardfork_switch),
             softforks,
         }

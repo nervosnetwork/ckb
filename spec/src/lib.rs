@@ -164,6 +164,13 @@ pub mod default_params {
         false
     }
 
+    /// The default epoch_length_in_dummy
+    ///
+    /// Apply to [`epoch_length_in_dummy`](../consensus/struct.Consensus.html#structfield.epoch_length_in_dummy)
+    pub fn epoch_length_in_dummy() -> u64 {
+        0
+    }
+
     /// The default orphan_rate_target
     ///
     /// Apply to [`orphan_rate_target`](../consensus/struct.Consensus.html#structfield.orphan_rate_target)
@@ -221,6 +228,10 @@ pub struct Params {
     /// See [`permanent_difficulty_in_dummy`](consensus/struct.Consensus.html#structfield.permanent_difficulty_in_dummy)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permanent_difficulty_in_dummy: Option<bool>,
+    /// The epoch_length_in_dummy
+    ///
+    /// See [`epoch_length_in_dummy`](consensus/struct.Consensus.html#structfield.epoch_length_in_dummy)
+    pub epoch_length_in_dummy: Option<u64>,
     /// The max_block_proposals_limit
     ///
     /// See [`max_block_proposals_limit`](consensus/struct.Consensus.html#structfield.max_block_proposals_limit)
@@ -279,6 +290,12 @@ impl Params {
     pub fn permanent_difficulty_in_dummy(&self) -> bool {
         self.permanent_difficulty_in_dummy
             .unwrap_or_else(default_params::permanent_difficulty_in_dummy)
+    }
+
+    /// Return the `epoch_length_in_dummy`, otherwise if None, returns the default value
+    pub fn epoch_length_in_dummy(&self) -> u64 {
+        self.epoch_length_in_dummy
+            .unwrap_or_else(default_params::epoch_length_in_dummy)
     }
 
     /// Return the `epoch_duration_target`, otherwise if None, returns the default value
@@ -583,6 +600,7 @@ impl ChainSpec {
             .initial_primary_epoch_reward(self.params.initial_primary_epoch_reward())
             .epoch_duration_target(self.params.epoch_duration_target())
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
+            .epoch_length_in_dummy(self.params.epoch_length_in_dummy())
             .max_block_proposals_limit(self.params.max_block_proposals_limit())
             .orphan_rate_target(self.params.orphan_rate_target())
             .hardfork_switch(hardfork_switch);
