@@ -13,6 +13,7 @@ trap cleanup EXIT
 
 cp target/release/ckb ${CKB_BATS_TESTBED}
 cp util/app-config/src/tests/*.bats ${CKB_BATS_TESTBED}
+cp -r util/app-config/src/tests/later_bats_job ${CKB_BATS_TESTBED}
 cp util/app-config/src/tests/*.sh ${CKB_BATS_TESTBED}
 
 if [ ! -d "/tmp/ckb_bats_assets/" ]; then
@@ -47,9 +48,15 @@ export TMP_DIR=${CKB_BATS_TESTBED}/tmp_dir
 mkdir ${TMP_DIR}
 
 for bats_cases in *.bats; do
-  bats "$bats_cases"
+  bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "$bats_cases"
   ret=$?
   if [ "$ret" -ne "0" ]; then
     exit "$ret"
   fi
 done
+
+bats --verbose-run --print-output-on-failure --show-output-of-passing-tests ./later_bats_job/change_epoch.bats
+ret=$?
+if [ "$ret" -ne "0" ]; then
+  exit "$ret"
+fi
