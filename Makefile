@@ -140,19 +140,19 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
+	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime --cfg docker" cargo build --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" CKB_FEATURES="with_sentry,with_dns_seeding" $(MAKE) test
+	CKB_FEATURES="with_sentry,with_dns_seeding" $(MAKE) test
 
 .PHONY: prod-with-debug
 prod-with-debug:
