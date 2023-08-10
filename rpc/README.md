@@ -1653,6 +1653,7 @@ Response
         "cellbase_maturity": "0x10000000000",
         "dao_type_hash": null,
         "epoch_duration_target": "0x3840",
+        "epoch_length_in_dummy": "0x0",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
         "hardfork_features": [
             { "rfc": "0028", "epoch_number": "0x1526" },
@@ -5686,6 +5687,8 @@ Consensus defines various parameters that influence chain consensus
 *   `primary_epoch_reward_halving_interval`: [`Uint64`](#type-uint64) - Primary reward is cut in half every halving_interval epoch
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
+
+*   `epoch_length_in_dummy`: [`Uint64`](#type-uint64) - Specify the epoch length if the permanent_difficulty_in_dummy is true, and it should not be 0
 
 *   `hardfork_features`: [`HardForks`](#type-hardforks) - Hardfork features
 
