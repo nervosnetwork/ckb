@@ -695,7 +695,7 @@ fn test_sync_process() {
     );
 }
 
-#[cfg(not(disable_faketime))]
+
 #[test]
 fn test_header_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -747,7 +747,7 @@ fn test_header_sync_timeout() {
     )
 }
 
-#[cfg(not(disable_faketime))]
+
 #[test]
 fn test_chain_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -945,7 +945,7 @@ fn test_chain_sync_timeout() {
     }
 }
 
-#[cfg(not(disable_faketime))]
+
 #[test]
 fn test_n_sync_started() {
     let _faketime_guard = ckb_systemtime::faketime();

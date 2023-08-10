@@ -128,7 +128,7 @@ fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
         .build()
 }
 
-#[cfg(not(disable_faketime))]
+
 #[test]
 fn test_block_template_timestamp() {
     let mut _faketime_guard = ckb_systemtime::faketime();
