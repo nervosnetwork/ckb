@@ -19,6 +19,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
+use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
     packed::{Byte32, ProposalShortId},
@@ -229,7 +230,9 @@ impl TxPoolService {
                         Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
                     }
                     Err(err) => {
-                        if tx_pool.enable_rbf() && matches!(err, Reject::Resolve(_)) {
+                        if tx_pool.enable_rbf()
+                            && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
+                        {
                             // Try RBF check
                             let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
                             if conflicts.is_empty() {

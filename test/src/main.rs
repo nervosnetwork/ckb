@@ -461,6 +461,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(DifferentTxsWithSameInputWithOutRBF),
         Box::new(RbfBasic),
         Box::new(RbfSameInput),
+        Box::new(RbfOnlyForResolveDead),
         Box::new(RbfSameInputwithLessFee),
         Box::new(RbfTooManyDescendants),
         Box::new(RbfContainNewTx),

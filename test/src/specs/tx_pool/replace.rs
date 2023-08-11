@@ -3,8 +3,7 @@ use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
-    packed::CellOutputBuilder,
-    packed::{CellInput, OutPoint},
+    packed::{Byte32, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
 
@@ -105,6 +104,42 @@ impl Spec for RbfSameInput {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfOnlyForResolveDead;
+impl Spec for RbfOnlyForResolveDead {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        node0.new_block_with_blocking(|template| template.number.value() != 13);
+
+        let tx_hash_0 = node0.generate_transaction();
+
+        let tx1 = node0.new_transaction(tx_hash_0.clone());
+        let tx1_clone = tx1.clone();
+
+        // This is an unknown input
+        let tx_hash_1 = Byte32::zero();
+        let tx2 = tx1_clone
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(tx_hash_1, 0))
+                    .build()
+            }])
+            .build();
+
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        let message = res.err().unwrap().to_string();
+        assert!(message.contains("TransactionFailedToResolve: Resolve failed Unknown"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
