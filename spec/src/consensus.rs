@@ -804,12 +804,7 @@ impl Consensus {
                         let remainder_reward =
                             Capacity::shannons(primary_epoch_reward % epoch.length());
 
-                        let mut next_epoch_length = epoch.length();
-                        let epoch_length_from_param =
-                            cmp::max(self.epoch_duration_target() / MIN_BLOCK_INTERVAL, 1);
-                        if next_epoch_length != epoch_length_from_param {
-                            next_epoch_length = self.epoch_duration_target() / MIN_BLOCK_INTERVAL;
-                        }
+let next_epoch_length = (self.epoch_duration_target() + MIN_BLOCK_INTERVAL - 1) / MIN_BLOCK_INTERVAL
 
                         let dummy_epoch_ext = epoch
                             .clone()
