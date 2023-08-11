@@ -804,6 +804,13 @@ impl Consensus {
                         let remainder_reward =
                             Capacity::shannons(primary_epoch_reward % epoch.length());
 
+                        let mut next_epoch_length = epoch.length();
+                        let epoch_length_from_param =
+                            cmp::max(self.epoch_duration_target() / MIN_BLOCK_INTERVAL, 1);
+                        if next_epoch_length != epoch_length_from_param {
+                            next_epoch_length = self.epoch_duration_target() / MIN_BLOCK_INTERVAL;
+                        }
+
                         let dummy_epoch_ext = epoch
                             .clone()
                             .into_builder()
@@ -812,6 +819,7 @@ impl Consensus {
                             .number(epoch.number() + 1)
                             .last_block_hash_in_previous_epoch(header.hash())
                             .start_number(header.number() + 1)
+                            .length(next_epoch_length)
                             .build();
                         NextBlockEpoch::HeadBlock(dummy_epoch_ext)
                     } else {
