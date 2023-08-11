@@ -97,10 +97,8 @@ impl TxPool {
         if !self.enable_rbf() {
             return None;
         }
-        let conflicts = self.pool_map.find_conflict_tx(tx.transaction());
-        // we don't allow conflicted Tx in pool now
-        assert!(conflicts.len() == 1);
-        self.calculate_min_replace_fee(&conflicts, tx.size)
+        let ids = vec![tx.proposal_short_id()].iter().cloned().collect();
+        self.calculate_min_replace_fee(&ids, tx.size)
     }
 
     fn calculate_min_replace_fee(

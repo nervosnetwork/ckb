@@ -121,12 +121,11 @@ impl Spec for RbfOnlyForResolveDead {
 
         let tx_hash_0 = node0.generate_transaction();
 
-        let tx1 = node0.new_transaction(tx_hash_0.clone());
-        let tx1_clone = tx1.clone();
+        let tx1 = node0.new_transaction(tx_hash_0);
 
         // This is an unknown input
         let tx_hash_1 = Byte32::zero();
-        let tx2 = tx1_clone
+        let tx2 = tx1
             .as_advanced_builder()
             .set_inputs(vec![{
                 CellInput::new_builder()
