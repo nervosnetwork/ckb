@@ -12,7 +12,7 @@ pub struct WithdrawDAO;
 impl Spec for WithdrawDAO {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.genesis_epoch_length = Some(2);
-        spec.params.epoch_duration_target = Some(2);
+        spec.params.epoch_duration_target = Some(16);
         spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 
