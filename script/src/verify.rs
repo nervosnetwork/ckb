@@ -1076,7 +1076,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
             machines
         } else {
-            // No shapshots are available, create machine from scratch
+            // No snapshots are available, create machine from scratch
             let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
             let program = self.extract_script(&script_group.script)?;
             let bytes = machine
