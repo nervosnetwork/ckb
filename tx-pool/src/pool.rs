@@ -555,16 +555,12 @@ impl TxPool {
 
         let mut all_statuses = pool_entries.iter().map(|e| e.status).collect::<Vec<_>>();
 
-        let conflicts = pool_entries
-            .iter()
-            .map(|e| e.inner.clone())
-            .collect::<Vec<_>>();
-
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
-        for c in conflicts.iter() {
-            inputs.extend(c.transaction().input_pts_iter());
+        for c in pool_entries.iter() {
+            inputs.extend(c.inner.transaction().input_pts_iter());
         }
+
         if rtx
             .transaction
             .input_pts_iter()
@@ -579,8 +575,8 @@ impl TxPool {
         // and the ancestor of the new tx don't have common set with the replaced tx's descendants
         let mut replace_count: usize = 0;
         let ancestors = self.pool_map.calc_ancestors(&short_id);
-        for conflict in conflicts.iter() {
-            let id = conflict.proposal_short_id();
+        for conflict in pool_entries.iter() {
+            let id = conflict.inner.proposal_short_id();
             let descendants = self.pool_map.calc_descendants(&id);
             replace_count += descendants.len() + 1;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
