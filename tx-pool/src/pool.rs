@@ -97,25 +97,14 @@ impl TxPool {
         if !self.enable_rbf() {
             return None;
         }
-        let ids = vec![tx.proposal_short_id()].iter().cloned().collect();
-        self.calculate_min_replace_fee(&ids, tx.size)
+        let entry = vec![self.get_pool_entry(&tx.proposal_short_id()).unwrap()];
+        self.calculate_min_replace_fee(&entry, tx.size)
     }
 
-    fn calculate_min_replace_fee(
-        &self,
-        conflicts: &HashSet<ProposalShortId>,
-        size: usize,
-    ) -> Option<Capacity> {
-        let entries = conflicts
-            .iter()
-            .map(|id| {
-                self.get_pool_entry(id)
-                    .expect("conflict Tx should be in pool")
-            })
-            .collect::<Vec<_>>();
-
+    /// min_replace_fee = sum(replaced_txs.fee) + extra_rbf_fee
+    fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: usize) -> Option<Capacity> {
         let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
-        let replaced_sum_fee = entries
+        let replaced_sum_fee = conflicts
             .iter()
             .map(|c| c.inner.fee)
             .try_fold(Capacity::zero(), |acc, x| acc.safe_add(x));
@@ -125,10 +114,12 @@ impl TxPool {
         if let Ok(res) = res {
             Some(res)
         } else {
-            let fees = entries.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
+            let fees = conflicts.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
             error!(
                 "conflicts: {:?} replaced_sum_fee {:?} overflow by add {}",
-                conflicts, fees, extra_rbf_fee
+                conflicts.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+                fees,
+                extra_rbf_fee
             );
             None
         }
@@ -522,17 +513,23 @@ impl TxPool {
         &self,
         snapshot: &Snapshot,
         rtx: &ResolvedTransaction,
-        conflicts: &HashSet<ProposalShortId>,
+        conflict_ids: &HashSet<ProposalShortId>,
         fee: Capacity,
         tx_size: usize,
     ) -> Result<(), Reject> {
         assert!(self.enable_rbf());
-        assert!(!conflicts.is_empty());
+        assert!(!conflict_ids.is_empty());
+
+        let conflicts = conflict_ids
+            .iter()
+            .filter_map(|id| self.get_pool_entry(id))
+            .collect::<Vec<_>>();
+        assert!(conflicts.len() == conflict_ids.len());
 
         let short_id = rtx.transaction.proposal_short_id();
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(conflicts, tx_size) {
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, tx_size) {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",
@@ -545,19 +542,9 @@ impl TxPool {
             ));
         }
 
-        let pool_entries = conflicts
-            .iter()
-            .map(|id| {
-                self.get_pool_entry(id)
-                    .expect("conflict Tx should be in pool")
-            })
-            .collect::<Vec<_>>();
-
-        let mut all_statuses = pool_entries.iter().map(|e| e.status).collect::<Vec<_>>();
-
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
-        for c in pool_entries.iter() {
+        for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
         }
 
@@ -575,9 +562,8 @@ impl TxPool {
         // and the ancestor of the new tx don't have common set with the replaced tx's descendants
         let mut replace_count: usize = 0;
         let ancestors = self.pool_map.calc_ancestors(&short_id);
-        for conflict in pool_entries.iter() {
-            let id = conflict.inner.proposal_short_id();
-            let descendants = self.pool_map.calc_descendants(&id);
+        for conflict in conflicts.iter() {
+            let descendants = self.pool_map.calc_descendants(&conflict.id);
             replace_count += descendants.len() + 1;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
                 return Err(Reject::RBFRejected(format!(
@@ -592,33 +578,36 @@ impl TxPool {
                 ));
             }
 
-            for id in descendants.iter() {
-                if let Some(entry) = self.get_pool_entry(id) {
-                    all_statuses.push(entry.status);
-                    let hash = entry.inner.transaction().hash();
-                    if rtx
-                        .transaction
-                        .input_pts_iter()
-                        .any(|pt| pt.tx_hash() == hash)
-                    {
-                        return Err(Reject::RBFRejected(
-                            "new Tx contains inputs in descendants of to be replaced Tx"
-                                .to_string(),
-                        ));
-                    }
+            let entries = descendants
+                .iter()
+                .filter_map(|id| self.get_pool_entry(id))
+                .collect::<Vec<_>>();
+
+            for entry in entries.iter() {
+                let hash = entry.inner.transaction().hash();
+                if rtx
+                    .transaction
+                    .input_pts_iter()
+                    .any(|pt| pt.tx_hash() == hash)
+                {
+                    return Err(Reject::RBFRejected(
+                        "new Tx contains inputs in descendants of to be replaced Tx".to_string(),
+                    ));
                 }
             }
-        }
 
-        // Rule #6, all conflict Txs should be in `Pending` or `Gap` status
-        if all_statuses
-            .iter()
-            .any(|s| ![Status::Pending, Status::Gap].contains(s))
-        {
-            // Here we only refer to `Pending` status, since `Gap` is an internal status
-            return Err(Reject::RBFRejected(
-                "all conflict Txs should be in Pending status".to_string(),
-            ));
+            let mut entries_status = entries.iter().map(|e| e.status).collect::<Vec<_>>();
+            entries_status.push(conflict.status);
+            // Rule #6, all conflict Txs should be in `Pending` or `Gap` status
+            if entries_status
+                .iter()
+                .any(|s| ![Status::Pending, Status::Gap].contains(s))
+            {
+                // Here we only refer to `Pending` status, since `Gap` is an internal status
+                return Err(Reject::RBFRejected(
+                    "all conflict Txs should be in Pending status".to_string(),
+                ));
+            }
         }
 
         Ok(())
