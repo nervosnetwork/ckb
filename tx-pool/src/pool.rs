@@ -614,7 +614,7 @@ impl TxPool {
             }
         }
 
-        // Rule #6, any old Tx should be in `Pending` or `Gap` status
+        // Rule #6, all conflict Txs should be in `Pending` or `Gap` status
         if all_statuses
             .iter()
             .any(|s| ![Status::Pending, Status::Gap].contains(s))
