@@ -46,7 +46,7 @@ impl Spec for DAOWithSatoshiCellOccupied {
         let satoshi_cell = issue_satoshi_cell();
         spec.genesis.issued_cells.push(satoshi_cell);
         spec.params.genesis_epoch_length = Some(2);
-        spec.params.epoch_duration_target = Some(2);
+        spec.params.epoch_duration_target = Some(16);
         spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
@@ -142,7 +142,7 @@ impl Spec for SpendSatoshiCell {
         spec.genesis.issued_cells.push(issue_satoshi_cell());
         spec.genesis.satoshi_gift.satoshi_cell_occupied_ratio = satoshi_cell_occupied_ratio;
         spec.params.genesis_epoch_length = Some(2);
-        spec.params.epoch_duration_target = Some(2);
+        spec.params.epoch_duration_target = Some(16);
         spec.params.permanent_difficulty_in_dummy = Some(true);
     }
 }
