@@ -7,6 +7,36 @@ use ckb_types::{
     prelude::*,
 };
 
+pub struct RbfEnable;
+impl Spec for RbfEnable {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        node0.new_block_with_blocking(|template| template.number.value() != 13);
+        let tx_hash_0 = node0.generate_transaction();
+        let tx1 = node0.new_transaction(tx_hash_0);
+
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(70).pack())
+            .build();
+
+        let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
+
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+
+        assert_eq!(ret.min_replace_fee, None);
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(100);
+        config.tx_pool.min_fee_rate = ckb_types::core::FeeRate(100);
+    }
+}
+
 pub struct RbfBasic;
 impl Spec for RbfBasic {
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -30,6 +60,12 @@ impl Spec for RbfBasic {
             .build();
 
         node0.rpc_client().send_transaction(tx1.data().into());
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+        // min_replace_fee is 363
+        assert_eq!(ret.min_replace_fee.unwrap().to_string(), "0x16b");
+
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
@@ -50,7 +86,7 @@ impl Spec for RbfBasic {
         assert!(!commit_txs_hash.contains(&tx1.hash()));
         assert!(commit_txs_hash.contains(&tx2.hash()));
 
-        // when tx1 was confirmed, tx2 should be rejected
+        // when tx2 should be committed
         let ret = node0.rpc_client().get_transaction(tx2.hash());
         assert!(
             matches!(ret.tx_status.status, Status::Committed),
