@@ -6,7 +6,7 @@ use crate::packed;
 /// The hash type is split into the high 7 bits and the low 1 bit,
 /// when the low 1 bit is 1, it indicates the type,
 /// when the low 1 bit is 0, it indicates the data,
-///  and then it relies on the high 7 bits to indicate
+/// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ScriptHashType {
