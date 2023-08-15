@@ -97,6 +97,7 @@ impl Spec for CheckVmVersion2 {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.permanent_difficulty_in_dummy = Some(true);
         spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
+        spec.params.epoch_duration_target = Some(8 * GENESIS_EPOCH_LENGTH);
         if spec.params.hardfork.is_none() {
             spec.params.hardfork = Some(Default::default());
         }
