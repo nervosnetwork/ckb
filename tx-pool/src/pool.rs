@@ -390,8 +390,6 @@ impl TxPool {
         let mut proposals = HashSet::with_capacity(limit);
         self.pool_map
             .fill_proposals(limit, exclusion, &mut proposals, Status::Pending);
-        self.pool_map
-            .fill_proposals(limit, exclusion, &mut proposals, Status::Gap);
         proposals
     }
 
