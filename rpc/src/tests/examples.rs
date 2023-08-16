@@ -666,6 +666,9 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
         ("generate_block_with_template", 42) => return false,
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,
+        // Since this test relies on softfork activation, which generates an extension field that affects the block_hash in the existing test,
+        // we have to skip this unit test and use the integration test to check the result
+        ("verify_cells_status_proof", 42) => return false,
         ("truncate", 42) => return false,
         ("get_block_template", 42) => suite.wait_block_template_update(),
         _ => return true,

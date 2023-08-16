@@ -1306,6 +1306,32 @@ impl From<RawMerkleProof> for MerkleProof {
     }
 }
 
+/// Proof of cells status.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct CellsStatusProof {
+    /// The block hash of the specified block.
+    pub block_hash: H256,
+    /// The total number of generated cells from genesis block to the specified block, including consumed cells.
+    pub cells_count: Uint64,
+    /// An array of cell status.
+    pub cells_status: Vec<CellStatus>,
+    /// The merkle proof of the MMR, it is an array of hash digests.
+    pub merkle_proof: Vec<H256>,
+}
+
+/// Cell status.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct CellStatus {
+    /// The position of the leaf node in the MMR.
+    pub mmr_position: Uint64,
+    /// The cell's out point.
+    pub out_point: OutPoint,
+    /// The block number when the cell was created.
+    pub created_by: BlockNumber,
+    /// The block number when the cell was consumed, optional, none if the cell is live.
+    pub consumed_by: Option<BlockNumber>,
+}
+
 /// Block filter data and hash.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockFilter {

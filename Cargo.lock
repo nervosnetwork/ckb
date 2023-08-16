@@ -1183,6 +1183,7 @@ dependencies = [
  "ckb-logger",
  "ckb-logger-service",
  "ckb-memory-tracker",
+ "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-network-alert",
  "ckb-notify",

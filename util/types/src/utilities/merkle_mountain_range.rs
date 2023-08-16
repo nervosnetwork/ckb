@@ -410,6 +410,11 @@ impl CellStatus {
         self.consumed_by = BlockNumber::MAX;
     }
 
+    /// Check if the `CellStatus` is consumed
+    pub fn is_consumed(&self) -> bool {
+        self.consumed_by != BlockNumber::MAX
+    }
+
     /// Convert `CellStatus` to bytes
     pub fn to_vec(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(24);
