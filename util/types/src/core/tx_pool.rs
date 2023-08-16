@@ -161,7 +161,7 @@ pub struct TransactionWithStatus {
     pub tx_status: TxStatus,
     /// The transaction verification consumed cycles
     pub cycles: Option<core::Cycle>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
 
