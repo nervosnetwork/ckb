@@ -12,7 +12,7 @@ use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -22,7 +22,7 @@ use ckb_types::{
             ResolvedTransaction,
         },
         hardfork::HardForks,
-        service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
+        service::{Request, DEFAULT_CHANNEL_SIZE},
         BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
@@ -50,13 +50,6 @@ type TruncateRequest = Request<Byte32, Result<(), Error>>;
 pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
     truncate_sender: Sender<TruncateRequest>, // Used for testing only
-    stop: Option<StopHandler<()>>,
-}
-
-impl Drop for ChainController {
-    fn drop(&mut self) {
-        self.try_stop();
-    }
 }
 
 #[cfg_attr(feature = "mock", faux::methods)]
@@ -64,12 +57,10 @@ impl ChainController {
     pub fn new(
         process_block_sender: Sender<ProcessBlockRequest>,
         truncate_sender: Sender<TruncateRequest>,
-        stop: StopHandler<()>,
     ) -> Self {
         ChainController {
             process_block_sender,
             truncate_sender,
-            stop: Some(stop),
         }
     }
     /// Inserts the block into database.
@@ -109,17 +100,10 @@ impl ChainController {
         })
     }
 
-    pub fn try_stop(&mut self) {
-        if let Some(ref mut stop) = self.stop {
-            stop.try_send(());
-        }
-    }
-
     /// Since a non-owning reference does not count towards ownership,
     /// it will not prevent the value stored in the allocation from being dropped
     pub fn non_owning_clone(&self) -> Self {
         ChainController {
-            stop: None,
             truncate_sender: self.truncate_sender.clone(),
             process_block_sender: self.process_block_sender.clone(),
         }
@@ -245,7 +229,7 @@ impl ChainService {
 
     /// start background single-threaded service with specified thread_name.
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
-        let (signal_sender, signal_receiver) = channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
+        let signal_receiver = new_crossbeam_exit_rx();
         let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
         let (truncate_sender, truncate_receiver) = channel::bounded(1);
 
@@ -256,12 +240,9 @@ impl ChainService {
         }
         let tx_control = self.shared.tx_pool_controller().clone();
 
-        let thread = thread_builder
+        let chain_jh = thread_builder
             .spawn(move || loop {
                 select! {
-                    recv(signal_receiver) -> _ => {
-                        break;
-                    },
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
                             let _ = tx_control.suspend_chunk_process();
@@ -283,17 +264,18 @@ impl ChainService {
                             error!("truncate_receiver closed");
                             break;
                         },
+                    },
+                    recv(signal_receiver) -> _ => {
+                        debug!("ChainService received exit signal, exit now");
+                        break;
                     }
                 }
             })
             .expect("Start ChainService failed");
-        let stop = StopHandler::new(
-            SignalSender::Crossbeam(signal_sender),
-            Some(thread),
-            "chain".to_string(),
-        );
 
-        ChainController::new(process_block_sender, truncate_sender, stop)
+        register_thread("ChainService", chain_jh);
+
+        ChainController::new(process_block_sender, truncate_sender)
     }
 
     fn make_fork_for_truncate(&self, target: &HeaderView, current_tip: &HeaderView) -> ForkChanges {

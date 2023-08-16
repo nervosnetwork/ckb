@@ -437,7 +437,6 @@ version = "0.111.0-rc8"
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
- "ckb-stop-handler",
  "tokio",
 ]
 
@@ -492,6 +491,7 @@ dependencies = [
  "ckb-network",
  "ckb-resource",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "ckb-util",
@@ -804,7 +804,6 @@ dependencies = [
  "ckb-rpc",
  "ckb-shared",
  "ckb-snapshot",
- "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
  "ckb-systemtime",
@@ -934,6 +933,7 @@ dependencies = [
  "ckb-logger",
  "ckb-metrics",
  "ckb-metrics-config",
+ "ckb-stop-handler",
  "ckb-util",
  "hyper",
  "prometheus",
@@ -1020,7 +1020,7 @@ dependencies = [
  "tempfile",
  "tentacle",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "trust-dns-resolver",
 ]
 
@@ -1037,7 +1037,6 @@ dependencies = [
  "ckb-multisig",
  "ckb-network",
  "ckb-notify",
- "ckb-stop-handler",
  "ckb-systemtime",
  "ckb-types",
  "ckb-util",
@@ -1188,7 +1187,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
- "itertools",
+ "itertools 0.11.0",
  "jsonrpc-core",
  "jsonrpc-derive",
  "jsonrpc-http-server",
@@ -1243,7 +1242,6 @@ dependencies = [
  "arc-swap",
  "ckb-async-runtime",
  "ckb-chain-spec",
- "ckb-channel",
  "ckb-constant",
  "ckb-db",
  "ckb-db-schema",
@@ -1284,10 +1282,16 @@ version = "0.111.0-rc8"
 name = "ckb-stop-handler"
 version = "0.111.0-rc8"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-channel",
  "ckb-logger",
- "parking_lot 0.12.1",
+ "ckb-util",
+ "ctrlc",
+ "libc",
+ "once_cell",
+ "rand 0.8.5",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
@@ -1342,6 +1346,7 @@ dependencies = [
  "faux",
  "futures",
  "governor",
+ "itertools 0.11.0",
  "keyed_priority_queue",
  "lru",
  "once_cell",
@@ -1428,6 +1433,7 @@ dependencies = [
  "slab",
  "tempfile",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
@@ -1522,9 +1528,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.0"
+version = "0.24.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d77a1ce8d1ed8b18041d194ffe0d647c3a707af9347f49b5f543317c73943634"
+checksum = "40894adbde925bfc6584d324a06228e19d78bd877146fc7df085927552d29f50"
 dependencies = [
  "byteorder",
  "bytes 1.4.0",
@@ -1540,9 +1546,12 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.0"
+version = "0.24.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "328c7a6b5664483d5c02fae7b0ada0c407660e7064b2f1505ee6f5d07a4dbf2b"
+checksum = "0253bdea8dc20db90b58fe54e01392f71989e0567d42e09e7f8e588f156551db"
+dependencies = [
+ "paste",
+]
 
 [[package]]
 name = "clang-sys"
@@ -1700,7 +1709,7 @@ dependencies = [
  "ciborium",
  "clap 3.2.23",
  "criterion-plot",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num-traits",
  "oorandom",
@@ -1721,7 +1730,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
 dependencies = [
  "cast",
- "itertools",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -2402,7 +2411,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tracing",
 ]
 
@@ -2466,9 +2475,9 @@ dependencies = [
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
+checksum = "443144c8cdadd93ebf52ddb4056d257f5b52c04d3c804e657d19eb73fc33668b"
 
 [[package]]
 name = "hex"
@@ -2719,7 +2728,7 @@ version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adcf93614601c8129ddf72e2d5633df827ba6551541c6d8c59520a371475be1f"
 dependencies = [
- "hermit-abi 0.3.1",
+ "hermit-abi 0.3.2",
  "io-lifetimes",
  "rustix 0.37.7",
  "windows-sys 0.48.0",
@@ -2736,6 +2745,15 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
 dependencies = [
  "either",
 ]
@@ -4469,7 +4487,7 @@ dependencies = [
  "tentacle-secio",
  "thiserror",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tokio-yamux",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4511,7 +4529,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "unsigned-varint",
  "x25519-dalek",
 ]
@@ -4723,9 +4741,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
+checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
 dependencies = [
  "bytes 1.4.0",
  "futures-core",
@@ -4746,7 +4764,7 @@ dependencies = [
  "log",
  "nohash-hasher",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]

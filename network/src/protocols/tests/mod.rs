@@ -7,8 +7,7 @@ use super::{
 };
 
 use crate::{
-    network::{DefaultExitHandler, EventHandler},
-    services::protocol_type_checker::ProtocolTypeCheckerService,
+    network::EventHandler, services::protocol_type_checker::ProtocolTypeCheckerService,
     NetworkState, PeerIdentifyInfo, SupportProtocols,
 };
 
@@ -224,7 +223,6 @@ fn net_service_start(
         .forever(true)
         .build(EventHandler {
             network_state: Arc::clone(&network_state),
-            exit_handler: DefaultExitHandler::default(),
         });
 
     let peer_id = network_state.local_peer_id().clone();

@@ -40,8 +40,8 @@ members = [
     "util/occupied-capacity/macros",
     "util/fixed-hash/macros",
     "util/logger-service",
-    "util/stop-handler",
     "util/runtime",
+    "util/stop-handler",
     "util/metrics",
     "util/metrics-service",
     "util/fixed-hash",
@@ -93,6 +93,7 @@ members = [
 
 [workspace.dependencies]
 tempfile = "3"
+itertools = "0.11.0"
 
 [profile.release]
 overflow-checks = true

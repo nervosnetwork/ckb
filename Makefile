@@ -168,6 +168,10 @@ docker-publish:
 	docker tag nervos/ckb:$$(git describe) nervos/ckb:latest
 	docker push nervos/ckb:latest
 
+.PHONY: docker-publish-rc
+docker-publish-rc:
+	docker push nervos/ckb:$$(git describe)
+
 ##@ Code Quality
 .PHONY: fmt
 fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.

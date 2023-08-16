@@ -39,6 +39,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::Mutex;
+use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -238,11 +239,11 @@ impl Relayer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block_hash_and_number: BlockNumberAndHash,
-        mut proposals: Vec<packed::ProposalShortId>,
+        proposals: Vec<packed::ProposalShortId>,
     ) {
-        proposals.dedup();
         let tx_pool = self.shared.shared().tx_pool_controller();
-        let fresh_proposals = match tx_pool.fresh_proposals_filter(proposals) {
+        let fresh_proposals: Vec<ProposalShortId> = match tx_pool.fresh_proposals_filter(proposals)
+        {
             Err(err) => {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -251,7 +252,7 @@ impl Relayer {
                 );
                 return;
             }
-            Ok(fresh_proposals) => fresh_proposals,
+            Ok(fresh_proposals) => fresh_proposals.into_iter().unique().collect(),
         };
 
         let to_ask_proposals: Vec<ProposalShortId> = self

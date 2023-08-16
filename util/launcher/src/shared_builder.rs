@@ -19,7 +19,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_shared::Shared;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
-use ckb_stop_handler::StopHandler;
+
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
 use ckb_tx_pool::{
@@ -151,7 +151,7 @@ impl SharedBuilder {
         thread_local! {
             // NOTICE：we can't put the runtime directly into thread_local here,
             // on windows the runtime in thread_local will get stuck when dropping
-            static RUNTIME_HANDLE: unsync::OnceCell<(Handle, StopHandler<()>)> = unsync::OnceCell::new();
+            static RUNTIME_HANDLE: unsync::OnceCell<Handle> = unsync::OnceCell::new();
         }
 
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -177,11 +177,7 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: runtime
-                .borrow()
-                .get_or_init(new_background_runtime)
-                .0
-                .clone(),
+            async_handle: runtime.borrow().get_or_init(new_background_runtime).clone(),
         })
     }
 }

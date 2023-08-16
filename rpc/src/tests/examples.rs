@@ -10,7 +10,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_launcher::SharedBuilder;
-use ckb_network::{DefaultExitHandler, Flags, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_sync::SyncShared;
@@ -151,7 +151,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
                 "0.1.0".to_string(),
                 Flags::COMPATIBILITY,
             ),
-            DefaultExitHandler::default(),
         )
         .start(shared.async_handle())
         .expect("Start network service failed")

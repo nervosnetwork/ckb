@@ -5,9 +5,9 @@ use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{
         spawn::{build_child_machine, update_caller_machine},
-        CurrentCycles, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData, LoadExtension,
-        LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, SetContent, Spawn,
-        VMVersion,
+        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData,
+        LoadExtension, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
+        SetContent, Spawn, VMVersion,
     },
     type_id::TypeIdSystemScript,
     types::{
@@ -137,8 +137,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     TransactionScriptsSyscallsGenerator<DL>
 {
     /// Build syscall: current_cycles
-    pub fn build_current_cycles(&self) -> CurrentCycles {
-        CurrentCycles::new()
+    pub fn build_current_cycles(&self, base: u64) -> CurrentCycles {
+        CurrentCycles::new(base)
     }
 
     /// Build syscall: vm_version
@@ -257,6 +257,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         )
     }
 
+    /// Build syscall: current_memory
+    pub fn build_current_memory(&self, current_memory: u64) -> CurrentMemory {
+        CurrentMemory::new(current_memory)
+    }
+
     /// Generate same syscalls. The result does not contain spawn syscalls.
     pub fn generate_same_syscalls(
         &self,
@@ -294,7 +299,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
-                Box::new(self.build_current_cycles()),
                 Box::new(self.build_exec(
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
@@ -318,11 +322,15 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         context: Arc<Mutex<MachineContext>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let mut syscalls = self.generate_same_syscalls(script_version, script_group);
+        if script_version >= ScriptVersion::V1 {
+            syscalls.push(Box::new(self.build_current_cycles(0)));
+        }
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
                 Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
                 Box::new(self.build_spawn(script_version, script_group, 8, Arc::clone(&context))),
+                Box::new(self.build_current_memory(8)),
             ])
         }
         syscalls
@@ -1038,6 +1046,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         caller_exit_code_addr,
                         caller_content_addr,
                         caller_content_length_addr,
+                        cycles_base,
                     } => {
                         let spawn_data = SpawnData {
                             callee_peak_memory: *callee_peak_memory,
@@ -1047,6 +1056,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                             caller_exit_code_addr: *caller_exit_code_addr,
                             caller_content_addr: *caller_content_addr,
                             caller_content_length_addr: *caller_content_length_addr,
+                            cycles_base: *cycles_base,
                         };
                         let machine = build_child_machine(
                             script_group,
@@ -1066,7 +1076,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
             machines
         } else {
-            // No shapshots are available, create machine from scratch
+            // No snapshots are available, create machine from scratch
             let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
             let program = self.extract_script(&script_group.script)?;
             let bytes = machine
