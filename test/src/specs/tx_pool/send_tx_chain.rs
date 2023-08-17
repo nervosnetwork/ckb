@@ -33,10 +33,15 @@ impl Spec for SendTxChain {
         assert_eq!(txs.len(), MAX_ANCESTORS_COUNT + 1);
         // send tx chain
         info!("submit fresh txs chain to node0");
-        for tx in txs[..=MAX_ANCESTORS_COUNT].iter() {
+        for tx in txs[..=MAX_ANCESTORS_COUNT - 1].iter() {
             let ret = node0.rpc_client().send_transaction_result(tx.data().into());
             assert!(ret.is_ok());
         }
+        // The last one will be rejected
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(txs[MAX_ANCESTORS_COUNT].data().into());
+        assert!(ret.is_err());
 
         node0.mine(3);
 
@@ -76,6 +81,11 @@ impl Spec for SendTxChain {
             .rpc_client()
             .send_transaction_result(txs.last().unwrap().data().into());
         assert!(ret.is_err());
+        assert!(ret
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Transaction exceeded maximum ancestors count limit"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

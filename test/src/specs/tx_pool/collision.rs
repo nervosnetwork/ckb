@@ -8,7 +8,7 @@ use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
 use ckb_types::prelude::*;
 
 // Convention:
-//   * `tx1` and `tx2` are cousin transactions, with the same transaction content, expect the
+//   * `tx1` and `tx2` are cousin transactions, with the same transaction content, except the
 //   witnesses. Hence `tx1` and `tx2` have the same tx_hash/proposal-id but different witness_hash.
 
 pub struct TransactionHashCollisionDifferentWitnessHashes;
@@ -67,7 +67,8 @@ impl Spec for ConflictInPending {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest()).for_each(|_| {
@@ -89,13 +90,15 @@ impl Spec for ConflictInGap {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest() - 1).for_each(|_| {
             node.submit_block(&blank(node));
         });
         node.submit_block(&propose(node, &[&txb]));
+
         let block = node.new_block(None, None, None);
         assert_eq!(&[txa], &block.transactions()[1..]);
 
@@ -114,7 +117,8 @@ impl Spec for ConflictInProposed {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa, &txb]));
         node.mine(window.farthest());
@@ -153,12 +157,15 @@ impl Spec for RemoveConflictFromPending {
             conflict_transactions_with_capacity(node, Bytes::new(), capacity_bytes!(1000));
         let txc = node.new_transaction_with_since_capacity(txb.hash(), 0, capacity_bytes!(100));
         node.submit_transaction(&txa);
-        node.submit_transaction(&txb);
-        node.submit_transaction(&txc);
+        let res = node.submit_transaction_with_result(&txb);
+        assert!(res.is_err());
+
+        let res = node.submit_transaction_with_result(&txc);
+        assert!(res.is_err());
 
         assert!(is_transaction_pending(node, &txa));
-        assert!(is_transaction_pending(node, &txb));
-        assert!(is_transaction_pending(node, &txc));
+        assert!(is_transaction_rejected(node, &txb));
+        assert!(is_transaction_rejected(node, &txc));
 
         node.submit_block(&propose(node, &[&txa]));
         (0..window.closest()).for_each(|_| {

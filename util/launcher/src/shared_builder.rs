@@ -421,18 +421,19 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
     let notify_pending = notify.clone();
 
     let tx_relay_sender = tx_pool_builder.tx_relay_sender();
+    let create_notify_entry = |entry: &TxEntry| PoolTransactionEntry {
+        transaction: entry.rtx.transaction.clone(),
+        cycles: entry.cycles,
+        size: entry.size,
+        fee: entry.fee,
+        timestamp: entry.timestamp,
+    };
     tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
         // update statics
         tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
 
         // notify
-        let notify_tx_entry = PoolTransactionEntry {
-            transaction: entry.rtx.transaction.clone(),
-            cycles: entry.cycles,
-            size: entry.size,
-            fee: entry.fee,
-            timestamp: entry.timestamp,
-        };
+        let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
 
@@ -445,13 +446,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             }
 
             // notify
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.rtx.transaction.clone(),
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-                timestamp: entry.timestamp,
-            };
+            let notify_tx_entry = create_notify_entry(entry);
             notify_proposed.notify_proposed_transaction(notify_tx_entry);
         },
     ));
@@ -483,13 +478,7 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             }
 
             // notify
-            let notify_tx_entry = PoolTransactionEntry {
-                transaction: entry.rtx.transaction.clone(),
-                cycles: entry.cycles,
-                size: entry.size,
-                fee: entry.fee,
-                timestamp: entry.timestamp,
-            };
+            let notify_tx_entry = create_notify_entry(entry);
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },
     ));

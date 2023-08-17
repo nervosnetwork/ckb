@@ -2117,6 +2117,7 @@ impl ChainRpcImpl {
         only_committed: bool,
     ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
+
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
                 None
@@ -2202,6 +2203,7 @@ impl ChainRpcImpl {
         let transaction_with_status = transaction_with_status.unwrap();
         Ok(transaction_with_status)
     }
+
     fn get_block_by_hash(
         &self,
         snapshot: &Snapshot,

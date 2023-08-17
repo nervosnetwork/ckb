@@ -28,10 +28,14 @@ impl Spec for DifferentTxsWithSameInput {
             .as_advanced_builder()
             .set_outputs(vec![output])
             .build();
-        node0.rpc_client().send_transaction(tx1.data().into());
-        node0.rpc_client().send_transaction(tx2.data().into());
 
-        node0.mine_with_blocking(|template| template.proposals.len() != 3);
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+
+        node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
         node0.mine_with_blocking(|template| template.transactions.len() != 2);
 
