@@ -396,7 +396,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         // Construct a new block contains one transaction
         let block = node0
             .new_block_builder(None, None, None)
-            .transaction(new_tx)
+            .transaction(new_tx.clone())
             .build();
 
         // Net send the compact block to node0, but dose not send the corresponding missing
@@ -422,7 +422,9 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         );
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
-        node1.submit_block(&block);
+        node1
+            .submit_blank_block_with_transactions(&[&new_tx])
+            .unwrap();
         waiting_for_sync(&[node0, node1]);
     }
 }
