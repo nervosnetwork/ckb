@@ -224,8 +224,8 @@ check-dirty-hashes-toml: gen-hashes
 
 ##@ Generates Files
 .PHONY: gen
-GEN_MOL_IN_DIR := util/types/schemas
-GEN_MOL_OUT_DIR := util/types/src/generated
+GEN_MOL_IN_DIR := util/gen-types/schemas
+GEN_MOL_OUT_DIR := util/gen-types/src/generated
 GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs ${GEN_MOL_OUT_DIR}/protocols.rs
 gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 
