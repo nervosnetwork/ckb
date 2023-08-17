@@ -13,11 +13,17 @@ use std::fmt;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 ///
-/// Allowed kinds: "data", "type" and "data1".
+/// Allowed kinds: "data", "type", "data1" and "data2"
 ///
 /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
 /// in the RFC *CKB Transaction Structure*.
+///
+/// The hash type is split into the high 7 bits and the low 1 bit,
+/// when the low 1 bit is 1, it indicates the type,
+/// when the low 1 bit is 0, it indicates the data,
+/// and then it relies on the high 7 bits to indicate
+/// that the data actually corresponds to the version.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
@@ -28,7 +34,7 @@ pub enum ScriptHashType {
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
-    Data2 = 3,
+    Data2 = 4,
 }
 
 impl Default for ScriptHashType {
@@ -378,7 +384,7 @@ pub struct Transaction {
     pub version: Version,
     /// An array of cell deps.
     ///
-    /// CKB locates lock script and type script code via cell deps. The script also can uses syscalls
+    /// CKB locates lock script and type script code via cell deps. The script also can use syscalls
     /// to read the cells here.
     ///
     /// Unlike inputs, the live cells can be used as cell deps in multiple transactions.
@@ -530,7 +536,7 @@ pub struct TransactionWithStatusResponse {
     pub transaction: Option<ResponseFormat<TransactionView>>,
     /// The transaction consumed cycles.
     pub cycles: Option<Cycle>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
@@ -1463,7 +1469,7 @@ pub struct Buried {
     pub status: SoftForkStatus,
     /// Whether the rules are active
     pub active: bool,
-    /// The first epoch  which the rules will be enforced
+    /// The first epoch which the rules will be enforced
     pub epoch: EpochNumber,
 }
 

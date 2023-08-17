@@ -6689,9 +6689,11 @@ Describes the lock script and type script for a cell.
 
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
-Allowed kinds: “data”, “type” and “data1”.
+Allowed kinds: “data”, “type”, “data1” and “data2”
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
+
+The hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.
 
 `ScriptHashType` is equivalent to `"data" | "type" | "data1" | "data2"`.
 
@@ -6791,7 +6793,7 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 *   `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
-    CKB locates lock script and type script code via cell deps. The script also can uses syscalls to read the cells here.
+    CKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
@@ -6953,7 +6955,7 @@ The JSON view of a transaction as well as its status.
 
 *   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
 
-*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

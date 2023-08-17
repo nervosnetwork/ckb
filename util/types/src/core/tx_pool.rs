@@ -173,7 +173,7 @@ pub struct TransactionWithStatus {
     pub fee: Option<Capacity>,
     /// The minimal fee required to replace this transaction
     pub min_replace_fee: Option<Capacity>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
 

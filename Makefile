@@ -24,7 +24,7 @@ doc-test: ## Run doc tests
 	cargo test --all --doc
 
 .PHONY: cli-test
-cli-test: build # Run ckb command line usage bats test
+cli-test: prod # Run ckb command line usage bats test
 	./util/app-config/src/tests/cli_test.sh
 
 .PHONY: test
