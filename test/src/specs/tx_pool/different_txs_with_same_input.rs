@@ -7,9 +7,9 @@ use ckb_types::{
     prelude::*,
 };
 
-pub struct DifferentTxsWithSameInput;
+pub struct DifferentTxsWithSameInputWithOutRBF;
 
-impl Spec for DifferentTxsWithSameInput {
+impl Spec for DifferentTxsWithSameInputWithOutRBF {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
@@ -19,6 +19,7 @@ impl Spec for DifferentTxsWithSameInput {
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
+
         // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(80).pack())
@@ -46,7 +47,7 @@ impl Spec for DifferentTxsWithSameInput {
             .map(TransactionView::hash)
             .collect();
 
-        // RBF (Replace-By-Fees) is not implemented
+        // RBF (Replace-By-Fees) is not enabled
         assert!(commit_txs_hash.contains(&tx1.hash()));
         assert!(!commit_txs_hash.contains(&tx2.hash()));
 

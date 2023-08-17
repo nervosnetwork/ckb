@@ -1,6 +1,5 @@
+use crate::component::sort_key::EvictKey;
 use ckb_types::core::{Capacity, FeeRate};
-
-use crate::component::entry::EvictKey;
 
 #[test]
 fn test_min_fee_and_weight_evict() {

@@ -19,6 +19,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
+use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
     packed::{Byte32, ProposalShortId},
@@ -101,6 +102,7 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
+        conflicts: HashSet<ProposalShortId>,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
@@ -123,6 +125,19 @@ impl TxPoolService {
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
+                // try to remove conflicted tx here
+                for id in conflicts.iter() {
+                    let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
+                    for old in removed {
+                        let reject = Reject::RBFRejected(format!(
+                            "replaced by {}",
+                            entry.proposal_short_id()
+                        ));
+                        // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
+                        // here we call them manually
+                        self.callbacks.call_reject(tx_pool, &old, reject)
+                    }
+                }
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
                 Ok(())
             })
@@ -202,13 +217,36 @@ impl TxPoolService {
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
 
+                // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
+                // It's also not possible for RBF, reject it directly
                 check_txid_collision(tx_pool, tx)?;
 
-                let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone())?;
-
-                let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-
-                Ok((tip_hash, rtx, status, fee, tx_size))
+                // Try normal path first, if double-spending check success we don't need RBF check
+                // this make sure RBF won't introduce extra performance cost for hot path
+                let res = resolve_tx(tx_pool, &snapshot, tx.clone(), false);
+                match res {
+                    Ok((rtx, status)) => {
+                        let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                        Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
+                    }
+                    Err(err) => {
+                        if tx_pool.enable_rbf()
+                            && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
+                        {
+                            // Try RBF check
+                            let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
+                            if conflicts.is_empty() {
+                                return Err(err);
+                            }
+                            let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
+                            let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                            tx_pool.check_rbf(&snapshot, &rtx, &conflicts, fee, tx_size)?;
+                            Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
+                        } else {
+                            Err(err)
+                        }
+                    }
+                }
             })
             .await;
 
@@ -372,7 +410,12 @@ impl TxPoolService {
                             });
                         }
 
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -397,7 +440,12 @@ impl TxPoolService {
                         });
                     }
                     Err(reject) => {
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -497,8 +545,12 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
-                                {
+                                if matches!(
+                                    reject,
+                                    Reject::Resolve(..)
+                                        | Reject::Verification(..)
+                                        | Reject::RBFRejected(..)
+                                ) {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
@@ -550,7 +602,8 @@ impl TxPoolService {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -634,7 +687,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -679,7 +732,8 @@ impl TxPoolService {
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -715,7 +769,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -872,7 +926,7 @@ impl TxPoolService {
         for tx in txs {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
-            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
+            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false) {
                 if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
@@ -949,9 +1003,28 @@ impl TxPoolService {
     }
 }
 
-type PreCheckedTx = (Byte32, Arc<ResolvedTransaction>, TxStatus, Capacity, usize);
+type PreCheckedTx = (
+    Byte32,                   // tip_hash
+    Arc<ResolvedTransaction>, // rtx
+    TxStatus,                 // status
+    Capacity,                 // tx fee
+    usize,                    // tx size
+    // the conflicted txs, used for latter `check_rbf`
+    // the root txs for removing from `tx-pool` when RBF is checked
+    HashSet<ProposalShortId>,
+);
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
+
+fn get_tx_status(snapshot: &Snapshot, short_id: &ProposalShortId) -> TxStatus {
+    if snapshot.proposals().contains_proposed(short_id) {
+        TxStatus::Proposed
+    } else if snapshot.proposals().contains_gap(short_id) {
+        TxStatus::Gap
+    } else {
+        TxStatus::Fresh
+    }
+}
 
 fn check_rtx(
     tx_pool: &TxPool,
@@ -959,26 +1032,21 @@ fn check_rtx(
     rtx: &ResolvedTransaction,
 ) -> Result<TxStatus, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
-    let tx_status = if snapshot.proposals().contains_proposed(&short_id) {
-        TxStatus::Proposed
-    } else if snapshot.proposals().contains_gap(&short_id) {
-        TxStatus::Gap
-    } else {
-        TxStatus::Fresh
-    };
+    let tx_status = get_tx_status(snapshot, &short_id);
     tx_pool.check_rtx_from_pool(rtx).map(|_| tx_status)
 }
 
-fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> ResolveResult {
+fn resolve_tx(
+    tx_pool: &TxPool,
+    snapshot: &Snapshot,
+    tx: TransactionView,
+    rbf: bool,
+) -> ResolveResult {
     let short_id = tx.proposal_short_id();
-    let tx_status = if snapshot.proposals().contains_proposed(&short_id) {
-        TxStatus::Proposed
-    } else if snapshot.proposals().contains_gap(&short_id) {
-        TxStatus::Gap
-    } else {
-        TxStatus::Fresh
-    };
-    tx_pool.resolve_tx_from_pool(tx).map(|rtx| (rtx, tx_status))
+    let tx_status = get_tx_status(snapshot, &short_id);
+    tx_pool
+        .resolve_tx_from_pool(tx, rbf)
+        .map(|rtx| (rtx, tx_status))
 }
 
 fn _submit_entry(

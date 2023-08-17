@@ -8,6 +8,7 @@ mod component;
 pub mod error;
 mod persisted;
 pub mod pool;
+mod pool_cell;
 mod process;
 pub mod service;
 mod util;

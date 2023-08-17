@@ -779,26 +779,24 @@ async fn process(mut service: TxPoolService, message: Message) {
                 ..
             }) = tx_pool.pool_map.get_by_id(&id)
             {
-                let trans_status = if status == &Status::Proposed {
-                    TransactionWithStatus::with_proposed
+                let (tx_status, min_replace_fee) = if status == &Status::Proposed {
+                    (TxStatus::Proposed, None)
                 } else {
-                    TransactionWithStatus::with_pending
+                    (TxStatus::Pending, tx_pool.min_replace_fee(entry))
                 };
-                Ok(trans_status(
+                Ok(TransactionWithStatus::with_status(
                     Some(entry.transaction().clone()),
                     entry.cycles,
                     entry.timestamp,
+                    tx_status,
+                    Some(entry.fee),
+                    min_replace_fee,
                 ))
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
-                let recent_reject_result = recent_reject_db.get(&hash);
-                if let Ok(recent_reject) = recent_reject_result {
-                    if let Some(record) = recent_reject {
-                        Ok(TransactionWithStatus::with_rejected(record))
-                    } else {
-                        Ok(TransactionWithStatus::with_unknown())
-                    }
-                } else {
-                    Err(recent_reject_result.unwrap_err())
+                match recent_reject_db.get(&hash) {
+                    Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
+                    Ok(_) => Ok(TransactionWithStatus::with_unknown()),
+                    Err(err) => Err(err),
                 }
             } else {
                 Ok(TransactionWithStatus::with_unknown())
@@ -919,6 +917,7 @@ impl TxPoolService {
             total_tx_size: tx_pool.total_tx_size,
             total_tx_cycles: tx_pool.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
+            min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: 0,
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
