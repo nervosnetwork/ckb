@@ -9,10 +9,7 @@
 
 #![no_std]
 
-#[cfg(target_arch = "wasm32")]
-pub use blake2b_ref::{Blake2b, Blake2bBuilder};
-#[cfg(not(target_arch = "wasm32"))]
-pub use blake2b_rs::{Blake2b, Blake2bBuilder};
+pub use blake2b::{Blake2b, Blake2bBuilder};
 
 #[doc(hidden)]
 pub const BLAKE2B_KEY: &[u8] = &[];

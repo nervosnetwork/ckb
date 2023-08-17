@@ -4,6 +4,8 @@ use crate::{core, packed};
  * Blockchain
  */
 
+const MAX_DEP_TYPE: u8 = 1;
+
 impl<'r> packed::ScriptReader<'r> {
     fn check_data(&self) -> bool {
         core::ScriptHashType::verify_value(self.hash_type().into())
@@ -32,7 +34,7 @@ impl<'r> packed::CellOutputVecReader<'r> {
 
 impl<'r> packed::CellDepReader<'r> {
     fn check_data(&self) -> bool {
-        core::DepType::verify_value(self.dep_type().into())
+        MAX_DEP_TYPE >= self.dep_type().into()
     }
 }
 

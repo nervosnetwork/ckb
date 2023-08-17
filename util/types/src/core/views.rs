@@ -869,11 +869,8 @@ impl BlockView {
  * Convert packed bytes wrappers to views.
  */
 
-impl packed::Transaction {
-    /// Calculates the associated hashes and converts into [`TransactionView`] with those hashes.
-    ///
-    /// [`TransactionView`]: ../core/struct.TransactionView.html
-    pub fn into_view(self) -> TransactionView {
+impl IntoTransactionView for packed::Transaction {
+    fn into_view(self) -> TransactionView {
         let hash = self.calc_tx_hash();
         let witness_hash = self.calc_witness_hash();
         TransactionView {
@@ -884,27 +881,27 @@ impl packed::Transaction {
     }
 }
 
-impl packed::Header {
+impl IntoHeaderView for packed::Header {
     /// Calculates the header hash and converts into [`HeaderView`] with the hash.
     ///
     /// [`HeaderView`]: ../core/struct.HeaderView.html
-    pub fn into_view(self) -> HeaderView {
+    fn into_view(self) -> HeaderView {
         let hash = self.calc_header_hash();
         HeaderView { data: self, hash }
     }
 }
 
-impl packed::UncleBlock {
+impl IntoUncleBlockView for packed::UncleBlock {
     /// Calculates the header hash and converts into [`UncleBlockView`] with the hash.
     ///
     /// [`UncleBlockView`]: ../core/struct.UncleBlockView.html
-    pub fn into_view(self) -> UncleBlockView {
+    fn into_view(self) -> UncleBlockView {
         let hash = self.calc_header_hash();
         UncleBlockView { data: self, hash }
     }
 }
 
-impl packed::Block {
+impl IntoBlockView for packed::Block {
     /// Calculates transaction associated hashes and converts them into [`BlockView`].
     ///
     /// # Notice
@@ -913,7 +910,7 @@ impl packed::Block {
     /// invalid merkle roots in the header.
     ///
     /// [`BlockView`]: ../core/struct.BlockView.html
-    pub fn into_view_without_reset_header(self) -> BlockView {
+    fn into_view_without_reset_header(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
         Self::block_into_view_internal(self, tx_hashes, tx_witness_hashes)
@@ -922,7 +919,7 @@ impl packed::Block {
     /// Calculates transaction associated hashes, resets all hashes and merkle roots in the header, then converts them into [`BlockView`].
     ///
     /// [`BlockView`]: ../core/struct.BlockView.html
-    pub fn into_view(self) -> BlockView {
+    fn into_view(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
         let block = self.reset_header_with_hashes(&tx_hashes[..], &tx_witness_hashes[..]);

@@ -1,6 +1,5 @@
-use bit_vec::BitVec;
-
 use crate::packed::Byte32;
+use bit_vec::BitVec;
 
 /// TODO(doc): @quake
 #[derive(Default, Debug, PartialEq, Eq, Clone)]

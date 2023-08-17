@@ -1,4 +1,5 @@
-use crate::{h256, packed, prelude::*};
+use crate::{packed, prelude::*, vec};
+use ckb_fixed_hash::h256;
 use ckb_hash::blake2b_256;
 
 #[test]
@@ -87,13 +88,6 @@ fn empty_uncles_hash() {
     let uncles = packed::UncleBlockVec::new_builder().build();
     let expect = h256!("0x0");
     assert_eq!(uncles.calc_uncles_hash(), expect.pack());
-}
-
-#[test]
-fn empty_extra_hash() {
-    let block = packed::Block::new_builder().build();
-    let expect = h256!("0x0");
-    assert_eq!(block.calc_extra_hash().extra_hash(), expect.pack());
 }
 
 #[test]

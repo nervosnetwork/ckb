@@ -1,7 +1,9 @@
 //! The error types to unexpected out-points.
 
-use crate::core::{Capacity, Version};
-use crate::generated::packed::{Byte32, OutPoint};
+use crate::{
+    core::{Capacity, Version},
+    packed::{Byte32, OutPoint},
+};
 use ckb_error::{impl_error_conversion_with_kind, prelude::*, Error, ErrorKind};
 use derive_more::Display;
 

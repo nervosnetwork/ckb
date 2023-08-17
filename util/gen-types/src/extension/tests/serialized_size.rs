@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use crate::{packed, prelude::*, vec, vec::Vec};
 
 #[test]
 fn block_size_should_not_include_uncles_proposals() {
