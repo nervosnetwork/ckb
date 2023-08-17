@@ -169,7 +169,7 @@ impl RPCError {
             }
             Reject::Full(_) => RPCError::PoolIsFull,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
-            Reject::Malformed(_) => RPCError::PoolRejectedMalformedTransaction,
+            Reject::Malformed(_, _) => RPCError::PoolRejectedMalformedTransaction,
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,
             Reject::Resolve(_) => RPCError::TransactionFailedToResolve,
             Reject::Verification(_) => RPCError::TransactionFailedToVerify,

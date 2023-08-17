@@ -35,7 +35,7 @@ pub enum Reject {
 
     /// Malformed transaction
     #[error("Malformed {0} transaction")]
-    Malformed(String),
+    Malformed(String, String),
 
     /// Declared wrong cycles
     #[error("Declared wrong cycles {0}, actual {1}")]
@@ -76,7 +76,7 @@ impl Reject {
     /// Returns true if the reject reason is malformed tx.
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            Reject::Malformed(_) => true,
+            Reject::Malformed(_, _) => true,
             Reject::DeclaredWrongCycles(..) => true,
             Reject::Verification(err) => is_malformed_from_verification(err),
             Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => true,
