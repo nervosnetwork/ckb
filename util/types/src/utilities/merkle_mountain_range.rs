@@ -58,14 +58,15 @@ impl core::HeaderView {
     }
 }
 
-impl packed::HeaderDigest {
-    fn is_default(&self) -> bool {
-        let default = Self::default();
-        self.as_slice() == default.as_slice()
-    }
+/// Trait for representing a header digest.
+pub trait HeaderDigest {
+    /// Verify the header digest
+    fn verify(&self) -> Result<(), String>;
+}
 
+impl HeaderDigest for packed::HeaderDigest {
     /// Verify the MMR header digest
-    pub fn verify(&self) -> Result<(), String> {
+    fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
         let start_number: BlockNumber = self.start_number().unpack();
         let end_number: BlockNumber = self.end_number().unpack();

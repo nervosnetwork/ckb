@@ -50,6 +50,7 @@ members = [
     "util/constant",
     "error",
     "util/multisig",
+    "util/gen-types",
     "util/types",
     "util/jsonrpc-types",
     "freezer",

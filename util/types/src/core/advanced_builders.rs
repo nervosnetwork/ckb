@@ -467,9 +467,9 @@ impl BlockBuilder {
  * Convert a struct to an advanced builder
  */
 
-impl packed::Transaction {
+impl AsTransactionBuilder for packed::Transaction {
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> TransactionBuilder {
+    fn as_advanced_builder(&self) -> TransactionBuilder {
         TransactionBuilder::default()
             .version(self.raw().version())
             .cell_deps(self.raw().cell_deps())
@@ -481,9 +481,9 @@ impl packed::Transaction {
     }
 }
 
-impl packed::Header {
+impl AsHeaderBuilder for packed::Header {
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> HeaderBuilder {
+    fn as_advanced_builder(&self) -> HeaderBuilder {
         HeaderBuilder::default()
             .version(self.raw().version())
             .parent_hash(self.raw().parent_hash())
@@ -499,14 +499,14 @@ impl packed::Header {
     }
 }
 
-impl packed::Block {
+impl AsBlockBuilder for packed::Block {
     /// Creates an empty advanced builder.
-    pub fn new_advanced_builder() -> BlockBuilder {
+    fn new_advanced_builder() -> BlockBuilder {
         Default::default()
     }
 
     /// Creates an advanced builder base on current data.
-    pub fn as_advanced_builder(&self) -> BlockBuilder {
+    fn as_advanced_builder(&self) -> BlockBuilder {
         BlockBuilder::default()
             .header(self.header().into_view())
             .uncles(

@@ -720,6 +720,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-gen-types"
+version = "0.112.0-pre"
+dependencies = [
+ "cfg-if 1.0.0",
+ "ckb-error",
+ "ckb-fixed-hash",
+ "ckb-hash",
+ "ckb-occupied-capacity",
+ "molecule",
+ "numext-fixed-uint",
+]
+
+[[package]]
 name = "ckb-hash"
 version = "0.112.0-pre"
 dependencies = [
@@ -1446,6 +1459,7 @@ dependencies = [
  "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
+ "ckb-gen-types",
  "ckb-hash",
  "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
