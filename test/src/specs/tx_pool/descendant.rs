@@ -145,14 +145,27 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
 
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
-        let block = node.new_block_with_blocking(|template| template.proposals.len() != 2);
-        assert!(
-            block
-                .union_proposal_ids()
-                .contains(&family.b().proposal_short_id()),
-            "Miner should propose tx_family.b since it has never been proposed, actual: {:?}",
-            block.union_proposal_ids(),
-        );
+
+        (0..=window.closest()).for_each(|_| {
+            node.submit_block(&blank(node));
+        });
+
+        // commit `tx_family.a`
+        let block = node.new_block(None, None, None);
+        let trans = block.transactions();
+        assert_eq!(trans.len(), 2);
+        assert_eq!(trans[1].proposal_short_id(), family.a().proposal_short_id());
+        node.submit_block(&block);
+
+        (0..=window.closest()).for_each(|_| {
+            node.submit_block(&blank(node));
+        });
+
+        // commit `tx_family.b`
+        let block = node.new_block(None, None, None);
+        let trans = block.transactions();
+        assert_eq!(trans.len(), 2);
+        assert_eq!(trans[1].proposal_short_id(), family.b().proposal_short_id());
         node.submit_block(&block);
     }
 }
@@ -212,7 +225,7 @@ impl Spec for ProposeTransactionButParentNot {
         node.submit_transaction(family.b());
 
         // 2. Propose `tx_family.b`, but `tx_family.a` not, then continuously submit blank blocks.
-        //    In the time, miner should not commit `tx_family.b` as its parent, `tx_family.a` has
+        //    In the time, miner should not commit `tx_family.b` as its parent `tx_family.a` has
         //    not been not proposed and committed yet.
         node.submit_block(&propose(node, &[family.b()]));
         (0..window.closest()).for_each(|_| {
