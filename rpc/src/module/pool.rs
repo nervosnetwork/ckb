@@ -166,6 +166,7 @@ pub trait PoolRpc {
     ///   "result": {
     ///     "last_txs_updated_at": "0x0",
     ///     "min_fee_rate": "0x3e8",
+    ///     "min_rbf_rate": "0x5dc",
     ///     "max_tx_pool_size": "0xaba9500",
     ///     "orphan": "0x0",
     ///     "pending": "0x1",

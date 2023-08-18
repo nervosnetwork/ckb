@@ -2,24 +2,21 @@
 extern crate rustc_hash;
 extern crate slab;
 use crate::component::edges::Edges;
-use crate::component::entry::EvictKey;
 use crate::component::links::{Relation, TxLinksMap};
-use crate::component::score_key::AncestorsScoreSortKey;
+use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-use ckb_logger::{debug, trace};
-use ckb_multi_index_map::MultiIndexMap;
+
+use ckb_logger::trace;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
+use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::CellChecker, TransactionView},
+    core::TransactionView,
     packed::{Byte32, CellOutput, ProposalShortId},
 };
-use ckb_types::{
-    core::cell::{CellMetaBuilder, CellProvider, CellStatus},
-    prelude::*,
-};
+use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
 use super::links::TxLinks;
@@ -114,6 +111,10 @@ impl PoolMap {
         self.entries.get_by_id(id)
     }
 
+    fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
+        self.get_by_id(id).expect("unconsistent pool")
+    }
+
     pub(crate) fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
         self.entries.get_by_status(&status)
     }
@@ -171,9 +172,9 @@ impl PoolMap {
             return Ok(false);
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.check_record_ancestors(&mut entry)?;
+        self.check_and_record_ancestors(&mut entry)?;
         self.insert_entry(&entry, status);
-        self.record_entry_deps(&entry);
+        self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
         Ok(true)
     }
@@ -191,7 +192,6 @@ impl PoolMap {
         self.entries.remove_by_id(id).map(|entry| {
             self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
-            self.remove_entry_deps(&entry.inner);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
             entry.inner
@@ -240,11 +240,16 @@ impl PoolMap {
         conflicts
     }
 
+    pub(crate) fn find_conflict_tx(&self, tx: &TransactionView) -> HashSet<ProposalShortId> {
+        tx.input_pts_iter()
+            .filter_map(|out_point| self.edges.get_input_ref(&out_point).cloned())
+            .collect()
+    }
+
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
-        let inputs = tx.input_pts_iter();
         let mut conflicts = Vec::new();
 
-        for i in inputs {
+        for i in tx.input_pts_iter() {
             if let Some(id) = self.edges.remove_input(&i) {
                 let entries = self.remove_entry_and_descendants(&id);
                 if !entries.is_empty() {
@@ -361,7 +366,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_deps(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -414,7 +419,7 @@ impl PoolMap {
     }
 
     /// Check ancestors and record for entry
-    fn check_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
+    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
@@ -446,14 +451,10 @@ impl PoolMap {
 
         // update parents references
         for ancestor_id in &ancestors {
-            let ancestor = self
-                .entries
-                .get_by_id(ancestor_id)
-                .expect("pool consistent");
+            let ancestor = self.get_by_id_checked(ancestor_id);
             entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
-            debug!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
@@ -476,9 +477,6 @@ impl PoolMap {
             // release input record
             self.edges.remove_input(&i);
         }
-    }
-
-    fn remove_entry_deps(&mut self, entry: &TxEntry) {
         let id = entry.proposal_short_id();
         for d in entry.related_dep_out_points().cloned() {
             self.edges.delete_txid_by_dep(d, &id);
@@ -498,33 +496,5 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
-    }
-}
-
-impl CellProvider for PoolMap {
-    fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        if self.edges.get_input_ref(out_point).is_some() {
-            return CellStatus::Dead;
-        }
-        if let Some((output, data)) = self.get_output_with_data(out_point) {
-            let cell_meta = CellMetaBuilder::from_cell_output(output, data)
-                .out_point(out_point.to_owned())
-                .build();
-            CellStatus::live_cell(cell_meta)
-        } else {
-            CellStatus::Unknown
-        }
-    }
-}
-
-impl CellChecker for PoolMap {
-    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        if self.edges.get_input_ref(out_point).is_some() {
-            return Some(false);
-        }
-        if self.get_output_with_data(out_point).is_some() {
-            return Some(true);
-        }
-        None
     }
 }

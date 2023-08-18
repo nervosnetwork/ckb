@@ -79,6 +79,7 @@ enable_deprecated_rpc = true
 [tx_pool]
 max_tx_pool_size = 180_000_000 # 180mb
 min_fee_rate = 0 # Here fee_rate are calculated directly using size in units of shannons/KB
+min_rbf_rate = 0 # Here rbf_rate are calculated directly using size in units of shannons/KB
 max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
 
