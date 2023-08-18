@@ -882,6 +882,8 @@ Response
     },
     "cycles": "0x219",
     "time_added_to_pool" : "0x187b3d137a1",
+    "fee": "0x16923f7dcf",
+    "min_replace_fee": "0x16923f7f6a",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -4510,6 +4512,7 @@ Response
   "result": {
     "last_txs_updated_at": "0x0",
     "min_fee_rate": "0x3e8",
+    "min_rbf_rate": "0x5dc",
     "max_tx_pool_size": "0xaba9500",
     "orphan": "0x0",
     "pending": "0x1",
@@ -5071,6 +5074,10 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 ### Error `PoolRejectedTransactionBySizeLimit`
 
 (-1110): The transaction exceeded maximum size limit.
+
+### Error `PoolRejectedRBF`
+
+(-1111): The transaction is rejected for RBF checking.
 
 ### Error `Indexer`
 
@@ -6426,7 +6433,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry" | "RBFRejected"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -6441,6 +6448,7 @@ Different reject types:
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 *   `Expiry`: Transaction expired
+*   `RBFRejected`: RBF rejected
 
 
 ### Type `ProposalShortId`
@@ -6785,7 +6793,7 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 *   `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
-    CKB locates lock script and type script code via cell deps. The script also can uses syscalls to read the cells here.
+    CKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
@@ -6947,9 +6955,13 @@ The JSON view of a transaction as well as its status.
 
 *   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
 
-*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
+
+*   `fee`: [`Capacity`](#type-capacity) `|` `null` - The transaction fee of the transaction
+
+*   `min_replace_fee`: [`Capacity`](#type-capacity) `|` `null` - The minimal fee required to replace this transaction
 
 
 ### Type `TxPoolEntries`
@@ -7032,6 +7044,10 @@ Transaction pool information.
 *   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
 *   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+
+    The unit is Shannons per 1000 bytes transaction serialization size in the block.
+
+*   `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold. The pool reject to replace for transactions which fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 

@@ -7,9 +7,9 @@ use ckb_types::{
     prelude::*,
 };
 
-pub struct DifferentTxsWithSameInput;
+pub struct DifferentTxsWithSameInputWithOutRBF;
 
-impl Spec for DifferentTxsWithSameInput {
+impl Spec for DifferentTxsWithSameInputWithOutRBF {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
@@ -19,6 +19,7 @@ impl Spec for DifferentTxsWithSameInput {
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
+
         // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
             .capacity(capacity_bytes!(80).pack())
@@ -28,10 +29,14 @@ impl Spec for DifferentTxsWithSameInput {
             .as_advanced_builder()
             .set_outputs(vec![output])
             .build();
-        node0.rpc_client().send_transaction(tx1.data().into());
-        node0.rpc_client().send_transaction(tx2.data().into());
 
-        node0.mine_with_blocking(|template| template.proposals.len() != 3);
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+
+        node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
         node0.mine_with_blocking(|template| template.transactions.len() != 2);
 
@@ -42,7 +47,7 @@ impl Spec for DifferentTxsWithSameInput {
             .map(TransactionView::hash)
             .collect();
 
-        // RBF (Replace-By-Fees) is not implemented
+        // RBF (Replace-By-Fees) is not enabled
         assert!(commit_txs_hash.contains(&tx1.hash()));
         assert!(!commit_txs_hash.contains(&tx2.hash()));
 

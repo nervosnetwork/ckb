@@ -1,8 +1,5 @@
-use crate::{
-    core::{capacity_bytes, Capacity},
-    packed,
-    prelude::*,
-};
+use crate::{packed, prelude::*, vec};
+use ckb_occupied_capacity::{capacity_bytes, Capacity};
 
 #[test]
 fn script_occupied_capacity() {

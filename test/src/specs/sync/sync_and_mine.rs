@@ -1,5 +1,5 @@
 use crate::{Node, Spec};
-use ckb_types::packed;
+use ckb_types::{packed, prelude::*};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 

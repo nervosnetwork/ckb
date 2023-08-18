@@ -234,10 +234,22 @@ impl Spec for TransactionRelayConflict {
             .build();
         node0.rpc_client().send_transaction(tx1.data().into());
         sleep(6);
-        node0.rpc_client().send_transaction(tx2.data().into());
+
+        let res = node0.rpc_client().get_transaction(tx1.hash());
+        assert!(matches!(res.tx_status.status, Status::Pending));
+
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err());
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("TransactionFailedToResolve: Resolve failed Dead"));
 
         let relayed = wait_until(20, || {
-            [tx1.hash(), tx2.hash()].iter().all(|hash| {
+            [tx1.hash()].iter().all(|hash| {
                 node1
                     .rpc_client()
                     .get_transaction(hash.clone())
@@ -247,7 +259,7 @@ impl Spec for TransactionRelayConflict {
         });
         assert!(relayed, "all transactions should be relayed");
 
-        let proposed = node1.mine_with_blocking(|template| template.proposals.len() != 3);
+        let proposed = node1.mine_with_blocking(|template| template.proposals.len() != 2);
         node1.mine_with_blocking(|template| template.number.value() != (proposed + 1));
 
         waiting_for_sync(nodes);
@@ -256,8 +268,13 @@ impl Spec for TransactionRelayConflict {
 
         let ret = node1
             .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 1);
+        assert!(matches!(ret.tx_status.status, Status::Proposed));
+
+        let ret = node1
+            .rpc_client()
             .get_transaction_with_verbosity(tx2.hash(), 1);
-        assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(matches!(ret.tx_status.status, Status::Unknown));
 
         node0.remove_transaction(tx1.hash());
         node0.remove_transaction(tx2.hash());
@@ -265,6 +282,12 @@ impl Spec for TransactionRelayConflict {
         node1.remove_transaction(tx2.hash());
         node0.wait_for_tx_pool();
         node1.wait_for_tx_pool();
+
+        // make sure tx1 is removed from tx-pool
+        let ret = node1
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 1);
+        assert!(matches!(ret.tx_status.status, Status::Unknown));
 
         let result = wait_until(5, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
@@ -282,6 +305,7 @@ impl Spec for TransactionRelayConflict {
             let _ = node1
                 .rpc_client()
                 .send_transaction_result(tx2.data().into());
+
             node0
                 .rpc_client()
                 .get_transaction(tx2.hash())

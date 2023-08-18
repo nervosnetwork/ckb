@@ -1,6 +1,6 @@
 use ckb_hash::{blake2b_256, new_blake2b};
 
-use crate::{core, packed, prelude::*};
+use crate::{packed, prelude::*, vec::Vec};
 
 /*
  * Calculate simple hash for packed bytes wrappers.
@@ -254,16 +254,6 @@ impl<'r> packed::BlockReader<'r> {
             .map(|extension| extension.calc_raw_data_hash())
     }
 
-    /// Calculates the extra hash, which is a combination of the uncles hash and
-    /// the extension hash.
-    ///
-    /// - If there is no extension, extra hash is the same as the uncles hash.
-    /// - If there is a extension, then extra hash it the hash of the combination
-    /// of uncles hash and the extension hash.
-    pub fn calc_extra_hash(&self) -> core::ExtraHashView {
-        core::ExtraHashView::new(self.calc_uncles_hash(), self.calc_extension_hash())
-    }
-
     /// Calculates transaction hashes for all transactions in the block.
     pub fn calc_tx_hashes(&self) -> Vec<packed::Byte32> {
         self.transactions()
@@ -285,7 +275,6 @@ impl_calc_special_hash_for_entity!(Block, calc_header_hash);
 impl_calc_special_hash_for_entity!(Block, calc_proposals_hash);
 impl_calc_special_hash_for_entity!(Block, calc_uncles_hash);
 impl_calc_special_hash_for_entity!(Block, calc_extension_hash, Option<packed::Byte32>);
-impl_calc_special_hash_for_entity!(Block, calc_extra_hash, core::ExtraHashView);
 impl_calc_special_hash_for_entity!(Block, calc_tx_hashes, Vec<packed::Byte32>);
 impl_calc_special_hash_for_entity!(Block, calc_tx_witness_hashes, Vec<packed::Byte32>);
 

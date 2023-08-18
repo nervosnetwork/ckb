@@ -150,7 +150,6 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         txs.iter().for_each(|tx| {
             node.submit_transaction(tx);
         });
-
         (0..multiple).for_each(|_| {
             let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
             node.submit_block(&block);

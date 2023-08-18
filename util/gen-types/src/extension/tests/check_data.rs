@@ -1,4 +1,4 @@
-use crate::{packed, prelude::*};
+use crate::{borrow::ToOwned, packed, prelude::*};
 
 fn create_transaction(
     outputs: &[&packed::CellOutput],

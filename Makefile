@@ -5,7 +5,7 @@ MOLC_VERSION := 0.7.5
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
-CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
+CKB_TEST_ARGS := -c 4 ${CKB_TEST_ARGS}
 CKB_FEATURES ?= deadlock_detection,with_sentry
 ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
@@ -24,7 +24,7 @@ doc-test: ## Run doc tests
 	cargo test --all --doc
 
 .PHONY: cli-test
-cli-test: build # Run ckb command line usage bats test
+cli-test: prod # Run ckb command line usage bats test
 	./util/app-config/src/tests/cli_test.sh
 
 .PHONY: test
@@ -224,8 +224,8 @@ check-dirty-hashes-toml: gen-hashes
 
 ##@ Generates Files
 .PHONY: gen
-GEN_MOL_IN_DIR := util/types/schemas
-GEN_MOL_OUT_DIR := util/types/src/generated
+GEN_MOL_IN_DIR := util/gen-types/schemas
+GEN_MOL_OUT_DIR := util/gen-types/src/generated
 GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs ${GEN_MOL_OUT_DIR}/protocols.rs
 gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 

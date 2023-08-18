@@ -1,3 +1,16 @@
+### Features
+* #4079, **tx-pol:** Implement `Replace-by-Fee(RBF)` for tx-pool (@chenyukang)
+This feature enables users to replace a transaction with a higher fee rate, which is useful when the transaction is stuck in the tx-pool:
+    * Add `min_rbf_rate` in `ckb.toml` with default value `1500`, which means the minimum extra fee rate for RBF, the unit is `shannons/KB`
+    * Add fields `fee` and `min_replace_fee` in `get_transaction`, which means the the minimal fee need to pay for RBF for a specific transaction
+    * The replaced transaction will be removed from `tx-pool` and with the status `Rejected`.
+
+### Improvements
+* #3993, **tx-pool:** Almost reimplemented `tx-pool` with `multi_index_map`, with the following improvements (@chenyukang):
+  * Sort txs in pool by `score` in `Pending` stage, `txs` with higher `score` be processed first
+  * Evict `txs` from pool with `descendants_count` and `fee_rate`
+  * Eliminate redundant code for clean and consistent code
+
 # [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
 
 ### Features

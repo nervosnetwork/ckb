@@ -720,6 +720,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-gen-types"
+version = "0.112.0-pre"
+dependencies = [
+ "cfg-if 1.0.0",
+ "ckb-error",
+ "ckb-fixed-hash",
+ "ckb-hash",
+ "ckb-occupied-capacity",
+ "molecule",
+ "numext-fixed-uint",
+]
+
+[[package]]
 name = "ckb-hash"
 version = "0.112.0-pre"
 dependencies = [
@@ -1446,6 +1459,7 @@ dependencies = [
  "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
+ "ckb-gen-types",
  "ckb-hash",
  "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
@@ -3130,16 +3144,25 @@ dependencies = [
 
 [[package]]
 name = "multi_index_map"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a58eea8dbf91e7420e0e843535f585491046d6017e669d36cb8342cfa4861e2"
+checksum = "03f409d5f41e6b8a2faa0b363c4523742f0ef5e4015fd4e298a5c7dbb3a3e01c"
+dependencies = [
+ "multi_index_map_derive",
+ "rustc-hash",
+ "slab",
+]
+
+[[package]]
+name = "multi_index_map_derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98e81cd436463efbaa95a2d2bac3028e6998a4bb2ef8a82a661de3567bb79d5a"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "rustc-hash",
- "slab",
  "syn",
 ]
 

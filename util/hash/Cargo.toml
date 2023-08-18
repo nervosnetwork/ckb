@@ -8,8 +8,12 @@ description = "CKB default hash function."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-blake2b-rs = "0.2"
+[features]
+default = []
+ckb-contract = [] # This feature is used for CKB contract development
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-blake2b-ref = "0.2.0"
+[target.'cfg(not(any(target_arch = "wasm32", features = "ckb-contract")))'.dependencies]
+blake2b = { package = "blake2b-rs", version = "0.2" }
+
+[target.'cfg(any(target_arch = "wasm32", features = "ckb-contract"))'.dependencies]
+blake2b = { package = "blake2b-ref", version = "0.2.0" }
