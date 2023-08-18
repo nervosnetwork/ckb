@@ -84,6 +84,9 @@ impl Migration for AddCellsRootMMR {
 
                 pbi.inc(1);
                 block_number += 1;
+                if block_number > tip_number {
+                    break;
+                }
             }
             db_txn.commit()?;
 
