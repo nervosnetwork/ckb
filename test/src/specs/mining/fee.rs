@@ -6,8 +6,14 @@ use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
 use ckb_types::core::TransactionBuilder;
+use ckb_types::packed::CellInput;
 use ckb_types::packed::CellOutput;
+use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
+use ckb_types::{
+    core::{capacity_bytes, Capacity},
+    packed::CellOutputBuilder,
+};
 use rand::{thread_rng, Rng};
 
 pub struct FeeOfTransaction;
@@ -238,5 +244,47 @@ impl Spec for ProposeDuplicated {
 
         assert!(txs.iter().all(|tx| is_transaction_committed(node, tx)));
         check_fee(node);
+    }
+}
+
+pub struct MalformedTx;
+impl Spec for MalformedTx {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        let tx0 = node0.new_transaction_spend_tip_cellbase();
+
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(1000).pack())
+            .build();
+
+        let child = tx0
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(tx0.hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![output])
+            .build();
+
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx0.data().into());
+        assert!(ret.is_ok());
+
+        node0.mine_until_transaction_confirm(&tx0.hash());
+
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(child.data().into());
+
+        assert!(ret.is_err());
+        let message = ret.unwrap_err().to_string();
+        assert!(
+            message.contains("Malformed Overflow transaction")
+                && message.contains("expect (outputs capacity) <= (inputs capacity)")
+        );
     }
 }

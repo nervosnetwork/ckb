@@ -526,6 +526,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(HandlingDescendantsOfCommitted),
         Box::new(ProposeOutOfOrder),
         Box::new(SubmitTransactionWhenItsParentInGap),
+        Box::new(MalformedTx),
         Box::new(SubmitTransactionWhenItsParentInProposed),
         Box::new(ProposeTransactionButParentNot),
         Box::new(ProposalExpireRuleForCommittingAndExpiredAtOneTime),
