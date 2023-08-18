@@ -361,7 +361,10 @@ impl TxPool {
                     Ok(())
                 }
             }
-            None => Err(Reject::Malformed(String::from("invalid short_id"))),
+            None => Err(Reject::Malformed(
+                String::from("invalid short_id"),
+                Default::default(),
+            )),
         }
     }
 
@@ -377,7 +380,10 @@ impl TxPool {
                     Ok(())
                 }
             }
-            None => Err(Reject::Malformed(String::from("invalid short_id"))),
+            None => Err(Reject::Malformed(
+                String::from("invalid short_id"),
+                Default::default(),
+            )),
         }
     }
 
