@@ -1,3 +1,14 @@
+# [v0.110.1](https://github.com/nervosnetwork/ckb/compare/v0.110.0...v0.110.1) (2023-08-20)
+
+BREAKING: Light Client Protocol Softfork Activation in Mainnet
+
+| Field | Value | Note |
+| ----- | ----- | ---- |
+| start | 8,282 | 2023/09/01 00:00:00 utc |
+| timeout | 8,552 | 8,282 + 270 |
+| min\_activation\_epoch | 8,648 | 2023/11/01 00:00:00 utc |
+| threshold | 80% | |
+
 # [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
 
 ### Features
