@@ -339,8 +339,8 @@ impl Synchronizer {
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-        if status.contains(BlockStatus::BLOCK_STORED) {
-            debug!("Block {} already stored", block_hash);
+        if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
+            error!("Block {} already partial stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared.insert_new_block(&self.chain, Arc::new(block))
