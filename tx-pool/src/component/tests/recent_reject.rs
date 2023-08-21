@@ -15,14 +15,14 @@ fn test_basic() {
     for i in 0..80u64 {
         let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         recent_reject
-            .put(&key, Reject::Malformed(i.to_string()))
+            .put(&key, Reject::Malformed(i.to_string(), Default::default()))
             .unwrap();
     }
 
     for i in 0..80u64 {
         let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         let reject: ckb_jsonrpc_types::PoolTransactionReject =
-            Reject::Malformed(i.to_string()).into();
+            Reject::Malformed(i.to_string(), Default::default()).into();
         assert_eq!(
             recent_reject.get(&key).unwrap().unwrap(),
             serde_json::to_string(&reject).unwrap()
@@ -32,7 +32,7 @@ fn test_basic() {
     for i in 0..80u64 {
         let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         recent_reject
-            .put(&key, Reject::Malformed(i.to_string()))
+            .put(&key, Reject::Malformed(i.to_string(), Default::default()))
             .unwrap();
     }
 

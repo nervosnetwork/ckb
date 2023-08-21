@@ -33,7 +33,12 @@ pub(crate) fn check_tx_fee(
 ) -> Result<Capacity, Reject> {
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.borrow_as_data_loader())
         .transaction_fee(rtx)
-        .map_err(|err| Reject::Malformed(format!("{err}")))?;
+        .map_err(|err| {
+            Reject::Malformed(
+                format!("{err}"),
+                "expect (outputs capacity) <= (inputs capacity)".to_owned(),
+            )
+        })?;
     // Theoretically we cannot use size as weight directly to calculate fee_rate,
     // here min fee rate is used as a cheap check,
     // so we will use size to calculate fee_rate directly
@@ -68,7 +73,10 @@ pub(crate) fn non_contextual_verify(
     }
     // cellbase is only valid in a block, not as a loose transaction
     if tx.is_cellbase() {
-        return Err(Reject::Malformed("cellbase like".to_owned()));
+        return Err(Reject::Malformed(
+            "cellbase like".to_owned(),
+            Default::default(),
+        ));
     }
 
     Ok(())

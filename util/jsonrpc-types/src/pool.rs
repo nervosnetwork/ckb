@@ -255,7 +255,7 @@ impl From<Reject> for PoolTransactionReject {
             }
             Reject::Full(..) => Self::Full(format!("{reject}")),
             Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
-            Reject::Malformed(_) => Self::Malformed(format!("{reject}")),
+            Reject::Malformed(_, _) => Self::Malformed(format!("{reject}")),
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{reject}")),
             Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
