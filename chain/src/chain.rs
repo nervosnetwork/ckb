@@ -395,6 +395,10 @@ impl ChainService {
                 .orphan_blocks_broker
                 .remove_blocks_by_parent(&leader_hash);
             if descendants.is_empty() {
+                error!(
+                    "leader {} does not have any descendants, this shouldn't happen",
+                    leader_hash
+                );
                 continue;
             }
             let mut accept_error_occurred = false;
