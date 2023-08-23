@@ -241,15 +241,15 @@ table BlockFilterCheckPoints {
 /* Types for Network/Sync */
 
 union SyncMessage {
-    GetHeaders,
-    SendHeaders,
-    GetBlocks,
-    SendBlock,
-    SetFilter,
-    AddFilter,
-    ClearFilter,
-    FilteredBlock,
-    InIBD,
+    GetHeaders     : 0,
+    SendHeaders    : 1,
+    GetBlocks      : 2,
+    SendBlock      : 3,
+    SetFilter      : 4,
+    AddFilter      : 5,
+    ClearFilter    : 6,
+    FilteredBlock  : 7,
+    InIBD          : 8,
 }
 
 table GetHeaders {
