@@ -50,6 +50,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `verify_transaction_proof`](#method-verify_transaction_proof)
         * [Method `get_transaction_and_witness_proof`](#method-get_transaction_and_witness_proof)
         * [Method `verify_transaction_and_witness_proof`](#method-verify_transaction_and_witness_proof)
+        * [Method `get_cells_status_proof`](#method-get_cells_status_proof)
+        * [Method `verify_cells_status_proof`](#method-verify_cells_status_proof)
         * [Method `get_fork_block`](#method-get_fork_block)
         * [Method `get_consensus`](#method-get_consensus)
         * [Method `get_block_median_time`](#method-get_block_median_time)
@@ -120,8 +122,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `CellInfo`](#type-cellinfo)
     * [Type `CellInput`](#type-cellinput)
     * [Type `CellOutput`](#type-celloutput)
+    * [Type `CellStatus`](#type-cellstatus)
     * [Type `CellWithStatus`](#type-cellwithstatus)
     * [Type `CellbaseTemplate`](#type-cellbasetemplate)
+    * [Type `CellsStatusProof`](#type-cellsstatusproof)
     * [Type `ChainInfo`](#type-chaininfo)
     * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
@@ -1498,6 +1502,146 @@ Response
   "result": [
     "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
   ]
+}
+```
+
+
+#### Method `get_cells_status_proof`
+* `get_cells_status_proof(out_points, block_hash)`
+    * `out_points`: `Array<` [`OutPoint`](#type-outpoint) `>`
+    * `block_hash`: [`H256`](#type-h256) `|` `null`
+* result: [`CellsStatusProof`](#type-cellsstatusproof)
+
+Returns a proof of the cells status in the specified block.
+
+###### Params
+
+*   `out_points` - Cells’ out points to prove
+
+*   `block_hash` - An optional parameter, if specified, generate proof for the block with this hash, otherwise use the tip block
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_cells_status_proof",
+  "params": [
+    [
+      {
+        "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+        "index": "0x0"
+      }
+    ]
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "cells_count": "0x3f6",
+    "cells_status": [
+      {
+        "mmr_position": "0x0",
+        "out_point": {
+          "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+          "index": "0x0"
+        },
+        "created_by": "0x0",
+        "consumed_by": null
+      }
+    ],
+    "merkle_proof": [
+      "0xdeb75ce5f1a45df88aca9370c01224fcbba5e996b190a8a6ca4b7b3df18b5d42",
+      "0x29deb32dfc73c95d62be24915c5edafc2c0c8e61eda94e6abed78e18f6e1af1b",
+      "0xa936c971f5c59b1a200a6b3f2cc8d11ef099fa7a7b18e5faa5792d8aab3ef6a8",
+      "0x3b98c55e5a8d274c0c5558de7f1c9c2427fddd291ff961b95e3f5e0deffbd717",
+      "0x384b248b63348edc3466016c73cb8657feeccc181c5d73f318dd16b2d59e0305",
+      "0xa173912a34b254a2ebc921f7559c0a777fa556362a6761522a2204bd7b524c7e",
+      "0xaa6a62aa7388c1df92c16d605233e13ed861234bb803cd37ee1112cfe244b94a",
+      "0x9819e43079dad6302e80cc6f0db90cd55aff16dd5380fc461aa02cab19af2d4c",
+      "0x944db3a79017c60da31dddb33f796d196dd5c0209ddb738398f489ac3c2b7159",
+      "0xe4e6bb25e72c3ce034aa02231e42b2c05030495c37e29530ed7c8fc429f902f9"
+    ]
+  }
+}
+```
+
+
+#### Method `verify_cells_status_proof`
+* `verify_cells_status_proof(proof)`
+    * `proof`: [`CellsStatusProof`](#type-cellsstatusproof)
+* result: `boolean`
+
+Verifies that a cells status proof is valid or not.
+
+###### Params
+
+*   `out_points` - Cells’ out points to prove
+
+*   `block_hash` - An optional parameter, if specified, generate proof for the block with this hash, otherwise use the tip block
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "verify_cells_status_proof",
+  "params": [{
+    "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "cells_count": "0x3f6",
+    "cells_status": [
+      {
+        "mmr_position": "0x0",
+        "out_point": {
+          "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+          "index": "0x0"
+        },
+        "created_by": "0x0",
+        "consumed_by": null
+      }
+    ],
+    "merkle_proof": [
+      "0xdeb75ce5f1a45df88aca9370c01224fcbba5e996b190a8a6ca4b7b3df18b5d42",
+      "0x29deb32dfc73c95d62be24915c5edafc2c0c8e61eda94e6abed78e18f6e1af1b",
+      "0xa936c971f5c59b1a200a6b3f2cc8d11ef099fa7a7b18e5faa5792d8aab3ef6a8",
+      "0x3b98c55e5a8d274c0c5558de7f1c9c2427fddd291ff961b95e3f5e0deffbd717",
+      "0x384b248b63348edc3466016c73cb8657feeccc181c5d73f318dd16b2d59e0305",
+      "0xa173912a34b254a2ebc921f7559c0a777fa556362a6761522a2204bd7b524c7e",
+      "0xaa6a62aa7388c1df92c16d605233e13ed861234bb803cd37ee1112cfe244b94a",
+      "0x9819e43079dad6302e80cc6f0db90cd55aff16dd5380fc461aa02cab19af2d4c",
+      "0x944db3a79017c60da31dddb33f796d196dd5c0209ddb738398f489ac3c2b7159",
+      "0xe4e6bb25e72c3ce034aa02231e42b2c05030495c37e29530ed7c8fc429f902f9"
+    ]
+  }]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
 }
 ```
 
@@ -5525,6 +5669,23 @@ The fields of an output cell except the cell data.
     The JSON field name is “type”.
 
 
+### Type `CellStatus`
+
+Cell status.
+
+#### Fields
+
+`CellStatus` is a JSON object with the following fields.
+
+*   `mmr_position`: [`Uint64`](#type-uint64) - The position of the leaf node in the MMR.
+
+*   `out_point`: [`OutPoint`](#type-outpoint) - The cell’s out point.
+
+*   `created_by`: [`BlockNumber`](#type-blocknumber) - The block number when the cell was created.
+
+*   `consumed_by`: [`BlockNumber`](#type-blocknumber) `|` `null` - The block number when the cell was consumed, optional, none if the cell is live.
+
+
 ### Type `CellWithStatus`
 
 The JSON view of a cell with its status information.
@@ -5597,6 +5758,23 @@ The cellbase transaction template of the new block for miners.
     Miners can utilize this field to ensure that the total cycles do not exceed the limit while selecting transactions.
 
 *   `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
+
+
+### Type `CellsStatusProof`
+
+Proof of cells status.
+
+#### Fields
+
+`CellsStatusProof` is a JSON object with the following fields.
+
+*   `block_hash`: [`H256`](#type-h256) - The block hash of the specified block.
+
+*   `cells_count`: [`Uint64`](#type-uint64) - The total number of generated cells from genesis block to the specified block, including consumed cells.
+
+*   `cells_status`: `Array<` [`CellStatus`](#type-cellstatus) `>` - An array of cell status.
+
+*   `merkle_proof`: `Array<` [`H256`](#type-h256) `>` - The merkle proof of the MMR, it is an array of hash digests.
 
 
 ### Type `ChainInfo`
@@ -5762,10 +5940,11 @@ An object containing various state info regarding deployments of consensus chang
 
 Deployment name
 
-`DeploymentPos` is equivalent to `"testdummy" | "light_client"`.
+`DeploymentPos` is equivalent to `"testdummy" | "light_client" | "cells_commitments"`.
 
 *   Dummy
 *   light client protocol
+*   Tranaction output commitments
 
 
 ### Type `DeploymentState`
