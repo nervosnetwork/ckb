@@ -92,6 +92,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `get_pool_tx_detail_info`](#method-get_pool_tx_detail_info)
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
@@ -163,6 +164,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `PoolTransactionReject`](#type-pooltransactionreject)
+    * [Type `PoolTxDetailInfo`](#type-pooltxdetailinfo)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
     * [Type `Ratio`](#type-ratio)
@@ -4659,6 +4661,55 @@ Response
 ```
 
 
+#### Method `get_pool_tx_detail_info`
+* `get_pool_tx_detail_info(tx_hash)`
+    * `tx_hash`: [`H256`](#type-h256)
+* result: [`PoolTxDetailInfo`](#type-pooltxdetailinfo)
+
+Query and returns the details of a transaction in the pool, only for trouble shooting
+
+###### Params
+
+*   `tx_hash` - Hash of a transaction
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_pool_tx_detail_info",
+  "params": [
+    "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+   "jsonrpc": "2.0",
+   "result": {
+       "ancestors_count": "0x0",
+       "descendants_count": "0x0",
+       "entry_status": "Pending",
+       "pending_count": "0x1",
+       "proposed_count": "0x0",
+       "rank_in_pending": "0x1",
+       "score_sortkey": "AncestorsScoreSortKey { fee: Capacity(96942915023), weight: 274, ancestors_fee: Capacity(96942915023), ancestors_weight: 274 }",
+       "timestamp": "0x18aa1baa54c"
+   },
+   "id": 42
+}
+```
+
+
 #### Method `tx_pool_ready`
 * `tx_pool_ready()`
 * result: `boolean`
@@ -6504,6 +6555,31 @@ Different reject types:
 *   `Verification`: Verification failed
 *   `Expiry`: Transaction expired
 *   `RBFRejected`: RBF rejected
+
+
+### Type `PoolTxDetailInfo`
+
+A Tx details info in tx-pool.
+
+#### Fields
+
+`PoolTxDetailInfo` is a JSON object with the following fields.
+
+*   `timestamp`: [`Uint64`](#type-uint64) - The time added into tx-pool
+
+*   `entry_status`: `string` - The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+
+*   `rank_in_pending`: [`Uint64`](#type-uint64) - The rank in pending, starting from 0
+
+*   `pending_count`: [`Uint64`](#type-uint64) - The pending(`Pending` and `Gap`) count
+
+*   `proposed_count`: [`Uint64`](#type-uint64) - The proposed count
+
+*   `descendants_count`: [`Uint64`](#type-uint64) - The descendants count of tx
+
+*   `ancestors_count`: [`Uint64`](#type-uint64) - The ancestors count of tx
+
+*   `score_sortkey`: `string` - The score key details, useful to debug
 
 
 ### Type `ProposalShortId`

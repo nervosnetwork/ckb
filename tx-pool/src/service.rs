@@ -19,7 +19,7 @@ use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
-use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
+use ckb_types::core::tx_pool::{PoolTxDetailInfo, TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
@@ -76,9 +76,7 @@ type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
 type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
-
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
-
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
 pub(crate) type ChainReorgArgs = (
@@ -105,6 +103,7 @@ pub(crate) enum Message {
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
+    GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
 
     // test
     #[cfg(feature = "internal")]
@@ -302,6 +301,11 @@ impl TxPoolController {
     /// TODO(doc): @zhangsoledad
     pub fn get_all_ids(&self) -> Result<TxPoolIds, AnyError> {
         send_message!(self, GetAllIds, ())
+    }
+
+    /// query the details of a transaction in the pool
+    pub fn get_tx_detail(&self, tx_hash: Byte32) -> Result<PoolTxDetailInfo, AnyError> {
+        send_message!(self, GetPoolTxDetails, tx_hash)
     }
 
     /// Saves tx pool into disk.
@@ -852,6 +856,19 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("responder send clear_pool failed {:?}", e)
             };
         }
+        Message::GetPoolTxDetails(Request {
+            responder,
+            arguments: tx_hash,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let id = ProposalShortId::from_tx_hash(&tx_hash);
+            let tx_details = tx_pool
+                .get_tx_detail(&id)
+                .unwrap_or(PoolTxDetailInfo::with_unknown());
+            if let Err(e) = responder.send(tx_details) {
+                error!("responder send get_pool_tx_details failed {:?}", e)
+            };
+        }
         Message::GetAllEntryInfo(Request { responder, .. }) => {
             let tx_pool = service.tx_pool.read().await;
             let info = tx_pool.get_all_entry_info();
@@ -918,7 +935,7 @@ impl TxPoolService {
             total_tx_cycles: tx_pool.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
-            last_txs_updated_at: 0,
+            last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
         }

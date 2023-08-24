@@ -1,7 +1,8 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
 use ckb_types::core::tx_pool::{
-    Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
+    PoolTxDetailInfo as CorePoolTxDetailInfo, Reject, TxEntryInfo, TxPoolEntryInfo,
+    TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
 };
 use ckb_types::prelude::Unpack;
 use ckb_types::H256;
@@ -212,6 +213,42 @@ pub enum RawTxPool {
     Ids(TxPoolIds),
     /// verbose = true
     Verbose(TxPoolEntries),
+}
+
+/// A Tx details info in tx-pool.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PoolTxDetailInfo {
+    /// The time added into tx-pool
+    pub timestamp: Uint64,
+    /// The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+    pub entry_status: String,
+    /// The rank in pending, starting from 0
+    pub rank_in_pending: Uint64,
+    /// The pending(`Pending` and `Gap`) count
+    pub pending_count: Uint64,
+    /// The proposed count
+    pub proposed_count: Uint64,
+    /// The descendants count of tx
+    pub descendants_count: Uint64,
+    /// The ancestors count of tx
+    pub ancestors_count: Uint64,
+    /// The score key details, useful to debug
+    pub score_sortkey: String,
+}
+
+impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
+    fn from(info: CorePoolTxDetailInfo) -> Self {
+        Self {
+            timestamp: info.timestamp.into(),
+            entry_status: info.entry_status,
+            rank_in_pending: (info.rank_in_pending as u64).into(),
+            pending_count: (info.pending_count as u64).into(),
+            proposed_count: (info.proposed_count as u64).into(),
+            descendants_count: (info.descendants_count as u64).into(),
+            ancestors_count: (info.ancestors_count as u64).into(),
+            score_sortkey: info.score_sortkey,
+        }
+    }
 }
 
 /// TX reject message

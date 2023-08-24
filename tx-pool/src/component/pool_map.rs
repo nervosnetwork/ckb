@@ -1,12 +1,12 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
+use super::links::TxLinks;
 use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-
 use ckb_logger::{debug, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
@@ -18,8 +18,6 @@ use ckb_types::{
 };
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
-
-use super::links::TxLinks;
 
 type ConflictEntry = (TxEntry, Reject);
 
@@ -105,6 +103,14 @@ impl PoolMap {
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         self.add_entry(entry, Status::Proposed)
+    }
+
+    pub(crate) fn get_max_update_time(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|(_, entry)| entry.inner.timestamp)
+            .max()
+            .unwrap_or(0)
     }
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
