@@ -6,7 +6,7 @@ use p2p::{
 };
 use tokio_util::codec::length_delimited;
 
-const LASTEST_VERSION: &str = "3";
+pub const LASTEST_VERSION: &str = "3";
 
 /// All supported protocols
 ///

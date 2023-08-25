@@ -290,7 +290,7 @@ impl ServiceProtocol for CKBHandler {
             .network_state
             .ckb2023
             .load(std::sync::atomic::Ordering::SeqCst)
-            && version != "3"
+            && version != crate::protocols::support_protocols::LASTEST_VERSION
             && context.proto_id != SupportProtocols::RelayV2.protocol_id()
         {
             debug!(
@@ -298,7 +298,7 @@ impl ServiceProtocol for CKBHandler {
                 context.session.id, context.proto_id, version
             );
             let id = context.session.id;
-            let _ignore = context.disconnect(id);
+            let _ignore = context.disconnect(id).await;
             return;
         }
         self.network_state.with_peer_registry_mut(|reg| {
