@@ -2,8 +2,8 @@ use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
-        utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_EXTENSION,
-        SUCCESS,
+        utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+        LOAD_BLOCK_EXTENSION, SUCCESS,
     },
 };
 use ckb_traits::ExtensionProvider;
@@ -19,19 +19,19 @@ use ckb_vm::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadExtension<DL> {
+pub struct LoadBlockExtension<DL> {
     data_loader: DL,
     rtx: Arc<ResolvedTransaction>,
     group_inputs: Indices,
 }
 
-impl<DL: ExtensionProvider> LoadExtension<DL> {
+impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
     pub fn new(
         data_loader: DL,
         rtx: Arc<ResolvedTransaction>,
         group_inputs: Indices,
-    ) -> LoadExtension<DL> {
-        LoadExtension {
+    ) -> LoadBlockExtension<DL> {
+        LoadBlockExtension {
             data_loader,
             rtx,
             group_inputs,
@@ -53,11 +53,11 @@ impl<DL: ExtensionProvider> LoadExtension<DL> {
         &self.rtx.resolved_cell_deps
     }
 
-    fn load_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
+    fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
         let block_hash = &cell_meta
             .transaction_info
             .as_ref()
-            .expect("block_info of CellMeta should exists when load_extension in syscall")
+            .expect("block_info of CellMeta should exists when load_block_extension in syscall")
             .block_hash;
         if self
             .header_deps()
@@ -76,13 +76,13 @@ impl<DL: ExtensionProvider> LoadExtension<DL> {
                 .resolved_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|cell_meta| self.load_extension(cell_meta).ok_or(ITEM_MISSING)),
+                .and_then(|cell_meta| self.load_block_extension(cell_meta).ok_or(ITEM_MISSING)),
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|cell_meta| self.load_extension(cell_meta).ok_or(ITEM_MISSING)),
+                .and_then(|cell_meta| self.load_block_extension(cell_meta).ok_or(ITEM_MISSING)),
             Source::Transaction(SourceEntry::HeaderDep) => self
                 .header_deps()
                 .get(index)
@@ -101,7 +101,7 @@ impl<DL: ExtensionProvider> LoadExtension<DL> {
                         .get(*actual_index)
                         .ok_or(INDEX_OUT_OF_BOUND)
                 })
-                .and_then(|cell_meta| self.load_extension(cell_meta).ok_or(ITEM_MISSING)),
+                .and_then(|cell_meta| self.load_block_extension(cell_meta).ok_or(ITEM_MISSING)),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
@@ -109,13 +109,15 @@ impl<DL: ExtensionProvider> LoadExtension<DL> {
     }
 }
 
-impl<DL: ExtensionProvider + Send + Sync, Mac: SupportMachine> Syscalls<Mac> for LoadExtension<DL> {
+impl<DL: ExtensionProvider + Send + Sync, Mac: SupportMachine> Syscalls<Mac>
+    for LoadBlockExtension<DL>
+{
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        if machine.registers()[A7].to_u64() != LOAD_EXTENSION {
+        if machine.registers()[A7].to_u64() != LOAD_BLOCK_EXTENSION {
             return Ok(false);
         }
 
