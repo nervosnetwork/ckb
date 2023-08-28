@@ -7,8 +7,8 @@
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 
 use prometheus::{
-    register_histogram_vec, register_int_counter, register_int_gauge, register_int_gauge_vec,
-    HistogramVec, IntCounter, IntGauge, IntGaugeVec,
+    register_histogram, register_histogram_vec, register_int_counter, register_int_gauge,
+    register_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use prometheus_static_metric::make_static_metric;
 use std::cell::Cell;
@@ -48,6 +48,8 @@ pub struct Metrics {
     pub ckb_freezer_read: IntCounter,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
+    /// Histogram for relay compact block verify time
+    pub ckb_relay_cb_verify_time: Histogram,
     /// Counter for relay compact block transaction count
     pub ckb_relay_cb_transaction_count: IntCounter,
     /// Counter for relay compact block reconstruct ok
@@ -77,6 +79,11 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| M
     ckb_relay_transaction_short_id_collide: register_int_counter!(
         "ckb_relay_transaction_short_id_collide",
         "The CKB relay transaction short id collide"
+    )
+    .unwrap(),
+    ckb_relay_cb_verify_time: register_histogram!(
+        "ckb_relay_cb_verify_time",
+        "The CKB relay compact block verify time"
     )
     .unwrap(),
     ckb_relay_cb_transaction_count: register_int_counter!(
