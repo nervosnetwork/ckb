@@ -5,8 +5,8 @@ use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{
         spawn::{build_child_machine, update_caller_machine},
-        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadCell, LoadCellData,
-        LoadExtension, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
+        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadBlockExtension, LoadCell,
+        LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
         SetContent, Spawn, VMVersion,
     },
     type_id::TypeIdSystemScript,
@@ -207,9 +207,9 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         )
     }
 
-    /// Build syscall: load_extension
-    pub fn build_load_extension(&self, group_inputs: Indices) -> LoadExtension<DL> {
-        LoadExtension::new(
+    /// Build syscall: load_block_extension
+    pub fn build_load_block_extension(&self, group_inputs: Indices) -> LoadBlockExtension<DL> {
+        LoadBlockExtension::new(
             self.data_loader.clone(),
             Arc::clone(&self.rtx),
             group_inputs,
@@ -308,7 +308,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         if script_version >= ScriptVersion::V2 {
             syscalls.push(Box::new(
-                self.build_load_extension(Arc::clone(&script_group_input_indices)),
+                self.build_load_block_extension(Arc::clone(&script_group_input_indices)),
             ));
         }
         syscalls

@@ -116,7 +116,7 @@ fn _test_load_extension(
     machine.set_register(A2, 0); // offset
     machine.set_register(A3, index); //index
     machine.set_register(A4, source); //source: 4
-    machine.set_register(A7, LOAD_EXTENSION); // syscall number
+    machine.set_register(A7, LOAD_BLOCK_EXTENSION); // syscall number
 
     let data = Bytes::copy_from_slice(data);
 
@@ -152,15 +152,15 @@ fn _test_load_extension(
         resolved_dep_groups: vec![],
     });
 
-    let mut load_extension: LoadExtension<MockDataLoader> =
-        LoadExtension::new(data_loader, rtx, group_inputs);
+    let mut load_block_extension: LoadBlockExtension<MockDataLoader> =
+        LoadBlockExtension::new(data_loader, rtx, group_inputs);
 
     prop_assert!(machine
         .memory_mut()
         .store64(&size_addr, &(data.len() as u64 + 20))
         .is_ok());
 
-    prop_assert!(load_extension.ecall(&mut machine).is_ok());
+    prop_assert!(load_block_extension.ecall(&mut machine).is_ok());
 
     if let Err(code) = ret {
         prop_assert_eq!(machine.registers()[A0], u64::from(code));
