@@ -1528,9 +1528,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.4"
+version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40894adbde925bfc6584d324a06228e19d78bd877146fc7df085927552d29f50"
+checksum = "0cc004a826b9bc9319ffae0b8415690e1b5f1482266d55fbd43843aa40ddcd63"
 dependencies = [
  "byteorder",
  "bytes 1.4.0",
@@ -1546,9 +1546,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.4"
+version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0253bdea8dc20db90b58fe54e01392f71989e0567d42e09e7f8e588f156551db"
+checksum = "c4ced3ff9d79b53d93c106720f6c1f855694290e33581850e05c859500eee83f"
 dependencies = [
  "paste",
 ]
