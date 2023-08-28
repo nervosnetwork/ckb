@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dev-dependencies]
-ckb-hash = {path = "../hash", version = "= 0.112.0-pre"}
+ckb-hash = { path = "../hash", version = "= 0.112.0-pre" }
 
 [features]
 default = ["std"]
@@ -20,12 +20,12 @@ check-data = []
 # Enable the `serialized-size` extension for CKB contract development in `no-std` env
 serialized-size = ["calc-hash"]
 # Enable all in `std` env
-std = ["molecule/std", "ckb-fixed-hash", "ckb-error", "ckb-occupied-capacity", "numext-fixed-uint"]
+std = ["molecule/std", "ckb-hash", "ckb-fixed-hash", "ckb-error", "ckb-occupied-capacity", "numext-fixed-uint"]
 
 [dependencies]
 cfg-if = "1.0"
-ckb-hash = { path = "../hash", version = "= 0.112.0-pre" }
 molecule = { version = "0.7.5", default-features = false }
+ckb-hash = { path = "../hash", version = "= 0.112.0-pre", optional = true }
 ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.112.0-pre", optional = true }
 ckb-error = { path = "../../error", version = "= 0.112.0-pre", optional = true }
 ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.112.0-pre", optional = true }
