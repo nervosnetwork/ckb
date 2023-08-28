@@ -223,7 +223,9 @@ impl BlockFetcher {
             header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {
-            state.write_inflight_blocks().mark_slow_block(tip);
+            state
+                .write_inflight_blocks()
+                .mark_slow_block(unverified_tip);
         }
 
         if fetch.is_empty() {
