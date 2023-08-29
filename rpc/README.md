@@ -68,6 +68,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
         * [Method `generate_block`](#method-generate_block)
+        * [Method `fast_forward_epochs`](#method-fast_forward_epochs)
         * [Method `notify_transaction`](#method-notify_transaction)
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
@@ -3209,6 +3210,49 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
+  "error": null
+}
+```
+
+
+#### Method `fast_forward_epochs`
+* `fast_forward_epochs(epoch_count)`
+    * `epoch_count`: [`Uint64`](#type-uint64)
+* result: [`Uint64`](#type-uint64)
+
+Fast-forwarding epochs during development, can be useful for scenarios
+
+like testing DAO-related functionalities.
+
+Returns the updated epoch number after fast forwarding.
+
+###### Params
+
+*   `epoch_count` - The number of epochs to fast forward.
+
+###### Examples
+
+###### Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "fast_forward_epochs",
+  "params": "0x4"
+}
+```
+
+
+###### Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": 0x8,
   "error": null
 }
 ```

@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction, Uint64};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -169,6 +169,42 @@ pub trait IntegrationTestRpc {
     /// ```
     #[rpc(name = "generate_block")]
     fn generate_block(&self) -> Result<H256>;
+
+    /// Fast-forwarding epochs during development, can be useful for scenarios
+    ///
+    /// like testing DAO-related functionalities.
+    ///
+    /// Returns the updated epoch number after fast forwarding.
+    ///
+    /// ## Params
+    ///
+    /// * `epoch_count` - The number of epochs to fast forward.
+    ///
+    /// ## Examples
+    ///
+    /// ### Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "fast_forward_epochs",
+    ///   "params": "0x4"
+    /// }
+    /// ```
+    ///
+    /// ### Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": 0x8,
+    ///   "error": null
+    /// }
+    /// ```
+    #[rpc(name = "fast_forward_epochs")]
+    fn fast_forward_epochs(&self, epoch_count: Uint64) -> Result<Uint64>;
 
     /// Add transaction to tx-pool.
     ///
@@ -520,6 +556,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         self.process_and_announce_block(block_template.into())
+    }
+
+    fn fast_forward_epochs(&self, _epoch_count: Uint64) -> Result<Uint64> {
+        todo!()
     }
 
     fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
