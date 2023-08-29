@@ -25,6 +25,7 @@ pub struct Spawn<DL> {
     script_version: ScriptVersion,
     syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
     peak_memory: u64,
+    cycles_base: u64,
     context: Arc<Mutex<MachineContext>>,
 }
 
@@ -34,6 +35,7 @@ impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spaw
         script_version: ScriptVersion,
         syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
         peak_memory: u64,
+        cycles_base: u64,
         context: Arc<Mutex<MachineContext>>,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl<DL: CellDataProvider + Clone + HeaderProvider + Send + Sync + 'static> Spaw
             script_version,
             syscalls_generator,
             peak_memory,
+            cycles_base,
             context,
         }
     }
@@ -155,7 +158,7 @@ where
             caller_exit_code_addr: exit_code_addr.to_u64(),
             caller_content_addr: content_addr.to_u64(),
             caller_content_length_addr: content_length_addr.to_u64(),
-            cycles_base: machine.cycles(),
+            cycles_base: self.cycles_base + machine.cycles(),
         };
         let mut machine_child = build_child_machine(
             &self.script_group,
@@ -290,6 +293,7 @@ pub fn build_child_machine<
         script_version,
         script_group,
         *callee_peak_memory,
+        *cycles_base,
         Arc::clone(context),
     )));
     let machine_builder = machine_builder.syscall(Box::new(
