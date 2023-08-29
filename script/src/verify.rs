@@ -331,7 +331,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
                 Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
-                Box::new(self.build_spawn(script_version, script_group, 8, 0, Arc::clone(&context))),
+                Box::new(self.build_spawn(
+                    script_version,
+                    script_group,
+                    8,
+                    0,
+                    Arc::clone(&context),
+                )),
                 Box::new(self.build_current_memory(8)),
             ])
         }
