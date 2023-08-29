@@ -140,15 +140,9 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "truncate")]
     fn truncate(&self, target_tip_hash: H256) -> Result<()>;
 
-    /// Generate block with block_assembler_config, process the block(with verification)
+    /// Generate block(with verification) and broadcast the block.
     ///
-    /// and broadcast the block.
-    ///
-    /// ## Params
-    ///
-    /// * `block_assembler_script` - specified block assembler script
-    ///
-    /// * `block_assembler_message` - specified block assembler message
+    /// Note that if called concurrently, it may return the hash of the same block.
     ///
     /// ## Examples
     ///
