@@ -121,7 +121,7 @@ impl<'a> CompactBlockProcess<'a> {
 
                 if let Some(metrics) = ckb_metrics::handle() {
                     metrics
-                        .ckb_relay_cb_verify_time
+                        .ckb_relay_cb_verify_duration
                         .observe(instant.elapsed().as_secs_f64());
                 }
                 Status::ok()
