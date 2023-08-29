@@ -3216,8 +3216,8 @@ Response
 
 
 #### Method `fast_forward_epochs`
-* `fast_forward_epochs(epoch_count)`
-    * `epoch_count`: [`Uint64`](#type-uint64)
+* `fast_forward_epochs(epochs_to_skip)`
+    * `epochs_to_skip`: [`Uint64`](#type-uint64)
 * result: [`Uint64`](#type-uint64)
 
 Fast-forwarding epochs during development, can be useful for scenarios
@@ -3228,7 +3228,7 @@ Returns the updated epoch number after fast forwarding.
 
 ###### Params
 
-*   `epoch_count` - The number of epochs to fast forward.
+*   `epochs_to_skip` - The number of epochs to fast forward.
 
 ###### Examples
 
@@ -3240,7 +3240,7 @@ Returns the updated epoch number after fast forwarding.
   "id": 42,
   "jsonrpc": "2.0",
   "method": "fast_forward_epochs",
-  "params": "0x4"
+  "params": ["0x6"]
 }
 ```
 
@@ -3252,7 +3252,7 @@ Returns the updated epoch number after fast forwarding.
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": 0x8,
+  "result": "0x8",
   "error": null
 }
 ```

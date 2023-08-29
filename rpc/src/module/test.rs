@@ -12,7 +12,7 @@ use ckb_types::{
         cell::{
             resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
-        BlockView,
+        BlockView, EpochNumberWithFraction,
     },
     packed,
     prelude::*,
@@ -178,7 +178,7 @@ pub trait IntegrationTestRpc {
     ///
     /// ## Params
     ///
-    /// * `epoch_count` - The number of epochs to fast forward.
+    /// * `epochs_to_skip` - The number of epochs to fast forward.
     ///
     /// ## Examples
     ///
@@ -189,7 +189,7 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "fast_forward_epochs",
-    ///   "params": "0x4"
+    ///   "params": ["0x6"]
     /// }
     /// ```
     ///
@@ -199,12 +199,12 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": 0x8,
+    ///   "result": "0x8",
     ///   "error": null
     /// }
     /// ```
     #[rpc(name = "fast_forward_epochs")]
-    fn fast_forward_epochs(&self, epoch_count: Uint64) -> Result<Uint64>;
+    fn fast_forward_epochs(&self, epochs_to_skip: Uint64) -> Result<Uint64>;
 
     /// Add transaction to tx-pool.
     ///
@@ -558,8 +558,31 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         self.process_and_announce_block(block_template.into())
     }
 
-    fn fast_forward_epochs(&self, _epoch_count: Uint64) -> Result<Uint64> {
-        todo!()
+    fn fast_forward_epochs(&self, epochs_to_skip: Uint64) -> Result<Uint64> {
+        let epochs_to_skip: u64 = epochs_to_skip.into();
+        let tip_block_number = self.shared.snapshot().tip_header().number().into();
+        let mut current_epoch = self
+            .shared
+            .snapshot()
+            .epoch_ext()
+            .number_with_fraction(tip_block_number);
+        let target_epoch = EpochNumberWithFraction::new(
+            current_epoch.number() + epochs_to_skip,
+            current_epoch.index(),
+            current_epoch.length(),
+        );
+
+        let tx_pool = self.shared.tx_pool_controller();
+        while current_epoch < target_epoch {
+            let block_template = tx_pool
+                .get_block_template(None, None, None)
+                .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
+                .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+            current_epoch = EpochNumberWithFraction::from_full_value(block_template.epoch.into());
+            let _ = self.process_and_announce_block(block_template.into());
+        }
+
+        Ok(target_epoch.full_value().into())
     }
 
     fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
