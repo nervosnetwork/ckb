@@ -222,6 +222,8 @@ where
                     .add_cycles_no_checking(transferred_byte_cycles(size))?;
             }
             Err(_) => {
+                // If loading binary fails, we still need to consume extra_cycles.
+                machine.add_cycles_no_checking(extra_cycles)?;
                 machine.set_register(A0, Mac::REG::from_u8(WRONG_FORMAT));
                 return Ok(true);
             }
