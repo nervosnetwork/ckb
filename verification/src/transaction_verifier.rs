@@ -972,8 +972,7 @@ where
 /// It provides a temporary solution till Nervos DAO script can be properly upgraded.
 pub struct DaoScriptSizeVerifier<DL> {
     resolved_transaction: Arc<ResolvedTransaction>,
-    // It's Option because genesis block might not always have dao system cell
-    dao_type_hash: Option<Byte32>,
+    consensus: Arc<Consensus>,
     data_loader: DL,
 }
 
@@ -981,23 +980,27 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
     /// Create a new `DaoScriptSizeVerifier`
     pub fn new(
         resolved_transaction: Arc<ResolvedTransaction>,
-        dao_type_hash: Option<Byte32>,
+        consensus: Arc<Consensus>,
         data_loader: DL,
     ) -> Self {
         DaoScriptSizeVerifier {
             resolved_transaction,
-            dao_type_hash,
+            consensus,
             data_loader,
         }
+    }
+
+    fn dao_type_hash(&self) -> Option<Byte32> {
+        self.consensus.dao_type_hash()
     }
 
     /// Verifies that for all Nervos DAO transactions, withdrawing cells must use lock scripts
     /// of the same size as corresponding deposit cells
     pub fn verify(&self) -> Result<(), Error> {
-        if self.dao_type_hash.is_none() {
+        if self.dao_type_hash().is_none() {
             return Ok(());
         }
-        let dao_type_hash = self.dao_type_hash.as_ref().unwrap();
+        let dao_type_hash = self.dao_type_hash().unwrap();
         for (i, (input_meta, cell_output)) in self
             .resolved_transaction
             .resolved_inputs
@@ -1006,8 +1009,8 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
             .enumerate()
         {
             // Both the input and output cell must use Nervos DAO as type script
-            if !(cell_uses_dao_type_script(&input_meta.cell_output, dao_type_hash)
-                && cell_uses_dao_type_script(&cell_output, dao_type_hash))
+            if !(cell_uses_dao_type_script(&input_meta.cell_output, &dao_type_hash)
+                && cell_uses_dao_type_script(&cell_output, &dao_type_hash))
             {
                 continue;
             }
@@ -1021,6 +1024,18 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
             // Only input data with full zeros are counted as deposit cell
             if input_data.into_iter().any(|b| b != 0) {
                 continue;
+            }
+
+            // Only cells committed after the pre-defined block number in consensus is
+            // applied to this rule
+            if let Some(info) = &input_meta.transaction_info {
+                if info.block_number
+                    < self
+                        .consensus
+                        .starting_block_limiting_dao_withdrawing_lock()
+                {
+                    continue;
+                }
             }
 
             // Now we have a pair of DAO deposit and withdrawing cells, it is expected

@@ -8,7 +8,7 @@ use indicatif::ProgressBar;
 use rand::thread_rng;
 use rand_distr::{self as dist, Distribution as _};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct Dummy {
     delay: Delay,
@@ -94,10 +94,29 @@ impl Dummy {
         }
     }
 
-    fn solve(&self, pow_hash: Byte32, work: Work, nonce: u128) {
-        thread::sleep(self.delay.duration());
-        if let Err(err) = self.nonce_tx.send((pow_hash, work, nonce)) {
-            error!("nonce_tx send error {:?}", err);
+    fn solve(&mut self, mut pow_hash: Byte32, mut work: Work, nonce: u128) {
+        let instant = Instant::now();
+        let delay = self.delay.duration();
+        loop {
+            thread::sleep(Duration::from_millis(10));
+            if instant.elapsed() > delay {
+                if let Err(err) = self.nonce_tx.send((pow_hash, work, nonce)) {
+                    error!("nonce_tx send error {:?}", err);
+                }
+                return;
+            }
+            // if there is new work and pow_hash changed, start working on the new one
+            if let Ok(WorkerMessage::NewWork {
+                pow_hash: new_pow_hash,
+                work: new_work,
+                ..
+            }) = self.worker_rx.try_recv()
+            {
+                if new_pow_hash != pow_hash {
+                    pow_hash = new_pow_hash;
+                    work = new_work;
+                }
+            }
         }
     }
 }

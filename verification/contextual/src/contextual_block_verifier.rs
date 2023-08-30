@@ -472,7 +472,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                     if self.context.versionbits_active(DeploymentPos::LightClient, self.parent) {
                         DaoScriptSizeVerifier::new(
                             Arc::clone(tx),
-                            self.context.consensus.dao_type_hash(),
+                            Arc::clone(&self.context.consensus),
                             self.context.store.as_data_loader(),
                         ).verify()?;
                     }
