@@ -409,45 +409,47 @@ impl ChainService {
                         error!("accept block {} failed: {}", descendant.hash(), err);
                         continue;
                     }
-                    Ok(accepted_opt) => {
-                        match accepted_opt {
-                            Some((parent_header, total_difficulty)) => {
-                                match self.unverified_tx.send(UnverifiedBlock {
-                                    block: descendant.to_owned(),
-                                    parent_header,
-                                    switch,
-                                }) {
-                                    Ok(_) => {}
-                                    Err(err) => error!("send unverified_tx failed: {}", err),
-                                };
+                    Ok(accepted_opt) => match accepted_opt {
+                        Some((parent_header, total_difficulty)) => {
+                            match self.unverified_tx.send(UnverifiedBlock {
+                                block: descendant.to_owned(),
+                                parent_header,
+                                switch,
+                            }) {
+                                Ok(_) => {}
+                                Err(err) => error!("send unverified_tx failed: {}", err),
+                            };
 
-                                if total_difficulty
-                                    .gt(self.shared.get_unverified_tip().total_difficulty())
-                                {
-                                    self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                                        descendant.header().number(),
-                                        descendant.header().hash(),
-                                        total_difficulty,
-                                    ));
-                                }
-                            }
-                            None => {
-                                info!(
-                                    "doesn't accept block {}, because it has been stored",
-                                    descendant.hash()
-                                );
-                            }
-                        }
-
-                        debug!(
-                            "set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
+                            if total_difficulty
+                                .gt(self.shared.get_unverified_tip().total_difficulty())
+                            {
+                                self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
+                                    descendant.header().number(),
+                                    descendant.header().hash(),
+                                    total_difficulty,
+                                ));
+                                debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
                             descendant.number(),
                             descendant.hash(),
                             descendant
                                 .number()
-                                .saturating_sub(self.shared.snapshot().tip_number())
-                        )
-                    }
+                                .saturating_sub(self.shared.snapshot().tip_number()))
+                            } else {
+                                debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
+                                    descendant.number(),
+                                    descendant.hash(),
+                                    self.shared.get_unverified_tip().number(),
+                                    self.shared.get_unverified_tip().hash(),
+                                    );
+                            }
+                        }
+                        None => {
+                            info!(
+                                "doesn't accept block {}, because it has been stored",
+                                descendant.hash()
+                            );
+                        }
+                    },
                 }
             }
 
