@@ -579,10 +579,10 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
                 .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
             current_epoch = EpochNumberWithFraction::from_full_value(block_template.epoch.into());
-            let _ = self.process_and_announce_block(block_template.into());
+            self.process_and_announce_block(block_template.into())?;
         }
 
-        Ok(target_epoch.full_value().into())
+        Ok(current_epoch.full_value().into())
     }
 
     fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
