@@ -1,7 +1,9 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction, Uint64};
+use ckb_jsonrpc_types::{
+    Block, BlockTemplate, Byte32, EpochNumber, EpochNumberWithFraction, Transaction,
+};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -12,7 +14,7 @@ use ckb_types::{
         cell::{
             resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
         },
-        BlockView, EpochNumberWithFraction,
+        BlockView,
     },
     packed,
     prelude::*,
@@ -189,7 +191,7 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "fast_forward_epochs",
-    ///   "params": ["0x6"]
+    ///   "params": ["0x1"]
     /// }
     /// ```
     ///
@@ -199,12 +201,12 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x8",
+    ///   "result": "0x384000c000002",
     ///   "error": null
     /// }
     /// ```
     #[rpc(name = "fast_forward_epochs")]
-    fn fast_forward_epochs(&self, epochs_to_skip: Uint64) -> Result<Uint64>;
+    fn fast_forward_epochs(&self, epochs_to_skip: EpochNumber) -> Result<EpochNumberWithFraction>;
 
     /// Add transaction to tx-pool.
     ///
@@ -558,16 +560,21 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         self.process_and_announce_block(block_template.into())
     }
 
-    fn fast_forward_epochs(&self, epochs_to_skip: Uint64) -> Result<Uint64> {
-        let epochs_to_skip: u64 = epochs_to_skip.into();
-        let tip_block_number = self.shared.snapshot().tip_header().number().into();
+    fn fast_forward_epochs(&self, epochs_to_skip: EpochNumber) -> Result<EpochNumberWithFraction> {
+        let tip_block_number = self.shared.snapshot().tip_header().number();
         let mut current_epoch = self
             .shared
             .snapshot()
             .epoch_ext()
             .number_with_fraction(tip_block_number);
-        let target_epoch = EpochNumberWithFraction::new(
-            current_epoch.number() + epochs_to_skip,
+        let target_epoch_number = current_epoch.number() + Into::<u64>::into(epochs_to_skip);
+        if target_epoch_number >= core::EpochNumberWithFraction::NUMBER_MAXIMUM_VALUE {
+            return Err(RPCError::invalid_params(
+                "The target epoch number exceeded the maximum value of 16777215".to_string(),
+            ));
+        }
+        let target_epoch = core::EpochNumberWithFraction::new(
+            target_epoch_number,
             current_epoch.index(),
             current_epoch.length(),
         );
@@ -578,7 +585,8 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 .get_block_template(None, None, None)
                 .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
                 .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
-            current_epoch = EpochNumberWithFraction::from_full_value(block_template.epoch.into());
+            current_epoch =
+                core::EpochNumberWithFraction::from_full_value(block_template.epoch.into());
             self.process_and_announce_block(block_template.into())?;
         }
 
