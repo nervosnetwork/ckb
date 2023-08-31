@@ -13,7 +13,7 @@ use ckb_constant::sync::{
     RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
-use ckb_logger::{debug, error, info, trace};
+use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{
     block_status::BlockStatus,
@@ -1293,17 +1293,23 @@ impl SyncShared {
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &core::BlockView) -> bool {
-        if self
+        if !self
             .state()
             .write_inflight_blocks()
             .remove_by_block((block.number(), block.hash()).into())
         {
-            self.shared()
-                .insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-            true
-        } else {
-            false
+            return false;
         }
+        let mut is_new_block_received: bool = false;
+        let status = self
+            .shared()
+            .block_status_map()
+            .entry(block.hash())
+            .or_insert(BlockStatus::BLOCK_RECEIVED);
+        if status.eq(&BlockStatus::BLOCK_RECEIVED) {
+            is_new_block_received = true;
+        }
+        is_new_block_received
     }
 }
 
@@ -1591,7 +1597,7 @@ impl SyncState {
             || unknown_tx_hashes.len()
                 >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER
         {
-            ckb_logger::warn!(
+            warn!(
                 "unknown_tx_hashes is too long, len: {}",
                 unknown_tx_hashes.len()
             );
