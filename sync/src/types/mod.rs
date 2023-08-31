@@ -1303,26 +1303,32 @@ impl SyncShared {
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &core::BlockView) -> bool {
-        if self
+        if !self
             .state()
             .write_inflight_blocks()
             .remove_by_block((block.number(), block.hash()).into())
         {
-            {
-                let status = self.shared().get_block_status(&block.hash());
-                debug!(
-                    "new_block_received {}-{}, status: {:?}",
-                    block.number(),
-                    block.hash(),
-                    status
-                );
-            }
-            self.shared()
-                .insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-            true
-        } else {
-            false
+            return false;
         }
+
+        let status = self.shared().get_block_status(&block.hash());
+        debug!(
+            "new_block_received {}-{}, status: {:?}",
+            block.number(),
+            block.hash(),
+            status
+        );
+        if !BlockStatus::HEADER_VALID.eq(&status) {
+            return false;
+        }
+
+        if let dashmap::mapref::entry::Entry::Vacant(status) =
+            self.shared().block_status_map().entry(block.hash())
+        {
+            status.insert(BlockStatus::BLOCK_RECEIVED);
+            return true;
+        }
+        false
     }
 }
 
