@@ -1300,6 +1300,15 @@ impl SyncShared {
             .write_inflight_blocks()
             .remove_by_block((block.number(), block.hash()).into())
         {
+            {
+                let status = self.shared().get_block_status(&block.hash());
+                debug!(
+                    "new_block_received {}-{}, status: {:?}",
+                    block.number(),
+                    block.hash(),
+                    status
+                );
+            }
             self.shared()
                 .insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
             true
