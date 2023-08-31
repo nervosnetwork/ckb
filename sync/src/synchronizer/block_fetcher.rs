@@ -197,6 +197,12 @@ impl BlockFetcher {
                         .write_inflight_blocks()
                         .insert(self.peer, (header.number(), hash).into())
                 {
+                    debug!(
+                        "block: {}-{} added to inflight, block_status: {:?}",
+                        header.number(),
+                        header.hash(),
+                        status
+                    );
                     fetch.push(header)
                 }
 

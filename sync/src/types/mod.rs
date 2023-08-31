@@ -677,6 +677,10 @@ impl InflightBlocks {
                     trace.remove(key);
                 }
                 remove_key.push(key.clone());
+                debug!(
+                    "prune: remove InflightState: remove {}-{} from {}",
+                    key.number, key.hash, value.peer
+                );
             }
         }
 
@@ -721,6 +725,10 @@ impl InflightBlocks {
                             d.punish(1);
                         }
                         d.hashes.remove(key);
+                        debug!(
+                            "prune: remove download_schedulers: remove {}-{} from {}",
+                            key.number, key.hash, state.peer
+                        );
                     };
                 }
 
