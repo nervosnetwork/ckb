@@ -93,7 +93,9 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
             .to_enum()
             .item_name()
             .to_owned()
-    } else if protocol_id == SupportProtocols::RelayV2.protocol_id() {
+    } else if protocol_id == SupportProtocols::RelayV2.protocol_id()
+        || protocol_id == SupportProtocols::RelayV3.protocol_id()
+    {
         RelayMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()
