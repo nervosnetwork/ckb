@@ -629,6 +629,9 @@ impl ChainService {
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
 
+        let txn_snapshot = db_txn.get_snapshot();
+        let _snapshot_block_ext = db_txn.get_update_for_block_ext(&block.hash(), &txn_snapshot);
+
         db_txn.insert_block(block.as_ref())?;
 
         // if parent_ext.verified == Some(false) {

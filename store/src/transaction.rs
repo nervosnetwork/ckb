@@ -165,6 +165,31 @@ impl StoreTransaction {
             .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
+    /// TODO(doc): @eval-exec
+    pub fn get_update_for_block_ext(
+        &self,
+        hash: &packed::Byte32,
+        snapshot: &StoreTransactionSnapshot<'_>,
+    ) -> Option<BlockExt> {
+        self.inner
+            .get_for_update(COLUMN_BLOCK_EXT, hash.as_slice(), &snapshot.inner)
+            .expect("db operation should be ok")
+            .map(|slice| {
+                let reader =
+                    packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
+                match reader.count_extra_fields() {
+                    0 => reader.unpack(),
+                    2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).unpack(),
+                    _ => {
+                        panic!(
+                            "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
+                            reader.field_count()
+                        )
+                    }
+                }
+            })
+    }
+
     /// TODO(doc): @quake
     pub fn insert_tip_header(&self, h: &HeaderView) -> Result<(), Error> {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_slice())
