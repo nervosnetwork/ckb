@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-gen-types"
-version = "0.112.0-pre"
+version = "0.111.0-rc11"
 dependencies = [
  "cfg-if 1.0.0",
  "ckb-error",
