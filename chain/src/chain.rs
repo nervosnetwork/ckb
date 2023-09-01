@@ -155,8 +155,8 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    new_block_tx: Sender<Switch>,
-    new_block_rx: Receiver<Switch>,
+    new_block_tx: Sender<(Arc<BlockView>, Switch)>,
+    new_block_rx: Receiver<(Arc<BlockView>, Switch)>,
 
     unverified_tx: Sender<UnverifiedBlock>,
     unverified_rx: Receiver<UnverifiedBlock>,
@@ -176,7 +176,7 @@ impl ChainService {
             channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
         let (new_block_tx, new_block_rx) =
-            channel::bounded::<Switch>(BLOCK_DOWNLOAD_WINDOW as usize);
+            channel::bounded::<(Arc<BlockView>, Switch)>(BLOCK_DOWNLOAD_WINDOW as usize);
 
         ChainService {
             shared,
@@ -370,7 +370,8 @@ impl ChainService {
                         return;
                 },
                 recv(self.new_block_rx) -> msg => match msg {
-                    Ok(switch) => {
+                    Ok((block, switch)) => {
+                        self.orphan_blocks_broker.insert(block);
                         self.search_orphan_pool(switch)
                     },
                     Err(err) => {
@@ -580,9 +581,7 @@ impl ChainService {
             self.non_contextual_verify(&block)?;
         }
 
-        self.orphan_blocks_broker.insert(block);
-
-        match self.new_block_tx.send(switch) {
+        match self.new_block_tx.send((block, switch)) {
             Ok(_) => {}
             Err(err) => {
                 error!("notify new block to orphan pool err: {}", err)
