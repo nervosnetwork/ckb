@@ -115,8 +115,8 @@ impl ChainController {
     }
 
     // Relay need this
-    pub fn get_orphan_block(&self, hash: &Byte32) -> Option<BlockView> {
-        todo!("load orphan block")
+    pub fn get_orphan_block(&self, hash: &Byte32) -> Option<Arc<BlockView>> {
+        self.orphan_block_broker.get_block(hash)
     }
 
     pub fn orphan_blocks_len(&self) -> usize {

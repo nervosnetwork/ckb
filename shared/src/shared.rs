@@ -411,14 +411,6 @@ impl Shared {
         self.header_map.remove(hash);
     }
 
-    pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
-        todo!("get_orphan_block")
-    }
-
-    pub fn orphan_pool_count(&self) -> u64 {
-        0
-    }
-
     pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
         &self.block_status_map
     }

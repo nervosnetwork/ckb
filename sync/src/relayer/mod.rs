@@ -516,7 +516,7 @@ impl Relayer {
                     }
                 }
                 BlockStatus::BLOCK_RECEIVED => {
-                    if let Some(uncle) = self.shared.shared().get_orphan_block(&uncle_hash) {
+                    if let Some(uncle) = self.chain.get_orphan_block(&uncle_hash) {
                         uncles.push(uncle.as_uncle().data());
                     } else {
                         debug_target!(
