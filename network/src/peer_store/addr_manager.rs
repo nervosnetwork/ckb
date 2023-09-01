@@ -18,14 +18,17 @@ impl AddrManager {
     /// Add an address information to address manager
     pub fn add(&mut self, mut addr_info: AddrInfo) {
         if let Some(key) = multiaddr_to_socketaddr(&addr_info.addr) {
-            if let Some(exists_last_connected_at_ms) = self
-                .get(&addr_info.addr)
-                .map(|addr| addr.last_connected_at_ms)
-            {
+            if let Some(&id) = self.addr_to_id.get(&key) {
+                let (exist_last_connected_at_ms, random_id_pos) = {
+                    let info = self.id_to_info.get(&id).expect("must exists");
+                    (info.last_connected_at_ms, info.random_id_pos)
+                };
                 // Get time earlier than record time, return directly
-                if addr_info.last_connected_at_ms < exists_last_connected_at_ms {
-                    return;
+                if addr_info.last_connected_at_ms >= exist_last_connected_at_ms {
+                    addr_info.random_id_pos = random_id_pos;
+                    self.id_to_info.insert(id, addr_info);
                 }
+                return;
             }
 
             let id = self.next_id;
