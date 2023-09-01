@@ -533,3 +533,22 @@ fn test_eviction() {
         .unwrap();
     assert!(peer_store.mut_addr_manager().get(&new_peer_addr).is_some());
 }
+
+#[test]
+fn test_addr_unique() {
+    let mut peer_store = PeerStore::default();
+    let addr = random_addr();
+    let addr_1 = random_addr();
+
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
+    peer_store.add_addr(addr_1, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(peer_store.addr_manager().addrs_iter().count(), 2);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 2);
+
+    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 2);
+
+    assert_eq!(peer_store.addr_manager().addrs_iter().count(), 2);
+}
