@@ -213,6 +213,18 @@ fn test_default_params() {
     };
 
     assert_eq!(params, expected);
+
+    let test_params: &str = r#"
+            starting_block_limiting_dao_withdrawing_lock = 77
+        "#;
+
+    let params: Params = toml::from_str(test_params).unwrap();
+    let expected = Params {
+        starting_block_limiting_dao_withdrawing_lock: Some(77),
+        ..Default::default()
+    };
+
+    assert_eq!(params, expected);
 }
 
 #[test]
@@ -255,4 +267,23 @@ fn test_default_genesis_epoch_ext() {
         .build();
 
     assert_eq!(genesis_epoch_ext, expected);
+}
+
+#[test]
+fn test_devnet_limits_dao_withdrawing_lock_from_genesis() {
+    let chain_spec = load_spec_by_name("ckb_dev");
+    let consensus = chain_spec.build_consensus().unwrap();
+
+    assert_eq!(consensus.starting_block_limiting_dao_withdrawing_lock(), 0);
+}
+
+#[test]
+fn test_mainnet_limits_dao_withdrawing_lock_from_10000000() {
+    let chain_spec = load_spec_by_name("ckb");
+    let consensus = chain_spec.build_consensus().unwrap();
+
+    assert_eq!(
+        consensus.starting_block_limiting_dao_withdrawing_lock(),
+        10000000
+    );
 }

@@ -106,7 +106,7 @@ pub(crate) fn verify_rtx(
                     .and_then(|result| {
                         DaoScriptSizeVerifier::new(
                             rtx,
-                            snapshot.cloned_consensus().dao_type_hash(),
+                            snapshot.cloned_consensus(),
                             snapshot.as_data_loader(),
                         )
                         .verify()?;
@@ -122,7 +122,7 @@ pub(crate) fn verify_rtx(
                 .and_then(|result| {
                     DaoScriptSizeVerifier::new(
                         rtx,
-                        snapshot.cloned_consensus().dao_type_hash(),
+                        snapshot.cloned_consensus(),
                         snapshot.as_data_loader(),
                     )
                     .verify()?;

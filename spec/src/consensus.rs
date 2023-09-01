@@ -95,6 +95,10 @@ pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 pub(crate) const LC_MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(8, 10);
 pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 
+/// The starting block number from which the lock script size of a DAO withdrawing
+/// cell shall be limited
+pub(crate) const STARTING_BLOCK_LIMITING_DAO_WITHDRAWING_LOCK: u64 = 10_000_000;
+
 /// The struct represent CKB two-step-transaction-confirmation params
 ///
 /// [two-step-transaction-confirmation params](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#two-step-transaction-confirmation)
@@ -289,6 +293,8 @@ impl ConsensusBuilder {
                 hardfork_switch: HardForks::new_mirana(),
                 deployments: HashMap::new(),
                 versionbits_caches: VersionbitsCache::default(),
+                starting_block_limiting_dao_withdrawing_lock:
+                    STARTING_BLOCK_LIMITING_DAO_WITHDRAWING_LOCK,
             },
         }
     }
@@ -483,6 +489,17 @@ impl ConsensusBuilder {
         self.inner.deployments = deployments;
         self
     }
+
+    ///The starting block number where Nervos DAO withdrawing cell's lock is
+    /// size limited.
+    pub fn starting_block_limiting_dao_withdrawing_lock(
+        mut self,
+        starting_block_limiting_dao_withdrawing_lock: u64,
+    ) -> Self {
+        self.inner.starting_block_limiting_dao_withdrawing_lock =
+            starting_block_limiting_dao_withdrawing_lock;
+        self
+    }
 }
 
 /// Struct Consensus defines various parameters that influence chain consensus
@@ -563,6 +580,8 @@ pub struct Consensus {
     pub deployments: HashMap<DeploymentPos, Deployment>,
     /// Soft fork state cache
     pub versionbits_caches: VersionbitsCache,
+    /// Starting block where DAO withdrawing lock is limited in size
+    pub starting_block_limiting_dao_withdrawing_lock: u64,
 }
 
 // genesis difficulty should not be zero
@@ -739,6 +758,12 @@ impl Consensus {
     /// The two-step-transaction-confirmation proposal window
     pub fn tx_proposal_window(&self) -> ProposalWindow {
         self.tx_proposal_window
+    }
+
+    /// The starting block number where Nervos DAO withdrawing cell's lock is
+    /// size limited.
+    pub fn starting_block_limiting_dao_withdrawing_lock(&self) -> u64 {
+        self.starting_block_limiting_dao_withdrawing_lock
     }
 
     // Apply the dampening filter on hash_rate estimation calculate

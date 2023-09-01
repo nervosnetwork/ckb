@@ -90,7 +90,7 @@ pub mod default_params {
         CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET, DEFAULT_ORPHAN_RATE_TARGET,
         DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
         GENESIS_EPOCH_LENGTH, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_BYTES, MAX_BLOCK_CYCLES,
-        MAX_BLOCK_PROPOSALS_LIMIT,
+        MAX_BLOCK_PROPOSALS_LIMIT, STARTING_BLOCK_LIMITING_DAO_WITHDRAWING_LOCK,
     };
     use ckb_types::core::{Capacity, Cycle, EpochNumber};
 
@@ -170,6 +170,13 @@ pub mod default_params {
     pub fn orphan_rate_target() -> (u32, u32) {
         DEFAULT_ORPHAN_RATE_TARGET
     }
+
+    /// The default starting_block_limiting_dao_withdrawing_lock
+    ///
+    /// Apply to [`starting_block_limiting_dao_withdrawing_lock`](../consensus/struct.Consensus.html#structfield.starting_block_limiting_dao_withdrawing_lock)
+    pub fn starting_block_limiting_dao_withdrawing_lock() -> u64 {
+        STARTING_BLOCK_LIMITING_DAO_WITHDRAWING_LOCK
+    }
 }
 
 /// Parameters for CKB block chain
@@ -231,6 +238,11 @@ pub struct Params {
     /// See [`orphan_rate_target`](consensus/struct.Consensus.html#structfield.orphan_rate_target)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orphan_rate_target: Option<(u32, u32)>,
+    /// The starting_block_limiting_dao_withdrawing_lock.
+    ///
+    /// See [`starting_block_limiting_dao_withdrawing_lock`](consensus/struct.Consensus.html#structfield.starting_block_limiting_dao_withdrawing_lock)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starting_block_limiting_dao_withdrawing_lock: Option<u64>,
     /// The parameters for hard fork features.
     ///
     /// See [`hardfork_switch`](consensus/struct.Consensus.html#structfield.hardfork_switch)
@@ -303,6 +315,12 @@ impl Params {
     pub fn orphan_rate_target(&self) -> (u32, u32) {
         self.orphan_rate_target
             .unwrap_or_else(default_params::orphan_rate_target)
+    }
+
+    /// Return the `starting_block_limiting_dao_withdrawing_lock`, otherwise if None, returns the default value
+    pub fn starting_block_limiting_dao_withdrawing_lock(&self) -> u64 {
+        self.starting_block_limiting_dao_withdrawing_lock
+            .unwrap_or_else(default_params::starting_block_limiting_dao_withdrawing_lock)
     }
 }
 
@@ -585,6 +603,9 @@ impl ChainSpec {
             .permanent_difficulty_in_dummy(self.params.permanent_difficulty_in_dummy())
             .max_block_proposals_limit(self.params.max_block_proposals_limit())
             .orphan_rate_target(self.params.orphan_rate_target())
+            .starting_block_limiting_dao_withdrawing_lock(
+                self.params.starting_block_limiting_dao_withdrawing_lock(),
+            )
             .hardfork_switch(hardfork_switch);
 
         if let Some(deployments) = self.softfork_deployments() {
