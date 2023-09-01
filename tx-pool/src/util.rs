@@ -10,7 +10,7 @@ use ckb_types::core::{
 };
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualTransactionVerifier, NonContextualTransactionVerifier,
+    ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
     TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use std::sync::Arc;
@@ -92,15 +92,33 @@ pub(crate) fn verify_rtx(
                     .map_err(Reject::Verification)
             }
             CacheEntry::Suspended(suspended) => {
-                ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+                ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
                     .complete(max_tx_verify_cycles, false, &suspended.snap)
+                    .and_then(|result| {
+                        DaoScriptSizeVerifier::new(
+                            rtx,
+                            snapshot.cloned_consensus().dao_type_hash(),
+                            snapshot.as_data_loader(),
+                        )
+                        .verify()?;
+                        Ok(result)
+                    })
                     .map_err(Reject::Verification)
             }
         }
     } else {
         block_in_place(|| {
-            ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+            ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
                 .verify(max_tx_verify_cycles, false)
+                .and_then(|result| {
+                    DaoScriptSizeVerifier::new(
+                        rtx,
+                        snapshot.cloned_consensus().dao_type_hash(),
+                        snapshot.as_data_loader(),
+                    )
+                    .verify()?;
+                    Ok(result)
+                })
                 .map_err(Reject::Verification)
         })
     }

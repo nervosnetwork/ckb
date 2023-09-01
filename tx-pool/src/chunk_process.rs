@@ -13,8 +13,9 @@ use ckb_types::{
 use ckb_verification::cache::TxVerificationCache;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualWithoutScriptTransactionVerifier, ScriptError, ScriptVerifier, ScriptVerifyResult,
-    ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionSnapshot, TxVerifyEnv,
+    ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier, ScriptError, ScriptVerifier,
+    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionSnapshot,
+    TxVerifyEnv,
 };
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -265,6 +266,15 @@ impl ChunkProcess {
             &tx_env,
         )
         .verify()
+        .and_then(|result| {
+            DaoScriptSizeVerifier::new(
+                Arc::clone(&rtx),
+                consensus.dao_type_hash(),
+                data_loader.clone(),
+            )
+            .verify()?;
+            Ok(result)
+        })
         .map_err(Reject::Verification);
         let fee = try_or_return_with_snapshot!(ret, snapshot);
 

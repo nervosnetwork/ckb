@@ -12,7 +12,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView, Version,
     },
-    packed::Byte32,
+    packed::{Byte32, CellOutput},
     prelude::*,
 };
 use std::collections::HashSet;
@@ -547,18 +547,23 @@ impl CapacityVerifier {
             .resolved_inputs
             .iter()
             .any(|cell_meta| {
-                cell_meta
-                    .cell_output
-                    .type_()
-                    .to_opt()
-                    .map(|t| {
-                        Into::<u8>::into(t.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
-                            && &t.code_hash()
-                                == self.dao_type_hash.as_ref().expect("No dao system cell")
-                    })
-                    .unwrap_or(false)
+                cell_uses_dao_type_script(
+                    &cell_meta.cell_output,
+                    self.dao_type_hash.as_ref().expect("No dao system cell"),
+                )
             })
     }
+}
+
+fn cell_uses_dao_type_script(cell_output: &CellOutput, dao_type_hash: &Byte32) -> bool {
+    cell_output
+        .type_()
+        .to_opt()
+        .map(|t| {
+            Into::<u8>::into(t.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+                && &t.code_hash() == dao_type_hash
+        })
+        .unwrap_or(false)
 }
 
 const LOCK_TYPE_FLAG: u64 = 1 << 63;
@@ -841,5 +846,70 @@ where
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
         Ok(fee)
+    }
+}
+
+/// Verifies that deposit cell and withdrawing cell in Nervos DAO use same sized lock scripts.
+/// It provides a temporary solution till Nervos DAO script can be properly upgraded.
+pub struct DaoScriptSizeVerifier<DL> {
+    resolved_transaction: Arc<ResolvedTransaction>,
+    // It's Option because genesis block might not always have dao system cell
+    dao_type_hash: Option<Byte32>,
+    data_loader: DL,
+}
+
+impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
+    /// Create a new `DaoScriptSizeVerifier`
+    pub fn new(
+        resolved_transaction: Arc<ResolvedTransaction>,
+        dao_type_hash: Option<Byte32>,
+        data_loader: DL,
+    ) -> Self {
+        DaoScriptSizeVerifier {
+            resolved_transaction,
+            dao_type_hash,
+            data_loader,
+        }
+    }
+
+    /// Verifies that for all Nervos DAO transactions, withdrawing cells must use lock scripts
+    /// of the same size as corresponding deposit cells
+    pub fn verify(&self) -> Result<(), Error> {
+        if self.dao_type_hash.is_none() {
+            return Ok(());
+        }
+        let dao_type_hash = self.dao_type_hash.as_ref().unwrap();
+        for (i, (input_meta, cell_output)) in self
+            .resolved_transaction
+            .resolved_inputs
+            .iter()
+            .zip(self.resolved_transaction.transaction.outputs())
+            .enumerate()
+        {
+            // Both the input and output cell must use Nervos DAO as type script
+            if !(cell_uses_dao_type_script(&input_meta.cell_output, dao_type_hash)
+                && cell_uses_dao_type_script(&cell_output, dao_type_hash))
+            {
+                continue;
+            }
+
+            // A Nervos DAO deposit cell must have input data
+            let input_data = match self.data_loader.load_cell_data(input_meta) {
+                Some(data) => data,
+                None => continue,
+            };
+
+            // Only input data with full zeros are counted as deposit cell
+            if input_data.into_iter().any(|b| b != 0) {
+                continue;
+            }
+
+            // Now we have a pair of DAO deposit and withdrawing cells, it is expected
+            // they have the lock scripts of the same size.
+            if input_meta.cell_output.lock().total_size() != cell_output.lock().total_size() {
+                return Err((TransactionError::DaoLockSizeMismatch { index: i }).into());
+            }
+        }
+        Ok(())
     }
 }
