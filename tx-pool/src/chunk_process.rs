@@ -269,7 +269,7 @@ impl ChunkProcess {
         .and_then(|result| {
             DaoScriptSizeVerifier::new(
                 Arc::clone(&rtx),
-                consensus.dao_type_hash(),
+                Arc::clone(&consensus),
                 data_loader.clone(),
             )
             .verify()?;
