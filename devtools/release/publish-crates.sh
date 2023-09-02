@@ -19,7 +19,7 @@ retry_cargo_publish() {
   local INTERVAL=2
   local EXITSTATUS=127
   while [ $RETRIES != 0 ]; do
-    cargo publish --allow-dirty "$@" 2>&1 | tee cargo-publish.log
+    cargo +stable publish "$@" 2>&1 | tee cargo-publish.log
     if [ ${PIPESTATUS[0]} = 0 ]; then
       RETRIES=0
       EXITSTATUS=
