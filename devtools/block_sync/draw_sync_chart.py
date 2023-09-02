@@ -5,6 +5,8 @@ import datetime
 import tqdm
 import argparse
 
+from matplotlib.ticker import MultipleLocator
+
 
 def parse_sync_statics(log_file):
     """
@@ -57,7 +59,6 @@ parser.add_argument('--result_path', type=str, nargs=1, action='store',
 args = parser.parse_args()
 assert len(args.ckb_log) == len(args.label)
 
-
 tasks = zip(args.ckb_log, args.label)
 
 result_path = args.result_path[0]
@@ -74,8 +75,14 @@ for ckb_log_file, label in tasks:
 
     lgs.append(lg)
 
+    for i, h in enumerate(height):
+        if h % 2000000 == 0:
+            ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
+
     ax.get_yaxis().get_major_formatter().set_scientific(False)
     ax.get_yaxis().get_major_formatter().set_useOffset(False)
+    
+    ax.margins(0)
 
     ax.set_axisbelow(True)
 
@@ -84,10 +91,13 @@ for ckb_log_file, label in tasks:
 
     ax.xaxis.grid(color='gray', linestyle='dashed', which='minor')
     ax.yaxis.grid(color='gray', linestyle='dashed', which='minor')
-
+    
+    minorLocator = MultipleLocator(10)
+    ax.xaxis.set_minor_locator(minorLocator)
+    
     plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right')
 
-plt.legend(tuple(lgs), tuple(args.label), loc='upper right', shadow=True)
+plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
 plt.title('CKB Sync progress Chart')
 plt.xlabel('Timecost (hours)')
 plt.ylabel('Block Height')
