@@ -162,8 +162,8 @@ pub struct ChainService {
     lonely_block_tx: Sender<(LonelyBlock)>,
     lonely_block_rx: Receiver<(LonelyBlock)>,
 
-    unverified_tx: Sender<UnverifiedBlock>,
-    unverified_rx: Receiver<UnverifiedBlock>,
+    unverified_block_tx: Sender<UnverifiedBlock>,
+    unverified_block_rx: Receiver<UnverifiedBlock>,
 
     verify_failed_blocks_tx: Sender<VerifyFailedBlockInfo>,
     verify_failed_blocks_rx: Receiver<VerifyFailedBlockInfo>,
@@ -209,8 +209,8 @@ impl ChainService {
             shared,
             proposal_table: Arc::new(Mutex::new(proposal_table)),
             orphan_blocks_broker: Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE)),
-            unverified_tx,
-            unverified_rx,
+            unverified_block_tx: unverified_tx,
+            unverified_block_rx: unverified_rx,
             lonely_block_tx: new_block_tx,
             lonely_block_rx: new_block_rx,
             verify_failed_blocks_tx,
@@ -316,7 +316,7 @@ impl ChainService {
                         info!("unverified_queue_consumer got exit signal, exit now");
                         return;
                 },
-                recv(self.unverified_rx) -> msg => match msg {
+                recv(self.unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
                     // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
@@ -324,7 +324,7 @@ impl ChainService {
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
-                        error!("unverified_rx err: {}", err);
+                        error!("unverified_block_rx err: {}", err);
                         return;
                     },
                 },
@@ -459,9 +459,9 @@ impl ChainService {
                         Some((parent_header, total_difficulty)) => {
                             let unverified_block: UnverifiedBlock =
                                 descendant_block.combine_parent_header(parent_header);
-                            match self.unverified_tx.send(unverified_block) {
+                            match self.unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
-                                Err(err) => error!("send unverified_tx failed: {}", err),
+                                Err(err) => error!("send unverified_block_tx failed: {}", err),
                             };
 
                             if total_difficulty
