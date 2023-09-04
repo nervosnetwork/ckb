@@ -53,7 +53,7 @@ impl InnerPool {
         self.parents.insert(hash, parent_hash);
     }
 
-    pub fn remove_blocks_by_parent(&mut self, parent_hash: &ParentHash) -> Vec<(LonelyBlock)> {
+    pub fn remove_blocks_by_parent(&mut self, parent_hash: &ParentHash) -> Vec<LonelyBlock> {
         // try remove leaders first
         if !self.leaders.remove(parent_hash) {
             return Vec::new();
@@ -62,7 +62,7 @@ impl InnerPool {
         let mut queue: VecDeque<packed::Byte32> = VecDeque::new();
         queue.push_back(parent_hash.to_owned());
 
-        let mut removed: Vec<(LonelyBlock)> = Vec::new();
+        let mut removed: Vec<LonelyBlock> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
             if let Some(orphaned) = self.blocks.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
@@ -118,9 +118,9 @@ impl InnerPool {
         self.blocks
             .get(parent_hash)
             .and_then(|map| {
-                map.iter()
-                    .next()
-                    .map(|(_, block)| block.header().epoch().number() + EXPIRED_EPOCH < tip_epoch)
+                map.iter().next().map(|(_, lonely_block)| {
+                    lonely_block.block.header().epoch().number() + EXPIRED_EPOCH < tip_epoch
+                })
             })
             .unwrap_or_default()
     }
@@ -146,7 +146,7 @@ impl OrphanBlockPool {
         self.inner.write().insert(lonely_block);
     }
 
-    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<(LonelyBlock)> {
+    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<LonelyBlock> {
         self.inner.write().remove_blocks_by_parent(parent_hash)
     }
 

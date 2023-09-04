@@ -6,7 +6,7 @@ use ckb_types::{packed, prelude::*};
 pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
-    _peer: PeerIndex,
+    peer: PeerIndex,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -18,7 +18,7 @@ impl<'a> BlockProcess<'a> {
         BlockProcess {
             message,
             synchronizer,
-            _peer: peer,
+            peer: peer,
         }
     }
 
@@ -32,8 +32,9 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            let (this_block_verify_result, malformed_peers) =
-                self.synchronizer.process_new_block(block.clone());
+            let (this_block_verify_result, malformed_peers) = self
+                .synchronizer
+                .process_new_block(block.clone(), self.peer);
 
             if let Err(err) = this_block_verify_result {
                 if !is_internal_db_error(&err) {

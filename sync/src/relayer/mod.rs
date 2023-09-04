@@ -298,7 +298,8 @@ impl Relayer {
         let boxed: Arc<BlockView> = Arc::new(block);
         match self
             .shared()
-            .insert_new_block(&self.chain, Arc::clone(&boxed))
+            .insert_new_block_and_wait_result(&self.chain, Arc::clone(&boxed))
+            .unwrap_or(false)
         {
             Ok(true) => self.broadcast_compact_block(nc, peer, &boxed),
             Ok(false) => debug_target!(
