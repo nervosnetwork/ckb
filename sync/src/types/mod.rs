@@ -14,7 +14,8 @@ use ckb_constant::sync::{
 };
 use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, trace};
-use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
+use ckb_network::{CKBProtocolContext, PeerId, PeerIndex, SupportProtocols};
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::{
     block_status::BlockStatus,
     shared::Shared,
@@ -1081,7 +1082,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, CKBError> {
+    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
         // Insert the given block into orphan_block_pool if its parent is not found
         // if !self.is_stored(&block.parent_hash()) {
         //     debug!(
@@ -1162,7 +1163,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, CKBError> {
+    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
         let ret = {
             let mut assume_valid_target = self.state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
@@ -1179,23 +1180,14 @@ impl SyncShared {
                 chain.process_block(Arc::clone(&block))
             }
         };
+
         if let Err(ref error) = ret {
             if !is_internal_db_error(error) {
                 error!("accept block {:?} {}", block, error);
                 self.shared()
                     .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
             }
-        } else {
-            // Clear the newly inserted block from block_status_map.
-            //
-            // We don't know whether the actual block status is BLOCK_VALID or BLOCK_INVALID.
-            // So we just simply remove the corresponding in-memory block status,
-            // and the next time `get_block_status` would acquire the real-time
-            // status via fetching block_ext from the database.
-            // self.shared().remove_block_status(&block.as_ref().hash());
-            // self.shared().remove_header_view(&block.as_ref().hash());
         }
-
         ret
     }
 

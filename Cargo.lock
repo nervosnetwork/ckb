@@ -1449,6 +1449,7 @@ dependencies = [
  "ckb-error",
  "ckb-logger",
  "ckb-migrate",
+ "ckb-network",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",

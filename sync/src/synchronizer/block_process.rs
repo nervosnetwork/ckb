@@ -32,7 +32,10 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            if let Err(err) = self.synchronizer.process_new_block(block.clone()) {
+            let (this_block_verify_result, maliformed_peers) =
+                self.synchronizer.process_new_block(block.clone());
+
+            if let Err(err) = this_block_verify_result {
                 if !is_internal_db_error(&err) {
                     return StatusCode::BlockIsInvalid.with_context(format!(
                         "{}, error: {}",

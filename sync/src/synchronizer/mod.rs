@@ -38,7 +38,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
-use ckb_shared::types::HeaderIndexView;
+use ckb_shared::types::{HeaderIndexView, VerifyFailedBlockInfo};
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -289,6 +289,16 @@ impl Synchronizer {
         let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
+        Self::post_sync_process(nc, peer, item_name, item_bytes, status);
+    }
+
+    fn post_sync_process(
+        nc: &dyn CKBProtocolContext,
+        peer: PeerIndex,
+        item_name: &str,
+        item_bytes: u64,
+        status: Status,
+    ) {
         metric_ckb_message_bytes(
             MetricDirection::In,
             &SupportProtocols::Sync.name(),
@@ -334,14 +344,17 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, CKBError> {
+    pub fn process_new_block(
+        &self,
+        block: core::BlockView,
+    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             error!("Block {} already partial stored", block_hash);
-            Ok(false)
+            (Ok(false), Vec::new())
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared.insert_new_block(&self.chain, Arc::new(block))
         } else {
@@ -350,7 +363,7 @@ impl Synchronizer {
                 status, block_hash,
             );
             // TODO which error should we return?
-            Ok(false)
+            (Ok(false), Vec::new())
         }
     }
 
