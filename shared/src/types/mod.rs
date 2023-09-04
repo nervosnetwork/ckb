@@ -1,3 +1,4 @@
+use ckb_network::PeerId;
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
@@ -304,3 +305,8 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
 }
 
 pub const SHRINK_THRESHOLD: usize = 300;
+
+pub struct VerifyFailedBlockInfo {
+    pub block_hash: Byte32,
+    pub peer_id: PeerId,
+}

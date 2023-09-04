@@ -12,9 +12,11 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
+use ckb_network::PeerId;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
@@ -82,7 +84,10 @@ impl ChainController {
     /// If the block already exists, does nothing and false is returned.
     ///
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_block(&self, block: Arc<BlockView>) -> Result<bool, Error> {
+    pub fn process_block(
+        &self,
+        block: Arc<BlockView>,
+    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
         self.internal_process_block(block, Switch::NONE)
     }
 
@@ -93,7 +98,7 @@ impl ChainController {
         &self,
         block: Arc<BlockView>,
         switch: Switch,
-    ) -> Result<bool, Error> {
+    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
         Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
                 .other("Chain service has gone")
@@ -158,12 +163,16 @@ pub struct ChainService {
 
     unverified_tx: Sender<UnverifiedBlock>,
     unverified_rx: Receiver<UnverifiedBlock>,
+
+    verify_failed_blocks_tx: Sender<VerifyFailedBlockInfo>,
+    verify_failed_blocks_rx: Receiver<VerifyFailedBlockInfo>,
 }
 
 #[derive(Clone)]
 struct UnverifiedBlock {
     block: Arc<BlockView>,
     parent_header: HeaderView,
+    peer_id: PeerId,
     switch: Switch,
 }
 
@@ -176,6 +185,8 @@ impl ChainService {
         let (new_block_tx, new_block_rx) =
             channel::bounded::<(Arc<BlockView>, Switch)>(BLOCK_DOWNLOAD_WINDOW as usize);
 
+        let (verify_failed_blocks_tx, verify_failed_blocks_rx) = channel::unbounded();
+
         ChainService {
             shared,
             proposal_table: Arc::new(Mutex::new(proposal_table)),
@@ -184,6 +195,8 @@ impl ChainService {
             unverified_rx,
             new_block_tx,
             new_block_rx,
+            verify_failed_blocks_tx,
+            verify_failed_blocks_rx,
         }
     }
 
@@ -326,9 +339,18 @@ impl ChainService {
                     unverified_block.block.hash(),
                     err
                 );
-                // TODO punish the peer who give me the bad block
+                if let Err(SendError(peer_id)) =
+                    self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                        block_hash: unverified_block.block.hash(),
+                        peer_id: unverified_block.peer_id,
+                    })
+                {
+                    error!(
+                        "send verify_failed_blocks_tx failed for peer: {:?}",
+                        unverified_block.peer_id
+                    );
+                }
 
-                // TODO decrease unverified_tip
                 let tip = self
                     .shared
                     .store()
@@ -413,6 +435,7 @@ impl ChainService {
                                 block: descendant.to_owned(),
                                 parent_header,
                                 switch,
+                                peer_id,
                             }) {
                                 Ok(_) => {}
                                 Err(err) => error!("send unverified_tx failed: {}", err),
@@ -559,23 +582,26 @@ impl ChainService {
 
     // make block IO and verify asynchronize
     #[doc(hidden)]
-    pub fn process_block_v2(&self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
+    pub fn process_block_v2(
+        &self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
         let block_number = block.number();
         let block_hash = block.hash();
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
 
-        // if self
-        //     .shared
-        //     .contains_block_status(&block_hash, BlockStatus::BLOCK_RECEIVED)
-        // {
-        //     debug!("block {}-{} has been stored", block_number, block_hash);
-        //     return Ok(false);
-        // }
+        let failed_blocks_peer_ids: Vec<VerifyFailedBlockInfo> =
+            self.verify_failed_blocks_rx.iter().collect();
 
         if !switch.disable_non_contextual() {
-            self.non_contextual_verify(&block)?;
+            let result = self.non_contextual_verify(&block);
+            match result {
+                Err(err) => return (Err(err), failed_blocks_peer_ids),
+                _ => {}
+            }
         }
 
         match self.new_block_tx.send((block, switch)) {
@@ -593,7 +619,7 @@ impl ChainService {
             self.shared.get_unverified_tip().number(),
         );
 
-        Ok(false)
+        (Ok(false), failed_blocks_peer_ids)
     }
 
     fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
