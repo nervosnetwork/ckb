@@ -1087,7 +1087,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         // if !self.is_stored(&block.parent_hash()) {
         //     debug!(
@@ -1168,7 +1168,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
         let ret = {
             let mut assume_valid_target = self.state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {

@@ -32,7 +32,7 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            let (this_block_verify_result, maliformed_peers) =
+            let (this_block_verify_result, malformed_peers) =
                 self.synchronizer.process_new_block(block.clone());
 
             if let Err(err) = this_block_verify_result {
