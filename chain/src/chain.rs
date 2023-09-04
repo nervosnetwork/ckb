@@ -722,6 +722,7 @@ impl ChainService {
         let UnverifiedBlock {
             block,
             parent_header,
+            peer_id,
             switch,
         } = unverified_block;
 
