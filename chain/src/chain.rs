@@ -610,6 +610,17 @@ impl ChainService {
             return Ok(None);
         }
 
+        let parent_header = self
+            .shared
+            .store()
+            .get_block_header(&block.data().header().raw().parent_hash())
+            .expect("parent already store");
+
+        if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
+            debug!("block {}-{} has stored BlockExt", block_number, block_hash);
+            return Ok(Some((parent_header, ext.total_difficulty)));
+        }
+
         trace!("begin accept block: {}-{}", block.number(), block.hash());
 
         let parent_ext = self
@@ -620,12 +631,6 @@ impl ChainService {
 
         let cannon_total_difficulty =
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
-
-        let parent_header = self
-            .shared
-            .store()
-            .get_block_header(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
 
@@ -691,6 +696,21 @@ impl ChainService {
             .store()
             .get_block_ext(&block.data().header().raw().parent_hash())
             .expect("parent already store");
+
+        if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
+            match ext.verified {
+                Some(verified) => {
+                    debug!(
+                        "block {}-{} has been verified: {}",
+                        block.number(),
+                        block.hash(),
+                        verified
+                    );
+                    return Ok(verified);
+                }
+                _ => {}
+            }
+        }
 
         let cannon_total_difficulty =
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();
