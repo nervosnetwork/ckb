@@ -1,6 +1,5 @@
 use crate::chain::LonelyBlock;
 use ckb_logger::debug;
-use ckb_network::PeerId;
 use ckb_types::core::EpochNumber;
 use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};

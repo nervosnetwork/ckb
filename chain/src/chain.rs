@@ -12,7 +12,7 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_network::PeerId;
+use ckb_network::PeerIndex;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
@@ -172,7 +172,7 @@ pub struct ChainService {
 #[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
-    pub peer_id: Option<PeerId>,
+    pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
 }
 
@@ -191,7 +191,7 @@ impl LonelyBlock {
 struct UnverifiedBlock {
     block: Arc<BlockView>,
     parent_header: HeaderView,
-    peer_id: Option<PeerId>,
+    peer_id: Option<PeerIndex>,
     switch: Switch,
 }
 
