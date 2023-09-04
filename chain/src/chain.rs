@@ -50,7 +50,7 @@ use std::{cmp, thread};
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
-type ProcessBlockRequest = Request<(LonelyBlock), Vec<VerifyFailedBlockInfo>>;
+type ProcessBlockRequest = Request<LonelyBlock, Vec<VerifyFailedBlockInfo>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// Controller to the chain service.
@@ -100,11 +100,11 @@ impl ChainController {
         &self,
         lonely_block: LonelyBlock,
     ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
-        Request::call(&self.process_block_sender, lonely_block).unwrap_or_else(|| {
-            Err(InternalErrorKind::System
+        Request::call(&self.process_block_sender, lonely_block).ok_or(
+            InternalErrorKind::System
                 .other("Chain service has gone")
-                .into())
-        })
+                .into(),
+        )
     }
 
     /// Truncate chain to specified target
@@ -120,7 +120,9 @@ impl ChainController {
 
     // Relay need this
     pub fn get_orphan_block(&self, hash: &Byte32) -> Option<Arc<BlockView>> {
-        self.orphan_block_broker.get_block(hash)
+        self.orphan_block_broker
+            .get_block(hash)
+            .map(|lonely_block| lonely_block.block)
     }
 
     pub fn orphan_blocks_len(&self) -> usize {
@@ -159,8 +161,8 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    lonely_block_tx: Sender<(LonelyBlock)>,
-    lonely_block_rx: Receiver<(LonelyBlock)>,
+    lonely_block_tx: Sender<LonelyBlock>,
+    lonely_block_rx: Receiver<LonelyBlock>,
 
     unverified_block_tx: Sender<UnverifiedBlock>,
     unverified_block_rx: Receiver<UnverifiedBlock>,
@@ -169,6 +171,7 @@ pub struct ChainService {
     verify_failed_blocks_rx: Receiver<VerifyFailedBlockInfo>,
 }
 
+#[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerId>,
@@ -258,9 +261,9 @@ impl ChainService {
             .spawn(move || loop {
                 select! {
                     recv(process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (block, peer_id, verify) }) => {
+                        Ok(Request { responder, arguments: lonely_block }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.process_block_v2(block, peer_id, verify));
+                            let _ = responder.send(self.process_block_v2(lonely_block));
                             let _ = tx_control.continue_chunk_process();
 
                             if let Some(metrics) = ckb_metrics::handle() {
@@ -421,7 +424,7 @@ impl ChainService {
             }
         }
     }
-    fn search_orphan_pool(&self, switch: Switch) {
+    fn search_orphan_pool(&self) {
         for leader_hash in self.orphan_blocks_broker.clone_leaders() {
             if !self
                 .shared
@@ -444,15 +447,14 @@ impl ChainService {
 
             let mut accept_error_occurred = false;
             for descendant_block in &descendants {
-                let &LonelyBlock {
-                    block: descendant,
-                    peer_id,
-                    switch,
-                } = descendant_block;
-                match self.accept_block(descendant.to_owned()) {
+                match self.accept_block(descendant_block.block.to_owned()) {
                     Err(err) => {
                         accept_error_occurred = true;
-                        error!("accept block {} failed: {}", descendant.hash(), err);
+                        error!(
+                            "accept block {} failed: {}",
+                            descendant_block.block.hash(),
+                            err
+                        );
                         continue;
                     }
                     Ok(accepted_opt) => match accepted_opt {
@@ -468,20 +470,20 @@ impl ChainService {
                                 .gt(self.shared.get_unverified_tip().total_difficulty())
                             {
                                 self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                                    descendant.header().number(),
-                                    descendant.header().hash(),
+                                    descendant_block.block.header().number(),
+                                    descendant_block.block.header().hash(),
                                     total_difficulty,
                                 ));
                                 debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
-                            descendant.number(),
-                            descendant.hash(),
-                            descendant
+                            descendant_block.block.number(),
+                            descendant_block.block.hash(),
+                            descendant_block.block
                                 .number()
                                 .saturating_sub(self.shared.snapshot().tip_number()))
                             } else {
                                 debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
-                                    descendant.number(),
-                                    descendant.hash(),
+                                    descendant_block.block.number(),
+                                    descendant_block.block.hash(),
                                     self.shared.get_unverified_tip().number(),
                                     self.shared.get_unverified_tip().hash(),
                                     );
@@ -490,7 +492,7 @@ impl ChainService {
                         None => {
                             info!(
                                 "doesn't accept block {}, because it has been stored",
-                                descendant.hash()
+                                descendant_block.block.hash()
                             );
                         }
                     },
@@ -501,8 +503,16 @@ impl ChainService {
                 debug!(
                     "accept {} blocks [{}->{}] success",
                     descendants.len(),
-                    descendants.first().expect("descendants not empty").number(),
-                    descendants.last().expect("descendants not empty").number(),
+                    descendants
+                        .first()
+                        .expect("descendants not empty")
+                        .block
+                        .number(),
+                    descendants
+                        .last()
+                        .expect("descendants not empty")
+                        .block
+                        .number(),
                 )
             }
         }

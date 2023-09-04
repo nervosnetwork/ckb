@@ -2,7 +2,7 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::ChainController;
+use ckb_chain::chain::{ChainController, LonelyBlock};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
@@ -1077,11 +1077,20 @@ impl SyncShared {
         self.shared.consensus()
     }
 
+    pub fn insert_new_block_and_wait_result(
+        &self,
+        chain: &ChainController,
+        block: Arc<core::BlockView>,
+    ) -> Result<bool, CKBError> {
+        todo!("")
+    }
+
     /// Insert new block to chain store
     pub fn insert_new_block(
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
+        peer_id: PeerId,
     ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         // if !self.is_stored(&block.parent_hash()) {
@@ -1095,7 +1104,7 @@ impl SyncShared {
         // }
 
         // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, Arc::clone(&block));
+        let ret = self.accept_block(chain, Arc::clone(&block), peer_id);
         if ret.is_err() {
             debug!("accept block {:?} {:?}", block, ret);
             return ret;
@@ -1180,6 +1189,14 @@ impl SyncShared {
                 chain.process_block(Arc::clone(&block))
             }
         };
+
+        // TODO move switch logic to ckb-chain
+        let lonely_block = LonelyBlock {
+            block,
+            peer_id: None,
+            switch: Switch::NONE,
+        };
+        let ret = chain.process_block(lonely_block);
 
         if let Err(ref error) = ret {
             if !is_internal_db_error(error) {

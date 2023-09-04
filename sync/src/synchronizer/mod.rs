@@ -347,6 +347,7 @@ impl Synchronizer {
     pub fn process_new_block(
         &self,
         block: core::BlockView,
+        peer_id: PeerId,
     ) -> Result<Option<Vec<VerifyFailedBlockInfo>>, CKBError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
@@ -356,7 +357,8 @@ impl Synchronizer {
             error!("Block {} already partial stored", block_hash);
             Ok(Some(Vec::new()))
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared.insert_new_block(&self.chain, Arc::new(block))
+            self.shared
+                .insert_new_block(&self.chain, Arc::new(block), peer_id)
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
