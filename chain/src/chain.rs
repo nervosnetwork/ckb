@@ -50,7 +50,7 @@ use std::{cmp, thread};
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
-type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
+type ProcessBlockRequest = Request<(LonelyBlock), Vec<VerifyFailedBlockInfo>>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// Controller to the chain service.
@@ -88,9 +88,9 @@ impl ChainController {
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
     pub fn process_block(
         &self,
-        block: Arc<BlockView>,
+        lonely_block: LonelyBlock,
     ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
-        self.internal_process_block(block, Switch::NONE)
+        self.internal_process_block(lonely_block)
     }
 
     /// Internal method insert block for test
@@ -98,10 +98,9 @@ impl ChainController {
     /// switch bit flags for particular verify, make easier to generating test data
     pub fn internal_process_block(
         &self,
-        block: Arc<BlockView>,
-        switch: Switch,
+        lonely_block: LonelyBlock,
     ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
-        Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
+        Request::call(&self.process_block_sender, lonely_block).unwrap_or_else(|| {
             Err(InternalErrorKind::System
                 .other("Chain service has gone")
                 .into())
@@ -160,8 +159,8 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    new_block_tx: Sender<(Arc<BlockView>, Switch)>,
-    new_block_rx: Receiver<(Arc<BlockView>, Switch)>,
+    new_block_tx: Sender<(LonelyBlock)>,
+    new_block_rx: Receiver<(LonelyBlock)>,
 
     unverified_tx: Sender<UnverifiedBlock>,
     unverified_rx: Receiver<UnverifiedBlock>,
@@ -170,11 +169,28 @@ pub struct ChainService {
     verify_failed_blocks_rx: Receiver<VerifyFailedBlockInfo>,
 }
 
+pub struct LonelyBlock {
+    pub block: Arc<BlockView>,
+    pub peer_id: Option<PeerId>,
+    pub switch: Switch,
+}
+
+impl LonelyBlock {
+    fn combine_parent_header(&self, parent_header: HeaderView) -> UnverifiedBlock {
+        UnverifiedBlock {
+            block: self.block.clone(),
+            parent_header,
+            peer_id: self.peer_id.clone(),
+            switch: self.switch,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct UnverifiedBlock {
     block: Arc<BlockView>,
     parent_header: HeaderView,
-    peer_id: PeerId,
+    peer_id: Option<PeerId>,
     switch: Switch,
 }
 
@@ -185,7 +201,7 @@ impl ChainService {
             channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
         let (new_block_tx, new_block_rx) =
-            channel::bounded::<(Arc<BlockView>, Switch)>(BLOCK_DOWNLOAD_WINDOW as usize);
+            channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
 
         let (verify_failed_blocks_tx, verify_failed_blocks_rx) = channel::unbounded();
 
@@ -242,11 +258,9 @@ impl ChainService {
             .spawn(move || loop {
                 select! {
                     recv(process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (block, verify) }) => {
-                            let instant = Instant::now();
-
+                        Ok(Request { responder, arguments: (block, peer_id, verify) }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.process_block_v2(block, verify));
+                            let _ = responder.send(self.process_block_v2(block, peer_id, verify));
                             let _ = tx_control.continue_chunk_process();
 
                             if let Some(metrics) = ckb_metrics::handle() {
@@ -338,20 +352,23 @@ impl ChainService {
             }
             Err(err) => {
                 error!(
-                    "verify block {} failed: {}",
+                    "verify [{:?}]'s block {} failed: {}",
+                    unverified_block.peer_id,
                     unverified_block.block.hash(),
                     err
                 );
-                if let Err(SendError(peer_id)) =
-                    self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                        block_hash: unverified_block.block.hash(),
-                        peer_id: unverified_block.peer_id,
-                    })
-                {
-                    error!(
-                        "send verify_failed_blocks_tx failed for peer: {:?}",
-                        unverified_block.peer_id
-                    );
+                if let Some(peer_id) = unverified_block.peer_id {
+                    if let Err(SendError(peer_id)) =
+                        self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                            block_hash: unverified_block.block.hash(),
+                            peer_id,
+                        })
+                    {
+                        error!(
+                            "send verify_failed_blocks_tx failed for peer: {:?}",
+                            peer_id
+                        );
+                    }
                 }
 
                 let tip = self
@@ -392,9 +409,9 @@ impl ChainService {
                         return;
                 },
                 recv(self.new_block_rx) -> msg => match msg {
-                    Ok((block, switch)) => {
-                        self.orphan_blocks_broker.insert(block);
-                        self.search_orphan_pool(switch)
+                    Ok(lonely_block) => {
+                        self.orphan_blocks_broker.insert(lonely_block);
+                        self.search_orphan_pool()
                     },
                     Err(err) => {
                         error!("new_block_rx err: {}", err);
@@ -414,7 +431,7 @@ impl ChainService {
                 continue;
             }
 
-            let descendants = self
+            let descendants: Vec<LonelyBlock> = self
                 .orphan_blocks_broker
                 .remove_blocks_by_parent(&leader_hash);
             if descendants.is_empty() {
@@ -424,8 +441,14 @@ impl ChainService {
                 );
                 continue;
             }
+
             let mut accept_error_occurred = false;
-            for descendant in &descendants {
+            for descendant_block in &descendants {
+                let &LonelyBlock {
+                    block: descendant,
+                    peer_id,
+                    switch,
+                } = descendant_block;
                 match self.accept_block(descendant.to_owned()) {
                     Err(err) => {
                         accept_error_occurred = true;
@@ -434,12 +457,9 @@ impl ChainService {
                     }
                     Ok(accepted_opt) => match accepted_opt {
                         Some((parent_header, total_difficulty)) => {
-                            match self.unverified_tx.send(UnverifiedBlock {
-                                block: descendant.to_owned(),
-                                parent_header,
-                                switch,
-                                peer_id,
-                            }) {
+                            let unverified_block: UnverifiedBlock =
+                                descendant_block.combine_parent_header(parent_header);
+                            match self.unverified_tx.send(unverified_block) {
                                 Ok(_) => {}
                                 Err(err) => error!("send unverified_tx failed: {}", err),
                             };
@@ -585,14 +605,9 @@ impl ChainService {
 
     // make block IO and verify asynchronize
     #[doc(hidden)]
-    pub fn process_block_v2(
-        &self,
-        block: Arc<BlockView>,
-        peer_id: PeerId,
-        switch: Switch,
-    ) -> Vec<VerifyFailedBlockInfo> {
-        let block_number = block.number();
-        let block_hash = block.hash();
+    pub fn process_block_v2(&self, lonely_block: LonelyBlock) -> Vec<VerifyFailedBlockInfo> {
+        let block_number = lonely_block.block.number();
+        let block_hash = lonely_block.block.hash();
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
@@ -600,21 +615,23 @@ impl ChainService {
         let mut failed_blocks_peer_ids: Vec<VerifyFailedBlockInfo> =
             self.verify_failed_blocks_rx.iter().collect();
 
-        if !switch.disable_non_contextual() {
-            let result = self.non_contextual_verify(&block);
+        if !lonely_block.switch.disable_non_contextual() {
+            let result = self.non_contextual_verify(&lonely_block.block);
             match result {
                 Err(err) => {
-                    failed_blocks_peer_ids.push(VerifyFailedBlockInfo {
-                        block_hash,
-                        peer_id,
-                    });
+                    if let Some(peer_id) = lonely_block.peer_id {
+                        failed_blocks_peer_ids.push(VerifyFailedBlockInfo {
+                            block_hash,
+                            peer_id,
+                        });
+                    }
                     return failed_blocks_peer_ids;
                 }
                 _ => {}
             }
         }
 
-        match self.new_block_tx.send((block, switch)) {
+        match self.new_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(err) => {
                 error!("notify new block to orphan pool err: {}", err)
