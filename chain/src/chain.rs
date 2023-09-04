@@ -159,8 +159,8 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    new_block_tx: Sender<(LonelyBlock)>,
-    new_block_rx: Receiver<(LonelyBlock)>,
+    lonely_block_tx: Sender<(LonelyBlock)>,
+    lonely_block_rx: Receiver<(LonelyBlock)>,
 
     unverified_tx: Sender<UnverifiedBlock>,
     unverified_rx: Receiver<UnverifiedBlock>,
@@ -211,8 +211,8 @@ impl ChainService {
             orphan_blocks_broker: Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE)),
             unverified_tx,
             unverified_rx,
-            new_block_tx,
-            new_block_rx,
+            lonely_block_tx: new_block_tx,
+            lonely_block_rx: new_block_rx,
             verify_failed_blocks_tx,
             verify_failed_blocks_rx,
         }
@@ -408,13 +408,13 @@ impl ChainService {
                         info!("unverified_queue_consumer got exit signal, exit now");
                         return;
                 },
-                recv(self.new_block_rx) -> msg => match msg {
+                recv(self.lonely_block_rx) -> msg => match msg {
                     Ok(lonely_block) => {
                         self.orphan_blocks_broker.insert(lonely_block);
                         self.search_orphan_pool()
                     },
                     Err(err) => {
-                        error!("new_block_rx err: {}", err);
+                        error!("lonely_block_rx err: {}", err);
                         return
                     }
                 },
@@ -631,7 +631,7 @@ impl ChainService {
             }
         }
 
-        match self.new_block_tx.send(lonely_block) {
+        match self.lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(err) => {
                 error!("notify new block to orphan pool err: {}", err)
