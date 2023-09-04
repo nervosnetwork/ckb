@@ -347,14 +347,14 @@ impl Synchronizer {
     pub fn process_new_block(
         &self,
         block: core::BlockView,
-    ) -> (Result<bool, CKBError>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Result<Option<Vec<VerifyFailedBlockInfo>>, CKBError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             error!("Block {} already partial stored", block_hash);
-            (Ok(false), Vec::new())
+            Ok(Some(Vec::new()))
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared.insert_new_block(&self.chain, Arc::new(block))
         } else {
@@ -363,7 +363,7 @@ impl Synchronizer {
                 status, block_hash,
             );
             // TODO which error should we return?
-            (Ok(false), Vec::new())
+            (Ok(Some(Vec::new())))
         }
     }
 

@@ -306,6 +306,7 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
 
 pub const SHRINK_THRESHOLD: usize = 300;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyFailedBlockInfo {
     pub block_hash: Byte32,
     pub peer_id: PeerId,

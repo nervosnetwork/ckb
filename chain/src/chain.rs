@@ -89,7 +89,7 @@ impl ChainController {
     pub fn process_block(
         &self,
         block: Arc<BlockView>,
-    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
         self.internal_process_block(block, Switch::NONE)
     }
 
@@ -100,7 +100,7 @@ impl ChainController {
         &self,
         block: Arc<BlockView>,
         switch: Switch,
-    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
         Request::call(&self.process_block_sender, (block, switch)).unwrap_or_else(|| {
             Err(InternalErrorKind::System
                 .other("Chain service has gone")
@@ -588,21 +588,28 @@ impl ChainService {
     pub fn process_block_v2(
         &self,
         block: Arc<BlockView>,
+        peer_id: PeerId,
         switch: Switch,
-    ) -> (Result<bool, Error>, Vec<VerifyFailedBlockInfo>) {
+    ) -> Vec<VerifyFailedBlockInfo> {
         let block_number = block.number();
         let block_hash = block.hash();
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
 
-        let failed_blocks_peer_ids: Vec<VerifyFailedBlockInfo> =
+        let mut failed_blocks_peer_ids: Vec<VerifyFailedBlockInfo> =
             self.verify_failed_blocks_rx.iter().collect();
 
         if !switch.disable_non_contextual() {
             let result = self.non_contextual_verify(&block);
             match result {
-                Err(err) => return (Err(err), failed_blocks_peer_ids),
+                Err(err) => {
+                    failed_blocks_peer_ids.push(VerifyFailedBlockInfo {
+                        block_hash,
+                        peer_id,
+                    });
+                    return failed_blocks_peer_ids;
+                }
                 _ => {}
             }
         }
@@ -614,15 +621,16 @@ impl ChainService {
             }
         }
         debug!(
-            "processing block: {}-{}, orphan_len: {}, (tip:unverified_tip):({}:{})",
+            "processing block: {}-{}, orphan_len: {}, (tip:unverified_tip):({}:{}), and return failed_blocks_peer_ids: {:?}",
             block_number,
             block_hash,
             self.orphan_blocks_broker.len(),
             self.shared.snapshot().tip_number(),
             self.shared.get_unverified_tip().number(),
+            failed_blocks_peer_ids,
         );
 
-        (Ok(false), failed_blocks_peer_ids)
+        failed_blocks_peer_ids
     }
 
     fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
