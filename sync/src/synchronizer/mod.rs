@@ -270,7 +270,21 @@ impl Synchronizer {
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    BlockProcess::new(reader, self, peer).execute()
+                    let verify_failed_peers =
+                        BlockProcess::new(reader, self, peer, message.as_slice().len()).execute();
+
+                    verify_failed_peers.iter().for_each(|malformed_peer_info| {
+                        Self::post_sync_process(
+                            nc,
+                            malformed_peer_info.peer,
+                            "SendBlock",
+                            0,
+                            StatusCode::BlockIsInvalid.with_context(format!(
+                                "block {} is invalid, reason: {}",
+                                malformed_peer_info.block_hash, malformed_peer_info.reason
+                            )),
+                        );
+                    })
                 } else {
                     StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
@@ -347,15 +361,15 @@ impl Synchronizer {
     pub fn process_new_block(
         &self,
         block: core::BlockView,
-        peer_id: PeerId,
-    ) -> Result<Option<Vec<VerifyFailedBlockInfo>>, CKBError> {
+        peer_id: PeerIndex,
+    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             error!("Block {} already partial stored", block_hash);
-            Ok(Some(Vec::new()))
+            Ok(Vec::new())
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
                 .insert_new_block(&self.chain, Arc::new(block), peer_id)
@@ -365,7 +379,7 @@ impl Synchronizer {
                 status, block_hash,
             );
             // TODO which error should we return?
-            (Ok(Some(Vec::new())))
+            (Ok(Vec::new()))
         }
     }
 

@@ -1,4 +1,4 @@
-use ckb_network::PeerId;
+use ckb_network::PeerIndex;
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
@@ -309,5 +309,7 @@ pub const SHRINK_THRESHOLD: usize = 300;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyFailedBlockInfo {
     pub block_hash: Byte32,
-    pub peer_id: PeerId,
+    pub peer_id: PeerIndex,
+    pub message_bytes: u64,
+    pub reason: String,
 }
