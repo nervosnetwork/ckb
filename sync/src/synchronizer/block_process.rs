@@ -1,12 +1,14 @@
 use crate::{synchronizer::Synchronizer, utils::is_internal_db_error, Status, StatusCode};
-use ckb_logger::debug;
+use ckb_logger::{debug, error};
 use ckb_network::PeerIndex;
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_types::{packed, prelude::*};
 
 pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
+    message_bytes: usize,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -14,15 +16,17 @@ impl<'a> BlockProcess<'a> {
         message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
+        message_bytes: usize,
     ) -> Self {
         BlockProcess {
             message,
             synchronizer,
-            peer: peer,
+            peer,
+            message_bytes,
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub fn execute(self) -> Vec<VerifyFailedBlockInfo> {
         let block = self.message.block().to_entity().into_view();
         debug!(
             "BlockProcess received block {} {}",
@@ -32,21 +36,29 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            let (this_block_verify_result, malformed_peers) = self
+            match self
                 .synchronizer
-                .process_new_block(block.clone(), self.peer);
-
-            if let Err(err) = this_block_verify_result {
-                if !is_internal_db_error(&err) {
-                    return StatusCode::BlockIsInvalid.with_context(format!(
-                        "{}, error: {}",
-                        block.hash(),
-                        err,
-                    ));
+                .process_new_block(block.clone(), self.peer, self.message_bytes)
+            {
+                Ok(verify_failed_peers) => {
+                    return verify_failed_peers;
+                }
+                Err(err) => {
+                    error!("BlockProcess process_new_block error: {:?}", err);
                 }
             }
+
+            // if let Err(err) = this_block_verify_result {
+            //     if !is_internal_db_error(&err) {
+            //         return StatusCode::BlockIsInvalid.with_context(format!(
+            //             "{}, error: {}",
+            //             block.hash(),
+            //             err,
+            //         ));
+            //     }
+            // }
         }
 
-        Status::ok()
+        Vec::new()
     }
 }
