@@ -46,7 +46,7 @@ impl PeerStore {
             .entry(extract_peer_id(&addr).expect("connected addr should have peer id"))
         {
             Entry::Occupied(mut entry) => {
-                let mut peer = entry.get_mut();
+                let peer = entry.get_mut();
                 peer.connected_addr = addr;
                 peer.last_connected_at_ms = now_ms;
                 peer.session_type = session_type;
