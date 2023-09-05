@@ -13,17 +13,9 @@ use ckb_constant::sync::{
     RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
-<<<<<<< HEAD
 use ckb_logger::{debug, error, info, trace, warn};
-use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
-||||||| parent of a227122ad (Return malformed_peers from ckb-chain to ckb-sync)
-use ckb_logger::{debug, error, trace};
-use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
-=======
-use ckb_logger::{debug, error, trace};
 use ckb_network::{CKBProtocolContext, PeerId, PeerIndex, SupportProtocols};
 use ckb_shared::types::VerifyFailedBlockInfo;
->>>>>>> a227122ad (Return malformed_peers from ckb-chain to ckb-sync)
 use ckb_shared::{
     block_status::BlockStatus,
     shared::Shared,
@@ -1095,7 +1087,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id: PeerId,
+        peer_id: PeerIndex,
     ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
         // Insert the given block into orphan_block_pool if its parent is not found
         // if !self.is_stored(&block.parent_hash()) {
@@ -1177,29 +1169,29 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
+        peer_id: PeerIndex,
     ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
-        let ret = {
-            let mut assume_valid_target = self.state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
-                // if the target has been reached, delete it
-                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
-                    assume_valid_target.take();
-                    info!("assume valid target reached; CKB will do full verification from now on");
-                    Switch::NONE
-                } else {
-                    Switch::DISABLE_SCRIPT
-                };
-
-                chain.internal_process_block(Arc::clone(&block), switch)
-            } else {
-                chain.process_block(Arc::clone(&block))
-            }
-        };
+        // let ret = {
+        //     let mut assume_valid_target = self.state.assume_valid_target();
+        //     if let Some(ref target) = *assume_valid_target {
+        //         // if the target has been reached, delete it
+        //         let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+        //             assume_valid_target.take();
+        //             Switch::NONE
+        //         } else {
+        //             Switch::DISABLE_SCRIPT
+        //         };
+        //
+        //         chain.internal_process_block(Arc::clone(&block), switch)
+        //     } else {
+        //         chain.process_block(Arc::clone(&block))
+        //     }
+        // };
 
         // TODO move switch logic to ckb-chain
         let lonely_block = LonelyBlock {
             block,
-            peer_id: None,
+            peer_id,
             switch: Switch::NONE,
         };
         let ret = chain.process_block(lonely_block);
