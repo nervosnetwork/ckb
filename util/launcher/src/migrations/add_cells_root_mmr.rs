@@ -61,7 +61,13 @@ impl Migration for AddCellsRootMMR {
                                         block_number,
                                     ),
                                 )
-                                .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                                .map_err(|e| {
+                                    println!("block_number: {}", block_number);
+                                    println!("tx hash: {:?}", tx.hash());
+                                    println!("input: {:?}", input);
+                                    println!("cell_status: {:?}", cell_status);
+                                    InternalErrorKind::MMR.other(e)
+                                })?;
                             cell_status.mark_as_consumed(block_number);
                             db_txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
                         }
@@ -70,16 +76,20 @@ impl Migration for AddCellsRootMMR {
                     for out_point in tx.output_pts().into_iter() {
                         let hash =
                             hash_out_point_and_status(&out_point, block_number, BlockNumber::MAX);
-                        let mmr_position = cells_root_mmr
-                            .push(hash)
-                            .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                        let mmr_position = cells_root_mmr.push(hash).map_err(|e| {
+                            println!("block_number: {}", block_number);
+                            println!("tx hash: {:?}", tx.hash());
+                            println!("out_point: {:?}", out_point);
+                            InternalErrorKind::MMR.other(e)
+                        })?;
                         let cell_status = CellStatus::new(mmr_position, block_number);
                         db_txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
                     }
                 }
-                cells_root_mmr
-                    .commit()
-                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                cells_root_mmr.commit().map_err(|e| {
+                    println!("block_number: {}", block_number);
+                    InternalErrorKind::MMR.other(e)
+                })?;
                 db_txn.insert_cells_root_mmr_size(block_number, cells_root_mmr.mmr_size())?;
 
                 pbi.inc(1);
