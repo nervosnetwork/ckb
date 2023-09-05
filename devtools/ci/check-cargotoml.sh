@@ -158,7 +158,7 @@ function check_dependencies_for() {
       fi
       if [ "${depcnt}" -eq 0 ]; then
         case "${dependency}" in
-          phf)
+          phf|clap_lex)
             # We cann't handle these crates.
             printf "Warn: [%s::%s] in <%s>\n" \
               "${deptype}" "${dependency}" "${pkgroot}"
