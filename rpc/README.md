@@ -3232,7 +3232,9 @@ Returns the updated epoch number after generating the specified number of epochs
 
 ###### Examples
 
-###### Request
+Request
+
+generating 2 epochs:
 
 
 ```
@@ -3240,19 +3242,32 @@ Returns the updated epoch number after generating the specified number of epochs
   "id": 42,
   "jsonrpc": "2.0",
   "method": "generate_epochs",
-  "params": ["0x00000000001"]
+  "params": ["0x2"]
 }
 ```
 
 
-###### Response
+generating 1/2 epoch:
 
 
 ```
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x384000c000002",
+  "method": "generate_epochs",
+  "params": ["0x20001000000"]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0001000003",
   "error": null
 }
 ```

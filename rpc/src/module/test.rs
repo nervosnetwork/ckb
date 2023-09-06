@@ -182,24 +182,37 @@ pub trait IntegrationTestRpc {
     ///
     /// ## Examples
     ///
-    /// ### Request
+    /// Request
+    ///
+    /// generating 2 epochs:
     ///
     /// ```json
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "generate_epochs",
-    ///   "params": ["0x00000000001"]
+    ///   "params": ["0x2"]
     /// }
     /// ```
     ///
-    /// ### Response
+    /// generating 1/2 epoch:
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "generate_epochs",
+    ///   "params": ["0x20001000000"]
+    /// }
+    /// ```
+    ///
+    /// Response
     ///
     /// ```json
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x384000c000002",
+    ///   "result": "0xa0001000003",
     ///   "error": null
     /// }
     /// ```
