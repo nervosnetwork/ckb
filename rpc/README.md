@@ -68,7 +68,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
         * [Method `generate_block`](#method-generate_block)
-        * [Method `fast_forward_epochs`](#method-fast_forward_epochs)
+        * [Method `generate_epochs`](#method-generate_epochs)
         * [Method `notify_transaction`](#method-notify_transaction)
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
@@ -3215,20 +3215,20 @@ Response
 ```
 
 
-#### Method `fast_forward_epochs`
-* `fast_forward_epochs(epochs_to_skip)`
-    * `epochs_to_skip`: [`EpochNumber`](#type-epochnumber)
+#### Method `generate_epochs`
+* `generate_epochs(num_epochs)`
+    * `num_epochs`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
 * result: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
 
-Fast-forwarding epochs during development, can be useful for scenarios
+Generate epochs during development, can be useful for scenarios
 
 like testing DAO-related functionalities.
 
-Returns the updated epoch number after fast forwarding.
+Returns the updated epoch number after generating the specified number of epochs.
 
 ###### Params
 
-*   `epochs_to_skip` - The number of epochs to fast forward.
+*   `num_epochs` - The number of epochs to generate.
 
 ###### Examples
 
@@ -3239,8 +3239,8 @@ Returns the updated epoch number after fast forwarding.
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "method": "fast_forward_epochs",
-  "params": ["0x1"]
+  "method": "generate_epochs",
+  "params": ["0x00000000001"]
 }
 ```
 

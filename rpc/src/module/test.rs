@@ -1,9 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    Block, BlockTemplate, Byte32, EpochNumber, EpochNumberWithFraction, Transaction,
-};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, EpochNumberWithFraction, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -172,15 +170,15 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "generate_block")]
     fn generate_block(&self) -> Result<H256>;
 
-    /// Fast-forwarding epochs during development, can be useful for scenarios
+    /// Generate epochs during development, can be useful for scenarios
     ///
     /// like testing DAO-related functionalities.
     ///
-    /// Returns the updated epoch number after fast forwarding.
+    /// Returns the updated epoch number after generating the specified number of epochs.
     ///
     /// ## Params
     ///
-    /// * `epochs_to_skip` - The number of epochs to fast forward.
+    /// * `num_epochs` - The number of epochs to generate.
     ///
     /// ## Examples
     ///
@@ -190,8 +188,8 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "method": "fast_forward_epochs",
-    ///   "params": ["0x1"]
+    ///   "method": "generate_epochs",
+    ///   "params": ["0x00000000001"]
     /// }
     /// ```
     ///
@@ -205,8 +203,11 @@ pub trait IntegrationTestRpc {
     ///   "error": null
     /// }
     /// ```
-    #[rpc(name = "fast_forward_epochs")]
-    fn fast_forward_epochs(&self, epochs_to_skip: EpochNumber) -> Result<EpochNumberWithFraction>;
+    #[rpc(name = "generate_epochs")]
+    fn generate_epochs(
+        &self,
+        num_epochs: EpochNumberWithFraction,
+    ) -> Result<EpochNumberWithFraction>;
 
     /// Add transaction to tx-pool.
     ///
@@ -560,27 +561,21 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         self.process_and_announce_block(block_template.into())
     }
 
-    fn fast_forward_epochs(&self, epochs_to_skip: EpochNumber) -> Result<EpochNumberWithFraction> {
+    fn generate_epochs(
+        &self,
+        num_epochs: EpochNumberWithFraction,
+    ) -> Result<EpochNumberWithFraction> {
         let tip_block_number = self.shared.snapshot().tip_header().number();
         let mut current_epoch = self
             .shared
             .snapshot()
             .epoch_ext()
             .number_with_fraction(tip_block_number);
-        let target_epoch_number = current_epoch.number() + Into::<u64>::into(epochs_to_skip);
-        if target_epoch_number >= core::EpochNumberWithFraction::NUMBER_MAXIMUM_VALUE {
-            return Err(RPCError::invalid_params(
-                "The target epoch number exceeded the maximum value of 16777215".to_string(),
-            ));
-        }
-        let target_epoch = core::EpochNumberWithFraction::new(
-            target_epoch_number,
-            current_epoch.index(),
-            current_epoch.length(),
-        );
+        let target_epoch = current_epoch.to_rational()
+            + core::EpochNumberWithFraction::from_full_value(num_epochs.into()).to_rational();
 
         let tx_pool = self.shared.tx_pool_controller();
-        while current_epoch < target_epoch {
+        while current_epoch.to_rational() < target_epoch {
             let block_template = tx_pool
                 .get_block_template(None, None, None)
                 .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
