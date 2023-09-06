@@ -1,6 +1,7 @@
 use ckb_app_config::StoreConfig;
-use ckb_db::{Result, RocksDB};
+use ckb_db::{Direction, IteratorMode, Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
+use ckb_db_schema::{CELLS_ROOT_MMR_SIZE_KEY_PREFIX, COLUMN_CELLS_ROOT_MMR};
 use ckb_error::InternalErrorKind;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
@@ -25,6 +26,24 @@ impl Migration for AddCellsRootMMR {
             .ok_or_else(|| InternalErrorKind::MMR.other("tip block is not found"))?;
         let tip_number = tip.number();
 
+        let mut block_number = 0;
+        {
+            let start = [CELLS_ROOT_MMR_SIZE_KEY_PREFIX, &tip_number.to_be_bytes()].concat();
+            let mut iter = chain_db.get_iter(
+                COLUMN_CELLS_ROOT_MMR,
+                IteratorMode::From(&start, Direction::Reverse),
+            );
+            if let Some((key, _value)) = iter.next() {
+                if key.starts_with(CELLS_ROOT_MMR_SIZE_KEY_PREFIX) {
+                    block_number = u64::from_be_bytes(key.as_ref()[1..9].try_into().unwrap()) + 1;
+                    eprintln!(
+                        "found a previous ongoing migration, continue from block number: {}",
+                        block_number
+                    );
+                }
+            }
+        }
+
         let pb = ::std::sync::Arc::clone(&pb);
         let pbi = pb(tip_number + 1);
         pbi.set_style(
@@ -34,10 +53,8 @@ impl Migration for AddCellsRootMMR {
                     )
                     .progress_chars("#>-"),
             );
-        pbi.set_position(0);
+        pbi.set_position(block_number);
         pbi.enable_steady_tick(5000);
-
-        let mut block_number = 0;
 
         loop {
             let db_txn = chain_db.begin_transaction();
@@ -61,13 +78,7 @@ impl Migration for AddCellsRootMMR {
                                         block_number,
                                     ),
                                 )
-                                .map_err(|e| {
-                                    println!("block_number: {}", block_number);
-                                    println!("tx hash: {:?}", tx.hash());
-                                    println!("input: {:?}", input);
-                                    println!("cell_status: {:?}", cell_status);
-                                    InternalErrorKind::MMR.other(e)
-                                })?;
+                                .map_err(|e| InternalErrorKind::MMR.other(e))?;
                             cell_status.mark_as_consumed(block_number);
                             db_txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
                         }
@@ -76,20 +87,16 @@ impl Migration for AddCellsRootMMR {
                     for out_point in tx.output_pts().into_iter() {
                         let hash =
                             hash_out_point_and_status(&out_point, block_number, BlockNumber::MAX);
-                        let mmr_position = cells_root_mmr.push(hash).map_err(|e| {
-                            println!("block_number: {}", block_number);
-                            println!("tx hash: {:?}", tx.hash());
-                            println!("out_point: {:?}", out_point);
-                            InternalErrorKind::MMR.other(e)
-                        })?;
+                        let mmr_position = cells_root_mmr
+                            .push(hash)
+                            .map_err(|e| InternalErrorKind::MMR.other(e))?;
                         let cell_status = CellStatus::new(mmr_position, block_number);
                         db_txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
                     }
                 }
-                cells_root_mmr.commit().map_err(|e| {
-                    println!("block_number: {}", block_number);
-                    InternalErrorKind::MMR.other(e)
-                })?;
+                cells_root_mmr
+                    .commit()
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
                 db_txn.insert_cells_root_mmr_size(block_number, cells_root_mmr.mmr_size())?;
 
                 pbi.inc(1);
