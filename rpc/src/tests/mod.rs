@@ -1,6 +1,7 @@
 use crate::{RpcServer, ServiceBuilder};
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig, RpcConfig, RpcModule};
 use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_launcher::SharedBuilder;
@@ -8,9 +9,7 @@ use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::{
-    always_success_cell, always_success_cellbase, always_success_consensus,
-};
+use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
         cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
@@ -206,9 +205,9 @@ fn always_success_transaction() -> TransactionView {
 
 // setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test
 // there is a similar fn `setup_rpc_test_suite` which enables all rpc modules, may be refactored into one fn with different paramsters in other PRs
-fn setup() -> RpcTestSuite {
+fn setup(consensus: Consensus) -> RpcTestSuite {
     let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(always_success_consensus())
+        .consensus(consensus)
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: Default::default(),
