@@ -171,7 +171,6 @@ pub trait IntegrationTestRpc {
     fn generate_block(&self) -> Result<H256>;
 
     /// Generate epochs during development, can be useful for scenarios
-    ///
     /// like testing DAO-related functionalities.
     ///
     /// Returns the updated epoch number after generating the specified number of epochs.
@@ -184,7 +183,7 @@ pub trait IntegrationTestRpc {
     ///
     /// Request
     ///
-    /// generating 2 epochs:
+    /// Generating 2 epochs:
     ///
     /// ```json
     /// {
@@ -195,7 +194,12 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     ///
-    /// generating 1/2 epoch:
+    /// The input parameter "0x2" will be normalized to "0x10000000002"(the correct
+    /// [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method.
+    /// Therefore, if you want to generate epochs as integers, you can simply pass an integer
+    /// as long as it does not exceed 16777215 (24 bits).
+    ///
+    /// Generating 1/2 epoch:
     ///
     /// ```text
     /// {

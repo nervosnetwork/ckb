@@ -5,7 +5,6 @@ use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_consensus;
 use ckb_types::{
     core::{Capacity, EpochNumberWithFraction},
-    prelude::Unpack,
     utilities::DIFF_TWO,
 };
 
@@ -40,6 +39,10 @@ fn test_generate_epochs() {
         method: "generate_epochs".to_string(),
         params: vec!["0x10000000001".into()],
     });
+    assert_eq!(
+        "0x10000000001".to_string(),
+        Into::<ckb_jsonrpc_types::Uint64>::into(EpochNumberWithFraction::new(1, 0, 1)).to_string(),
+    );
     assert_eq!(
         get_current_epoch(&suite),
         EpochNumberWithFraction::new(2, 20, GENESIS_EPOCH_LENGTH)
@@ -104,9 +107,9 @@ fn setup_rpc() -> RpcTestSuite {
 
 fn get_current_epoch(suite: &RpcTestSuite) -> EpochNumberWithFraction {
     let store = suite.shared.store();
-    let tip_block_number = store.get_tip_header().unwrap().data().raw().number();
+    let tip_block_number = store.get_tip_header().unwrap().number();
     store
         .get_current_epoch_ext()
         .unwrap()
-        .number_with_fraction(tip_block_number.unpack())
+        .number_with_fraction(tip_block_number)
 }
