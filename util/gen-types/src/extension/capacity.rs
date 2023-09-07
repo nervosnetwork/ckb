@@ -1,6 +1,6 @@
-use ckb_occupied_capacity::Result as CapacityResult;
+use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
 
-use crate::{core::Capacity, packed, prelude::*};
+use crate::{packed, prelude::*};
 
 impl packed::Script {
     /// Calculates the occupied capacity of [`Script`].
