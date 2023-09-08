@@ -10,9 +10,10 @@ use crate::packed;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    #[default]
     Data = 0,
     /// Type "type" matches script code via cell type script hash.
     Type = 1,
@@ -20,12 +21,6 @@ pub enum ScriptHashType {
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
     Data2 = 4,
-}
-
-impl Default for ScriptHashType {
-    fn default() -> Self {
-        ScriptHashType::Data
-    }
 }
 
 impl ScriptHashType {

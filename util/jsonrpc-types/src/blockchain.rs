@@ -24,10 +24,11 @@ use std::fmt;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    #[default]
     Data = 0,
     /// Type "type" matches script code via cell type script hash.
     Type = 1,
@@ -35,12 +36,6 @@ pub enum ScriptHashType {
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
     Data2 = 4,
-}
-
-impl Default for ScriptHashType {
-    fn default() -> Self {
-        ScriptHashType::Data
-    }
 }
 
 impl From<ScriptHashType> for core::ScriptHashType {
@@ -284,12 +279,13 @@ impl From<CellInput> for packed::CellInput {
 }
 
 /// The dep cell type. Allowed values: "code" and "dep_group".
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum DepType {
     /// Type "code".
     ///
     /// Use the cell itself as the dep cell.
+    #[default]
     Code,
     /// Type "dep_group".
     ///
@@ -299,12 +295,6 @@ pub enum DepType {
     /// The dep group stores the array of `OutPoint`s serialized via molecule in the cell data.
     /// Each `OutPoint` points to one cell member.
     DepGroup,
-}
-
-impl Default for DepType {
-    fn default() -> Self {
-        DepType::Code
-    }
 }
 
 impl From<DepType> for core::DepType {

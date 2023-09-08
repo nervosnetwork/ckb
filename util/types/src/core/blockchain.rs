@@ -3,18 +3,14 @@ use ckb_error::OtherError;
 use crate::packed;
 
 /// The DepType enum represents different types of dependencies for `cell_deps`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum DepType {
     /// Code dependency: The cell provides code directly
+    #[default]
     Code = 0,
     /// Dependency group: The cell bundles several cells as its members
     /// which will be expanded inside `cell_deps`.
     DepGroup = 1,
-}
-impl Default for DepType {
-    fn default() -> Self {
-        DepType::Code
-    }
 }
 
 impl TryFrom<packed::Byte> for DepType {
