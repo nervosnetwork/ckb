@@ -49,6 +49,7 @@ HREF_PREFIX_RPCERROR = '../enum.RPCError.html#variant.'
 RUST_DOC_PREFIX = 'https://doc.rust-lang.org/1.71.1'
 
 NAME_PREFIX_SELF = '(&self, '
+NAME_PREFIX_SELF_NL = '&self,'
 
 CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
 
@@ -356,10 +357,14 @@ class RPCVar():
 
         if name.startswith(NAME_PREFIX_SELF):
             name = name[len(NAME_PREFIX_SELF):]
+        if NAME_PREFIX_SELF_NL in name:
+            name = name.split(NAME_PREFIX_SELF_NL)[1].strip()
         if name.endswith(':'):
             name = name[:-1]
         if name.startswith(', '):
             name = name[2:]
+        if ',' in name:
+            name = name.split(',')[1].strip()
 
         return name
 
@@ -429,7 +434,7 @@ class RPCModule(HTMLParser):
             if self.doc_parser is None and tag == 'div' and attrs == [("class", "docblock")]:
                 self.active_parser = self.doc_parser = MarkdownParser(
                     title_level=3)
-            elif tag == 'section' and ('class', 'method has-srclink') in attrs:
+            elif tag == 'section' and ('class', 'method') in attrs:
                 id = dict(attrs)['id']
                 if id.startswith(TYMETHOD_DOT):
                     self.active_parser = RPCMethod(id[len(TYMETHOD_DOT):])
