@@ -101,7 +101,7 @@ impl Spec for CheckVmVersion2 {
         if spec.params.hardfork.is_none() {
             spec.params.hardfork = Some(Default::default());
         }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
+        if let Some(switch) = spec.params.hardfork.as_mut() {
             switch.ckb2023 = Some(CKB2023_START_EPOCH);
         }
     }
