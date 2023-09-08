@@ -283,9 +283,7 @@ impl<'a> GetLastStateProofProcess<'a> {
         {
             // There is not enough blocks, so we take all of them; so there is no sampled blocks.
             let sampled_numbers = Vec::new();
-            let last_n_numbers = (start_block_number..last_block_number)
-                .into_iter()
-                .collect::<Vec<_>>();
+            let last_n_numbers = (start_block_number..last_block_number).collect::<Vec<_>>();
             (sampled_numbers, last_n_numbers)
         } else {
             let mut difficulty_boundary_block_number = if let Some((num, _)) = sampler
@@ -307,9 +305,8 @@ impl<'a> GetLastStateProofProcess<'a> {
                 difficulty_boundary_block_number = last_block_number - last_n_blocks;
             }
 
-            let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
-                .into_iter()
-                .collect::<Vec<_>>();
+            let last_n_numbers =
+                (difficulty_boundary_block_number..last_block_number).collect::<Vec<_>>();
 
             if difficulty_boundary_block_number > 0 {
                 if let Some(total_difficulty) =
