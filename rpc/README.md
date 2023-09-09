@@ -68,6 +68,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
         * [Method `generate_block`](#method-generate_block)
+        * [Method `generate_epochs`](#method-generate_epochs)
         * [Method `notify_transaction`](#method-notify_transaction)
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
@@ -3209,6 +3210,64 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
+  "error": null
+}
+```
+
+
+#### Method `generate_epochs`
+* `generate_epochs(num_epochs)`
+    * `num_epochs`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
+* result: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
+
+Generate epochs during development, can be useful for scenarios like testing DAO-related functionalities.
+
+Returns the updated epoch number after generating the specified number of epochs.
+
+###### Params
+
+*   `num_epochs` - The number of epochs to generate.
+
+###### Examples
+
+Request
+
+Generating 2 epochs:
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x2"]
+}
+```
+
+
+The input parameter “0x2” will be normalized to “0x10000000002”(the correct [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method. Therefore, if you want to generate epochs as integers, you can simply pass an integer as long as it does not exceed 16777215 (24 bits).
+
+Generating 1/2 epoch:
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x20001000000"]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0001000003",
   "error": null
 }
 ```

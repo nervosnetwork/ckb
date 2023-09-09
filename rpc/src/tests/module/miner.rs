@@ -1,6 +1,6 @@
 use crate::tests::{always_success_transaction, setup, RpcTestRequest};
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::always_success_cell;
+use ckb_test_chain_utils::{always_success_cell, always_success_consensus};
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionBuilder},
     packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
@@ -12,7 +12,7 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 #[test]
 #[ignore]
 fn test_get_block_template_cache() {
-    let suite = setup();
+    let suite = setup(always_success_consensus());
     // block template cache will expire when new uncle block is added to the chain
     {
         let response_old = suite.rpc(&RpcTestRequest {
