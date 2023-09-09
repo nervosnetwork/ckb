@@ -23,7 +23,6 @@ async fn get_blocks_proof_with_missing_blocks() {
 
     let expected_missing_block_hashes = {
         let mut forked_block_hashes = ((base_header.number() + 1)..=end_block_number)
-            .into_iter()
             .map(|num| shared.snapshot().get_header_by_number(num).unwrap().hash())
             .collect::<Vec<_>>();
         let invalid_block_hashes = vec![
@@ -58,7 +57,6 @@ async fn get_blocks_proof_with_missing_blocks() {
 
     let data = {
         let mut request_block_hashes = ((base_header.number() + 1)..end_block_number)
-            .into_iter()
             .map(|num| shared.snapshot().get_header_by_number(num).unwrap().hash())
             .collect::<Vec<_>>();
         request_block_hashes.extend_from_slice(&expected_missing_block_hashes[..]);

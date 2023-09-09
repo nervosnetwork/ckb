@@ -119,19 +119,14 @@ impl ChainSyncState {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 enum HeadersSyncState {
+    #[default]
     Initialized,
     SyncProtocolConnected,
     Started,
     Suspend(u64), // suspend headers sync until this timestamp (milliseconds since unix epoch)
     TipSynced(u64), // already synced to the end, not as the sync target for the time being, until the pause time is exceeded
-}
-
-impl Default for HeadersSyncState {
-    fn default() -> Self {
-        HeadersSyncState::Initialized
-    }
 }
 
 #[derive(Clone, Default, Debug, Copy)]
