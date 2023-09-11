@@ -602,7 +602,7 @@ impl ServiceHandle for EventHandler {
                 );
             }
             ServiceError::SessionTimeout { session_context } => {
-                warn!(
+                debug!(
                     "SessionTimeout({}, {})",
                     session_context.id, session_context.address,
                 );
@@ -617,7 +617,7 @@ impl ServiceHandle for EventHandler {
                 );
             }
             ServiceError::ListenError { address, error } => {
-                warn!("ListenError: address={:?}, error={:?}", address, error);
+                debug!("ListenError: address={:?}, error={:?}", address, error);
             }
             ServiceError::ProtocolSelectError {
                 proto_name,
