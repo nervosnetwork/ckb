@@ -903,10 +903,9 @@ impl CKBProtocolHandler for Synchronizer {
                     malformed_peer_info.block_hash, malformed_peer_info.reason
                 )),
             );
-            
         }
         if have_malformed_peers {
-            return Some(())
+            return Some(());
         }
         None
     }

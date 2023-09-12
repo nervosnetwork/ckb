@@ -1091,7 +1091,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
+    ) {
         // Insert the given block into orphan_block_pool if its parent is not found
         // if !self.is_stored(&block.parent_hash()) {
         //     debug!(
@@ -1104,16 +1104,16 @@ impl SyncShared {
         // }
 
         // Attempt to accept the given block if its parent already exist in database
-        let ret = self.accept_block(chain, Arc::clone(&block), peer_id);
-        if ret.is_err() {
-            debug!("accept block {:?} {:?}", block, ret);
-            return ret;
-        }
+        self.accept_block(chain, Arc::clone(&block), peer_id);
+        // if ret.is_err() {
+        //     debug!("accept block {:?} {:?}", block, ret);
+        //     return ret;
+        // }
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
         // self.try_search_orphan_pool(chain);
-        ret
+        // ret
     }
 
     /// Try to find blocks from the orphan block pool that may no longer be orphan
@@ -1173,7 +1173,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
+    ) {
         // let ret = {
         //     let mut assume_valid_target = self.state.assume_valid_target();
         //     if let Some(ref target) = *assume_valid_target {
@@ -1194,19 +1194,20 @@ impl SyncShared {
         // TODO move switch logic to ckb-chain
         let lonely_block = LonelyBlock {
             block,
-            Some(peer_id),
+            peer_id: Some(peer_id),
             switch: Switch::NONE,
         };
-        let ret = chain.process_block(lonely_block);
 
-        if let Err(ref error) = ret {
-            if !is_internal_db_error(error) {
-                error!("accept block {:?} {}", block, error);
-                self.shared()
-                    .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
-            }
-        }
-        ret
+        chain.process_block(lonely_block);
+
+        // if let Err(ref error) = ret {
+        //     if !is_internal_db_error(error) {
+        //         error!("accept block {:?} {}", block, error);
+        //         self.shared()
+        //             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
+        //     }
+        // }
+        // ret
     }
 
     /// Sync a new valid header, try insert to sync state

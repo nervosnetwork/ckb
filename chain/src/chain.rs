@@ -12,7 +12,7 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_network::{PeerIndex, tokio};
+use ckb_network::{tokio, PeerIndex};
 use ckb_proposal_table::ProposalTable;
 #[cfg(debug_assertions)]
 use ckb_rust_unstable_port::IsSorted;
@@ -42,12 +42,13 @@ use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
 use crossbeam::channel::SendTimeoutError;
 use std::collections::{HashSet, VecDeque};
+use std::iter::Cloned;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::{cmp, thread};
-use std::iter::Cloned;
+use ckb_types::packed::UncleBlockVecReaderIterator;
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
@@ -87,25 +88,17 @@ impl ChainController {
     /// If the block already exists, does nothing and false is returned.
     ///
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_block(
-        &self,
-        lonely_block: LonelyBlock,
-    ) -> Result<(), Error> {
+    pub fn process_block(&self, lonely_block: LonelyBlock) {
         self.internal_process_block(lonely_block)
     }
 
     /// Internal method insert block for test
     ///
     /// switch bit flags for particular verify, make easier to generating test data
-    pub fn internal_process_block(
-        &self,
-        lonely_block: LonelyBlock,
-    ) -> Result<(), Error> {
-        Request::call(&self.process_block_sender, lonely_block).ok_or(
-            InternalErrorKind::System
-                .other("Chain service has gone")
-                .into(),
-        )
+    pub fn internal_process_block(&self, lonely_block: LonelyBlock) {
+        if Request::call(&self.process_block_sender, lonely_block).is_none() {
+            error!("Chain service has gone")
+        }
     }
 
     /// Truncate chain to specified target
@@ -176,36 +169,37 @@ pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
+
+    pub verify_result_tx: Option<ckb_channel::oneshot::Sender<bool>>,
 }
 
 impl LonelyBlock {
-    fn combine_parent_header(&self, parent_header: HeaderView) -> UnverifiedBlock {
+    fn combine_parent_header(self, parent_header: HeaderView) -> UnverifiedBlock {
         UnverifiedBlock {
-            block: self.block.clone(),
             parent_header,
-            peer_id: self.peer_id.clone(),
-            switch: self.switch,
+            lonely_block:self, 
         }
     }
 }
 
 #[derive(Clone)]
 struct UnverifiedBlock {
-    block: Arc<BlockView>,
+    lonely_block: LonelyBlock,
     parent_header: HeaderView,
-    peer_id: Option<PeerIndex>,
-    switch: Switch,
 }
 
 impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
-    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
+    pub fn new(
+        shared: Shared,
+        proposal_table: ProposalTable,
+        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    ) -> ChainService {
         let (unverified_tx, unverified_rx) =
             channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
         let (new_block_tx, new_block_rx) =
             channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
-
 
         ChainService {
             shared,
@@ -340,13 +334,13 @@ impl ChainService {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
                 self.shared
-                    .remove_block_status(&unverified_block.block.hash());
+                    .remove_block_status(&unverified_block.block().hash());
                 let log_elapsed_remove_block_status = log_now.elapsed();
                 self.shared
-                    .remove_header_view(&unverified_block.block.hash());
+                    .remove_header_view(&unverified_block.unverified_block.block.hash());
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    unverified_block.block.hash(),
+                    unverified_block.unverified_block.block.hash(),
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
@@ -354,17 +348,17 @@ impl ChainService {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.peer_id,
-                    unverified_block.block.hash(),
+                    unverified_block.unverified_block.peer_id,
+                    unverified_block.unverified_block.block.hash(),
                     err
                 );
-                if let Some(peer_id) = unverified_block.peer_id {
-                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo{
-                        block_hash: unverified_block.block.hash(),
+                if let Some(peer_id) = unverified_block.unverified_block.peer_id {
+                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                        block_hash: unverified_block.unverified_block.block.hash(),
                         peer_id,
                         message_bytes: 0,
                         reason: "".to_string(),
-                    }){
+                    }) {
                         error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
                     }
                 }
@@ -387,12 +381,12 @@ impl ChainService {
                 ));
 
                 self.shared
-                    .insert_block_status(unverified_block.block.hash(), BlockStatus::BLOCK_INVALID);
+                    .insert_block_status(unverified_block.unverified_block.block.hash(), BlockStatus::BLOCK_INVALID);
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    unverified_block.block.hash(),
+                    unverified_block.unverified_block.block.hash(),
                     err
                 );
             }
@@ -439,9 +433,11 @@ impl ChainService {
                 );
                 continue;
             }
+            let descendants_len = descendants.len();
+            let first_descendants_number = descendants.first().expect("descdant not empty").number();
 
             let mut accept_error_occurred = false;
-            for descendant_block in &descendants {
+            for descendant_block in descendants {
                 match self.accept_block(descendant_block.block.to_owned()) {
                     Err(err) => {
                         accept_error_occurred = true;
@@ -617,20 +613,19 @@ impl ChainService {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
 
-        let mut failed_blocks_peer_ids: Vec<VerifyFailedBlockInfo> =
-            self.verify_failed_blocks_rx.iter().collect();
-
         if !lonely_block.switch.disable_non_contextual() {
             let result = self.non_contextual_verify(&lonely_block.block);
             match result {
                 Err(err) => {
-                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo{
-                        block_hash: lonely_block.block.hash(),
-                        peer_id,
-                        message_bytes: 0,
-                        reason: err.to_string(),
-                    }){
-                        error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
+                    if let Some(peer_id) = lonely_block.peer_id {
+                        if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                            block_hash: lonely_block.block.hash(),
+                            peer_id,
+                            message_bytes: 0,
+                            reason: err.to_string(),
+                        }) {
+                            error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
+                        }
                     }
                 }
                 _ => {}
@@ -651,7 +646,6 @@ impl ChainService {
             self.shared.snapshot().tip_number(),
             self.shared.get_unverified_tip().number(),
         );
-
     }
 
     fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
@@ -741,10 +735,10 @@ impl ChainService {
         let log_now = std::time::Instant::now();
 
         let UnverifiedBlock {
-            block,
             parent_header,
-            peer_id,
-            switch,
+            lonely_block: LonelyBlock{
+                block, peer_id, switch, verify_result_tx
+            }
         } = unverified_block;
 
         let parent_ext = self
