@@ -12,7 +12,7 @@ use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_network::PeerIndex;
+use ckb_network::{PeerIndex, tokio};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
@@ -45,6 +45,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::{cmp, thread};
+use std::iter::Cloned;
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
@@ -165,8 +166,7 @@ pub struct ChainService {
     unverified_block_tx: Sender<UnverifiedBlock>,
     unverified_block_rx: Receiver<UnverifiedBlock>,
 
-    verify_failed_blocks_tx: Sender<VerifyFailedBlockInfo>,
-    verify_failed_blocks_rx: Receiver<VerifyFailedBlockInfo>,
+    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 #[derive(Clone)]
@@ -204,7 +204,6 @@ impl ChainService {
         let (new_block_tx, new_block_rx) =
             channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
 
-        let (verify_failed_blocks_tx, verify_failed_blocks_rx) = channel::unbounded();
 
         ChainService {
             shared,
@@ -215,7 +214,6 @@ impl ChainService {
             lonely_block_tx: new_block_tx,
             lonely_block_rx: new_block_rx,
             verify_failed_blocks_tx,
-            verify_failed_blocks_rx,
         }
     }
 
@@ -359,16 +357,13 @@ impl ChainService {
                     err
                 );
                 if let Some(peer_id) = unverified_block.peer_id {
-                    if let Err(SendError(peer_id)) =
-                        self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                            block_hash: unverified_block.block.hash(),
-                            peer_id,
-                        })
-                    {
-                        error!(
-                            "send verify_failed_blocks_tx failed for peer: {:?}",
-                            peer_id
-                        );
+                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo{
+                        block_hash: unverified_block.block.hash(),
+                        peer_id,
+                        message_bytes: 0,
+                        reason: "".to_string(),
+                    }){
+                        error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
                     }
                 }
 
@@ -613,7 +608,7 @@ impl ChainService {
 
     // make block IO and verify asynchronize
     #[doc(hidden)]
-    pub fn process_block_v2(&self, lonely_block: LonelyBlock) -> Vec<VerifyFailedBlockInfo> {
+    pub fn process_block_v2(&self, lonely_block: LonelyBlock) {
         let block_number = lonely_block.block.number();
         let block_hash = lonely_block.block.hash();
         if block_number < 1 {
@@ -627,13 +622,14 @@ impl ChainService {
             let result = self.non_contextual_verify(&lonely_block.block);
             match result {
                 Err(err) => {
-                    if let Some(peer_id) = lonely_block.peer_id {
-                        failed_blocks_peer_ids.push(VerifyFailedBlockInfo {
-                            block_hash,
-                            peer_id,
-                        });
+                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo{
+                        block_hash: lonely_block.block.hash(),
+                        peer_id,
+                        message_bytes: 0,
+                        reason: err.to_string(),
+                    }){
+                        error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
                     }
-                    return failed_blocks_peer_ids;
                 }
                 _ => {}
             }
@@ -646,16 +642,14 @@ impl ChainService {
             }
         }
         debug!(
-            "processing block: {}-{}, orphan_len: {}, (tip:unverified_tip):({}:{}), and return failed_blocks_peer_ids: {:?}",
+            "processing block: {}-{}, orphan_len: {}, (tip:unverified_tip):({}:{})",
             block_number,
             block_hash,
             self.orphan_blocks_broker.len(),
             self.shared.snapshot().tip_number(),
             self.shared.get_unverified_tip().number(),
-            failed_blocks_peer_ids,
         );
 
-        failed_blocks_peer_ids
     }
 
     fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
