@@ -10,7 +10,7 @@ use crate::packed;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
     Data = 0,
