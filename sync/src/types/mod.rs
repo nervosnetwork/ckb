@@ -1194,7 +1194,7 @@ impl SyncShared {
         // TODO move switch logic to ckb-chain
         let lonely_block = LonelyBlock {
             block,
-            peer_id,
+            Some(peer_id),
             switch: Switch::NONE,
         };
         let ret = chain.process_block(lonely_block);

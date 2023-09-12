@@ -51,7 +51,7 @@ use std::iter::Cloned;
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
-type ProcessBlockRequest = Request<LonelyBlock, Vec<VerifyFailedBlockInfo>>;
+type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// Controller to the chain service.
@@ -90,7 +90,7 @@ impl ChainController {
     pub fn process_block(
         &self,
         lonely_block: LonelyBlock,
-    ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
+    ) -> Result<(), Error> {
         self.internal_process_block(lonely_block)
     }
 
@@ -100,7 +100,7 @@ impl ChainController {
     pub fn internal_process_block(
         &self,
         lonely_block: LonelyBlock,
-    ) -> Result<Vec<VerifyFailedBlockInfo>, Error> {
+    ) -> Result<(), Error> {
         Request::call(&self.process_block_sender, lonely_block).ok_or(
             InternalErrorKind::System
                 .other("Chain service has gone")
