@@ -1,3 +1,13 @@
+# [v0.110.2](https://github.com/nervosnetwork/ckb/compare/v0.110.1...v0.110.2) (2023-09-11)
+
+### Features
+
+-   #4126: Notify dummy miner for new work (@quake)
+
+### Bug Fixes
+
+-   #4133: Keep peer store address unique (@driftluo)
+
 # [v0.110.1](https://github.com/nervosnetwork/ckb/compare/v0.110.0...v0.110.1) (2023-08-20)
 
 BREAKING: Light Client Protocol Softfork Activation in Mainnet
@@ -12,6 +22,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 # [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
 
 ### Features
+
 * #3949 **rpc: (BREAKING)** Add `time_added_to_pool` field for `ChainRpcImpl::get_transaction` (@eval-exec)
 
 ### Bug Fixes

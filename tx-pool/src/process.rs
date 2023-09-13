@@ -566,7 +566,7 @@ impl TxPoolService {
                     ScriptVerifyResult::Completed(cycles) => {
                         if let Err(e) = DaoScriptSizeVerifier::new(
                             Arc::clone(&rtx),
-                            self.consensus.dao_type_hash(),
+                            Arc::clone(&self.consensus),
                             snapshot.as_data_loader(),
                         )
                         .verify()
