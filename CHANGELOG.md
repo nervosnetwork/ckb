@@ -1,4 +1,5 @@
-# [v0.110.2](https://github.com/nervosnetwork/ckb/compare/v0.110.1...v0.110.2) (2023-09-11)
+# CHANGELOG
+## [v0.110.2](https://github.com/nervosnetwork/ckb/compare/v0.110.1...v0.110.2) (2023-09-11)
 
 ### Features
 
@@ -8,7 +9,7 @@
 
 -   #4133: Keep peer store address unique (@driftluo)
 
-# [v0.110.1](https://github.com/nervosnetwork/ckb/compare/v0.110.0...v0.110.1) (2023-08-20)
+## [v0.110.1](https://github.com/nervosnetwork/ckb/compare/v0.110.0...v0.110.1) (2023-08-20)
 
 BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
@@ -19,7 +20,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 | min\_activation\_epoch | 8,648 | 2023/11/01 00:00:00 utc |
 | threshold | 80% | |
 
-# [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
+## [v0.110.0](https://github.com/nervosnetwork/ckb/compare/v0.109.0...v0.110.0) (2023-05-15)
 
 ### Features
 
@@ -29,7 +30,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 * #3959: Use snapshot in light-client protocol (@quake)
 
-# [v0.109.0](https://github.com/nervosnetwork/ckb/compare/v0.108.1...v0.109.0) (2023-04-19)
+## [v0.109.0](https://github.com/nervosnetwork/ckb/compare/v0.108.1...v0.109.0) (2023-04-19)
 
 ### Features
 
@@ -64,7 +65,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3893: Fix CKB command line usage test case by bats-core/bats (@eval-exec)
 * #3890 **light-client:** Let the function that builds filter data to be standalone (@yangby-cryptape)
 
-# [v0.108.1](https://github.com/nervosnetwork/ckb/compare/v0.108.0...v0.108.1) (2023-04-04)
+## [v0.108.1](https://github.com/nervosnetwork/ckb/compare/v0.108.0...v0.108.1) (2023-04-04)
 
 ### Bug Fixes
 
@@ -76,7 +77,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 * #3851: Omission modification (@driftluo)
 
-# [v0.108.0](https://github.com/nervosnetwork/ckb/compare/v0.107.0...v0.108.0) (2023-03-06)
+## [v0.108.0](https://github.com/nervosnetwork/ckb/compare/v0.107.0...v0.108.0) (2023-03-06)
 
 ### Features
 
@@ -92,7 +93,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 * #3777: Remove nervosnetwork/faketime, replace cargo test by nextest-rs/nextest (@eval-exec)
 
-# [v0.107.0](https://github.com/nervosnetwork/ckb/compare/v0.106.0...v0.107.0) (2023-01-30)
+## [v0.107.0](https://github.com/nervosnetwork/ckb/compare/v0.106.0...v0.107.0) (2023-01-30)
 
 ### Features
 
@@ -119,7 +120,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3733: Eliminate chainstore lifecycle (@zhangsoledad)
 * #3798: add testnet bootnodes (@doitian)
 
-# [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0) (2022-12-23)
+## [v0.106.0](https://github.com/nervosnetwork/ckb/compare/v0.105.1...v0.106.0) (2022-12-23)
 
 ### Features
 
@@ -143,7 +144,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3684: Improve support for cycles access (@zhangsoledad)
 
 
-# [v0.105.1](https://github.com/nervosnetwork/ckb/compare/v0.105.0...v0.105.1) (2022-10-28)
+## [v0.105.1](https://github.com/nervosnetwork/ckb/compare/v0.105.0...v0.105.1) (2022-10-28)
 
 ### Features
 
@@ -154,7 +155,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
     Two configuration options (`block_filter_enable` and `support_protocols`) are conflicting.
 
-# [v0.105.0](https://github.com/nervosnetwork/ckb/compare/v0.104.0...v0.105.0) (2022-10-25)
+## [v0.105.0](https://github.com/nervosnetwork/ckb/compare/v0.104.0...v0.105.0) (2022-10-25)
 
 ### Features
 
@@ -174,7 +175,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3566: Fix tcp reuse bind (@driftluo)
 * #3642: Network flags should be configured accordingly (@quake)
 
-# [v0.104.0](https://github.com/nervosnetwork/ckb/compare/v0.103.0...v0.104.0) (2022-07-19)
+## [v0.104.0](https://github.com/nervosnetwork/ckb/compare/v0.103.0...v0.104.0) (2022-07-19)
 
 ### Features
 
@@ -195,7 +196,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3391: Improve sync header map (@zhangsoledad)
 * #3478: Perf sync (@driftluo)
 
-# [v0.103.0](https://github.com/nervosnetwork/ckb/compare/v0.101.8...v0.103.0) (2022-04-11)
+## [v0.103.0](https://github.com/nervosnetwork/ckb/compare/v0.101.8...v0.103.0) (2022-04-11)
 
 ### Features
 
@@ -207,19 +208,19 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3343: Genesis dep groups should supports relative file path (@quake)
 * #3345: Fix(cli) add h256 validator for `--assume-valid-target` and `--ba-code-hash` (@chanhsu001)
 
-# [v0.101.8](https://github.com/nervosnetwork/ckb/compare/v0.101.7...v0.101.8) (2022-04-06)
+## [v0.101.8](https://github.com/nervosnetwork/ckb/compare/v0.101.7...v0.101.8) (2022-04-06)
 
 ### Bug Fixes
 
 * #3365: fix #3309, mismatch `resolved_tx` and `completed_tx` (@chanhsu001)
 
-# [v0.101.7](https://github.com/nervosnetwork/ckb/compare/v0.101.6...v0.101.7) (2022-03-21)
+## [v0.101.7](https://github.com/nervosnetwork/ckb/compare/v0.101.6...v0.101.7) (2022-03-21)
 
 ### Features
 
 * #3309: Log tx verification result for monitor (@chanhsu001)
 
-# [v0.101.6](https://github.com/nervosnetwork/ckb/compare/v0.101.4...v0.101.6) (2022-03-02)
+## [v0.101.6](https://github.com/nervosnetwork/ckb/compare/v0.101.4...v0.101.6) (2022-03-02)
 
 ### Features
 
@@ -231,7 +232,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
     Add bootnodes from different areas and different cloud providers to make the list more diverse.
 
-# [v0.101.4](https://github.com/nervosnetwork/ckb/compare/v0.101.3...v0.101.4) (2022-01-18)
+## [v0.101.4](https://github.com/nervosnetwork/ckb/compare/v0.101.3...v0.101.4) (2022-01-18)
 
 ### Features
 
@@ -254,14 +255,14 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 * #3244 **relay:** Split compact block execute code, more readable (@chanhsu001)
 * #3263 **relay:** Remove obsolete `min_fee_rate`, `max_tx_verify_cycles` from relayer (@chanhsu001)
 
-# [v0.101.3](https://github.com/nervosnetwork/ckb/compare/v0.101.2...v0.101.3) (2021-12-13)
+## [v0.101.3](https://github.com/nervosnetwork/ckb/compare/v0.101.2...v0.101.3) (2021-12-13)
 
 ### Features
 
 * #3229: Script group consistent execution order (@zhangsoledad)
 * #3170 **rpc:** Add a method to remove a transaction from tx-pool (@yangby-cryptape)
 
-# [v0.101.2](https://github.com/nervosnetwork/ckb/compare/v0.101.1...v0.101.2) (2021-12-02)
+## [v0.101.2](https://github.com/nervosnetwork/ckb/compare/v0.101.1...v0.101.2) (2021-12-02)
 
 ### Features
 
@@ -281,7 +282,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
     ref: https://github.com/nervosnetwork/ckb-vm/pull/218
 
-# [v0.101.1](https://github.com/nervosnetwork/ckb/compare/v0.101.0...v0.101.1) (2021-10-27)
+## [v0.101.1](https://github.com/nervosnetwork/ckb/compare/v0.101.0...v0.101.1) (2021-10-27)
 
 ### Bug Fixes
 
@@ -293,7 +294,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 * #3139: Remove needless collect (@zhangsoledad)
 
-# [v0.101.0](https://github.com/nervosnetwork/ckb/compare/v0.100.0...v0.101.0) (2021-10-20)
+## [v0.101.0](https://github.com/nervosnetwork/ckb/compare/v0.100.0...v0.101.0) (2021-10-20)
 
 ### Features
 
@@ -327,7 +328,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
     **BREAKING RPC**. Change field `connected_duration` time unit from seconds to **milliseconds** in `get_peers` RPC to make time unit  used  consistently in `get_peers` , RPC clients are suggested to modify time quantity correspond with this change.
 
-# [v0.100.0](https://github.com/nervosnetwork/ckb/compare/v0.43.2...v0.100.0) (2021-08-09)
+## [v0.100.0](https://github.com/nervosnetwork/ckb/compare/v0.43.2...v0.100.0) (2021-08-09)
 
 This version contains the [fork features in ckb2021](https://github.com/nervosnetwork/rfcs/pull/242) which are disabled in testnet and mainnet.
 
@@ -458,7 +459,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2982: Regex new is expensive (@driftluo)
 * #2964: Refactor peer store (@driftluo)
 
-# [v0.43.2](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
+## [v0.43.2](https://github.com/nervosnetwork/ckb/compare/v0.43.1...v0.43.2) (2021-08-09)
 
 ### Bug Fixes
 
@@ -469,13 +470,13 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2895: There may be competition between header sync and eviction (@driftluo)
 * #2917: Try traverse all unknown parent hash (@driftluo)
 
-# [v0.43.1](https://github.com/nervosnetwork/ckb/compare/v0.43.0...v0.43.1) (2021-07-16)
+## [v0.43.1](https://github.com/nervosnetwork/ckb/compare/v0.43.0...v0.43.1) (2021-07-16)
 
 ### Bug Fixes
 
 * #2829: Fix peer store evict (@driftluo)
 
-# [v0.43.0](https://github.com/nervosnetwork/ckb/compare/v0.42.0...v0.43.0) (2021-06-21)
+## [v0.43.0](https://github.com/nervosnetwork/ckb/compare/v0.42.0...v0.43.0) (2021-06-21)
 
 ### Features
 
@@ -502,7 +503,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2748: Upgrade rocksdb (@zhangsoledad)
 
 
-# [v0.42.0](https://github.com/nervosnetwork/ckb/compare/v0.41.0...v0.42.0) (2021-05-25)
+## [v0.42.0](https://github.com/nervosnetwork/ckb/compare/v0.41.0...v0.42.0) (2021-05-25)
 
 ### Features
 
@@ -538,7 +539,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 * #2640: Replace `get_cellbase_output_capacity_details` with `get_block_economic_state` in test (@keroro520)
 
-# [v0.41.0](https://github.com/nervosnetwork/ckb/compare/v0.40.0...v0.41.0) (2021-04-13)
+## [v0.41.0](https://github.com/nervosnetwork/ckb/compare/v0.40.0...v0.41.0) (2021-04-13)
 
 ### Features
 
@@ -572,7 +573,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2595: Set `prepare_for_bulk_load` option for migration (@zhangsoledad)
 * #2611: Smaller block status map during IBD (@yangby-cryptape)
 
-# [v0.40.0](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.40.0) (2021-02-23)
+## [v0.40.0](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.40.0) (2021-02-23)
 
 ### Features
 
@@ -615,7 +616,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2542: Resolve rocksdb cache size issue when using `default.db-options` (@quake)
 * #2519: Make median_time clear in RPC doc (@doitian)
 
-# [v0.39.0](https://github.com/nervosnetwork/ckb/compare/v0.38.1...v0.39.0) (2020-12-21)
+## [v0.39.0](https://github.com/nervosnetwork/ckb/compare/v0.38.1...v0.39.0) (2020-12-21)
 
 ### Features
 
@@ -666,13 +667,13 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2342 **doc:** Add some missing docs (@zhangsoledad)
 * #2369 **doc:** Network doc (@driftluo)
 
-# [v0.38.1](https://github.com/nervosnetwork/ckb/compare/v0.38.0...v0.38.1) (2020-12-02)
+## [v0.38.1](https://github.com/nervosnetwork/ckb/compare/v0.38.0...v0.38.1) (2020-12-02)
 
 ### Bug Fixes
 
 * #2357: Conflict transaction stuck in the tx pool (@zhangsoledad)
 
-# [v0.38.0](https://github.com/nervosnetwork/ckb/compare/v0.37.0...v0.38.0) (2020-11-18)
+## [v0.38.0](https://github.com/nervosnetwork/ckb/compare/v0.37.0...v0.38.0) (2020-11-18)
 
 ### Features
 
@@ -687,7 +688,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 * #2312: Use cargo-deny to replace cargo-audit (@yangby-cryptape)
 
-# [v0.37.0](https://github.com/nervosnetwork/ckb/compare/v0.36.0...v0.37.0) (2020-10-20)
+## [v0.37.0](https://github.com/nervosnetwork/ckb/compare/v0.36.0...v0.37.0) (2020-10-20)
 
 ### Features
 
@@ -732,7 +733,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #2294 **test:** Redesign the way of Net communicate with peers (@keroro520)
 * #2268 **test:** Add some transaction checking utils (@keroro520)
 
-# [v0.36.0](https://github.com/nervosnetwork/ckb/compare/v0.35.0...v0.36.0) (2020-09-21)
+## [v0.36.0](https://github.com/nervosnetwork/ckb/compare/v0.35.0...v0.36.0) (2020-09-21)
 
 ### Breaking Changes
 
@@ -781,7 +782,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     Use tilde requirements specify for crossbeam-channel, prevent automate dependency updates.
 
-# [v0.35.0](https://github.com/nervosnetwork/ckb/compare/v0.34.2...v0.35.0) (2020-08-24)
+## [v0.35.0](https://github.com/nervosnetwork/ckb/compare/v0.34.2...v0.35.0) (2020-08-24)
 
 ### Features
 
@@ -879,7 +880,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
     * refactory tx-pool rejection error
     * re-broadcast when duplicated tx submit
 
-# [v0.34.2](https://github.com/nervosnetwork/ckb/compare/v0.34.0...v0.34.2) (2020-08-08)
+## [v0.34.2](https://github.com/nervosnetwork/ckb/compare/v0.34.0...v0.34.2) (2020-08-08)
 
 ### Bug Fixes
 
@@ -887,7 +888,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * GHSA-wjxc-pjx9-4wvm: Upgrade snappy to 1.0. (@quake)
 * GHSA-3gjh-29fv-8hr6: Limit the decompressed size of p2p message. (@quake)
 
-# [v0.34.0](https://github.com/nervosnetwork/ckb/compare/v0.33.1...v0.34.0) (2020-07-17)
+## [v0.34.0](https://github.com/nervosnetwork/ckb/compare/v0.33.1...v0.34.0) (2020-07-17)
 
 ### Features
 
@@ -959,13 +960,13 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     To eliminate dependence of `ckb-sync` crate,  this PR refactored network protocol related variables and move them to a new enum: `SupportProtocols`
 
-# [v0.33.1](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.33.1) (2020-07-02)
+## [v0.33.1](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.33.1) (2020-07-02)
 
 ### Bug Fixes
 
 * [GHSA-r9rv-9mh8-pxf4](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-r9rv-9mh8-pxf4): BlockTimeTooNew should not be considered as invalid block (@zhangsoledad)
 
-# [v0.33.0](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.32.2) (2020-06-19)
+## [v0.33.0](https://github.com/nervosnetwork/ckb/compare/v0.33.0...v0.32.2) (2020-06-19)
 
 ### Bug Fixes
 
@@ -986,18 +987,18 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 * #2091: Logger filter parse crate name leniently (@yangby-cryptape)
 
-# [v0.32.2](https://github.com/nervosnetwork/ckb/compare/v0.32.1...v0.32.2) (2020-06-15)
+## [v0.32.2](https://github.com/nervosnetwork/ckb/compare/v0.32.1...v0.32.2) (2020-06-15)
 
 * [GHSA-pr39-8257-fxc2](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-pr39-8257-fxc2): Avoid crash when parsing network address (@driftluo)
 * #2109: Fix deadlock caused by conflicting lock order (@BurtonQin)
 
-# [v0.32.1](https://github.com/nervosnetwork/ckb/compare/v0.32.0...v0.32.1) (2020-05-29)
+## [v0.32.1](https://github.com/nervosnetwork/ckb/compare/v0.32.0...v0.32.1) (2020-05-29)
 
 ### Bug Fixes
 
 * [GHSA-84x2-2qv6-qg56](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-84x2-2qv6-qg56): Add rate limit to avoid p2p DoS attacks (@quake)
 
-# [v0.32.0](https://github.com/nervosnetwork/ckb/compare/v0.31.1...v0.32.0) (2020-05-22)
+## [v0.32.0](https://github.com/nervosnetwork/ckb/compare/v0.31.1...v0.32.0) (2020-05-22)
 
 ### Features
 
@@ -1022,13 +1023,13 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #1968: Simplify network protocols (@TheWaWaR)
 * #2006: Cache system cell for resolve deps (@zhangsoledad)
 
-# [v0.31.1](https://github.com/nervosnetwork/ckb/compare/v0.31.0...v0.31.1) (2020-04-23)
+## [v0.31.1](https://github.com/nervosnetwork/ckb/compare/v0.31.0...v0.31.1) (2020-04-23)
 
 ### Bug Fixes
 
 * [GHSA-q669-2vfg-cxcg](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-q669-2vfg-cxcg): Fix undefined behavior that dereference an unaligned pointer. (@yangby-cryptape)
 
-# [v0.31.0](https://github.com/nervosnetwork/ckb/compare/v0.30.2...v0.31.0) (2020-04-02)
+## [v0.31.0](https://github.com/nervosnetwork/ckb/compare/v0.30.2...v0.31.0) (2020-04-02)
 
 ### Sync Improvements
 
@@ -1071,18 +1072,18 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 * #1996: Wait for RPC server to cleanup on shutdown (@zhangsoledad)
 * #1997: Orphan_block_pool should record block origin (@zhangsoledad)
 
-# [v0.30.2](https://github.com/nervosnetwork/ckb/compare/v0.30.1...v0.30.2) (2020-04-02)
+## [v0.30.2](https://github.com/nervosnetwork/ckb/compare/v0.30.1...v0.30.2) (2020-04-02)
 
 ### Bug Fixes
 
 * #1989: Fix `build_skip` performance bug (@TheWaWaR)
 
-# [v0.30.1](https://github.com/nervosnetwork/ckb/compare/v0.30.0...v0.30.1) (2020-03-23)
+## [v0.30.1](https://github.com/nervosnetwork/ckb/compare/v0.30.0...v0.30.1) (2020-03-23)
 
 Reset Aggron the testnet genesis hash to
 0x63547ecf6fc22d1325980c524b268b4a044d49cda3efbd584c0a8c8b9faaf9e1
 
-# [v0.30.0](https://github.com/nervosnetwork/ckb/compare/v0.29.0...v0.30.0) (2020-03-20)
+## [v0.30.0](https://github.com/nervosnetwork/ckb/compare/v0.29.0...v0.30.0) (2020-03-20)
 
 ### Breaking Changes
 
@@ -1125,7 +1126,7 @@ Reset Aggron the testnet genesis hash to
 * #1922: `CKBProtocolContext#connected_peers` should filter peers by protocol id (@quake)
 * #1950: Fix incorrect error messages for JSON uints (@yangby-cryptape)
 
-# [v0.29.0](https://github.com/nervosnetwork/ckb/compare/v0.28.0...v0.29.0) (2020-02-26)
+## [v0.29.0](https://github.com/nervosnetwork/ckb/compare/v0.28.0...v0.29.0) (2020-02-26)
 
 ### Breaking Changes
 
@@ -1133,7 +1134,7 @@ Reset Aggron the testnet genesis hash to
 
     The default behavior is incompatible with v0.28.0, but is compatible with v0.27.1 and older versions.
 
-# [v0.28.0](https://github.com/nervosnetwork/ckb/compare/v0.27.0...v0.28.0) (2020-01-31)
+## [v0.28.0](https://github.com/nervosnetwork/ckb/compare/v0.27.0...v0.28.0) (2020-01-31)
 
 ### Breaking Changes
 
@@ -1144,7 +1145,7 @@ Reset Aggron the testnet genesis hash to
 * #1900: Add RPC subscription, a.k.a, pub/sub (@quake)
 * #1908: Periodically disconnect peers which open invalid sub-protocols (@jjyr)
 
-# [v0.27.0](https://github.com/nervosnetwork/ckb/compare/v0.26.1...v0.27.0) (2020-01-10)
+## [v0.27.0](https://github.com/nervosnetwork/ckb/compare/v0.26.1...v0.27.0) (2020-01-10)
 
 ### Features
 
@@ -1181,7 +1182,7 @@ Reset Aggron the testnet genesis hash to
 
     Reduce useless clone / to_owned use
 
-# [v0.26.1](https://github.com/nervosnetwork/ckb/compare/v0.26.0...v0.26.1) (2019-12-30)
+## [v0.26.1](https://github.com/nervosnetwork/ckb/compare/v0.26.0...v0.26.1) (2019-12-30)
 
 ### Features
 
@@ -1209,7 +1210,7 @@ Reset Aggron the testnet genesis hash to
     1. message format error（molecule）
     2. not on same net
 
-# [v0.26.0](https://github.com/nervosnetwork/ckb/compare/v0.25.2...v0.26.0) (2019-12-13)
+## [v0.26.0](https://github.com/nervosnetwork/ckb/compare/v0.25.2...v0.26.0) (2019-12-13)
 
 ### Features
 
@@ -1240,7 +1241,7 @@ Reset Aggron the testnet genesis hash to
 * #1853: Update error message and prompt of ckb init subcommand (@ashchan)
 * #1849: No debug symbols as default and add a command to build with debug symbols (@yangby-cryptape)
 
-# [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
+## [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
 
 ### Features
 
@@ -1258,18 +1259,18 @@ Reset Aggron the testnet genesis hash to
     - Add bat files in Windows package to ease starting a node in Windows.
 
 
-# [v0.25.1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.1) (2019-11-15)
+## [v0.25.1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.1) (2019-11-15)
 
 Embed lina chain spec
 
-# [v0.25.0-p1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.0-p1) (2019-11-15)
+## [v0.25.0-p1](https://github.com/nervosnetwork/ckb/compare/v0.25.0...v0.25.0-p1) (2019-11-15)
 
 ### Bug Fixes
 
 * #1817: Fix SortedTxMap inconsistent descendants links error (@jjyr)
 * #1819: Fix: txs relay order (@zhangsoledad)
 
-# [v0.25.0](https://github.com/nervosnetwork/ckb/compare/v0.24.0...v0.25.0) (2019-11-14)
+## [v0.25.0](https://github.com/nervosnetwork/ckb/compare/v0.24.0...v0.25.0) (2019-11-14)
 
 ### Features
 
@@ -1328,7 +1329,7 @@ Embed lina chain spec
 
 * #1655: Avoid reproposed uncle proposals (@keroro520)
 
-# [v0.24.0](https://github.com/nervosnetwork/ckb/compare/v0.23.0...v0.24.0) (2019-11-02)
+## [v0.24.0](https://github.com/nervosnetwork/ckb/compare/v0.23.0...v0.24.0) (2019-11-02)
 
 ### Breaking Changes
 
@@ -1407,7 +1408,7 @@ Embed lina chain spec
 * #1768: Unified protocol handshake information format (@driftluo)
 * #1729: Refactor DB iterator interface (@zhangsoledad)
 
-# [v0.23.0](https://github.com/nervosnetwork/ckb/compare/v0.22.0...v0.23.0) (2019-10-05)
+## [v0.23.0](https://github.com/nervosnetwork/ckb/compare/v0.22.0...v0.23.0) (2019-10-05)
 
 ### Features
 
@@ -1431,7 +1432,7 @@ Embed lina chain spec
 * #1714: Tx `sorted_keys` order by relation (@u2)
 * #1736: Fix tx pool inconsistent when receive duplicated hash txs. (@jjyr)
 
-# [v0.22.0](https://github.com/nervosnetwork/ckb/compare/v0.21.2...v0.22.0) (2019-10-05)
+## [v0.22.0](https://github.com/nervosnetwork/ckb/compare/v0.21.2...v0.22.0) (2019-10-05)
 
 ### Breaking Changes
 
@@ -1514,7 +1515,7 @@ Embed lina chain spec
 * #1660: JSON type number must use hex string (@driftluo)
 * #1678: `get_block_transactions_process` should fill missing uncle in response (@zhangsoledad)
 
-# [v0.21.2](https://github.com/nervosnetwork/ckb/compare/v0.21.0...v0.21.2) (2019-09-26)
+## [v0.21.2](https://github.com/nervosnetwork/ckb/compare/v0.21.0...v0.21.2) (2019-09-26)
 
 ### Bug Fixes
 
@@ -1523,7 +1524,7 @@ Embed lina chain spec
 * #1629: Fix peer store `fetch_random` return empty (@jjyr)
 * #1644: Fix duplicate p2p phase in `get_peers` (@jjyr)
 
-# [v0.21.0](https://github.com/nervosnetwork/ckb/compare/v0.20.0...v0.21.0) (2019-09-21)
+## [v0.21.0](https://github.com/nervosnetwork/ckb/compare/v0.20.0...v0.21.0) (2019-09-21)
 
 ### Breaking Changes
 
@@ -1577,7 +1578,7 @@ Embed lina chain spec
 
 * #1386: Create ckb-error and use it as the global system error type (@keroro520)
 
-# [v0.20.0](https://github.com/nervosnetwork/ckb/compare/v0.19.2...v0.20.0) (2019-09-07)
+## [v0.20.0](https://github.com/nervosnetwork/ckb/compare/v0.19.2...v0.20.0) (2019-09-07)
 
 ### Features
 
@@ -1618,7 +1619,7 @@ Embed lina chain spec
 * #1587: Remove global store cache (@zhangsoledad)
 * #1567: Rewrite pool as a service (@zhangsoledad)
 
-# [v0.19.2](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.2) (2019-08-24)
+## [v0.19.2](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.2) (2019-08-24)
 
 ### Features
 
@@ -1758,7 +1759,7 @@ Embed lina chain spec
 * #1328: Method `get_cell_data` should use cache (@quake)
 
 
-# [v0.18.2](https://github.com/nervosnetwork/ckb/compare/v0.18.0...v0.18.2) (2019-08-17)
+## [v0.18.2](https://github.com/nervosnetwork/ckb/compare/v0.18.0...v0.18.2) (2019-08-17)
 
 ### Bug Fixes
 
@@ -1770,7 +1771,7 @@ Embed lina chain spec
 
 * #1420: Failed to sync for long forks (@keroro520)
 
-# [v0.18.0](https://github.com/nervosnetwork/ckb/compare/v0.17.0...v0.18.0) (2019-08-10)
+## [v0.18.0](https://github.com/nervosnetwork/ckb/compare/v0.17.0...v0.18.0) (2019-08-10)
 
 ### Features
 
@@ -1782,7 +1783,7 @@ Embed lina chain spec
 * #1267: Header verifier with wrong header resolver (@u2)
 
 
-# [v0.17.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.17.0) (2019-07-27)
+## [v0.17.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.17.0) (2019-07-27)
 
 ### Features
 
@@ -1893,7 +1894,7 @@ Embed lina chain spec
 * #1168: Use BlockStatus to filter things (@keroro520)
 
 
-# [v0.16.0](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.16.0) (2019-07-13)
+## [v0.16.0](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.16.0) (2019-07-13)
 
 ### Features
 
@@ -1926,7 +1927,7 @@ Embed lina chain spec
     no matter it's known best's ancestor or not.
 
 
-# [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.15.0) (2019-06-29)
+## [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.15.0) (2019-06-29)
 
 **Important:** The default secp256k1 has changed. Now its code hash is
 
@@ -2001,7 +2002,7 @@ Embed lina chain spec
 
 ### Bug Fixes
 
-# [v0.14.0](https://github.com/nervosnetwork/ckb/compare/v0.13.0...v0.14.0) (2019-06-15) rylai-v3
+## [v0.14.0](https://github.com/nervosnetwork/ckb/compare/v0.13.0...v0.14.0) (2019-06-15) rylai-v3
 
 ### BREAKING CHANGES
 
@@ -2105,7 +2106,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 * #966: Backport windows support and sentry cleanup to v0.14.0 (@doitian)
 
 
-# [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.13.0) (2019-06-01) rylai-v2
+## [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.13.0) (2019-06-01) rylai-v2
 
 ### Features
 
@@ -2240,7 +2241,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 * #832: `peer_store` db::PeerInfoDB interface (@jjyr)
 
 
-# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai-v1
+## [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai-v1
 
 ### Features
 
@@ -2382,7 +2383,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - Header format changed, use proposals hash to replace proposals root.
 
 
-# [v0.11.0](https://github.com/nervosnetwork/ckb/compare/v0.10.0...v0.11.0) (2019-05-14)
+## [v0.11.0](https://github.com/nervosnetwork/ckb/compare/v0.10.0...v0.11.0) (2019-05-14)
 
 ### Features
 
@@ -2449,7 +2450,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 * P2P message flatbuffers schema changed.
 
 
-# [v0.10.0](https://github.com/nervosnetwork/ckb/compare/v0.9.0...v0.10.0) (2019-05-06)
+## [v0.10.0](https://github.com/nervosnetwork/ckb/compare/v0.9.0...v0.10.0) (2019-05-06)
 
 ### Bug Fixes
 
@@ -2504,7 +2505,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - The new features tx valid since (#372) and removal of version from Script (#422) have changed the core data structure. They affect both RPC and the P2P messages flatbuffers schema.
 
 
-# [v0.9.0](https://github.com/nervosnetwork/ckb/compare/v0.8.0...v0.9.0) (2019-04-22)
+## [v0.9.0](https://github.com/nervosnetwork/ckb/compare/v0.8.0...v0.9.0) (2019-04-22)
 
 ### Bug Fixes
 
@@ -2574,7 +2575,7 @@ It is recommended to export the config files via `ckb init`, then apply the
 modifications upon the new config files.
 
 
-# [v0.8.0](https://github.com/nervosnetwork/ckb/compare/v0.7.0...v0.8.0) (2019-04-08)
+## [v0.8.0](https://github.com/nervosnetwork/ckb/compare/v0.7.0...v0.8.0) (2019-04-08)
 
 ### Features
 
@@ -2646,7 +2647,7 @@ modifications upon the new config files.
 ```
 
 
-# [v0.7.0](https://github.com/nervosnetwork/ckb/compare/v0.6.0...v0.7.0) (2019-03-25)
+## [v0.7.0](https://github.com/nervosnetwork/ckb/compare/v0.6.0...v0.7.0) (2019-03-25)
 
 
 This version requires Rust 1.33.0.
@@ -2674,7 +2675,7 @@ This version requires Rust 1.33.0.
 * Change miner config `poll_interval` unit from second to millisecond.
 
 
-# [v0.6.0](https://github.com/nervosnetwork/ckb/compare/v0.5.0...v0.6.0) (2019-02-25)
+## [v0.6.0](https://github.com/nervosnetwork/ckb/compare/v0.5.0...v0.6.0) (2019-02-25)
 
 ### Bug Fixes
 
@@ -2722,7 +2723,7 @@ This version requires Rust 1.33.0.
 * The flatbuffers schema adopts the new `MerkleProof` structure.
 
 
-# [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.0...v0.5.0) (2019-02-11)
+## [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.0...v0.5.0) (2019-02-11)
 
 ### Features
 
@@ -2736,7 +2737,7 @@ This version requires Rust 1.33.0.
 * config: new option `pool.trace`
 
 
-# [v0.4.0](https://github.com/nervosnetwork/ckb/compare/v0.3.0...v0.4.0) (2019-01-14)
+## [v0.4.0](https://github.com/nervosnetwork/ckb/compare/v0.3.0...v0.4.0) (2019-01-14)
 
 
 ### Bug Fixes
@@ -2781,7 +2782,7 @@ This version requires Rust 1.33.0.
     * Changed the default miner `type_hash`
 
 
-# [v0.3.0](https://github.com/nervosnetwork/ckb/compare/v0.2.0...v0.3.0) (2019-01-02)
+## [v0.3.0](https://github.com/nervosnetwork/ckb/compare/v0.2.0...v0.3.0) (2019-01-02)
 
 
 ### Bug Fixes
@@ -2817,7 +2818,7 @@ This version requires Rust 1.33.0.
   [diff](https://github.com/nervosnetwork/ckb/compare/v0.2.0...9faa91a#diff-315cb39dece2d25661200bb13db8458c).
 
 
-# [v0.2.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0...v0.2.0) (2018-12-17)
+## [v0.2.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0...v0.2.0) (2018-12-17)
 
 In this release, we have upgraded to Rust 2018. We also did 2 important refactoring:
 
@@ -2868,7 +2869,7 @@ In this release, we have upgraded to Rust 2018. We also did 2 important refactor
 
 
 
-# [v0.1.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre10...v0.1.0) (2018-11-26)
+## [v0.1.0](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre10...v0.1.0) (2018-11-26)
 
 
 ### Bug Fixes
@@ -2912,7 +2913,7 @@ command line interface.
 
 
 
-# [v0.1.0-pre10](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre09...v0.1.0-pre10) (2018-11-01)
+## [v0.1.0-pre10](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre09...v0.1.0-pre10) (2018-11-01)
 
 In this release, we added syscalls which allow contract reads cells. We are working on contract SDK, and an RPC is added to get the cells. We also did many refactorings to make the code base easier to improve in the future.
 
@@ -2939,7 +2940,7 @@ VM & Contract:
 - Feature: Build a mruby based contract skeleton which provides a way to write full Ruby contract @xxuejie
 - Feature: Build pure Ruby `secp256k1-sha3-sighash_all` contract @xxuejie
 
-# [v0.1.0-pre09](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre08...v0.1.0-pre09) (2018-10-17)
+## [v0.1.0-pre09](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre08...v0.1.0-pre09) (2018-10-17)
 
 VM now uses RISCV 64 bit. PoW engine is configurable in runtime.
 
@@ -2951,7 +2952,7 @@ VM now uses RISCV 64 bit. PoW engine is configurable in runtime.
 * Test: Add RPC for test @zhangsoledad
 * Refactoring: Refactor export/import @zhangsoledad
 
-# [v0.1.0-pre08](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre07...v0.1.0-pre08) (2018-10-04)
+## [v0.1.0-pre08](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre07...v0.1.0-pre08) (2018-10-04)
 
 This release has integrated VM to verify signatures, fixed various bugs, and added more tests.
 
@@ -2969,7 +2970,7 @@ It has also introduced a newly designed transaction pool.
 * Refactoring: Add documentation and cleanup codebase according to code review feedbacks. @doitian
 * Chore: Move out integration test as a separate repository to speed up compilation and test. @zhangsoledad
 
-# [v0.1.0-pre07](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre06...v0.1.0-pre07) (2018-09-17)
+## [v0.1.0-pre07](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre06...v0.1.0-pre07) (2018-09-17)
 
 This release introduces the consensus rule that transactions must be proposed via blocks first.
 
@@ -2991,7 +2992,7 @@ ckb-riscv:
 
 - Feature: Implement RISC-V syscalls @xxuejie
 
-# [v0.1.0-pre06](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre05...v0.1.0-pre06) (2018-08-30)
+## [v0.1.0-pre06](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre05...v0.1.0-pre06) (2018-08-30)
 
 New PoW difficulty adjustment algorithm and some bug fixings and refactoring
 
@@ -2999,7 +3000,7 @@ New PoW difficulty adjustment algorithm and some bug fixings and refactoring
 - Fix: undetermined block verification result because of out of order transaction verification. @kilb
 - Refactor: transaction verifier. @quake
 
-# [v0.1.0-pre05](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre04...v0.1.0-pre05) (2018-08-14)
+## [v0.1.0-pre05](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre04...v0.1.0-pre05) (2018-08-14)
 
 This release introduces Uncle blocks
 
@@ -3011,7 +3012,7 @@ This release introduces Uncle blocks
 - Fix: zero time block; IBD check @zhangsoledad
 - Refactoring: Avoid allocating db col in different places @doitian
 
-# [v0.1.0-pre04](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre03...v0.1.0-pre04) (2018-08-02)
+## [v0.1.0-pre04](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre03...v0.1.0-pre04) (2018-08-02)
 
 Fix serious network issues in v0.1.0-pre03
 
@@ -3026,7 +3027,7 @@ Fix serious network issues in v0.1.0-pre03
 - Fix: Network random disconnecting bug. @TheWaWaR
 - Feature: verify tx deps in tx pool. @kilb
 
-# [v0.1.0-pre03](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre02...v0.1.0-pre03) (2018-07-22)
+## [v0.1.0-pre03](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre02...v0.1.0-pre03) (2018-07-22)
 
 It is a version intended to be able to mint and transfer cells.
 
@@ -3035,10 +3036,10 @@ It has two limitation:
 - The node stops work randomly because of network disconnecting bug.
 - Cell is not signed and spending is not verified.
 
-# [v0.1.0-pre02](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre01...v0.1.0-pre02) (2018-04-08)
+## [v0.1.0-pre02](https://github.com/nervosnetwork/ckb/compare/v0.1.0-pre01...v0.1.0-pre02) (2018-04-08)
 
 First runnable node which can creates chain of empty blocks
 
-# [v0.1.0-pre01](https://github.com/nervosnetwork/ckb/compare/40e5830e2e4119118b6a0239782be815b9f46b26...v0.1.0-pre01) (2018-03-10)
+## [v0.1.0-pre01](https://github.com/nervosnetwork/ckb/compare/40e5830e2e4119118b6a0239782be815b9f46b26...v0.1.0-pre01) (2018-03-10)
 
 Bootstrap the project.
