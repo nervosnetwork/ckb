@@ -2,7 +2,11 @@
 
 ### Features
 
-* #4126: Notify dummy miner for new work (@quake)
+-   #4126: Notify dummy miner for new work (@quake)
+
+### Bug Fixes
+
+-   #4133: Keep peer store address unique (@driftluo)
 
 # [v0.110.1](https://github.com/nervosnetwork/ckb/compare/v0.110.0...v0.110.1) (2023-08-20)
 
