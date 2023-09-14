@@ -1,3 +1,35 @@
+# [v0.111.0](https://github.com/nervosnetwork/ckb/compare/v0.110.2...v0.111.0) (2023-09-14)
+
+### Features
+
+-   #3917 **consensus: (BREAKING)** CKB 2023 edition (@zhangsoledad)
+-   #3963 **rpc(Chain):** Add `only_committed` param for `get_transaction` (@eval-exec)
+-   #3980 **rpc: (BREAKING)** Set `jsonrpc::Ratio` as the type of `threshold` field for `DeploymentsInfo` and `Deployment` (@eval-exec)
+-   #3988: Update ckb-vm to v0.24.0 (@mohanson)
+-   #3996: Suspend support in spawn syscalls (@xxuejie)
+-   #4002: Let crate `ckb-hash` support `no-std` (@yangby-cryptape)
+-   #4097 **consensus: (BREAKING)** `epoch_duration_target` now affects epoch length in `Dummy` mode (@eval-exec)
+-   #4126: Notify dummy miner for new work (@quake)
+
+### Improvements
+
+-   #3970 **perf:** Replace sync struct HeaderView with HeaderIndexView (@quake)
+-   #4000: Reduce `PeerStore::load_from_dir_or_default` timecost (@eval-exec)
+-   #4003: Derive implements Clone for cell (@liya2017)
+-   #4073: Split ckb-gen-types from ckb-types (@EthanYuan)
+-   #4123 **script(spawn):** Calucate the correct cycles_base (@mohanson)
+-   #4127 **scripts(spawn):** Always consume extra_cycles (@mohanson)
+-   #4129: Fix parse `RelayV3`'s message name for metrics service (@eval-exec)
+-   #4133: Keep peer store address unique (@driftluo)
+
+### Bug Fixes
+
+-   #4011 **scripts:** `set_debug_printer` should updates generator's `debug_printer` (@mohanson)
+-   #4012 **cli: (BREAKING)** `ckb init` creates config files even when an unsupported spec is specified. (@eval-exec)
+-   #4015 Fix permanent difficulty mode reward (@zhangsoledad)
+-   #4030 Fix RUSTSEC-2023-0044 warning (@eval-exec)
+-   #4151: Add `derive(Hash)` to `ScriptHashType` (@eval-exec)
+
 # [v0.110.2](https://github.com/nervosnetwork/ckb/compare/v0.110.1...v0.110.2) (2023-09-11)
 
 ### Features
