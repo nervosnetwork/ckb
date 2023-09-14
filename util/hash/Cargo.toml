@@ -13,4 +13,4 @@ ckb-contract = [] # This feature is used for CKB contract development
 
 [dependencies]
 blake2b-ref = { version = "0.3"}
-blake2b-rs = { version = "0.2", optional = true }
+blake2b-rs = { version = "0.2" }
