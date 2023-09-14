@@ -10,7 +10,7 @@ use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
-use ckb_traits::HeaderProvider;
+use ckb_traits::HeaderFieldsProvider;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
     core::{
@@ -24,6 +24,7 @@ use ckb_types::{
     H256,
 };
 use ckb_verification::ScriptVerifier;
+use ckb_verification::TxVerifyEnv;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::collections::HashSet;
@@ -540,6 +541,7 @@ pub trait ChainRpc {
     ///
     /// * `tx_hash` - Hash of a transaction
     /// * `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+    /// * `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
     ///
     /// ## Returns
     ///
@@ -648,6 +650,7 @@ pub trait ChainRpc {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
+        only_committed: Option<bool>,
     ) -> Result<TransactionWithStatusResponse>;
 
     /// Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
@@ -1341,8 +1344,10 @@ pub trait ChainRpc {
     ///             { "rfc": "0031", "epoch_number": "0x0" },
     ///             { "rfc": "0032", "epoch_number": "0x0" },
     ///             { "rfc": "0036", "epoch_number": "0x0" },
-    ///             { "rfc": "0038", "epoch_number": "0x0" }
-    ///         ],
+    ///             { "rfc": "0038", "epoch_number": "0x0" },
+    ///             { "rfc": "0048", "epoch_number": null },
+    ///             { "rfc": "0049", "epoch_number": null }
+    ///          ],
     ///         "id": "main",
     ///         "initial_primary_epoch_reward": "0x71afd498d000",
     ///         "max_block_bytes": "0x91c08",
@@ -1372,8 +1377,8 @@ pub trait ChainRpc {
     ///                     "period": "0xa",
     ///                     "start": "0x0",
     ///                     "threshold": {
-    ///                         "denom": 4,
-    ///                         "numer": 3
+    ///                         "denom": "0x4",
+    ///                         "numer": "0x3"
     ///                     },
     ///                     "timeout": "0x0"
     ///                 }
@@ -1729,26 +1734,29 @@ impl ChainRpc for ChainRpcImpl {
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
+        only_committed: Option<bool>,
     ) -> Result<TransactionWithStatusResponse> {
         let tx_hash = tx_hash.pack();
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
 
+        let only_committed: bool = only_committed.unwrap_or(false);
+
         if verbosity == 0 {
             // when verbosity=0, it's response value is as same as verbosity=2, but it
             // return a 0x-prefixed hex encoded molecule packed::Transaction` on `transaction` field
-            self.get_transaction_verbosity2(tx_hash)
+            self.get_transaction_verbosity2(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Hex))
         } else if verbosity == 1 {
             // The RPC does not return the transaction content and the field transaction must be null.
-            self.get_transaction_verbosity1(tx_hash)
+            self.get_transaction_verbosity1(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else if verbosity == 2 {
             // if tx_status.status is pending, proposed, or committed,
             // the RPC returns the transaction content as field transaction,
             // otherwise the field is null.
-            self.get_transaction_verbosity2(tx_hash)
+            self.get_transaction_verbosity2(tx_hash, only_committed)
                 .map(|tws| TransactionWithStatusResponse::from(tws, ResponseFormatInnerType::Json))
         } else {
             Err(RPCError::invalid_params("invalid verbosity level"))
@@ -2103,7 +2111,11 @@ impl ChainRpc for ChainRpcImpl {
 }
 
 impl ChainRpcImpl {
-    fn get_transaction_verbosity1(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
+    fn get_transaction_verbosity1(
+        &self,
+        tx_hash: packed::Byte32,
+        only_committed: bool,
+    ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
@@ -2125,6 +2137,10 @@ impl ChainRpcImpl {
             ));
         }
 
+        if only_committed {
+            return Ok(TransactionWithStatus::with_unknown());
+        }
+
         let tx_pool = self.shared.tx_pool_controller();
         let tx_status = tx_pool.get_tx_status(tx_hash);
         if let Err(e) = tx_status {
@@ -2141,7 +2157,11 @@ impl ChainRpcImpl {
         Ok(TransactionWithStatus::omit_transaction(tx_status, cycles))
     }
 
-    fn get_transaction_verbosity2(&self, tx_hash: packed::Byte32) -> Result<TransactionWithStatus> {
+    fn get_transaction_verbosity2(
+        &self,
+        tx_hash: packed::Byte32,
+        only_committed: bool,
+    ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
         if let Some((tx, tx_info)) = snapshot.get_transaction_with_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
@@ -2161,6 +2181,10 @@ impl ChainRpcImpl {
                 tx_info.block_hash.unpack(),
                 cycles,
             ));
+        }
+
+        if only_committed {
+            return Ok(TransactionWithStatus::with_unknown());
         }
 
         let tx_pool = self.shared.tx_pool_controller();
@@ -2322,12 +2346,19 @@ impl<'a> CyclesEstimator<'a> {
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<EstimateCycles> {
         let snapshot = self.shared.cloned_snapshot();
-        let consensus = snapshot.consensus();
+        let consensus = snapshot.cloned_consensus();
         match resolve_transaction(tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(Arc::new(resolved), snapshot.as_data_loader())
-                    .verify(max_cycles)
+                let tip_header = snapshot.tip_header();
+                let tx_env = TxVerifyEnv::new_submit(tip_header);
+                match ScriptVerifier::new(
+                    Arc::new(resolved),
+                    snapshot.as_data_loader(),
+                    consensus,
+                    Arc::new(tx_env),
+                )
+                .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(EstimateCycles {
                         cycles: cycles.into(),

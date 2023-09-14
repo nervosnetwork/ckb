@@ -93,7 +93,9 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
             .to_enum()
             .item_name()
             .to_owned()
-    } else if protocol_id == SupportProtocols::RelayV2.protocol_id() {
+    } else if protocol_id == SupportProtocols::RelayV2.protocol_id()
+        || protocol_id == SupportProtocols::RelayV3.protocol_id()
+    {
         RelayMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()
@@ -145,6 +147,7 @@ fn protocol_name(protocol_id: ProtocolId) -> String {
         100 => SupportProtocols::Sync.name(),
         101 => SupportProtocols::RelayV2.name(),
         102 => SupportProtocols::Time.name(),
+        103 => SupportProtocols::RelayV3.name(),
         110 => SupportProtocols::Alert.name(),
         120 => SupportProtocols::LightClient.name(),
         121 => SupportProtocols::Filter.name(),

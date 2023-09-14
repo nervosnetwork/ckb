@@ -6,8 +6,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_traits::HeaderProvider;
-use ckb_types::core::{HeaderView, Version};
+use ckb_traits::HeaderFieldsProvider;
+use ckb_types::core::{BlockNumber, EpochNumberWithFraction, HeaderView};
 use ckb_verification_traits::Verifier;
 
 /// Context-dependent verification checks for block header
@@ -18,7 +18,7 @@ pub struct HeaderVerifier<'a, DL> {
     consensus: &'a Consensus,
 }
 
-impl<'a, DL: HeaderProvider> HeaderVerifier<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> HeaderVerifier<'a, DL> {
     /// Crate new HeaderVerifier
     pub fn new(data_loader: &'a DL, consensus: &'a Consensus) -> Self {
         HeaderVerifier {
@@ -28,20 +28,20 @@ impl<'a, DL: HeaderProvider> HeaderVerifier<'a, DL> {
     }
 }
 
-impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
-        VersionVerifier::new(header, self.consensus.block_version()).verify()?;
+        VersionVerifier::new(header, self.consensus).verify()?;
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
-        let parent = self
+        let parent_fields = self
             .data_loader
-            .get_header(&header.parent_hash())
+            .get_header_fields(&header.parent_hash())
             .ok_or_else(|| UnknownParentError {
                 parent_hash: header.parent_hash(),
             })?;
-        NumberVerifier::new(&parent, header).verify()?;
-        EpochVerifier::new(&parent, header).verify()?;
+        NumberVerifier::new(parent_fields.number, header).verify()?;
+        EpochVerifier::new(parent_fields.epoch, header).verify()?;
         TimestampVerifier::new(
             self.data_loader,
             header,
@@ -54,21 +54,24 @@ impl<'a, DL: HeaderProvider> Verifier for HeaderVerifier<'a, DL> {
 
 pub struct VersionVerifier<'a> {
     header: &'a HeaderView,
-    block_version: Version,
+    consensus: &'a Consensus,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a HeaderView, block_version: Version) -> Self {
-        VersionVerifier {
-            header,
-            block_version,
-        }
+    pub fn new(header: &'a HeaderView, consensus: &'a Consensus) -> Self {
+        VersionVerifier { header, consensus }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.version() != self.block_version {
+        if !self
+            .consensus
+            .hardfork_switch
+            .ckb2023
+            .is_remove_header_version_reservation_rule_enabled(self.header.epoch().number())
+            && self.header.version() != self.consensus.block_version()
+        {
             return Err(BlockVersionError {
-                expected: self.block_version,
+                expected: self.consensus.block_version(),
                 actual: self.header.version(),
             }
             .into());
@@ -84,7 +87,7 @@ pub struct TimestampVerifier<'a, DL> {
     now: u64,
 }
 
-impl<'a, DL: HeaderProvider> TimestampVerifier<'a, DL> {
+impl<'a, DL: HeaderFieldsProvider> TimestampVerifier<'a, DL> {
     pub fn new(data_loader: &'a DL, header: &'a HeaderView, median_block_count: usize) -> Self {
         TimestampVerifier {
             data_loader,
@@ -126,19 +129,19 @@ impl<'a, DL: HeaderProvider> TimestampVerifier<'a, DL> {
 /// Checks if the block number of the given header matches the expected number,
 /// which is the parent block's number + 1.
 pub struct NumberVerifier<'a> {
-    parent: &'a HeaderView,
+    parent: BlockNumber,
     header: &'a HeaderView,
 }
 
 impl<'a> NumberVerifier<'a> {
-    pub fn new(parent: &'a HeaderView, header: &'a HeaderView) -> Self {
+    pub fn new(parent: BlockNumber, header: &'a HeaderView) -> Self {
         NumberVerifier { parent, header }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.header.number() != self.parent.number() + 1 {
+        if self.header.number() != self.parent + 1 {
             return Err(NumberError {
-                expected: self.parent.number() + 1,
+                expected: self.parent + 1,
                 actual: self.header.number(),
             }
             .into());
@@ -148,12 +151,12 @@ impl<'a> NumberVerifier<'a> {
 }
 
 pub struct EpochVerifier<'a> {
-    parent: &'a HeaderView,
+    parent: EpochNumberWithFraction,
     header: &'a HeaderView,
 }
 
 impl<'a> EpochVerifier<'a> {
-    pub fn new(parent: &'a HeaderView, header: &'a HeaderView) -> Self {
+    pub fn new(parent: EpochNumberWithFraction, header: &'a HeaderView) -> Self {
         EpochVerifier { parent, header }
     }
 
@@ -164,10 +167,10 @@ impl<'a> EpochVerifier<'a> {
             }
             .into());
         }
-        if !self.parent.is_genesis() && !self.header.epoch().is_successor_of(self.parent.epoch()) {
+        if !self.parent.is_genesis() && !self.header.epoch().is_successor_of(self.parent) {
             return Err(EpochError::NonContinuous {
                 current: self.header.epoch(),
-                parent: self.parent.epoch(),
+                parent: self.parent,
             }
             .into());
         }

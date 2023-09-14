@@ -94,6 +94,19 @@ fn test_script_serialization() {
                 args: JsonBytes::default(),
             },
         ),
+        (
+            "{\
+                \"code_hash\":\"0x00000000000000000000000000000000\
+                                  00000000000000000000000000000001\",\
+                \"hash_type\":\"data2\",\
+                \"args\":\"0x\"\
+            }",
+            Script {
+                code_hash: h256!("0x1"),
+                hash_type: ScriptHashType::Data2,
+                args: JsonBytes::default(),
+            },
+        ),
     ] {
         let decoded: Script = serde_json::from_str(original).unwrap();
         assert_eq!(&decoded, entity);
@@ -116,12 +129,6 @@ fn test_script_serialization() {
             \"code_hash\":\"0x00000000000000000000000000000000\
                             00000000000000000000000000000000\",\
             \"hash_type\":type,\
-            \"args\":\"0x\"\
-        }",
-        "{\
-            \"code_hash\":\"0x00000000000000000000000000000000\
-                            00000000000000000000000000000000\",\
-            \"hash_type\":\"data2\",\
             \"args\":\"0x\"\
         }",
         "{\

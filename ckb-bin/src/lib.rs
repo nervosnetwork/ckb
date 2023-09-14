@@ -8,13 +8,13 @@ mod subcommand;
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
+use ckb_logger::{debug, info};
+use ckb_network::tokio;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
-use std::time::Duration;
 
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
-const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The executable main entry.
 ///
@@ -58,25 +58,34 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
-    let (handle, runtime) = new_global_runtime();
+    let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
 
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle),
-        cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle),
-        cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle),
-        cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle),
-        cli::CMD_IMPORT => subcommand::import(setup.import(matches)?, handle),
-        cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle),
+        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
+        cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
+        cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
+        cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),
+        cli::CMD_IMPORT => subcommand::import(setup.import(matches)?, handle.clone()),
+        cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle.clone()),
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(matches)?),
         _ => unreachable!(),
     };
 
-    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+    if matches!(cmd, cli::CMD_RUN) {
+        handle.drop_guard();
+
+        tokio::task::block_in_place(|| {
+            debug!("waiting all tokio tasks done");
+            handle_stop_rx.blocking_recv();
+            info!("ckb shutdown");
+        });
+    }
+
     ret
 }
 

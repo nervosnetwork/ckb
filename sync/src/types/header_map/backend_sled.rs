@@ -1,7 +1,7 @@
 use super::KeyValueBackend;
-use crate::types::HeaderView;
+use crate::types::HeaderIndexView;
 use ckb_types::{packed::Byte32, prelude::*};
-use sled::Db;
+use sled::{Config, Db, Mode};
 use std::path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -27,8 +27,15 @@ impl KeyValueBackend for SledBackend {
         }
         .expect("failed to create a tempdir to save header map into disk");
 
-        let db: Db = sled::open(tmpdir.path())
+        // use a smaller system page cache here since we are using sled as a temporary storage,
+        // most of the time we will only read header from memory.
+        let db: Db = Config::new()
+            .mode(Mode::HighThroughput)
+            .cache_capacity(64 * 1024 * 1024)
+            .path(tmpdir.path())
+            .open()
             .expect("failed to open a key-value database to save header map into disk");
+
         Self {
             db,
             _tmpdir: tmpdir,
@@ -46,14 +53,14 @@ impl KeyValueBackend for SledBackend {
             .expect("sled contains_key")
     }
 
-    fn get(&self, key: &Byte32) -> Option<HeaderView> {
+    fn get(&self, key: &Byte32) -> Option<HeaderIndexView> {
         self.db
             .get(key.as_slice())
             .unwrap_or_else(|err| panic!("read header map from disk should be ok, but {err}"))
-            .map(|slice| HeaderView::from_slice_should_be_ok(slice.as_ref()))
+            .map(|slice| HeaderIndexView::from_slice_should_be_ok(key.as_slice(), slice.as_ref()))
     }
 
-    fn insert(&self, value: &HeaderView) -> Option<()> {
+    fn insert(&self, value: &HeaderIndexView) -> Option<()> {
         let key = value.hash();
         let last_value = self
             .db
@@ -65,7 +72,7 @@ impl KeyValueBackend for SledBackend {
         last_value.map(|_| ())
     }
 
-    fn insert_batch(&self, values: &[HeaderView]) {
+    fn insert_batch(&self, values: &[HeaderIndexView]) {
         let mut count = 0;
         for value in values {
             let key = value.hash();
@@ -80,7 +87,7 @@ impl KeyValueBackend for SledBackend {
         self.count.fetch_add(count, Ordering::SeqCst);
     }
 
-    fn remove(&self, key: &Byte32) -> Option<HeaderView> {
+    fn remove(&self, key: &Byte32) -> Option<HeaderIndexView> {
         let old_value = self
             .db
             .remove(key.as_slice())
@@ -88,7 +95,7 @@ impl KeyValueBackend for SledBackend {
 
         old_value.map(|slice| {
             self.count.fetch_sub(1, Ordering::SeqCst);
-            HeaderView::from_slice_should_be_ok(&slice)
+            HeaderIndexView::from_slice_should_be_ok(key.as_slice(), &slice)
         })
     }
 

@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
-use ckb_traits::HeaderProvider;
+use ckb_traits::HeaderFieldsProvider;
 use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
@@ -87,8 +87,8 @@ pub trait StatsRpc {
     ///                "state": "failed",
     ///                "timeout": "0x0",
     ///                "threshold": {
-    ///                     "numer": 3,
-    ///                     "denom": 4
+    ///                     "numer": "0x3",
+    ///                     "denom": "0x4"
     ///                 }
     ///            }
     ///        }

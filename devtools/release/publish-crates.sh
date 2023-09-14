@@ -4,7 +4,7 @@ set -e
 set -u
 [ -n "${DEBUG:-}" ] && set -x || true
 
-CRATES="$(cat Cargo.toml | sed -n -e '0, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
+CRATES="$(cat Cargo.toml | sed -n -e '1, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
 RUST_VERSION="$(cat rust-toolchain)"
 
 retry_cargo_publish() {

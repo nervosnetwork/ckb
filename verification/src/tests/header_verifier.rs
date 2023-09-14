@@ -4,13 +4,16 @@ use crate::header_verifier::{
 use crate::{
     BlockVersionError, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
 };
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
 use ckb_types::{
-    constants::BLOCK_VERSION,
-    core::{EpochNumberWithFraction, HeaderBuilder},
+    core::{
+        hardfork::{HardForks, CKB2021, CKB2023},
+        EpochNumberWithFraction, HeaderBuilder,
+    },
     packed::Header,
     prelude::*,
 };
@@ -25,18 +28,37 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 pub fn test_version() {
-    let header = HeaderBuilder::default()
-        .version((BLOCK_VERSION + 1).pack())
+    let hardfork_switch = HardForks {
+        ckb2021: CKB2021::new_mirana(),
+        ckb2023: CKB2023::new_mirana()
+            .as_builder()
+            .rfc_0048(10)
+            .build()
+            .unwrap(),
+    };
+    let consensus = ConsensusBuilder::default()
+        .hardfork_switch(hardfork_switch)
         .build();
-    let verifier = VersionVerifier::new(&header, BLOCK_VERSION);
+
+    let header = HeaderBuilder::default()
+        .version((consensus.block_version() + 1).pack())
+        .build();
+    let verifier = VersionVerifier::new(&header, &consensus);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
         BlockVersionError {
-            expected: BLOCK_VERSION,
-            actual: BLOCK_VERSION + 1
+            expected: consensus.block_version(),
+            actual: consensus.block_version() + 1
         }
     );
+    let epoch = EpochNumberWithFraction::new(10, 40, 1000);
+    let header = HeaderBuilder::default()
+        .version((consensus.block_version() + 1).pack())
+        .epoch(epoch.pack())
+        .build();
+    let verifier = VersionVerifier::new(&header, &consensus);
+    assert!(verifier.verify().is_ok());
 }
 
 #[cfg(not(disable_faketime))]
@@ -119,10 +141,9 @@ fn test_timestamp_too_new() {
 
 #[test]
 fn test_number() {
-    let parent = HeaderBuilder::new_with_number(10).build();
     let header = HeaderBuilder::new_with_number(10).build();
 
-    let verifier = NumberVerifier::new(&parent, &header);
+    let verifier = NumberVerifier::new(10, &header);
     assert_error_eq!(
         verifier.verify().unwrap_err(),
         NumberError {
@@ -135,10 +156,7 @@ fn test_number() {
 #[test]
 fn test_epoch() {
     {
-        let parent = HeaderBuilder::default()
-            .number(1u64.pack())
-            .epoch(EpochNumberWithFraction::new(1, 1, 10).pack())
-            .build();
+        let parent = EpochNumberWithFraction::new(1, 1, 10);
         let epochs_malformed = vec![
             EpochNumberWithFraction::new_unchecked(1, 0, 0),
             EpochNumberWithFraction::new_unchecked(1, 10, 0),
@@ -150,7 +168,7 @@ fn test_epoch() {
             let malformed = HeaderBuilder::default()
                 .epoch(epoch_malformed.pack())
                 .build();
-            let result = EpochVerifier::new(&parent, &malformed).verify();
+            let result = EpochVerifier::new(parent, &malformed).verify();
             assert!(result.is_err(), "input: {epoch_malformed:#}");
             assert_error_eq!(
                 result.unwrap_err(),
@@ -192,20 +210,16 @@ fn test_epoch() {
             ),
         ];
 
-        for (epoch_parent, epoch_current) in epochs {
-            let parent = HeaderBuilder::default()
-                .number(1u64.pack())
-                .epoch(epoch_parent.pack())
-                .build();
+        for (parent, epoch_current) in epochs {
             let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
 
-            let result = EpochVerifier::new(&parent, &current).verify();
+            let result = EpochVerifier::new(parent, &current).verify();
             assert!(result.is_err(), "current: {current:#}, parent: {parent:#}");
             assert_error_eq!(
                 result.unwrap_err(),
                 EpochError::NonContinuous {
                     current: epoch_current,
-                    parent: epoch_parent,
+                    parent,
                 },
             );
         }
@@ -225,14 +239,10 @@ fn test_epoch() {
                 EpochNumberWithFraction::new_unchecked(2, 0, 11),
             ),
         ];
-        for (epoch_parent, epoch_current) in epochs {
-            let parent = HeaderBuilder::default()
-                .number(1u64.pack())
-                .epoch(epoch_parent.pack())
-                .build();
+        for (parent, epoch_current) in epochs {
             let current = HeaderBuilder::default().epoch(epoch_current.pack()).build();
 
-            let result = EpochVerifier::new(&parent, &current).verify();
+            let result = EpochVerifier::new(parent, &current).verify();
             assert!(result.is_ok(), "current: {current:#}, parent: {parent:#}");
         }
     }

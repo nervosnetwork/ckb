@@ -1,10 +1,13 @@
 //! Tx-pool shared type define.
-use crate::core::{
-    error::{OutPointError, TransactionError},
-    BlockNumber, Capacity, Cycle, FeeRate,
+use crate::{
+    core::{
+        self,
+        error::{OutPointError, TransactionError},
+        BlockNumber, Capacity, Cycle, FeeRate,
+    },
+    packed::Byte32,
+    H256,
 };
-use crate::packed::Byte32;
-use crate::{core, H256};
 use ckb_error::{
     impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
 };
@@ -35,7 +38,7 @@ pub enum Reject {
 
     /// Malformed transaction
     #[error("Malformed {0} transaction")]
-    Malformed(String),
+    Malformed(String, String),
 
     /// Declared wrong cycles
     #[error("Declared wrong cycles {0}, actual {1}")]
@@ -76,7 +79,7 @@ impl Reject {
     /// Returns true if the reject reason is malformed tx.
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            Reject::Malformed(_) => true,
+            Reject::Malformed(_, _) => true,
             Reject::DeclaredWrongCycles(..) => true,
             Reject::Verification(err) => is_malformed_from_verification(err),
             Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => true,
@@ -161,7 +164,7 @@ pub struct TransactionWithStatus {
     pub tx_status: TxStatus,
     /// The transaction verification consumed cycles
     pub cycles: Option<core::Cycle>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
 

@@ -104,4 +104,11 @@ impl ChunkQueue {
             .insert(tx.proposal_short_id(), Entry { tx, remote })
             .is_none()
     }
+
+    /// Clears the map, removing all elements.
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.clean_front();
+        self.shrink_to_fit()
+    }
 }

@@ -97,13 +97,8 @@ permanent_difficulty_in_dummy = true
 starting_block_limiting_dao_withdrawing_lock = 0
 
 [params.hardfork]
-rfc_0028 = 0
-rfc_0029 = 0
-rfc_0030 = 0
-rfc_0031 = 0
-rfc_0032 = 0
-rfc_0036 = 0
-rfc_0038 = 0
+ckb2023 = 0
+
 
 [pow]
 func = "Dummy"

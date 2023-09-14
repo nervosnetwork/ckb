@@ -8,7 +8,7 @@ use ckb_util::{Mutex, MutexGuard};
 use ckb_types::packed::Byte32;
 
 use super::{KeyValueBackend, MemoryMap};
-use crate::types::HeaderView;
+use crate::types::HeaderIndexView;
 
 pub(crate) struct HeaderMapKernel<Backend>
 where
@@ -88,7 +88,7 @@ where
         self.backend.contains_key(hash)
     }
 
-    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
         #[cfg(feature = "stats")]
         {
             self.stats().tick_primary_select();
@@ -108,20 +108,20 @@ where
             {
                 self.stats().tick_primary_insert();
             }
-            self.memory.insert(view.hash(), view.clone());
+            self.memory.insert(view.clone());
             Some(view)
         } else {
             None
         }
     }
 
-    pub(crate) fn insert(&self, view: HeaderView) -> Option<()> {
+    pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
         #[cfg(feature = "stats")]
         {
             self.trace();
             self.stats().tick_primary_insert();
         }
-        self.memory.insert(view.hash(), view)
+        self.memory.insert(view)
     }
 
     pub(crate) fn remove(&self, hash: &Byte32) {

@@ -28,7 +28,7 @@ mod reward;
 mod transaction_meta;
 mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
-pub use blockchain::{DepType, ScriptHashType};
+pub use blockchain::DepType;
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
@@ -38,6 +38,7 @@ pub use views::{
     BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
 };
 
+pub use ckb_gen_types::core::*;
 pub use ckb_occupied_capacity::{
     capacity_bytes, Capacity, Error as CapacityError, Ratio, Result as CapacityResult,
 };

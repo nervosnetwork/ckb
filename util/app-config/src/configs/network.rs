@@ -125,13 +125,13 @@ impl Default for HeaderMapConfig {
         Self {
             primary_limit: None,
             backend_close_threshold: None,
-            memory_limit: ByteUnit::Megabyte(600),
+            memory_limit: default_memory_limit(),
         }
     }
 }
 
 const fn default_memory_limit() -> ByteUnit {
-    ByteUnit::Megabyte(600)
+    ByteUnit::Megabyte(256)
 }
 
 #[derive(Clone, Debug, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]

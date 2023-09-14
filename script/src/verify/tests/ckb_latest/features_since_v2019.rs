@@ -1097,7 +1097,11 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx() {
     assert!(result.is_ok());
     let cycle = result.unwrap();
     assert!(cycle <= TWO_IN_TWO_OUT_CYCLES);
-    assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    if script_version == crate::ScriptVersion::V2 {
+        assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - V2_CYCLE_BOUND);
+    } else {
+        assert!(cycle >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
+    }
 }
 
 fn create_rtx_to_load_code_to_stack_then_reuse(
@@ -1288,9 +1292,16 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
 
     let cycles_once = result.unwrap();
     assert!(cycles <= TWO_IN_TWO_OUT_CYCLES, "step_cycles {step_cycles}");
-    assert!(
-        cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-        "step_cycles {step_cycles}"
-    );
+    if script_version == crate::ScriptVersion::V2 {
+        assert!(
+            cycles >= TWO_IN_TWO_OUT_CYCLES - V2_CYCLE_BOUND,
+            "step_cycles {step_cycles}"
+        );
+    } else {
+        assert!(
+            cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+            "step_cycles {step_cycles}"
+        );
+    }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }

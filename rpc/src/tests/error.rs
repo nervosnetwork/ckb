@@ -47,7 +47,7 @@ fn test_submit_transaction_error() {
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
-    let reject = Reject::Malformed("cellbase like".to_owned());
+    let reject = Reject::Malformed("cellbase like".to_owned(), "".to_owned());
     assert_eq!(
         "PoolRejectedMalformedTransaction: Malformed cellbase like transaction",
         RPCError::from_submit_transaction_reject(&reject).message

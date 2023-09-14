@@ -25,7 +25,7 @@ use ckb_types::{
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
-        hardfork::HardForkSwitch, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
+        hardfork::HardForks, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
         TransactionView, Version,
     },
@@ -290,7 +290,7 @@ impl ConsensusBuilder {
                 primary_epoch_reward_halving_interval:
                     DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
                 permanent_difficulty_in_dummy: false,
-                hardfork_switch: HardForkSwitch::new_mirana(),
+                hardfork_switch: HardForks::new_mirana(),
                 deployments: HashMap::new(),
                 versionbits_caches: VersionbitsCache::default(),
                 starting_block_limiting_dao_withdrawing_lock:
@@ -478,7 +478,7 @@ impl ConsensusBuilder {
     }
 
     /// Sets a hard fork switch for the new Consensus.
-    pub fn hardfork_switch(mut self, hardfork_switch: HardForkSwitch) -> Self {
+    pub fn hardfork_switch(mut self, hardfork_switch: HardForks) -> Self {
         self.inner.hardfork_switch = hardfork_switch;
         self
     }
@@ -575,7 +575,7 @@ pub struct Consensus {
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
     /// A switch to select hard fork features base on the epoch number.
-    pub hardfork_switch: HardForkSwitch,
+    pub hardfork_switch: HardForks,
     /// Soft fork deployments
     pub deployments: HashMap<DeploymentPos, Deployment>,
     /// Soft fork state cache
@@ -822,12 +822,26 @@ impl Consensus {
                     epoch_duration_in_milliseconds,
                 } => {
                     if self.permanent_difficulty() {
+                        let primary_epoch_reward =
+                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
+                        let block_reward =
+                            Capacity::shannons(primary_epoch_reward / epoch.length());
+                        let remainder_reward =
+                            Capacity::shannons(primary_epoch_reward % epoch.length());
+
+                        let next_epoch_length = (self.epoch_duration_target() + MIN_BLOCK_INTERVAL
+                            - 1)
+                            / MIN_BLOCK_INTERVAL;
+
                         let dummy_epoch_ext = epoch
                             .clone()
                             .into_builder()
+                            .base_block_reward(block_reward)
+                            .remainder_reward(remainder_reward)
                             .number(epoch.number() + 1)
                             .last_block_hash_in_previous_epoch(header.hash())
                             .start_number(header.number() + 1)
+                            .length(next_epoch_length)
                             .build();
                         NextBlockEpoch::HeadBlock(dummy_epoch_ext)
                     } else {
@@ -980,7 +994,7 @@ impl Consensus {
     }
 
     /// Returns the hardfork switch.
-    pub fn hardfork_switch(&self) -> &HardForkSwitch {
+    pub fn hardfork_switch(&self) -> &HardForks {
         &self.hardfork_switch
     }
 
@@ -1034,6 +1048,25 @@ impl Consensus {
             self.id.as_str(),
             mainnet::CHAIN_SPEC_NAME | testnet::CHAIN_SPEC_NAME
         )
+    }
+
+    /// Return true if specifies epoch is between delay window.
+    pub fn is_in_delay_window(&self, epoch: &EpochNumberWithFraction) -> bool {
+        let proposal_window = self.tx_proposal_window();
+        let epoch_length = epoch.length();
+        let index = epoch.index();
+
+        let epoch_number = epoch.number();
+
+        let rfc_0049 = self.hardfork_switch.ckb2023.rfc_0049();
+
+        // dev default is 0
+        if rfc_0049 != 0 && rfc_0049 != EpochNumber::MAX {
+            return (epoch_number + 1 == rfc_0049
+                && (proposal_window.farthest() + index) >= epoch_length)
+                || (epoch_number == rfc_0049 && index <= proposal_window.farthest());
+        }
+        false
     }
 }
 
@@ -1110,9 +1143,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 .primary_epoch_reward_halving_interval
                 .into(),
             permanent_difficulty_in_dummy: consensus.permanent_difficulty_in_dummy,
-            hardfork_features: ckb_jsonrpc_types::HardForkFeature::load_list_from_switch(
-                &consensus.hardfork_switch,
-            ),
+            hardfork_features: ckb_jsonrpc_types::HardForks::new(&consensus.hardfork_switch),
             softforks,
         }
     }

@@ -138,7 +138,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
     * [Type `EstimateCycles`](#type-estimatecycles)
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
-    * [Type `HardForkFeature`](#type-hardforkfeature)
+    * [Type `HardForks`](#type-hardforks)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `IndexerCell`](#type-indexercell)
@@ -785,9 +785,10 @@ The response looks like below when the block have block filter.
 
 
 #### Method `get_transaction`
-* `get_transaction(tx_hash, verbosity)`
+* `get_transaction(tx_hash, verbosity, only_committed)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
+    * `only_committed`: `boolean` `|` `null`
 * result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
 Returns the information about a transaction requested by transaction hash.
@@ -803,6 +804,8 @@ If the transaction is in the chain, the block hash is also returned.
 *   `tx_hash` - Hash of a transaction
 
 *   `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+
+*   `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
 
 ###### Returns
 
@@ -1658,8 +1661,10 @@ Response
             { "rfc": "0031", "epoch_number": "0x0" },
             { "rfc": "0032", "epoch_number": "0x0" },
             { "rfc": "0036", "epoch_number": "0x0" },
-            { "rfc": "0038", "epoch_number": "0x0" }
-        ],
+            { "rfc": "0038", "epoch_number": "0x0" },
+            { "rfc": "0048", "epoch_number": null },
+            { "rfc": "0049", "epoch_number": null }
+         ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
         "max_block_bytes": "0x91c08",
@@ -1689,8 +1694,8 @@ Response
                     "period": "0xa",
                     "start": "0x0",
                     "threshold": {
-                        "denom": 4,
-                        "numer": 3
+                        "denom": "0x4",
+                        "numer": "0x3"
                     },
                     "timeout": "0x0"
                 }
@@ -4338,6 +4343,8 @@ RPC Module Pool for transaction memory pool.
 
 Submits a new transaction into the transaction pool. If the transaction is already in the pool, rebroadcast it to peers.
 
+Please note that `send_transaction` is an asynchronous process. The return of `send_transaction` does NOT indicate that the transaction have been fully verified. If you want to track the status of the transaction, please use the `get_transaction`rpc.
+
 ###### Params
 
 *   `transaction` - The transaction.
@@ -4727,8 +4734,8 @@ Response
                "state": "failed",
                "timeout": "0x0",
                "threshold": {
-                    "numer": 3,
-                    "denom": 4
+                    "numer": "0x3",
+                    "denom": "0x4"
                 }
            }
        }
@@ -4751,13 +4758,13 @@ TCP RPC subscription:
 ```
 telnet localhost 18114
 > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
-< {"jsonrpc":"2.0","result":0,"id":2}
+< {"jsonrpc":"2.0","result":"0x0","id":2}
 < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 "subscription":0}}
 < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
 "subscription":0}}
 < ...
-> {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}
+> {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}
 < {"jsonrpc":"2.0","result":true,"id":2}
 ```
 
@@ -4774,7 +4781,7 @@ socket.onmessage = function(event) {
 
 socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
 
-socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": [0]}`)
+socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 ```
 
 
@@ -5680,7 +5687,7 @@ Consensus defines various parameters that influence chain consensus
 
 *   `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
 
-*   `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+*   `hardfork_features`: [`HardForks`](#type-hardforks) - Hardfork features
 
 *   `softforks`: `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`SoftFork`](#type-softfork) `}` - Softforks
 
@@ -5892,17 +5899,10 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 
 The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
 
-### Type `HardForkFeature`
+### Type `HardForks`
 
-The information about one hardfork feature.
+Hardfork information
 
-#### Fields
-
-`HardForkFeature` is a JSON object with the following fields.
-
-*   `rfc`: `string` - The related RFC ID.
-
-*   `epoch_number`: [`EpochNumber`](#type-epochnumber) `|` `null` - The first epoch when the feature is enabled, `null` indicates that the RFC has never been enabled.
 
 
 ### Type `Header`
@@ -6491,6 +6491,13 @@ A non-cellbase transaction is committed at height h_c if all of the following co
 
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both unsigned 64-bit integers.
 
+#### Fields
+
+`Ratio` is a JSON object with the following fields.
+
+*   `numer`: [`Uint64`](#type-uint64) - Numerator.
+
+*   `denom`: [`Uint64`](#type-uint64) - Denominator.
 
 
 ### Type `RationalU256`
@@ -6674,15 +6681,18 @@ Describes the lock script and type script for a cell.
 
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
-Allowed kinds: “data”, “type” and “data1”.
+Allowed kinds: “data”, “type”, “data1” and “data2”
 
 Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
 
-`ScriptHashType` is equivalent to `"data" | "type" | "data1"`.
+The hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.
+
+`ScriptHashType` is equivalent to `"data" | "type" | "data1" | "data2"`.
 
 *   Type “data” matches script code via cell data hash, and run the script code in v0 CKB VM.
 *   Type “type” matches script code via cell type script hash.
 *   Type “data1” matches script code via cell data hash, and run the script code in v1 CKB VM.
+*   Type “data2” matches script code via cell data hash, and run the script code in v2 CKB VM.
 
 
 ### Type `SerializedBlock`
@@ -6775,7 +6785,7 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 *   `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
-    CKB locates lock script and type script code via cell deps. The script also can uses syscalls to read the cells here.
+    CKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
@@ -6937,7 +6947,7 @@ The JSON view of a transaction as well as its status.
 
 *   `cycles`: [`Cycle`](#type-cycle) `|` `null` - The transaction consumed cycles.
 
-*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+*   `time_added_to_pool`: [`Uint64`](#type-uint64) `|` `null` - If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 

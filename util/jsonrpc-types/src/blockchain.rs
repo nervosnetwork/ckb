@@ -13,11 +13,17 @@ use std::fmt;
 
 /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
 ///
-/// Allowed kinds: "data", "type" and "data1".
+/// Allowed kinds: "data", "type", "data1" and "data2"
 ///
 /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
 /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
 /// in the RFC *CKB Transaction Structure*.
+///
+/// The hash type is split into the high 7 bits and the low 1 bit,
+/// when the low 1 bit is 1, it indicates the type,
+/// when the low 1 bit is 0, it indicates the data,
+/// and then it relies on the high 7 bits to indicate
+/// that the data actually corresponds to the version.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
@@ -27,6 +33,8 @@ pub enum ScriptHashType {
     Type = 1,
     /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
     Data1 = 2,
+    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+    Data2 = 4,
 }
 
 impl Default for ScriptHashType {
@@ -41,6 +49,7 @@ impl From<ScriptHashType> for core::ScriptHashType {
             ScriptHashType::Data => core::ScriptHashType::Data,
             ScriptHashType::Type => core::ScriptHashType::Type,
             ScriptHashType::Data1 => core::ScriptHashType::Data1,
+            ScriptHashType::Data2 => core::ScriptHashType::Data2,
         }
     }
 }
@@ -51,6 +60,7 @@ impl From<core::ScriptHashType> for ScriptHashType {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
             core::ScriptHashType::Data1 => ScriptHashType::Data1,
+            core::ScriptHashType::Data2 => ScriptHashType::Data2,
         }
     }
 }
@@ -61,6 +71,7 @@ impl fmt::Display for ScriptHashType {
             Self::Data => write!(f, "data"),
             Self::Type => write!(f, "type"),
             Self::Data1 => write!(f, "data1"),
+            Self::Data2 => write!(f, "data2"),
         }
     }
 }
@@ -373,7 +384,7 @@ pub struct Transaction {
     pub version: Version,
     /// An array of cell deps.
     ///
-    /// CKB locates lock script and type script code via cell deps. The script also can uses syscalls
+    /// CKB locates lock script and type script code via cell deps. The script also can use syscalls
     /// to read the cells here.
     ///
     /// Unlike inputs, the live cells can be used as cell deps in multiple transactions.
@@ -525,7 +536,7 @@ pub struct TransactionWithStatusResponse {
     pub transaction: Option<ResponseFormat<TransactionView>>,
     /// The transaction consumed cycles.
     pub cycles: Option<Cycle>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enter the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
@@ -1370,9 +1381,35 @@ pub struct Consensus {
     /// Keep difficulty be permanent if the pow is dummy
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
-    pub hardfork_features: Vec<HardForkFeature>,
+    pub hardfork_features: HardForks,
     /// Softforks
     pub softforks: HashMap<DeploymentPos, SoftFork>,
+}
+
+/// Hardfork information
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(transparent)]
+pub struct HardForks {
+    inner: Vec<HardForkFeature>,
+}
+
+impl HardForks {
+    /// Returns a list of hardfork features from a hardfork switch.
+    pub fn new(hardforks: &core::hardfork::HardForks) -> Self {
+        HardForks {
+            inner: vec![
+                HardForkFeature::new("0028", convert(hardforks.ckb2021.rfc_0028())),
+                HardForkFeature::new("0029", convert(hardforks.ckb2021.rfc_0029())),
+                HardForkFeature::new("0030", convert(hardforks.ckb2021.rfc_0030())),
+                HardForkFeature::new("0031", convert(hardforks.ckb2021.rfc_0031())),
+                HardForkFeature::new("0032", convert(hardforks.ckb2021.rfc_0032())),
+                HardForkFeature::new("0036", convert(hardforks.ckb2021.rfc_0036())),
+                HardForkFeature::new("0038", convert(hardforks.ckb2021.rfc_0038())),
+                HardForkFeature::new("0048", convert(hardforks.ckb2023.rfc_0048())),
+                HardForkFeature::new("0049", convert(hardforks.ckb2023.rfc_0049())),
+            ],
+        }
+    }
 }
 
 /// The information about one hardfork feature.
@@ -1424,7 +1461,7 @@ pub struct Buried {
     pub status: SoftForkStatus,
     /// Whether the rules are active
     pub active: bool,
-    /// The first epoch  which the rules will be enforced
+    /// The first epoch which the rules will be enforced
     pub epoch: EpochNumber,
 }
 
@@ -1436,6 +1473,25 @@ pub struct Rfc0043 {
     pub status: SoftForkStatus,
     /// RFC0043 deployment params
     pub rfc0043: Deployment,
+}
+
+/// Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
+/// unsigned 64-bit integers.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Ratio {
+    /// Numerator.
+    pub numer: Uint64,
+    /// Denominator.
+    pub denom: Uint64,
+}
+
+impl From<core::Ratio> for Ratio {
+    fn from(value: core::Ratio) -> Self {
+        Ratio {
+            numer: value.numer().into(),
+            denom: value.denom().into(),
+        }
+    }
 }
 
 /// RFC0043 deployment params
@@ -1456,7 +1512,7 @@ pub struct Deployment {
     pub period: EpochNumber,
     /// Specifies the minimum ratio of block per `period`,
     /// which indicate the locked_in of the softfork during the `period`.
-    pub threshold: core::Ratio,
+    pub threshold: Ratio,
 }
 
 fn convert(number: core::EpochNumber) -> Option<EpochNumber> {
@@ -1474,19 +1530,6 @@ impl HardForkFeature {
             rfc: rfc.to_owned(),
             epoch_number,
         }
-    }
-
-    /// Returns a list of hardfork features from a hardfork switch.
-    pub fn load_list_from_switch(switch: &core::hardfork::HardForkSwitch) -> Vec<Self> {
-        vec![
-            Self::new("0028", convert(switch.rfc_0028())),
-            Self::new("0029", convert(switch.rfc_0029())),
-            Self::new("0030", convert(switch.rfc_0030())),
-            Self::new("0031", convert(switch.rfc_0031())),
-            Self::new("0032", convert(switch.rfc_0032())),
-            Self::new("0036", convert(switch.rfc_0036())),
-            Self::new("0038", convert(switch.rfc_0038())),
-        ]
     }
 }
 

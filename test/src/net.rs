@@ -7,8 +7,8 @@ use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender
 use ckb_logger::info;
 use ckb_network::{
     async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
-    CKBProtocolHandler, DefaultExitHandler, Flags, NetworkController, NetworkService, NetworkState,
-    PeerIndex, ProtocolId, SupportProtocols,
+    CKBProtocolHandler, Flags, NetworkController, NetworkService, NetworkState, PeerIndex,
+    ProtocolId, SupportProtocols,
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ impl Net {
                 )
             })
             .collect();
-        let (async_handle, async_runtime) = new_global_runtime();
+        let (async_handle, _handle_recv, async_runtime) = new_global_runtime();
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
@@ -73,7 +73,6 @@ impl Net {
                 "0.1.0".to_string(),
                 Flags::COMPATIBILITY,
             ),
-            DefaultExitHandler::default(),
         )
         .start(&async_handle)
         .unwrap();

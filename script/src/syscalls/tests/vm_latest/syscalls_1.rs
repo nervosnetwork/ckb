@@ -676,7 +676,10 @@ fn _test_load_header(
 
     let mut headers = HashMap::default();
     headers.insert(header.hash(), header.clone());
-    let data_loader = MockDataLoader { headers };
+    let data_loader = MockDataLoader {
+        headers,
+        ..Default::default()
+    };
     let group_inputs = Arc::new(vec![0]);
 
     let rtx = Arc::new(ResolvedTransaction {
@@ -790,7 +793,10 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
 
     let mut headers = HashMap::default();
     headers.insert(header.hash(), header.clone());
-    let data_loader = MockDataLoader { headers };
+    let data_loader = MockDataLoader {
+        headers,
+        ..Default::default()
+    };
     let group_inputs = Arc::new(vec![]);
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()

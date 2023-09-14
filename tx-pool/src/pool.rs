@@ -147,6 +147,9 @@ impl TxPool {
 
     /// Add tx which proposed but still uncommittable to gap pool
     pub fn add_gap(&mut self, entry: TxEntry) -> bool {
+        if self.proposed.contains_key(&entry.proposal_short_id()) {
+            return false;
+        }
         trace!("add_gap {}", entry.transaction().hash());
         self.gap.add_entry(entry)
     }
@@ -284,7 +287,7 @@ impl TxPool {
         }
     }
 
-    //  Expire all transaction (and their dependencies) in the pool.
+    // Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let expired =
@@ -442,14 +445,14 @@ impl TxPool {
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_proposed(tip_header, 0);
+        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 0));
         self.check_rtx_from_pending_and_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(
             snapshot,
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &Some(cache_entry),
             max_cycles,
         )?;
@@ -473,14 +476,14 @@ impl TxPool {
     ) -> Result<CacheEntry, Reject> {
         let snapshot = self.cloned_snapshot();
         let tip_header = snapshot.tip_header();
-        let tx_env = TxVerifyEnv::new_proposed(tip_header, 1);
+        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 1));
         self.check_rtx_from_proposed(&rtx)?;
 
         let max_cycles = snapshot.consensus().max_block_cycles();
         let verified = verify_rtx(
             snapshot,
             Arc::clone(&rtx),
-            &tx_env,
+            tx_env,
             &Some(cache_entry),
             max_cycles,
         )?;

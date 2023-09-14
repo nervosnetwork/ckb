@@ -5,13 +5,13 @@ use ckb_types::{
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{VERSION0, VERSION1},
+    machine::{VERSION0, VERSION1, VERSION2},
     snapshot::{make_snapshot, Snapshot},
-    Error as VMInternalError, SupportMachine, ISA_B, ISA_IMC, ISA_MOP,
+    Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -51,12 +51,14 @@ pub enum ScriptVersion {
     V0 = 0,
     /// CKB VM 1 with Syscall version 1 and version 2.
     V1 = 1,
+    /// CKB VM 2 with Syscall version 1, version 2 and version 3.
+    V2 = 2,
 }
 
 impl ScriptVersion {
     /// Returns the latest version.
     pub const fn latest() -> Self {
-        Self::V1
+        Self::V2
     }
 
     /// Returns the ISA set of CKB VM in current script version.
@@ -64,6 +66,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => ISA_IMC,
             Self::V1 => ISA_IMC | ISA_B | ISA_MOP,
+            Self::V2 => ISA_IMC | ISA_A | ISA_B | ISA_MOP,
         }
     }
 
@@ -72,6 +75,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => VERSION0,
             Self::V1 => VERSION1,
+            Self::V2 => VERSION2,
         }
     }
 
@@ -84,6 +88,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => ScriptHashType::Data,
             Self::V1 => ScriptHashType::Data1,
+            Self::V2 => ScriptHashType::Data2,
         }
     }
 
@@ -107,41 +112,121 @@ pub(crate) type Machine = AsmMachine;
 #[cfg(not(has_asm))]
 pub(crate) type Machine = TraceMachine<CoreMachine>;
 
-pub struct ResumableMachine {
-    machine: Machine,
-    pub(crate) program_bytes_cycles: Option<Cycle>,
+/// Common data that would be shared amongst multiple VM instances.
+/// One sample usage right now, is to capture suspended machines in
+/// a chain of spawned machines.
+#[derive(Default)]
+pub struct MachineContext {
+    /// A stack of ResumableMachines.
+    pub suspended_machines: Vec<ResumableMachine>,
+}
+
+/// Data structure captured all environment data for a suspended machine
+#[derive(Clone, Debug)]
+pub enum ResumePoint {
+    Initial,
+    Spawn {
+        callee_peak_memory: u64,
+        callee_memory_limit: u64,
+        content: Vec<u8>,
+        content_length: u64,
+        caller_exit_code_addr: u64,
+        caller_content_addr: u64,
+        caller_content_length_addr: u64,
+        cycles_base: u64,
+    },
+}
+
+/// Data structure captured all the required data for a spawn syscall
+#[derive(Clone, Debug)]
+pub struct SpawnData {
+    pub(crate) callee_peak_memory: u64,
+    pub(crate) callee_memory_limit: u64,
+    pub(crate) content: Arc<Mutex<Vec<u8>>>,
+    pub(crate) content_length: u64,
+    pub(crate) caller_exit_code_addr: u64,
+    pub(crate) caller_content_addr: u64,
+    pub(crate) caller_content_length_addr: u64,
+    pub(crate) cycles_base: u64,
+}
+
+impl TryFrom<&SpawnData> for ResumePoint {
+    type Error = VMInternalError;
+
+    fn try_from(value: &SpawnData) -> Result<Self, Self::Error> {
+        let SpawnData {
+            callee_peak_memory,
+            callee_memory_limit,
+            content,
+            content_length,
+            caller_exit_code_addr,
+            caller_content_addr,
+            caller_content_length_addr,
+            cycles_base,
+        } = value;
+        Ok(ResumePoint::Spawn {
+            callee_peak_memory: *callee_peak_memory,
+            callee_memory_limit: *callee_memory_limit,
+            content: content
+                .lock()
+                .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
+                .clone(),
+            content_length: *content_length,
+            caller_exit_code_addr: *caller_exit_code_addr,
+            caller_content_addr: *caller_content_addr,
+            caller_content_length_addr: *caller_content_length_addr,
+            cycles_base: *cycles_base,
+        })
+    }
+}
+
+/// An enumerated type indicating the type of the Machine.
+pub enum ResumableMachine {
+    /// Root machine instance.
+    Initial(Machine),
+    /// A machine which created by spawn syscall.
+    Spawn(Machine, SpawnData),
 }
 
 impl ResumableMachine {
-    pub(crate) fn new(machine: Machine, program_bytes_cycles: Option<Cycle>) -> Self {
-        ResumableMachine {
-            machine,
-            program_bytes_cycles,
+    pub(crate) fn initial(machine: Machine) -> Self {
+        ResumableMachine::Initial(machine)
+    }
+
+    pub(crate) fn spawn(machine: Machine, data: SpawnData) -> Self {
+        ResumableMachine::Spawn(machine, data)
+    }
+
+    pub(crate) fn machine(&self) -> &Machine {
+        match self {
+            ResumableMachine::Initial(machine) => machine,
+            ResumableMachine::Spawn(machine, _) => machine,
+        }
+    }
+
+    pub(crate) fn machine_mut(&mut self) -> &mut Machine {
+        match self {
+            ResumableMachine::Initial(machine) => machine,
+            ResumableMachine::Spawn(machine, _) => machine,
         }
     }
 
     pub(crate) fn cycles(&self) -> Cycle {
-        self.machine.machine.cycles()
+        self.machine().machine.cycles()
     }
 
     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
-        set_vm_max_cycles(&mut self.machine, cycles)
+        set_vm_max_cycles(self.machine_mut(), cycles)
     }
 
-    pub fn program_loaded(&self) -> bool {
-        self.program_bytes_cycles.is_none()
-    }
-
+    /// Add cycles to current machine.
     pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
-        self.machine.machine.add_cycles(cycles)
+        self.machine_mut().machine.add_cycles(cycles)
     }
 
+    /// Run machine.
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
-        if let Some(cycles) = self.program_bytes_cycles {
-            self.add_cycles(cycles)?;
-            self.program_bytes_cycles = None;
-        }
-        self.machine.run()
+        self.machine_mut().run()
     }
 }
 
@@ -160,6 +245,7 @@ pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
 /// A script group will only be executed once per transaction, the
 /// script itself should check against all inputs/outputs in its group
 /// if needed.
+#[derive(Clone)]
 pub struct ScriptGroup {
     /// The script.
     ///
@@ -222,8 +308,8 @@ impl fmt::Display for ScriptGroupType {
 pub struct TransactionSnapshot {
     /// current suspended script index
     pub current: usize,
-    /// vm snapshot
-    pub snap: Option<(Snapshot, Cycle)>,
+    /// vm snapshots
+    pub snaps: Vec<(Snapshot, Cycle, ResumePoint)>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -235,15 +321,34 @@ pub struct TransactionSnapshot {
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
-    /// vm state
-    pub vm: Option<ResumableMachine>,
+    /// vm states
+    pub vms: Vec<ResumableMachine>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
+    /// machine context for the vms included in this state
+    pub machine_context: Arc<Mutex<MachineContext>>,
 }
 
 impl TransactionState {
+    /// Creates a new TransactionState struct
+    pub fn new(
+        vms: Vec<ResumableMachine>,
+        machine_context: Arc<Mutex<MachineContext>>,
+        current: usize,
+        current_cycles: Cycle,
+        limit_cycles: Cycle,
+    ) -> Self {
+        TransactionState {
+            current,
+            vms,
+            machine_context,
+            current_cycles,
+            limit_cycles,
+        }
+    }
+
     /// Return next limit cycles according to max_cycles and step_cycles
     pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
         let remain = max_cycles - self.current_cycles;
@@ -277,34 +382,29 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
     fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            vm,
+            vms,
             current_cycles,
             limit_cycles,
+            ..
         } = state;
 
-        let (snap, current_cycles) = if let Some(mut vm) = vm {
-            // we should not capture snapshot if load program failed by exceeded cycles
-            if vm.program_loaded() {
-                let vm_cycles = vm.cycles();
-                (
-                    Some((
-                        make_snapshot(&mut vm.machine.machine).map_err(|e| {
-                            ScriptError::VMInternalError(format!("{e:?}")).unknown_source()
-                        })?,
-                        vm_cycles,
-                    )),
-                    current_cycles,
-                )
-            } else {
-                (None, current_cycles)
-            }
-        } else {
-            (None, current_cycles)
-        };
+        let mut snaps = Vec::with_capacity(vms.len());
+        for mut vm in vms {
+            let snapshot = make_snapshot(&mut vm.machine_mut().machine)
+                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?;
+            let cycles = vm.cycles();
+            let resume_point = match vm {
+                ResumableMachine::Initial(_) => ResumePoint::Initial,
+                ResumableMachine::Spawn(_, data) => (&data)
+                    .try_into()
+                    .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
+            };
+            snaps.push((snapshot, cycles, resume_point));
+        }
 
         Ok(TransactionSnapshot {
             current,
-            snap,
+            snaps,
             current_cycles,
             limit_cycles,
         })

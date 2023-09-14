@@ -308,13 +308,14 @@ fn test_get_ancestor() {
     assert!(tip.is_some());
     assert!(header.is_some());
     assert!(noop.is_none());
-    assert_eq!(tip.unwrap(), shared.snapshot().tip_header().to_owned());
+    assert_eq!(tip.unwrap().hash(), shared.snapshot().tip_header().hash());
     assert_eq!(
-        header.unwrap(),
+        header.unwrap().hash(),
         shared
             .store()
             .get_block_header(&shared.store().get_block_hash(100).unwrap())
             .unwrap()
+            .hash()
     );
 }
 
@@ -420,6 +421,9 @@ fn mock_header_index(total_difficulty: u64) -> HeaderIndex {
 
 #[async_trait]
 impl CKBProtocolContext for DummyNetworkContext {
+    fn ckb2023(&self) -> bool {
+        false
+    }
     // Interact with underlying p2p service
     async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!();
@@ -1221,8 +1225,6 @@ fn test_internal_db_error() {
     faux::when!(chain_controller.process_block(Arc::clone(&block))).then_return(Err(
         InternalErrorKind::Database.other("mocked db error").into(),
     ));
-
-    faux::when!(chain_controller.try_stop()).then_return(());
 
     let synchronizer = Synchronizer::new(chain_controller, sync_shared);
 

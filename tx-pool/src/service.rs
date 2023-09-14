@@ -6,17 +6,18 @@ use crate::chunk_process::ChunkCommand;
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
+use crate::util::after_delay_window;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::error;
 use ckb_logger::info;
+use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
-use ckb_stop_handler::{SignalSender, StopHandler, WATCH_INIT};
+use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
@@ -25,7 +26,7 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_util::LinkedHashSet;
+use ckb_util::{LinkedHashMap, LinkedHashSet};
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -36,6 +37,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "internal")]
 use crate::{component::entry::TxEntry, process::PlugTarget};
@@ -127,16 +129,7 @@ pub struct TxPoolController {
     reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
     chunk_tx: Arc<watch::Sender<ChunkCommand>>,
     handle: Handle,
-    stop: StopHandler<()>,
     started: Arc<AtomicBool>,
-}
-
-impl Drop for TxPoolController {
-    fn drop(&mut self) {
-        if self.service_started() {
-            self.stop.try_send(());
-        }
-    }
 }
 
 macro_rules! send_message {
@@ -377,7 +370,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
-    pub(crate) signal_receiver: watch::Receiver<u8>,
+    pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
@@ -402,22 +395,16 @@ impl TxPoolServiceBuilder {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (signal_sender, signal_receiver) = watch::channel(WATCH_INIT);
+        let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
-        let stop = StopHandler::new(
-            SignalSender::Watch(signal_sender),
-            None,
-            "tx-pool".to_string(),
-        );
         let controller = TxPoolController {
             sender,
             reorg_sender,
             handle: handle.clone(),
             chunk_tx: Arc::new(chunk_tx),
-            stop,
             started: Arc::clone(&started),
         };
 
@@ -472,8 +459,9 @@ impl TxPoolServiceBuilder {
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
-        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
+        let after_delay_window = after_delay_window(&self.snapshot);
 
+        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
             Err(e) => {
@@ -496,6 +484,8 @@ impl TxPoolServiceBuilder {
             chunk: self.chunk,
             network,
             consensus,
+            delay: Arc::new(RwLock::new(LinkedHashMap::new())),
+            after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
         let signal_receiver = self.signal_receiver.clone();
@@ -511,7 +501,7 @@ impl TxPoolServiceBuilder {
         let handle_clone = self.handle.clone();
 
         let process_service = service.clone();
-        let mut signal_receiver = self.signal_receiver.clone();
+        let signal_receiver = self.signal_receiver.clone();
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -519,7 +509,11 @@ impl TxPoolServiceBuilder {
                         let service_clone = process_service.clone();
                         handle_clone.spawn(process(service_clone, message));
                     },
-                    _ = signal_receiver.changed() => break,
+                    _ = signal_receiver.cancelled() => {
+                        info!("TxPool is saving, please wait...");
+                        process_service.save_pool().await;
+                        break
+                    },
                     else => break,
                 }
             }
@@ -527,7 +521,7 @@ impl TxPoolServiceBuilder {
 
         let process_service = service.clone();
         if let Some(ref block_assembler) = service.block_assembler {
-            let mut signal_receiver = self.signal_receiver.clone();
+            let signal_receiver = self.signal_receiver.clone();
             let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
             if interval.is_zero() {
                 // block_assembler.update_interval_millis set zero interval should only be used for tests,
@@ -543,7 +537,10 @@ impl TxPoolServiceBuilder {
                                 let service_clone = process_service.clone();
                                 block_assembler::process(service_clone, &message).await;
                             },
-                            _ = signal_receiver.changed() => break,
+                            _ = signal_receiver.cancelled() => {
+                                debug!("TxPool received exit signal, exit now");
+                                break
+                            },
                             else => break,
                         }
                     }
@@ -575,7 +572,10 @@ impl TxPoolServiceBuilder {
                                 }
                                 queue.clear();
                             }
-                            _ = signal_receiver.changed() => break,
+                            _ = signal_receiver.cancelled() => {
+                                debug!("TxPool received exit signal, exit now");
+                                break
+                            },
                             else => break,
                         }
                     }
@@ -583,7 +583,7 @@ impl TxPoolServiceBuilder {
             }
         }
 
-        let mut signal_receiver = self.signal_receiver;
+        let signal_receiver = self.signal_receiver;
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -610,15 +610,18 @@ impl TxPoolServiceBuilder {
 
                         service.update_block_assembler_after_tx_pool_reorg().await;
                     },
-                    _ = signal_receiver.changed() => break,
+                    _ = signal_receiver.cancelled() => {
+                        debug!("TxPool received exit signal, exit now");
+                        break
+                    },
                     else => break,
                 }
             }
         });
+        self.started.store(true, Ordering::Relaxed);
         if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persisted txs, cause: {}", err);
         }
-        self.started.store(true, Ordering::Relaxed);
     }
 }
 
@@ -635,6 +638,8 @@ pub(crate) struct TxPoolService {
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
+    pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
+    pub(crate) after_delay: Arc<AtomicBool>,
 }
 
 /// tx verification result
@@ -643,6 +648,8 @@ pub enum TxVerificationResult {
     Ok {
         /// original peer
         original_peer: Option<PeerIndex>,
+        /// verified by ckb vm version
+        with_vm_2023: bool,
         /// transaction hash
         tx_hash: Byte32,
     },
@@ -998,5 +1005,13 @@ impl TxPoolService {
                 }
             };
         }
+    }
+
+    pub fn after_delay(&self) -> bool {
+        self.after_delay.load(Ordering::Relaxed)
+    }
+
+    pub fn set_after_delay_true(&self) {
+        self.after_delay.store(true, Ordering::Relaxed);
     }
 }

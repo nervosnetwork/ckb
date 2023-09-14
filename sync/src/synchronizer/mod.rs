@@ -21,12 +21,13 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::block_status::BlockStatus;
-use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeaderIndexView, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 
 use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
+use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
@@ -37,6 +38,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{self, BlockNumber},
@@ -86,58 +88,70 @@ struct BlockFetchCMD {
 }
 
 impl BlockFetchCMD {
-    fn run(&mut self) {
-        while let Ok(cmd) = self.recv.recv() {
-            match cmd {
-                FetchCMD::Fetch((peers, state)) => match self.can_start() {
-                    CanStart::Ready => {
-                        for peer in peers {
-                            if let Some(fetch) = BlockFetcher::new(&self.sync, peer, state).fetch()
-                            {
-                                for item in fetch {
-                                    BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
-                                }
+    fn process_fetch_cmd(&mut self, cmd: FetchCMD) {
+        match cmd {
+            FetchCMD::Fetch((peers, state)) => match self.can_start() {
+                CanStart::Ready => {
+                    for peer in peers {
+                        if let Some(fetch) = BlockFetcher::new(&self.sync, peer, state).fetch() {
+                            for item in fetch {
+                                BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                             }
                         }
                     }
-                    CanStart::MinWorkNotReach => {
-                        let best_known = self.sync.shared.state().shared_best_header_ref();
-                        let number = best_known.number();
-                        if number != self.number && (number - self.number) % 10000 == 0 {
-                            self.number = number;
-                            info!(
-                                    "best known header number: {}, total difficulty: {:#x}, \
+                }
+                CanStart::MinWorkNotReach => {
+                    let best_known = self.sync.shared.state().shared_best_header_ref();
+                    let number = best_known.number();
+                    if number != self.number && (number - self.number) % 10000 == 0 {
+                        self.number = number;
+                        info!(
+                            "best known header number: {}, total difficulty: {:#x}, \
                                  require min header number on 500_000, min total difficulty: {:#x}, \
                                  then start to download block",
-                                    number,
-                                    best_known.total_difficulty(),
-                                    self.sync.shared.state().min_chain_work()
-                                );
-                        }
+                            number,
+                            best_known.total_difficulty(),
+                            self.sync.shared.state().min_chain_work()
+                        );
                     }
-                    CanStart::AssumeValidNotFound => {
-                        let state = self.sync.shared.state();
-                        let best_known = state.shared_best_header_ref();
-                        let number = best_known.number();
-                        let assume_valid_target: Byte32 = state
-                            .assume_valid_target()
-                            .as_ref()
-                            .map(Pack::pack)
-                            .expect("assume valid target must exist");
+                }
+                CanStart::AssumeValidNotFound => {
+                    let state = self.sync.shared.state();
+                    let best_known = state.shared_best_header_ref();
+                    let number = best_known.number();
+                    let assume_valid_target: Byte32 = state
+                        .assume_valid_target()
+                        .as_ref()
+                        .map(Pack::pack)
+                        .expect("assume valid target must exist");
 
-                        if number != self.number && (number - self.number) % 10000 == 0 {
-                            self.number = number;
-                            info!(
-                                "best known header number: {}, hash: {:#?}, \
+                    if number != self.number && (number - self.number) % 10000 == 0 {
+                        self.number = number;
+                        info!(
+                            "best known header number: {}, hash: {:#?}, \
                                  can't find assume valid target temporarily, hash: {:#?} \
                                  please wait",
-                                number,
-                                best_known.hash(),
-                                assume_valid_target
-                            );
-                        }
+                            number,
+                            best_known.hash(),
+                            assume_valid_target
+                        );
                     }
-                },
+                }
+            },
+        }
+    }
+    fn run(&mut self, stop_signal: Receiver<()>) {
+        loop {
+            select! {
+                recv(self.recv) -> msg => {
+                    if let Ok(cmd) = msg {
+                        self.process_fetch_cmd(cmd)
+                    }
+                }
+                recv(stop_signal) -> _ => {
+                    debug!("thread BlockDownload received exit signal, exit now");
+                    return;
+                }
             }
         }
     }
@@ -305,7 +319,7 @@ impl Synchronizer {
         self.shared().state().peers()
     }
 
-    fn better_tip_header(&self) -> core::HeaderView {
+    fn better_tip_header(&self) -> HeaderIndexView {
         let (header, total_difficulty) = {
             let active_chain = self.shared.active_chain();
             (
@@ -316,9 +330,9 @@ impl Synchronizer {
         let best_known = self.shared.state().shared_best_header();
         // is_better_chain
         if total_difficulty > *best_known.total_difficulty() {
-            header
+            (header, total_difficulty).into()
         } else {
-            best_known.into_inner()
+            best_known
         }
     }
 
@@ -354,12 +368,20 @@ impl Synchronizer {
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
-        let (is_outbound, is_whitelist) = nc
+        let pid = SupportProtocols::Sync.protocol_id();
+        let (is_outbound, is_whitelist, is_2023edition) = nc
             .get_peer(peer)
-            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
-            .unwrap_or((false, false));
+            .map(|peer| {
+                (
+                    peer.is_outbound(),
+                    peer.is_whitelist,
+                    peer.protocols.get(&pid).map(|v| v == "3").unwrap_or(false),
+                )
+            })
+            .unwrap_or((false, false, false));
 
-        self.peers().sync_connected(peer, is_outbound, is_whitelist);
+        self.peers()
+            .sync_connected(peer, is_outbound, is_whitelist, is_2023edition);
     }
 
     /// Regularly check and eject some nodes that do not respond in time
@@ -387,7 +409,11 @@ impl Synchronizer {
                         continue;
                     }
                 } else {
-                    active_chain.send_getheaders_to_peer(nc, *peer, (&better_tip_header).into());
+                    active_chain.send_getheaders_to_peer(
+                        nc,
+                        *peer,
+                        better_tip_header.number_and_hash(),
+                    );
                 }
             }
 
@@ -512,7 +538,7 @@ impl Synchronizer {
             }
 
             debug!("start sync peer={}", peer);
-            active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
+            active_chain.send_getheaders_to_peer(nc, peer, tip.number_and_hash());
         }
     }
 
@@ -613,9 +639,11 @@ impl Synchronizer {
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
-                    thread
-                        .name("BlockDownload".to_string())
+                    const THREAD_NAME: &str = "BlockDownload";
+                    let blockdownload_jh = thread
+                        .name(THREAD_NAME.into())
                         .spawn(move || {
+                            let stop_signal = new_crossbeam_exit_rx();
                             BlockFetchCMD {
                                 sync,
                                 p2p_control,
@@ -623,9 +651,10 @@ impl Synchronizer {
                                 number,
                                 can_start: CanStart::MinWorkNotReach,
                             }
-                            .run();
+                            .run(stop_signal);
                         })
                         .expect("download thread can't start");
+                    register_thread(THREAD_NAME, blockdownload_jh);
                 }
             },
             None => {

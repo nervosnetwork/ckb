@@ -75,6 +75,9 @@ impl MockNetworkContext {
 
 #[async_trait]
 impl CKBProtocolContext for MockProtocolContext {
+    fn ckb2023(&self) -> bool {
+        false
+    }
     async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         // NOTE: no need to mock this function, just call protocol.notity(token) in
         // test code to test the functionality of the protocol.

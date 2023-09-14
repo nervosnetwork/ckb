@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_systemtime::unix_time_as_millis;
-use ckb_traits::HeaderProvider;
+use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
     core::{EpochNumberWithFraction, HeaderView},
     packed::{self, Byte32, CompactBlock},
@@ -167,11 +167,11 @@ impl<'a> CompactBlockProcess<'a> {
 }
 
 struct CompactBlockMedianTimeView<'a> {
-    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<HeaderView> + 'a>,
+    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<HeaderFields> + 'a>,
 }
 
-impl<'a> HeaderProvider for CompactBlockMedianTimeView<'a> {
-    fn get_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
+impl<'a> HeaderFieldsProvider for CompactBlockMedianTimeView<'a> {
+    fn get_header_fields(&self, hash: &packed::Byte32) -> Option<HeaderFields> {
         // Note: don't query store because we already did that in `fn_get_pending_header -> get_header_view`.
         (self.fn_get_pending_header)(hash.to_owned())
     }
@@ -233,7 +233,7 @@ fn contextual_check(
     if status.contains(BlockStatus::BLOCK_STORED) {
         // update last common header and best known
         let parent = shared
-            .get_header_view(&compact_block_header.data().raw().parent_hash(), Some(true))
+            .get_header_index_view(&compact_block_header.data().raw().parent_hash(), true)
             .expect("parent block must exist");
 
         let header_index = HeaderIndex::new(
@@ -253,9 +253,9 @@ fn contextual_check(
     }
 
     let store_first = tip.number() + 1 >= compact_block_header.number();
-    let parent = shared.get_header_view(
+    let parent = shared.get_header_index_view(
         &compact_block_header.data().raw().parent_hash(),
-        Some(store_first),
+        store_first,
     );
     if parent.is_none() {
         debug_target!(
@@ -287,11 +287,26 @@ fn contextual_check(
         |block_hash| {
             pending_compact_blocks
                 .get(&block_hash)
-                .map(|(compact_block, _, _)| compact_block.header().into_view())
+                .map(|(compact_block, _, _)| {
+                    let header = compact_block.header().into_view();
+                    HeaderFields {
+                        hash: header.hash(),
+                        number: header.number(),
+                        epoch: header.epoch(),
+                        timestamp: header.timestamp(),
+                        parent_hash: header.parent_hash(),
+                    }
+                })
                 .or_else(|| {
                     shared
-                        .get_header_view(&block_hash, None)
-                        .map(|header_view| header_view.into_inner())
+                        .get_header_index_view(&block_hash, false)
+                        .map(|header| HeaderFields {
+                            hash: header.hash(),
+                            number: header.number(),
+                            epoch: header.epoch(),
+                            timestamp: header.timestamp(),
+                            parent_hash: header.parent_hash(),
+                        })
                 })
         }
     };

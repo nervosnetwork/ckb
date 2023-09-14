@@ -1,11 +1,11 @@
-use crate::types::HeaderView;
 use ckb_async_runtime::Handle;
-use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_types::packed::{self, Byte32};
-use std::path;
+use ckb_logger::debug;
+use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_types::packed::Byte32;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::oneshot;
+use std::{mem::size_of, path};
+
 use tokio::time::MissedTickBehavior;
 
 mod backend;
@@ -18,20 +18,14 @@ pub(crate) use self::{
     memory::MemoryMap,
 };
 
+use super::HeaderIndexView;
+
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
-    stop: StopHandler<()>,
-}
-
-impl Drop for HeaderMap {
-    fn drop(&mut self) {
-        self.stop.try_send(());
-    }
 }
 
 const INTERVAL: Duration = Duration::from_millis(500);
-// key + total_difficulty + skip_hash
-const ITEM_BYTES_SIZE: usize = packed::HeaderView::TOTAL_SIZE + 32 * 3;
+const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
@@ -51,7 +45,7 @@ impl HeaderMap {
         let size_limit = memory_limit / ITEM_BYTES_SIZE;
         let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit));
         let map = Arc::clone(&inner);
-        let (stop, mut stop_rx) = oneshot::channel::<()>();
+        let stop_rx: CancellationToken = new_tokio_exit_rx();
 
         async_handle.spawn(async move {
             let mut interval = tokio::time::interval(INTERVAL);
@@ -61,26 +55,26 @@ impl HeaderMap {
                     _ = interval.tick() => {
                         map.limit_memory();
                     }
-                    _ = &mut stop_rx => break,
+                    _ = stop_rx.cancelled() => {
+                        debug!("HeaderMap limit_memory received exit signal, exit now");
+                        break
+                    },
                 }
             }
         });
 
-        Self {
-            inner,
-            stop: StopHandler::new(SignalSender::Tokio(stop), None, "HeaderMap".to_string()),
-        }
+        Self { inner }
     }
 
     pub(crate) fn contains_key(&self, hash: &Byte32) -> bool {
         self.inner.contains_key(hash)
     }
 
-    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderView> {
+    pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
         self.inner.get(hash)
     }
 
-    pub(crate) fn insert(&self, view: HeaderView) -> Option<()> {
+    pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
         self.inner.insert(view)
     }
 

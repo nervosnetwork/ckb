@@ -239,9 +239,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "blake2b-ref"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95916998c798756098a4eb1b3f2cd510659705a9817bf203d61abd30fbec3e7b"
+checksum = "294d17c72e0ba59fad763caa112368d0672083779cdebbb97164f4bb4c1e339a"
 
 [[package]]
 name = "blake2b-rs"
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -483,17 +483,16 @@ dependencies = [
 
 [[package]]
 name = "ckb-async-runtime"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
- "ckb-stop-handler",
  "tokio",
 ]
 
 [[package]]
 name = "ckb-benches"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -521,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "base64",
  "ckb-app-config",
@@ -542,6 +541,7 @@ dependencies = [
  "ckb-network",
  "ckb-resource",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "ckb-util",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-block-filter"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -573,11 +573,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
-version = "0.110.2"
+version = "0.111.0"
 
 [[package]]
 name = "ckb-chain"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-iter"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-store",
  "ckb-types",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-constant",
  "ckb-crypto",
@@ -639,18 +639,18 @@ dependencies = [
 
 [[package]]
 name = "ckb-channel"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "crossbeam-channel",
 ]
 
 [[package]]
 name = "ckb-constant"
-version = "0.110.2"
+version = "0.111.0"
 
 [[package]]
 name = "ckb-crypto"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao-utils"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "byteorder",
  "ckb-error",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-db-schema",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-migration"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-db",
@@ -713,11 +713,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-schema"
-version = "0.110.2"
+version = "0.111.0"
 
 [[package]]
 name = "ckb-error"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "faster-hex",
  "serde",
@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-macros"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-freezer"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-error",
  "ckb-logger",
@@ -770,8 +770,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-gen-types"
+version = "0.111.0"
+dependencies = [
+ "cfg-if 1.0.0",
+ "ckb-error",
+ "ckb-fixed-hash",
+ "ckb-hash",
+ "ckb-occupied-capacity",
+ "molecule",
+ "numext-fixed-uint",
+]
+
+[[package]]
 name = "ckb-hash"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "blake2b-ref",
  "blake2b-rs",
@@ -779,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -801,7 +814,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-chain",
  "ckb-chain-iter",
@@ -814,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-types",
  "faster-hex",
@@ -827,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-launcher"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -854,7 +867,6 @@ dependencies = [
  "ckb-rpc",
  "ckb-shared",
  "ckb-snapshot",
- "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
  "ckb-systemtime",
@@ -869,9 +881,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-librocksdb-sys"
-version = "7.7.3"
+version = "8.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb64bb11f8d53b9abb526b7e9d3c5fb437a8101e4210d540d2bcee0d18055313"
+checksum = "5d9bc1ea9ab886ecbf48bc4ade6d383ba56cf3da198b6a51620736daf74b683c"
 dependencies = [
  "bindgen",
  "cc",
@@ -883,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -906,14 +918,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "ckb-logger-config"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "serde",
  "toml",
@@ -921,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger-service"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "backtrace",
  "ckb-channel",
@@ -940,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-db",
  "ckb-logger",
@@ -962,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "once_cell",
  "prometheus",
@@ -971,19 +983,20 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics-config"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-metrics-service"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
  "ckb-metrics",
  "ckb-metrics-config",
+ "ckb-stop-handler",
  "ckb-util",
  "hyper",
  "prometheus",
@@ -991,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-migration-template"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "quote",
  "syn",
@@ -999,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "base64",
  "ckb-app-config",
@@ -1028,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-crypto",
  "ckb-error",
@@ -1038,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "bitflags",
  "bloom-filters",
@@ -1070,13 +1083,13 @@ dependencies = [
  "tempfile",
  "tentacle",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "trust-dns-resolver",
 ]
 
 [[package]]
 name = "ckb-network-alert"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1087,7 +1100,6 @@ dependencies = [
  "ckb-multisig",
  "ckb-network",
  "ckb-notify",
- "ckb-stop-handler",
  "ckb-systemtime",
  "ckb-types",
  "ckb-util",
@@ -1100,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-notify"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1112,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
@@ -1120,14 +1132,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-core"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-occupied-capacity-core",
  "quote",
@@ -1136,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "byteorder",
  "ckb-hash",
@@ -1148,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1157,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
@@ -1166,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1180,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1196,9 +1208,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-rocksdb"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e9d412caf8a7fe9080bf2c66209e1b6d9aab336c417b336adde47e184c78c41"
+checksum = "c2331a8580072e2991e77277d2c3e999c8df0d00b16188a77e561e45a4597769"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",
@@ -1207,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1256,14 +1268,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-rust-unstable-port"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "is_sorted",
 ]
 
 [[package]]
 name = "ckb-script"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1288,12 +1300,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-shared"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "arc-swap",
  "ckb-async-runtime",
  "ckb-chain-spec",
- "ckb-channel",
  "ckb-constant",
  "ckb-db",
  "ckb-db-schema",
@@ -1312,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-snapshot"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "arc-swap",
  "ckb-chain-spec",
@@ -1328,21 +1339,27 @@ dependencies = [
 
 [[package]]
 name = "ckb-spawn"
-version = "0.110.2"
+version = "0.111.0"
 
 [[package]]
 name = "ckb-stop-handler"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
+ "ckb-async-runtime",
  "ckb-channel",
  "ckb-logger",
- "parking_lot 0.12.1",
+ "ckb-util",
+ "ctrlc",
+ "libc",
+ "once_cell",
+ "rand 0.8.5",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
 name = "ckb-store"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1360,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "bitflags",
  "ckb-app-config",
@@ -1418,11 +1435,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-systemtime"
-version = "0.110.2"
+version = "0.111.0"
 
 [[package]]
 name = "ckb-test-chain-utils"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao-utils",
@@ -1440,14 +1457,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1471,22 +1488,28 @@ dependencies = [
  "ckb-verification",
  "hyper",
  "lru",
+ "multi_index_map",
  "rand 0.8.5",
+ "rustc-hash",
  "sentry",
  "serde_json",
+ "slab",
  "tempfile",
  "tokio",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
 name = "ckb-types"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "bit-vec",
  "bytes 1.4.0",
  "ckb-channel",
+ "ckb-constant",
  "ckb-error",
  "ckb-fixed-hash",
+ "ckb-gen-types",
  "ckb-hash",
  "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
@@ -1497,12 +1520,13 @@ dependencies = [
  "molecule",
  "numext-fixed-uint",
  "once_cell",
+ "paste",
  "proptest",
 ]
 
 [[package]]
 name = "ckb-util"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
@@ -1513,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1533,7 +1557,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-contextual"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
@@ -1560,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-traits"
-version = "0.110.2"
+version = "0.111.0"
 dependencies = [
  "bitflags",
  "ckb-error",
@@ -1568,9 +1592,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.23.2"
+version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93fee7eb8d6525a0d3a4f113414c1b51dd3aaf75ef7b54fe7ce306e545c87cdd"
+checksum = "0cc004a826b9bc9319ffae0b8415690e1b5f1482266d55fbd43843aa40ddcd63"
 dependencies = [
  "byteorder",
  "bytes 1.4.0",
@@ -1586,9 +1610,12 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.23.2"
+version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9403cda7180a8203facf05e96537f0038d188b2efdcef13c84538bfbdfcbcbf"
+checksum = "c4ced3ff9d79b53d93c106720f6c1f855694290e33581850e05c859500eee83f"
+dependencies = [
+ "paste",
+]
 
 [[package]]
 name = "clang-sys"
@@ -1695,6 +1722,15 @@ name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
+
+[[package]]
+name = "convert_case"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "core-foundation"
@@ -1933,7 +1969,7 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
- "convert_case",
+ "convert_case 0.4.0",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -2444,7 +2480,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tracing",
 ]
 
@@ -3152,13 +3188,28 @@ dependencies = [
 
 [[package]]
 name = "molecule"
-version = "0.7.3"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edc8276c02a006bddad7d1c28c1a88f30421e1b5f0ba0ca96ceb8077c7d20c01"
+checksum = "d4fd9767ab5e5f2ea40f71ff4c8bdb633c50509052e093c2fdd0e390a749dfa3"
 dependencies = [
  "bytes 1.4.0",
  "cfg-if 1.0.0",
  "faster-hex",
+]
+
+[[package]]
+name = "multi_index_map"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a58eea8dbf91e7420e0e843535f585491046d6017e669d36cb8342cfa4861e2"
+dependencies = [
+ "convert_case 0.6.0",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "rustc-hash",
+ "slab",
+ "syn",
 ]
 
 [[package]]
@@ -3638,6 +3689,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d6ea3c4595b96363c13943497db34af4460fb474a95c43f4446ad341b8c9785"
 dependencies = [
  "toml",
+]
+
+[[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
 ]
 
 [[package]]
@@ -4481,7 +4556,7 @@ dependencies = [
  "tentacle-secio",
  "thiserror",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "tokio-yamux",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4523,7 +4598,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
  "unsigned-varint",
  "x25519-dalek",
 ]
@@ -4735,9 +4810,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
+checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
 dependencies = [
  "bytes 1.4.0",
  "futures-core",
@@ -4758,7 +4833,7 @@ dependencies = [
  "log",
  "nohash-hasher",
  "tokio",
- "tokio-util 0.7.7",
+ "tokio-util 0.7.8",
 ]
 
 [[package]]
@@ -4906,6 +4981,12 @@ checksum = "d54590932941a9e9266f0832deed84ebe1bf2e4c9e4a3554d393d18f5e854bf9"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"

@@ -2,10 +2,12 @@ use crate::component::chunk::Entry;
 use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
+use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
     packed::Byte32,
@@ -21,6 +23,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::sync::RwLock;
 use tokio::task::block_in_place;
+use tokio_util::sync::CancellationToken;
 
 const MIN_STEP_CYCLE: Cycle = 10_000_000;
 
@@ -41,15 +44,15 @@ enum State {
 pub(crate) struct ChunkProcess {
     service: TxPoolService,
     recv: watch::Receiver<ChunkCommand>,
-    signal: watch::Receiver<u8>,
     current_state: ChunkCommand,
+    signal: CancellationToken,
 }
 
 impl ChunkProcess {
     pub fn new(
         service: TxPoolService,
         recv: watch::Receiver<ChunkCommand>,
-        signal: watch::Receiver<u8>,
+        signal: CancellationToken,
     ) -> Self {
         ChunkProcess {
             service,
@@ -73,7 +76,6 @@ impl ChunkProcess {
                         }
                     }
                 },
-                _ = self.signal.changed() => break,
                 _ = interval.tick() => {
                     if matches!(self.current_state, ChunkCommand::Resume) {
                         let stop = self.try_process().await;
@@ -81,6 +83,10 @@ impl ChunkProcess {
                             break;
                         }
                     }
+                },
+                _ = self.signal.cancelled() => {
+                    debug!("TxPool received exit signal, exit now");
+                    break
                 },
                 else => break,
             }
@@ -121,18 +127,22 @@ impl ChunkProcess {
         }
     }
 
-    fn loop_resume<DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static>(
+    fn loop_resume<
+        DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    >(
         &mut self,
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
         mut init_snap: Option<Arc<TransactionSnapshot>>,
         max_cycles: Cycle,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
     ) -> Result<State, Reject> {
-        let script_verifier = ScriptVerifier::new(rtx, data_loader);
+        let script_verifier = ScriptVerifier::new(rtx, data_loader, consensus, tx_env);
         let mut tmp_state: Option<ScriptVerifyState> = None;
 
         let completed: Cycle = loop {
-            if self.signal.has_changed().unwrap_or(false) {
+            if self.signal.is_cancelled() {
                 return Ok(State::Stopped);
             }
             if self.recv.has_changed().unwrap_or(false) {
@@ -224,7 +234,7 @@ impl ChunkProcess {
         let tip_header = snapshot.tip_header();
         let consensus = snapshot.cloned_consensus();
 
-        let tx_env = TxVerifyEnv::new_submit(tip_header);
+        let tx_env = Arc::new(TxVerifyEnv::new_submit(tip_header));
         let mut init_snap = None;
 
         if let Some(ref cached) = cached {
@@ -232,9 +242,9 @@ impl ChunkProcess {
                 CacheEntry::Completed(completed) => {
                     let ret = TimeRelativeTransactionVerifier::new(
                         Arc::clone(&rtx),
-                        &consensus,
+                        Arc::clone(&consensus),
                         snapshot.as_data_loader(),
-                        &tx_env,
+                        Arc::clone(&tx_env),
                     )
                     .verify()
                     .map(|_| *completed)
@@ -261,9 +271,9 @@ impl ChunkProcess {
         let data_loader = cloned_snapshot.as_data_loader();
         let ret = ContextualWithoutScriptTransactionVerifier::new(
             Arc::clone(&rtx),
-            &consensus,
+            Arc::clone(&consensus),
             data_loader.clone(),
-            &tx_env,
+            Arc::clone(&tx_env),
         )
         .verify()
         .and_then(|result| {
@@ -284,7 +294,14 @@ impl ChunkProcess {
             consensus.max_block_cycles()
         };
 
-        let ret = self.loop_resume(Arc::clone(&rtx), data_loader, init_snap, max_cycles);
+        let ret = self.loop_resume(
+            Arc::clone(&rtx),
+            data_loader,
+            init_snap,
+            max_cycles,
+            Arc::clone(&consensus),
+            Arc::clone(&tx_env),
+        );
         let state = try_or_return_with_snapshot!(ret, snapshot);
 
         let completed: Completed = match state {
@@ -337,7 +354,7 @@ impl ChunkProcess {
 }
 
 fn exceeded_maximum_cycles_error<
-    DL: CellDataProvider + HeaderProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 >(
     verifier: &ScriptVerifier<DL>,
     max_cycles: Cycle,

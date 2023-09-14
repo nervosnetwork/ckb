@@ -1,15 +1,16 @@
-use ckb_traits::{CellDataProvider, HeaderProvider};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{cell::CellMeta, Capacity, HeaderView},
-    packed::{Byte32, CellOutput, OutPoint},
+    packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
 };
 use std::collections::HashMap;
 
-#[derive(Default, PartialEq, Eq, Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct MockDataLoader {
     pub(crate) headers: HashMap<Byte32, HeaderView>,
+    pub(crate) extensions: HashMap<Byte32, packed::Bytes>,
 }
 
 impl CellDataProvider for MockDataLoader {
@@ -25,6 +26,12 @@ impl CellDataProvider for MockDataLoader {
 impl HeaderProvider for MockDataLoader {
     fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
         self.headers.get(block_hash).cloned()
+    }
+}
+
+impl ExtensionProvider for MockDataLoader {
+    fn get_block_extension(&self, hash: &Byte32) -> Option<packed::Bytes> {
+        self.extensions.get(hash).cloned()
     }
 }
 

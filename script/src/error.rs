@@ -99,7 +99,7 @@ impl ScriptError {
     /// Creates a script error originated the script and its exit code.
     pub fn validation_failure(script: &Script, exit_code: i8) -> ScriptError {
         let url_path = match ScriptHashType::try_from(script.hash_type()).expect("checked data") {
-            ScriptHashType::Data | ScriptHashType::Data1 => {
+            ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
                 format!("by-data-hash/{:x}", script.code_hash())
             }
             ScriptHashType::Type => {

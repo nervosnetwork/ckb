@@ -101,7 +101,7 @@ bootnode_mode = false
 support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter"]
 
 # [network.sync.header_map]
-# memory_limit = "600MB"
+# memory_limit = "256MB"
 
 [rpc]
 # By default RPC only binds to localhost, thus it only allows accessing from the same machine.

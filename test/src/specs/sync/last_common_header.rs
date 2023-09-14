@@ -20,13 +20,13 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
         let mut net = Net::new(
             self.name(),
             node0.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::RelayV2],
+            vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
         );
         net.connect(node0);
         for block in worse {
             net.send(
                 node0,
-                SupportProtocols::RelayV2,
+                SupportProtocols::RelayV3,
                 build_compact_block(&block),
             );
         }

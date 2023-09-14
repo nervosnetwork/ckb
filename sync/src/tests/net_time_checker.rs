@@ -2,8 +2,8 @@ use crate::net_time_checker::{NetTimeChecker, NetTimeProtocol, TOLERANT_OFFSET};
 use ckb_app_config::NetworkConfig;
 use ckb_network::{
     multiaddr::{Multiaddr, Protocol},
-    CKBProtocol, DefaultExitHandler, EventHandler, NetworkState, ServiceBuilder, ServiceControl,
-    SessionId, SupportProtocols, TargetProtocol,
+    CKBProtocol, EventHandler, NetworkState, ServiceBuilder, ServiceControl, SessionId,
+    SupportProtocols, TargetProtocol,
 };
 use std::{
     borrow::Cow,
@@ -102,10 +102,7 @@ fn net_service_start() -> Node {
         .key_pair(network_state.local_private_key().clone())
         .upnp(config.upnp)
         .forever(true)
-        .build(EventHandler::new(
-            Arc::clone(&network_state),
-            DefaultExitHandler::default(),
-        ));
+        .build(EventHandler::new(Arc::clone(&network_state)));
 
     let peer_id = network_state.local_peer_id().clone();
 

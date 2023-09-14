@@ -78,12 +78,7 @@ impl Spec for CheckAbsoluteEpochSince {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.permanent_difficulty_in_dummy = Some(true);
         spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0030 = Some(2);
-        }
+        spec.params.epoch_duration_target = Some(8 * GENESIS_EPOCH_LENGTH);
     }
 }
 
@@ -119,12 +114,7 @@ impl Spec for CheckRelativeEpochSince {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.permanent_difficulty_in_dummy = Some(true);
         spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
-        if spec.params.hardfork.is_none() {
-            spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(mut switch) = spec.params.hardfork.as_mut() {
-            switch.rfc_0030 = Some(7);
-        }
+        spec.params.epoch_duration_target = Some(8 * GENESIS_EPOCH_LENGTH);
     }
 }
 
