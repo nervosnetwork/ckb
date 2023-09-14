@@ -167,3 +167,4 @@ index = 0
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_multisig_all)"]
 tx_hash = "0xace5ea83c478bb866edf122ff862085789158f5cbff155b7bb5f13058555b708"
 index = 1
+
