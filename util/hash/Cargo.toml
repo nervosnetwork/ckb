@@ -9,14 +9,8 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [features]
-default = ["blake2b"]
-ckb-contract = ["blake2b-ref"] # This feature is used for CKB contract development
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-blake2b = { package = "blake2b-rs", version = "0.2", optional = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-blake2b = { package = "blake2b-ref", version = "0.3", optional = true }
+ckb-contract = [] # This feature is used for CKB contract development
 
 [dependencies]
-blake2b-ref = { version = "0.3", optional = true }
+blake2b-ref = { version = "0.3"}
+blake2b-rs = { version = "0.2", optional = true }

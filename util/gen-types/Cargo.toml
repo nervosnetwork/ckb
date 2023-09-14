@@ -20,7 +20,7 @@ check-data = []
 # Enable the `serialized-size` extension for CKB contract development in `no-std` env
 serialized-size = ["calc-hash"]
 # Enable all in `std` env
-std = ["molecule/std", "ckb-hash/default", "ckb-fixed-hash", "ckb-error", "ckb-occupied-capacity", "numext-fixed-uint"]
+std = ["molecule/std", "ckb-hash", "ckb-fixed-hash", "ckb-error", "ckb-occupied-capacity", "numext-fixed-uint"]
 
 [dependencies]
 cfg-if = "1.0"

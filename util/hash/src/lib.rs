@@ -9,9 +9,13 @@
 
 #![no_std]
 
-#[cfg(feature = "default")]
-pub use blake2b::{Blake2b, Blake2bBuilder};
 #[cfg(feature = "ckb-contract")]
+pub use blake2b_ref::{Blake2b, Blake2bBuilder};
+
+#[cfg(all(not(feature = "ckb-contract"), target_arch = "wasm32"))]
+pub use blake2b_rs::{Blake2b, Blake2bBuilder};
+
+#[cfg(all(not(feature = "ckb-contract"), not(target_arch = "wasm32")))]
 pub use blake2b_ref::{Blake2b, Blake2bBuilder};
 
 #[doc(hidden)]
