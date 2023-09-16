@@ -34,6 +34,7 @@ use ckb_network::{
 };
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::BlockNumberAndHash;
+use ckb_shared::Shared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
@@ -301,27 +302,13 @@ impl Relayer {
             .insert_new_block_and_wait_result(&self.chain, Arc::clone(&boxed))
             .unwrap_or(false)
         {
-            Ok(true) => self.broadcast_compact_block(nc, peer, &boxed),
-            Ok(false) => debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "Relayer accept_block received an uncle block, don't broadcast compact block"
-            ),
-            Err(err) => {
-                if !is_internal_db_error(&err) {
-                    return StatusCode::BlockIsInvalid.with_context(format!(
-                        "{}, error: {}",
-                        boxed.hash(),
-                        err,
-                    ));
-                }
-            }
+            Self::build_and_broadcast_compact_block(nc, self.shared.shared(), peer, &boxed)
         }
-        Status::ok()
     }
 
-    fn broadcast_compact_block(
-        &self,
+    fn build_and_broadcast_compact_block(
         nc: &dyn CKBProtocolContext,
+        shared: &Shared,
         peer: PeerIndex,
         boxed: &Arc<BlockView>,
     ) {
@@ -332,8 +319,8 @@ impl Relayer {
             unix_time_as_millis()
         );
         let block_hash = boxed.hash();
-        self.shared().state().remove_header_view(&block_hash);
-        let cb = packed::CompactBlock::build_from_block(boxed, &HashSet::new());
+        shared.remove_header_view(&block_hash);
+        let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
         let message = packed::RelayMessage::new_builder().set(cb).build();
 
         let selected_peers: Vec<PeerIndex> = nc
@@ -351,13 +338,10 @@ impl Relayer {
                 "relayer send block when accept block error: {:?}",
                 err,
             );
-            let block_hash = boxed.hash();
-            self.shared().shared().remove_header_view(&block_hash);
-            let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
-            let message = packed::RelayMessage::new_builder().set(cb).build();
+        }
 
         if let Some(p2p_control) = nc.p2p_control() {
-            let snapshot = self.shared.shared().snapshot();
+            let snapshot = shared.snapshot();
             let parent_chain_root = {
                 let mmr = snapshot.chain_root_mmr(boxed.header().number() - 1);
                 match mmr.get_root() {
@@ -368,7 +352,6 @@ impl Relayer {
                             "Generate last state to light client failed: {:?}",
                             err
                         );
-                        return;
                     }
                 }
             };
