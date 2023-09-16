@@ -47,7 +47,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let (network_controller, _rpc_server) = launcher.start_network_and_rpc(
         &shared,
-        chain_controller.non_owning_clone(),
+        chain_controller.clone(),
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
