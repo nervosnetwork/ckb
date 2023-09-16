@@ -335,10 +335,10 @@ impl ChainService {
                     .remove_block_status(&unverified_block.block().hash());
                 let log_elapsed_remove_block_status = log_now.elapsed();
                 self.shared
-                    .remove_header_view(&unverified_block.unverified_block.block.hash());
+                    .remove_header_view(&unverified_block.lonely_block.block.hash());
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    unverified_block.unverified_block.block.hash(),
+                    unverified_block.lonely_block.block.hash(),
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
@@ -346,13 +346,13 @@ impl ChainService {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.unverified_block.peer_id,
-                    unverified_block.unverified_block.block.hash(),
+                    unverified_block.lonely_block.peer_id,
+                    unverified_block.lonely_block.block.hash(),
                     err
                 );
-                if let Some(peer_id) = unverified_block.unverified_block.peer_id {
+                if let Some(peer_id) = unverified_block.lonely_block.peer_id {
                     if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                        block_hash: unverified_block.unverified_block.block.hash(),
+                        block_hash: unverified_block.lonely_block.block.hash(),
                         peer_id,
                         message_bytes: 0,
                         reason: "".to_string(),
@@ -379,14 +379,14 @@ impl ChainService {
                 ));
 
                 self.shared.insert_block_status(
-                    unverified_block.unverified_block.block.hash(),
+                    unverified_block.lonely_block.block.hash(),
                     BlockStatus::BLOCK_INVALID,
                 );
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    unverified_block.unverified_block.block.hash(),
+                    unverified_block.lonely_block.block.hash(),
                     err
                 );
             }
