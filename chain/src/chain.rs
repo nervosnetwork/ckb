@@ -22,6 +22,7 @@ use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::packed::UncleBlockVecReaderIterator;
 use ckb_types::{
     core::{
         cell::{
@@ -48,7 +49,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::{cmp, thread};
-use ckb_types::packed::UncleBlockVecReaderIterator;
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
@@ -169,15 +169,13 @@ pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
-
-    pub verify_result_tx: Option<ckb_channel::oneshot::Sender<bool>>,
 }
 
 impl LonelyBlock {
     fn combine_parent_header(self, parent_header: HeaderView) -> UnverifiedBlock {
         UnverifiedBlock {
             parent_header,
-            lonely_block:self, 
+            lonely_block: self,
         }
     }
 }
@@ -380,8 +378,10 @@ impl ChainService {
                     tip_ext.total_difficulty,
                 ));
 
-                self.shared
-                    .insert_block_status(unverified_block.unverified_block.block.hash(), BlockStatus::BLOCK_INVALID);
+                self.shared.insert_block_status(
+                    unverified_block.unverified_block.block.hash(),
+                    BlockStatus::BLOCK_INVALID,
+                );
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
@@ -434,7 +434,8 @@ impl ChainService {
                 continue;
             }
             let descendants_len = descendants.len();
-            let first_descendants_number = descendants.first().expect("descdant not empty").number();
+            let first_descendants_number =
+                descendants.first().expect("descdant not empty").number();
 
             let mut accept_error_occurred = false;
             for descendant_block in descendants {
@@ -736,9 +737,12 @@ impl ChainService {
 
         let UnverifiedBlock {
             parent_header,
-            lonely_block: LonelyBlock{
-                block, peer_id, switch, verify_result_tx
-            }
+            lonely_block:
+                LonelyBlock {
+                    block,
+                    peer_id,
+                    switch,
+                },
         } = unverified_block;
 
         let parent_ext = self
