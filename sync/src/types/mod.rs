@@ -27,6 +27,7 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
+    core,
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
@@ -1077,12 +1078,19 @@ impl SyncShared {
         self.shared.consensus()
     }
 
-    pub fn insert_new_block_and_wait_result(
+    pub fn insert_new_block_with_callback(
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-    ) -> Result<bool, CKBError> {
-        todo!("")
+        peer_id: PeerIndex,
+        verify_success_callback: fn(&Shared, PeerIndex, Arc<core::BlockView>),
+    ) {
+        self.accept_block(
+            chain,
+            Arc::clone(&block),
+            peer_id,
+            Some(verify_success_callback),
+        )
     }
 
     /// Insert new block to chain store
@@ -1173,6 +1181,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
+        verify_ok_callback: Option<fn(&Shared, PeerIndex, Arc<core::BlockView>)>,
     ) {
         // let ret = {
         //     let mut assume_valid_target = self.state.assume_valid_target();
@@ -1196,6 +1205,7 @@ impl SyncShared {
             block,
             peer_id: Some(peer_id),
             switch: Switch::NONE,
+            verify_ok_callback,
         };
 
         chain.process_block(lonely_block);
