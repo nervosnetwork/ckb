@@ -8,7 +8,7 @@ pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    message_bytes: usize,
+    message_bytes: u64,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -16,7 +16,7 @@ impl<'a> BlockProcess<'a> {
         message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        message_bytes: usize,
+        message_bytes: u64,
     ) -> Self {
         BlockProcess {
             message,
@@ -26,7 +26,7 @@ impl<'a> BlockProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Vec<VerifyFailedBlockInfo> {
+    pub fn execute(self) {
         let block = self.message.block().to_entity().into_view();
         debug!(
             "BlockProcess received block {} {}",
@@ -36,17 +36,16 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            match self
-                .synchronizer
-                .process_new_block(block.clone(), self.peer, self.message_bytes)
-            {
-                Ok(verify_failed_peers) => {
-                    return verify_failed_peers;
-                }
-                Err(err) => {
-                    error!("BlockProcess process_new_block error: {:?}", err);
-                }
-            }
+            self.synchronizer
+                .process_new_block(block.clone(), self.peer, self.message_bytes);
+            // {
+            //     Ok(verify_failed_peers) => {
+            //         return verify_failed_peers;
+            //     }
+            //     Err(err) => {
+            //         error!("BlockProcess process_new_block error: {:?}", err);
+            //     }
+            // }
 
             // if let Err(err) = this_block_verify_result {
             //     if !is_internal_db_error(&err) {
@@ -58,7 +57,5 @@ impl<'a> BlockProcess<'a> {
             //     }
             // }
         }
-
-        Vec::new()
     }
 }
