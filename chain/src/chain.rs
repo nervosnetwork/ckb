@@ -173,7 +173,7 @@ pub struct LonelyBlock {
     pub switch: Option<Switch>,
 
     pub verify_ok_callback: Option<fn(VerifyCallbackArgs)>,
-    pub verify_failed_callback: Option<fn(VerifyCallbackArgs)>,
+    pub verify_failed_callback: Option<fn()>,
 }
 
 impl LonelyBlock {
