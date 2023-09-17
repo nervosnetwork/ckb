@@ -68,9 +68,7 @@ impl Import {
                     peer_id: None,
                     switch: None,
                     verify_ok_callback: None,
-                    verify_failed_callback: Some(|_: ckb_chain::chain::VerifyCallbackArgs| {
-                        panic!("import occur malformation data")
-                    }),
+                    // verify_failed_callback: Some(|| panic!("import occur malformation data")),
                 });
             }
             progress_bar.inc(s.as_bytes().len() as u64);

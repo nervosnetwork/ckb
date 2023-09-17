@@ -233,6 +233,11 @@ pub struct Synchronizer {
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
+
+    pub(crate) verify_failed_blocks_tx:
+        Arc<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
+    pub(crate) verify_failed_blocks_rx:
+        Arc<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
 }
 
 impl Synchronizer {
@@ -240,10 +245,14 @@ impl Synchronizer {
     ///
     /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
+        let (verify_failed_blocks_tx, verify_failed_blocks_rx) =
+            tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
         Synchronizer {
             chain,
             shared,
             fetch_channel: None,
+            verify_failed_blocks_tx: Arc::new(verify_failed_blocks_tx),
+            verify_failed_blocks_rx: Arc::new(verify_failed_blocks_rx),
         }
     }
 
@@ -270,21 +279,9 @@ impl Synchronizer {
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    let verify_failed_peers =
-                        BlockProcess::new(reader, self, peer, message.as_slice().len()).execute();
-
-                    verify_failed_peers.iter().for_each(|malformed_peer_info| {
-                        Self::post_sync_process(
-                            nc,
-                            malformed_peer_info.peer,
-                            "SendBlock",
-                            0,
-                            StatusCode::BlockIsInvalid.with_context(format!(
-                                "block {} is invalid, reason: {}",
-                                malformed_peer_info.block_hash, malformed_peer_info.reason
-                            )),
-                        );
-                    })
+                    BlockProcess::new(reader, self, peer, message.as_slice().len() as u64)
+                        .execute();
+                    Status::ignored()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
@@ -362,24 +359,23 @@ impl Synchronizer {
         &self,
         block: core::BlockView,
         peer_id: PeerIndex,
-    ) -> Result<Vec<VerifyFailedBlockInfo>, CKBError> {
+        message_bytes: u64,
+    ) {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             error!("Block {} already partial stored", block_hash);
-            Ok(Vec::new())
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
-                .insert_new_block(&self.chain, Arc::new(block), peer_id)
+                .insert_new_block(&self.chain, Arc::new(block), peer_id, message_bytes);
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
                 status, block_hash,
             );
             // TODO which error should we return?
-            (Ok(Vec::new()))
         }
     }
 
@@ -889,10 +885,10 @@ impl CKBProtocolHandler for Synchronizer {
 
     async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
         let mut have_malformed_peers = false;
-        while let Some(malformed_peer_info) = self.shared.verify_failed_blocks_rx.recv().await {
+        while let Some(malformed_peer_info) = self.verify_failed_blocks_rx.recv().await {
             have_malformed_peers = true;
             let x = Self::post_sync_process(
-                &nc,
+                nc.as_ref(),
                 malformed_peer_info.peer_id,
                 "SendBlock",
                 malformed_peer_info.message_bytes,
