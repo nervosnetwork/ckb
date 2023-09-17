@@ -296,31 +296,34 @@ impl Relayer {
             return Status::ok();
         }
 
-        let boxed: Arc<BlockView> = Arc::new(block);
-        match self
-            .shared()
-            .insert_new_block_and_wait_result(&self.chain, Arc::clone(&boxed))
-            .unwrap_or(false)
-        {
-            Self::build_and_broadcast_compact_block(nc, self.shared.shared(), peer, &boxed)
-        }
+        let block = Arc::new(block);
+        let verify_success_callback = |shared: &Shared, peer: PeerIndex, block: Arc<BlockView>| {
+            Self::build_and_broadcast_compact_block(nc, shared, peer, block)
+        };
+
+        self.shared().insert_new_block_with_callback(
+            &self.chain,
+            Arc::clone(&block),
+            peer,
+            verify_success_callback,
+        );
     }
 
     fn build_and_broadcast_compact_block(
         nc: &dyn CKBProtocolContext,
         shared: &Shared,
         peer: PeerIndex,
-        boxed: &Arc<BlockView>,
+        block: Arc<BlockView>,
     ) {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "[block_relay] relayer accept_block {} {}",
-            boxed.header().hash(),
+            block.header().hash(),
             unix_time_as_millis()
         );
-        let block_hash = boxed.hash();
+        let block_hash = block.hash();
         shared.remove_header_view(&block_hash);
-        let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
+        let cb = packed::CompactBlock::build_from_block(&block, &HashSet::new());
         let message = packed::RelayMessage::new_builder().set(cb).build();
 
         let selected_peers: Vec<PeerIndex> = nc
@@ -343,7 +346,7 @@ impl Relayer {
         if let Some(p2p_control) = nc.p2p_control() {
             let snapshot = shared.snapshot();
             let parent_chain_root = {
-                let mmr = snapshot.chain_root_mmr(boxed.header().number() - 1);
+                let mmr = snapshot.chain_root_mmr(block.header().number() - 1);
                 match mmr.get_root() {
                     Ok(root) => root,
                     Err(err) => {
@@ -357,9 +360,9 @@ impl Relayer {
             };
 
             let tip_header = packed::VerifiableHeader::new_builder()
-                .header(boxed.header().data())
-                .uncles_hash(boxed.calc_uncles_hash())
-                .extension(Pack::pack(&boxed.extension()))
+                .header(block.header().data())
+                .uncles_hash(block.calc_uncles_hash())
+                .extension(Pack::pack(&block.extension()))
                 .parent_chain_root(parent_chain_root)
                 .build();
             let light_client_message = {

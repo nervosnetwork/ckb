@@ -167,6 +167,7 @@ pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
+    pub verify_ok_callback: Option<fn(&Shared, PeerIndex, Arc<BlockView>)>,
 }
 
 impl LonelyBlock {
@@ -340,6 +341,27 @@ impl ChainService {
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
+
+                // start execute this block's callback function
+                match (
+                    unverified_block.lonely_block.verify_ok_callback,
+                    unverified_block.lonely_block.peer_id,
+                ) {
+                    (Some(verify_ok_callback), Some(peer_id)) => {
+                        verify_ok_callback(
+                            &self.shared,
+                            peer_id,
+                            unverified_block.lonely_block.block,
+                        );
+                    }
+                    (Some(verify_ok_callback), _) => {
+                        error!(
+                            "block {} verify_ok_callback have no peer_id, this should not happen",
+                            unverified_block.lonely_block.block.hash()
+                        );
+                    }
+                    _ => {}
+                }
             }
             Err(err) => {
                 error!(
