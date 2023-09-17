@@ -1,6 +1,6 @@
 use crate::chain::LonelyBlock;
 use ckb_logger::debug;
-use ckb_types::core::EpochNumber;
+use ckb_types::core::{BlockView, EpochNumber};
 use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -86,11 +86,13 @@ impl InnerPool {
         removed
     }
 
-    pub fn get_block(&self, hash: &packed::Byte32) -> Option<LonelyBlock> {
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<Arc<BlockView>> {
         self.parents.get(hash).and_then(|parent_hash| {
-            self.blocks
-                .get(parent_hash)
-                .and_then(|blocks| blocks.get(hash).cloned())
+            self.blocks.get(parent_hash).and_then(|blocks| {
+                blocks
+                    .get(hash)
+                    .map(|lonely_block| lonely_block.block.clone())
+            })
         })
     }
 
@@ -149,7 +151,7 @@ impl OrphanBlockPool {
         self.inner.write().remove_blocks_by_parent(parent_hash)
     }
 
-    pub fn get_block(&self, hash: &packed::Byte32) -> Option<LonelyBlock> {
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<Arc<BlockView>> {
         self.inner.read().get_block(hash)
     }
 

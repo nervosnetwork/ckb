@@ -114,9 +114,7 @@ impl ChainController {
 
     // Relay need this
     pub fn get_orphan_block(&self, hash: &Byte32) -> Option<Arc<BlockView>> {
-        self.orphan_block_broker
-            .get_block(hash)
-            .map(|lonely_block| lonely_block.block)
+        self.orphan_block_broker.get_block(hash)
     }
 
     pub fn orphan_blocks_len(&self) -> usize {
@@ -154,26 +152,17 @@ pub struct ChainService {
     proposal_table: Arc<Mutex<ProposalTable>>,
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
-
-    lonely_block_tx: Sender<LonelyBlock>,
-    lonely_block_rx: Receiver<LonelyBlock>,
-
-    unverified_block_tx: Sender<UnverifiedBlock>,
-    unverified_block_rx: Receiver<UnverifiedBlock>,
-
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 pub type VerifyCallbackArgs<'a> = (&'a Shared, PeerIndex, Arc<BlockView>);
 
-#[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Option<Switch>,
 
-    pub verify_ok_callback: Option<fn(VerifyCallbackArgs)>,
-    pub verify_failed_callback: Option<fn()>,
+    pub verify_ok_callback: Option<Box<dyn FnOnce() + Send + Sync>>,
+    // pub verify_failed_callback: Option<F>,
 }
 
 impl LonelyBlock {
@@ -188,22 +177,17 @@ impl LonelyBlock {
     }
 }
 
-#[derive(Clone)]
 struct UnverifiedBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
-    pub verify_ok_callback: Option<fn(VerifyCallbackArgs)>,
+    pub verify_ok_callback: Option<Box<dyn FnOnce() + Send + Sync>>,
     pub parent_header: HeaderView,
 }
 
 impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
-    pub fn new(
-        shared: Shared,
-        proposal_table: ProposalTable,
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    ) -> ChainService {
+    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         let (unverified_tx, unverified_rx) =
             channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
@@ -214,11 +198,6 @@ impl ChainService {
             shared,
             proposal_table: Arc::new(Mutex::new(proposal_table)),
             orphan_blocks_broker: Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE)),
-            unverified_block_tx: unverified_tx,
-            unverified_block_rx: unverified_rx,
-            lonely_block_tx: new_block_tx,
-            lonely_block_rx: new_block_rx,
-            verify_failed_blocks_tx,
         }
     }
 
@@ -242,19 +221,34 @@ impl ChainService {
         let (search_orphan_pool_stop_tx, search_orphan_pool_stop_rx) =
             ckb_channel::bounded::<()>(1);
 
+        let (unverified_tx, unverified_rx) =
+            channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
+
         let unverified_consumer_thread = thread::Builder::new()
             .name("verify_blocks".into())
             .spawn({
                 let chain_service = self.clone();
-                move || chain_service.start_consume_unverified_blocks(unverified_queue_stop_rx)
+                move || {
+                    chain_service
+                        .start_consume_unverified_blocks(unverified_queue_stop_rx, unverified_rx)
+                }
             })
             .expect("start unverified_queue consumer thread should ok");
+
+        let (lonely_block_tx, lonely_block_rx) =
+            channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
 
         let search_orphan_pool_thread = thread::Builder::new()
             .name("search_orphan".into())
             .spawn({
                 let chain_service = self.clone();
-                move || chain_service.start_search_orphan_pool(search_orphan_pool_stop_rx)
+                move || {
+                    chain_service.start_search_orphan_pool(
+                        search_orphan_pool_stop_rx,
+                        lonely_block_rx,
+                        unverified_tx,
+                    )
+                }
             })
             .expect("start search_orphan_pool thread should ok");
 
@@ -264,7 +258,7 @@ impl ChainService {
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: lonely_block }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.process_block_v2(lonely_block));
+                            let _ = responder.send(self.process_block_v2(lonely_block, lonely_block_tx.clone()));
                             let _ = tx_control.continue_chunk_process();
 
                             if let Some(metrics) = ckb_metrics::handle() {
@@ -311,7 +305,11 @@ impl ChainService {
         )
     }
 
-    fn start_consume_unverified_blocks(&self, unverified_queue_stop_rx: Receiver<()>) {
+    fn start_consume_unverified_blocks(
+        &self,
+        unverified_queue_stop_rx: Receiver<()>,
+        unverified_block_rx: Receiver<UnverifiedBlock>,
+    ) {
         let mut begin_loop = std::time::Instant::now();
         loop {
             begin_loop = std::time::Instant::now();
@@ -320,7 +318,7 @@ impl ChainService {
                         info!("unverified_queue_consumer got exit signal, exit now");
                         return;
                 },
-                recv(self.unverified_block_rx) -> msg => match msg {
+                recv(unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
                     // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
@@ -360,7 +358,7 @@ impl ChainService {
                     unverified_block.peer_id,
                 ) {
                     (Some(verify_ok_callback), Some(peer_id)) => {
-                        verify_ok_callback((&self.shared, peer_id, unverified_block.block));
+                        // verify_ok_callback((&self.shared, peer_id, unverified_block.block));
                     }
                     (Some(verify_ok_callback), _) => {
                         error!(
@@ -379,14 +377,14 @@ impl ChainService {
                     err
                 );
                 if let Some(peer_id) = unverified_block.peer_id {
-                    if let Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                        block_hash: unverified_block.block.hash(),
-                        peer_id,
-                        message_bytes: 0,
-                        reason: "".to_string(),
-                    }) {
-                        error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
-                    }
+                    // if let Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                    //     block_hash: unverified_block.block.hash(),
+                    //     peer_id,
+                    //     message_bytes: 0,
+                    //     reason: "".to_string(),
+                    // }) {
+                    //     error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
+                    // }
                 }
 
                 let tip = self
@@ -419,17 +417,22 @@ impl ChainService {
         }
     }
 
-    fn start_search_orphan_pool(&self, search_orphan_pool_stop_rx: Receiver<()>) {
+    fn start_search_orphan_pool(
+        &self,
+        search_orphan_pool_stop_rx: Receiver<()>,
+        lonely_block_rx: Receiver<LonelyBlock>,
+        unverified_block_tx: Sender<UnverifiedBlock>,
+    ) {
         loop {
             select! {
                 recv(search_orphan_pool_stop_rx) -> _ => {
                         info!("unverified_queue_consumer got exit signal, exit now");
                         return;
                 },
-                recv(self.lonely_block_rx) -> msg => match msg {
+                recv(lonely_block_rx) -> msg => match msg {
                     Ok(lonely_block) => {
                         self.orphan_blocks_broker.insert(lonely_block);
-                        self.search_orphan_pool()
+                        self.search_orphan_pool(unverified_block_tx.clone())
                     },
                     Err(err) => {
                         error!("lonely_block_rx err: {}", err);
@@ -439,7 +442,7 @@ impl ChainService {
             }
         }
     }
-    fn search_orphan_pool(&self) {
+    fn search_orphan_pool(&self, unverified_block_tx: Sender<UnverifiedBlock>) {
         for leader_hash in self.orphan_blocks_broker.clone_leaders() {
             if !self
                 .shared
@@ -492,7 +495,7 @@ impl ChainService {
                             let block_number = unverified_block.block.number();
                             let block_hash = unverified_block.block.hash();
 
-                            match self.unverified_block_tx.send(unverified_block) {
+                            match unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
                                 Err(err) => error!("send unverified_block_tx failed: {}", err),
                             };
@@ -634,7 +637,11 @@ impl ChainService {
 
     // make block IO and verify asynchronize
     #[doc(hidden)]
-    pub fn process_block_v2(&self, lonely_block: LonelyBlock) {
+    pub fn process_block_v2(
+        &self,
+        lonely_block: LonelyBlock,
+        lonely_block_tx: Sender<LonelyBlock>,
+    ) {
         let block_number = lonely_block.block.number();
         let block_hash = lonely_block.block.hash();
         if block_number < 1 {
@@ -644,26 +651,13 @@ impl ChainService {
             if !switch.disable_non_contextual() {
                 let result = self.non_contextual_verify(&lonely_block.block);
                 match result {
-                    Err(err) => {
-                        if let Some(peer_id) = lonely_block.peer_id {
-                            if let Err(_) =
-                                self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                                    block_hash: lonely_block.block.hash(),
-                                    peer_id,
-                                    message_bytes: 0,
-                                    reason: err.to_string(),
-                                })
-                            {
-                                error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
-                            }
-                        }
-                    }
+                    Err(err) => {}
                     _ => {}
                 }
             }
         }
 
-        match self.lonely_block_tx.send(lonely_block) {
+        match lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(err) => {
                 error!("notify new block to orphan pool err: {}", err)

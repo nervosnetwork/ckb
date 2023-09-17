@@ -27,7 +27,7 @@ use crate::utils::{
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
-use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
+use ckb_logger::{debug_target, error, error_target, info_target, trace_target, warn_target};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
@@ -70,6 +70,8 @@ pub enum ReconstructionResult {
     Error(Status),
 }
 
+type BroadcastCompactBlockType = (Arc<BlockView>, PeerIndex);
+
 /// Relayer protocol handle
 #[derive(Clone)]
 pub struct Relayer {
@@ -77,6 +79,11 @@ pub struct Relayer {
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
     v3: bool,
+
+    pub(crate) broadcast_compact_block_tx:
+        tokio::sync::mpsc::UnboundedSender<BroadcastCompactBlockType>,
+    pub(crate) broadcast_compact_block_rx:
+        tokio::sync::mpsc::UnboundedReceiver<BroadcastCompactBlockType>,
 }
 
 impl Relayer {
@@ -88,11 +95,18 @@ impl Relayer {
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
+
+        let (broadcast_compact_block_tx, broadcast_compact_block_rx) =
+            tokio::sync::mpsc::unbounded_channel::<BroadcastCompactBlockType>();
+
         Relayer {
             chain,
             shared,
             rate_limiter,
             v3: false,
+
+            broadcast_compact_block_tx,
+            broadcast_compact_block_rx,
         }
     }
 
@@ -297,8 +311,19 @@ impl Relayer {
         }
 
         let block = Arc::new(block);
-        let verify_success_callback = |shared: &Shared, peer: PeerIndex, block: Arc<BlockView>| {
-            Self::build_and_broadcast_compact_block(nc, shared, peer, block)
+
+        let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
+        let block_clone = Arc::clone(&block);
+        let peer_clone = peer.clone();
+        let verify_success_callback = {
+            || match broadcast_compact_block_tx.send((block_clone, peer_clone)) {
+                Err(_) => {
+                    error!(
+                        "send block to broadcast_compact_block_tx failed, this shouldn't happen",
+                    );
+                }
+                _ => {}
+            }
         };
 
         self.shared().insert_new_block_with_callback(
@@ -950,6 +975,19 @@ impl CKBProtocolHandler for Relayer {
             token,
             Instant::now().saturating_duration_since(start_time)
         );
+    }
+
+    async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+        if let Some((block, peer)) = self.broadcast_compact_block_rx.recv().await {
+            Self::build_and_broadcast_compact_block(
+                nc.as_ref(),
+                self.shared().shared(),
+                peer,
+                block,
+            );
+            return Some(());
+        }
+        None
     }
 }
 
