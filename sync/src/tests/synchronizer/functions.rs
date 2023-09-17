@@ -695,7 +695,6 @@ fn test_sync_process() {
     );
 }
 
-
 #[test]
 fn test_header_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -746,7 +745,6 @@ fn test_header_sync_timeout() {
         &vec![0, 1, 2].into_iter().map(Into::into).collect()
     )
 }
-
 
 #[test]
 fn test_chain_sync_timeout() {
@@ -944,7 +942,6 @@ fn test_chain_sync_timeout() {
         )
     }
 }
-
 
 #[test]
 fn test_n_sync_started() {

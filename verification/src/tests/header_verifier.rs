@@ -61,7 +61,6 @@ pub fn test_version() {
     assert!(verifier.verify().is_ok());
 }
 
-
 #[test]
 fn test_timestamp() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -81,7 +80,6 @@ fn test_timestamp() {
 
     assert!(timestamp_verifier.verify().is_ok());
 }
-
 
 #[test]
 fn test_timestamp_too_old() {
@@ -110,7 +108,6 @@ fn test_timestamp_too_old() {
         },
     );
 }
-
 
 #[test]
 fn test_timestamp_too_new() {
