@@ -234,7 +234,7 @@ pub struct Synchronizer {
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 
-    verify_failed_blocks_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
+    verify_failed_blocks_rx: Arc<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
 }
 
 impl Synchronizer {

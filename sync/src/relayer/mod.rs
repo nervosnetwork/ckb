@@ -355,6 +355,7 @@ impl Relayer {
                             "Generate last state to light client failed: {:?}",
                             err
                         );
+                        return;
                     }
                 }
             };
