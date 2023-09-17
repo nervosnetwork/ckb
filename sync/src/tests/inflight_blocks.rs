@@ -87,7 +87,6 @@ fn inflight_blocks_state() {
     );
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn inflight_blocks_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -140,7 +139,6 @@ fn inflight_blocks_timeout() {
     );
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn inflight_trace_number_state() {
     let _faketime_guard = ckb_systemtime::faketime();

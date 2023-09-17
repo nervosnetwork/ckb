@@ -82,7 +82,6 @@ fn test_update_status() {
     );
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_ban_peer() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -122,7 +121,6 @@ fn test_ban_peer() {
     assert_eq!(peer_store.ban_list().count(), 1)
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_attempt_ban() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -156,7 +154,6 @@ fn test_attempt_ban() {
     );
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -189,7 +186,6 @@ fn test_fetch_addrs_to_attempt() {
         .is_empty());
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_or_feeler() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -217,7 +213,6 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
     assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_fetch_addrs_to_attempt_in_last_minutes() {
     let _faketime_guard = ckb_systemtime::faketime();

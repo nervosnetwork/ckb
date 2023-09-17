@@ -17,7 +17,7 @@ mod inflight_blocks;
 mod net_time_checker;
 mod orphan_block_pool;
 mod sync_shared;
-#[cfg(not(disable_faketime))]
+
 mod synchronizer;
 mod types;
 mod util;
