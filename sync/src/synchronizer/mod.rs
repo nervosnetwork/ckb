@@ -233,8 +233,6 @@ pub struct Synchronizer {
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
-
-    verify_failed_blocks_rx: Arc<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
 }
 
 impl Synchronizer {
@@ -891,11 +889,11 @@ impl CKBProtocolHandler for Synchronizer {
 
     async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
         let mut have_malformed_peers = false;
-        while let Some(malformed_peer_info) = self.verify_failed_blocks_rx.recv().await {
+        while let Some(malformed_peer_info) = self.shared.verify_failed_blocks_rx.recv().await {
             have_malformed_peers = true;
             let x = Self::post_sync_process(
                 &nc,
-                malformed_peer_info.peer,
+                malformed_peer_info.peer_id,
                 "SendBlock",
                 malformed_peer_info.message_bytes,
                 StatusCode::BlockIsInvalid.with_context(format!(
