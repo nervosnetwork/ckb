@@ -27,7 +27,6 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::{
-    core,
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,

@@ -164,27 +164,37 @@ pub struct ChainService {
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
+pub type VerifyCallbackArgs<'a> = (&'a Shared, PeerIndex, Arc<BlockView>);
+
 #[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
-    pub switch: Switch,
-    pub verify_ok_callback: Option<fn(&Shared, PeerIndex, Arc<BlockView>)>,
+    pub switch: Option<Switch>,
+
+    pub verify_ok_callback: Option<fn(VerifyCallbackArgs)>,
+    pub verify_failed_callback: Option<fn(VerifyCallbackArgs)>,
 }
 
 impl LonelyBlock {
-    fn combine_parent_header(self, parent_header: HeaderView) -> UnverifiedBlock {
+    fn combine_parent_header(self, parent_header: HeaderView, switch: Switch) -> UnverifiedBlock {
         UnverifiedBlock {
+            block: self.block,
+            peer_id: self.peer_id,
+            switch,
+            verify_ok_callback: self.verify_ok_callback,
             parent_header,
-            lonely_block: self,
         }
     }
 }
 
 #[derive(Clone)]
 struct UnverifiedBlock {
-    lonely_block: LonelyBlock,
-    parent_header: HeaderView,
+    pub block: Arc<BlockView>,
+    pub peer_id: Option<PeerIndex>,
+    pub switch: Switch,
+    pub verify_ok_callback: Option<fn(VerifyCallbackArgs)>,
+    pub parent_header: HeaderView,
 }
 
 impl ChainService {
@@ -333,33 +343,29 @@ impl ChainService {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
                 self.shared
-                    .remove_block_status(&unverified_block.block().hash());
+                    .remove_block_status(&unverified_block.block.hash());
                 let log_elapsed_remove_block_status = log_now.elapsed();
                 self.shared
-                    .remove_header_view(&unverified_block.lonely_block.block.hash());
+                    .remove_header_view(&unverified_block.block.hash());
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    unverified_block.lonely_block.block.hash(),
+                    unverified_block.block.hash(),
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
 
                 // start execute this block's callback function
                 match (
-                    unverified_block.lonely_block.verify_ok_callback,
-                    unverified_block.lonely_block.peer_id,
+                    unverified_block.verify_ok_callback,
+                    unverified_block.peer_id,
                 ) {
                     (Some(verify_ok_callback), Some(peer_id)) => {
-                        verify_ok_callback(
-                            &self.shared,
-                            peer_id,
-                            unverified_block.lonely_block.block,
-                        );
+                        verify_ok_callback((&self.shared, peer_id, unverified_block.block));
                     }
                     (Some(verify_ok_callback), _) => {
                         error!(
-                            "block {} verify_ok_callback have no peer_id, this should not happen",
-                            unverified_block.lonely_block.block.hash()
+                            "block {} have verify_ok_callback, but have no peer_id, this should not happen",
+                            unverified_block.block.hash()
                         );
                     }
                     _ => {}
@@ -368,13 +374,13 @@ impl ChainService {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.lonely_block.peer_id,
-                    unverified_block.lonely_block.block.hash(),
+                    unverified_block.peer_id,
+                    unverified_block.block.hash(),
                     err
                 );
-                if let Some(peer_id) = unverified_block.lonely_block.peer_id {
-                    if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                        block_hash: unverified_block.lonely_block.block.hash(),
+                if let Some(peer_id) = unverified_block.peer_id {
+                    if let Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                        block_hash: unverified_block.block.hash(),
                         peer_id,
                         message_bytes: 0,
                         reason: "".to_string(),
@@ -400,15 +406,13 @@ impl ChainService {
                     tip_ext.total_difficulty,
                 ));
 
-                self.shared.insert_block_status(
-                    unverified_block.lonely_block.block.hash(),
-                    BlockStatus::BLOCK_INVALID,
-                );
+                self.shared
+                    .insert_block_status(unverified_block.block.hash(), BlockStatus::BLOCK_INVALID);
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    unverified_block.lonely_block.block.hash(),
+                    unverified_block.block.hash(),
                     err
                 );
             }
@@ -456,8 +460,18 @@ impl ChainService {
                 continue;
             }
             let descendants_len = descendants.len();
-            let first_descendants_number =
-                descendants.first().expect("descdant not empty").number();
+            let (first_descendants_number, last_descendants_number) = (
+                descendants
+                    .first()
+                    .expect("descdant not empty")
+                    .block
+                    .number(),
+                descendants
+                    .last()
+                    .expect("descdant not empty")
+                    .block
+                    .number(),
+            );
 
             let mut accept_error_occurred = false;
             for descendant_block in descendants {
@@ -474,7 +488,10 @@ impl ChainService {
                     Ok(accepted_opt) => match accepted_opt {
                         Some((parent_header, total_difficulty)) => {
                             let unverified_block: UnverifiedBlock =
-                                descendant_block.combine_parent_header(parent_header);
+                                descendant_block.combine_parent_header(parent_header, Switch::NONE);
+                            let block_number = unverified_block.block.number();
+                            let block_hash = unverified_block.block.hash();
+
                             match self.unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
                                 Err(err) => error!("send unverified_block_tx failed: {}", err),
@@ -484,20 +501,18 @@ impl ChainService {
                                 .gt(self.shared.get_unverified_tip().total_difficulty())
                             {
                                 self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                                    descendant_block.block.header().number(),
-                                    descendant_block.block.header().hash(),
+                                    block_number.clone(),
+                                    block_hash.clone(),
                                     total_difficulty,
                                 ));
                                 debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
-                            descendant_block.block.number(),
-                            descendant_block.block.hash(),
-                            descendant_block.block
-                                .number()
-                                .saturating_sub(self.shared.snapshot().tip_number()))
+                            block_number.clone(),
+                            block_hash.clone(),
+                            block_number.saturating_sub(self.shared.snapshot().tip_number()))
                             } else {
                                 debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
-                                    descendant_block.block.number(),
-                                    descendant_block.block.hash(),
+                                    block_number,
+                                    block_hash,
                                     self.shared.get_unverified_tip().number(),
                                     self.shared.get_unverified_tip().hash(),
                                     );
@@ -516,17 +531,7 @@ impl ChainService {
             if !accept_error_occurred {
                 debug!(
                     "accept {} blocks [{}->{}] success",
-                    descendants.len(),
-                    descendants
-                        .first()
-                        .expect("descendants not empty")
-                        .block
-                        .number(),
-                    descendants
-                        .last()
-                        .expect("descendants not empty")
-                        .block
-                        .number(),
+                    descendants_len, first_descendants_number, last_descendants_number
                 )
             }
         }
@@ -635,23 +640,26 @@ impl ChainService {
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
-
-        if !lonely_block.switch.disable_non_contextual() {
-            let result = self.non_contextual_verify(&lonely_block.block);
-            match result {
-                Err(err) => {
-                    if let Some(peer_id) = lonely_block.peer_id {
-                        if Err(_) = self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
-                            block_hash: lonely_block.block.hash(),
-                            peer_id,
-                            message_bytes: 0,
-                            reason: err.to_string(),
-                        }) {
-                            error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
+        if let Some(switch) = lonely_block.switch {
+            if !switch.disable_non_contextual() {
+                let result = self.non_contextual_verify(&lonely_block.block);
+                match result {
+                    Err(err) => {
+                        if let Some(peer_id) = lonely_block.peer_id {
+                            if let Err(_) =
+                                self.verify_failed_blocks_tx.send(VerifyFailedBlockInfo {
+                                    block_hash: lonely_block.block.hash(),
+                                    peer_id,
+                                    message_bytes: 0,
+                                    reason: err.to_string(),
+                                })
+                            {
+                                error!("ChainService want to send VerifyFailedBlockInfo to Synchronizer, but Synchronizer has dropped the receiver");
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
@@ -758,13 +766,11 @@ impl ChainService {
         let log_now = std::time::Instant::now();
 
         let UnverifiedBlock {
+            block,
+            peer_id,
+            switch,
+            verify_ok_callback,
             parent_header,
-            lonely_block:
-                LonelyBlock {
-                    block,
-                    peer_id,
-                    switch,
-                },
         } = unverified_block;
 
         let parent_ext = self
