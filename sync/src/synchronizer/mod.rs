@@ -20,7 +20,7 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared, SyncState};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
@@ -158,8 +158,8 @@ impl BlockFetchCMD {
             return self.can_start;
         }
 
-        let sync_shared = self.sync_shared;
-        let state = sync_shared.state();
+        let shared = self.sync_shared.shared();
+        let state = self.sync_shared.state();
 
         let min_work_reach = |flag: &mut CanStart| {
             if state.min_chain_work_ready() {
@@ -170,7 +170,7 @@ impl BlockFetchCMD {
         let assume_valid_target_find = |flag: &mut CanStart| {
             let mut assume_valid_target = state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
-                match sync_shared.shared().header_map().get(&target.pack()) {
+                match shared.header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
                         // Blocks that are no longer in the scope of ibd must be forced to verify
@@ -234,10 +234,8 @@ pub struct Synchronizer {
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 
-    pub(crate) verify_failed_blocks_tx:
-        Arc<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
-    pub(crate) verify_failed_blocks_rx:
-        Arc<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
+    pub(crate) verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    pub(crate) verify_failed_blocks_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
 }
 
 impl Synchronizer {
@@ -251,8 +249,8 @@ impl Synchronizer {
             chain,
             shared,
             fetch_channel: None,
-            verify_failed_blocks_tx: Arc::new(verify_failed_blocks_tx),
-            verify_failed_blocks_rx: Arc::new(verify_failed_blocks_rx),
+            verify_failed_blocks_tx,
+            verify_failed_blocks_rx,
         }
     }
 
@@ -385,7 +383,7 @@ impl Synchronizer {
         peer: PeerIndex,
         ibd: IBDState,
     ) -> Option<Vec<Vec<packed::Byte32>>> {
-        BlockFetcher::new(Arc::to_owned(self.shared()), peer, ibd).fetch()
+        BlockFetcher::new(Arc::clone(&self.shared), peer, ibd).fetch()
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -660,6 +658,7 @@ impl Synchronizer {
                 }
                 None => {
                     let p2p_control = raw.clone();
+                    let sync_shared = Arc::clone(self.shared());
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender
