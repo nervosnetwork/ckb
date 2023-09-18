@@ -6,7 +6,7 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use ckb_chain_spec::versionbits::VersionbitsIndexer;
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
@@ -55,7 +55,16 @@ const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
-pub type VerifyCallback = dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync;
+pub type VerifyCallback = dyn FnOnce(Result<VerifiedBlockStatus, ckb_error::Error>) + Send + Sync;
+
+/// VerifiedBlockStatus is
+pub enum VerifiedBlockStatus {
+    // The block is being seen for the first time.
+    FirstSeen,
+
+    // The block has been verified before.
+    PreviouslyVerified,
+}
 
 /// Controller to the chain service.
 ///
@@ -374,7 +383,10 @@ impl ChainService {
         }
     }
 
-    fn consume_unverified_blocks(&self, unverified_block: &UnverifiedBlock) -> Result<(), Error> {
+    fn consume_unverified_blocks(
+        &self,
+        unverified_block: &UnverifiedBlock,
+    ) -> Result<VerifiedBlockStatus, Error> {
         // process this unverified block
         let verify_result = self.verify_block(unverified_block);
         match &verify_result {
@@ -679,8 +691,15 @@ impl ChainService {
 
         match lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
-            Err(err) => {
-                error!("notify new block to orphan pool err: {}", err)
+            Err(SendError(lonely_block)) => {
+                error!("notify new block to orphan pool err: {}", err);
+                if let Some(verify_callback) = lonely_block.verify_callback {
+                    verify_callback(
+                        InternalErrorKind::System
+                            .other("OrphanBlock broker disconnected")
+                            .into(),
+                    );
+                }
             }
         }
         debug!(
