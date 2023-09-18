@@ -276,10 +276,13 @@ impl MinerRpc for MinerRpcImpl {
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Verify and insert block
-        let is_new = self
-            .chain
-            .process_block(Arc::clone(&block))
-            .map_err(|err| handle_submit_error(&work_id, &err))?;
+        let is_new: bool = {
+            // self
+            //     .chain
+            //     .process_block(Arc::clone(&block))
+            //     .map_err(|err| handle_submit_error(&work_id, &err))?;
+            todo!("retrive verify block result by callback");
+        };
         info!(
             "end to submit block, work_id = {}, is_new = {}, block = #{}({})",
             work_id,
