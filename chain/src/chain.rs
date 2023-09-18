@@ -55,6 +55,8 @@ const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
+pub type VerifyCallback = dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync;
+
 /// Controller to the chain service.
 ///
 /// The controller is internally reference-counted and can be freely cloned.
@@ -95,7 +97,7 @@ impl ChainController {
     pub fn process_block_with_callback(
         &self,
         block: Arc<BlockView>,
-        verify_callback: Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>,
+        verify_callback: Box<VerifyCallback>,
     ) {
         self.internal_process_lonely_block(LonelyBlock {
             block,
@@ -185,14 +187,12 @@ pub struct ChainService {
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 }
 
-pub type VerifyCallbackArgs<'a> = (&'a Shared, PeerIndex, Arc<BlockView>);
-
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Option<Switch>,
 
-    pub verify_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
+    pub verify_callback: Option<Box<VerifyCallback>>,
 }
 
 impl LonelyBlock {
@@ -211,7 +211,7 @@ struct UnverifiedBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
-    pub verify_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
+    pub verify_callback: Option<Box<VerifyCallback>>,
     pub parent_header: HeaderView,
 }
 

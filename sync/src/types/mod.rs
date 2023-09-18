@@ -2,7 +2,7 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::{ChainController, LonelyBlock};
+use ckb_chain::chain::{ChainController, LonelyBlock, VerifyCallback};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
@@ -1117,7 +1117,7 @@ impl SyncShared {
             chain,
             Arc::clone(&block),
             peer_id,
-            None::<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
+            None::<Box<VerifyCallback>>,
         );
         // if ret.is_err() {
         //     debug!("accept block {:?} {:?}", block, ret);
@@ -1187,7 +1187,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Sync + Send>>,
+        verify_callback: Option<Box<VerifyCallback>>,
     ) {
         // let ret = {
         //     let mut assume_valid_target = self.state.assume_valid_target();
