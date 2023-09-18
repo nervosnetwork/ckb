@@ -275,14 +275,30 @@ impl MinerRpc for MinerRpcImpl {
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        // Verify and insert block
-        let is_new: bool = {
-            // self
-            //     .chain
-            //     .process_block(Arc::clone(&block))
-            //     .map_err(|err| handle_submit_error(&work_id, &err))?;
-            todo!("retrive verify block result by callback");
-        };
+        let (verify_result_tx, verify_result_rx) =
+            ckb_channel::oneshot::channel::<std::result::Result<(), ckb_error::Error>>();
+        let verify_callback: fn(std::result::Result<(), ckb_error::Error>) =
+            move |verify_result: std::result::Result<(), ckb_error::Error>| match verify_result_tx
+                .send(verify_result)
+            {
+                Err(_) => {
+                    error!("send verify result failed, the Receiver in MinerRpc is disconnected")
+                }
+                _ => {}
+            };
+
+        self.chain
+            .process_block_with_callback(Arc::clone(&block), Box::new(verify_callback));
+
+        let is_new = verify_result_rx
+            .recv()
+            .map_err(|recv_err| {
+                RPCError::ckb_internal_error(format!(
+                    "failed to receive verify result, error: {}",
+                    recv_err
+                ))
+            })?
+            .map_err(|verify_err| handle_submit_error(&work_id, &verify_err))?;
         info!(
             "end to submit block, work_id = {}, is_new = {}, block = #{}({})",
             work_id,
