@@ -88,14 +88,32 @@ impl ChainController {
     /// If the block already exists, does nothing and false is returned.
     ///
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_block(&self, lonely_block: LonelyBlock) {
-        self.internal_process_block(lonely_block)
+    pub fn process_lonely_block(&self, lonely_block: LonelyBlock) {
+        self.internal_process_lonely_block(lonely_block)
+    }
+
+    pub fn process_block(&self, block: Arc<BlockView>) {
+        self.internal_process_lonely_block(LonelyBlock {
+            block,
+            peer_id: None,
+            switch: None,
+            verify_ok_callback: None,
+        })
+    }
+
+    pub fn internal_process_block(&self, block: Arc<BlockView>, switch: Switch) {
+        self.internal_process_lonely_block(LonelyBlock {
+            block,
+            peer_id: None,
+            switch: Some(switch),
+            verify_ok_callback: None,
+        })
     }
 
     /// Internal method insert block for test
     ///
     /// switch bit flags for particular verify, make easier to generating test data
-    pub fn internal_process_block(&self, lonely_block: LonelyBlock) {
+    pub fn internal_process_lonely_block(&self, lonely_block: LonelyBlock) {
         if Request::call(&self.process_block_sender, lonely_block).is_none() {
             error!("Chain service has gone")
         }

@@ -1217,7 +1217,7 @@ impl SyncShared {
             // verify_failed_callback,
         };
 
-        chain.process_block(lonely_block);
+        chain.process_lonely_block(lonely_block);
 
         // if let Err(ref error) = ret {
         //     if !is_internal_db_error(error) {
