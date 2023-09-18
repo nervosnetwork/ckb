@@ -311,7 +311,7 @@ impl Relayer {
 
         let block = Arc::new(block);
 
-        let verify_success_callback: fn(Result<(), ckb_error::Error>) = {
+        let verify_success_callback = {
             let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
             let block = Arc::clone(&block);
             let peer = peer.clone();
