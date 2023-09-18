@@ -179,7 +179,7 @@ pub struct LonelyBlock {
     pub peer_id: Option<PeerIndex>,
     pub switch: Option<Switch>,
 
-    pub verify_ok_callback: Option<Box<dyn FnOnce() + Send + Sync>>,
+    pub verify_ok_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
     // pub verify_failed_callback: Option<F>,
 }
 
@@ -199,7 +199,7 @@ struct UnverifiedBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Switch,
-    pub verify_ok_callback: Option<Box<dyn FnOnce() + Send + Sync>>,
+    pub verify_ok_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
     pub parent_header: HeaderView,
 }
 
@@ -376,13 +376,14 @@ impl ChainService {
                     unverified_block.peer_id,
                 ) {
                     (Some(verify_ok_callback), Some(peer_id)) => {
-                        // verify_ok_callback((&self.shared, peer_id, unverified_block.block));
+                        verify_ok_callback(Ok(()));
                     }
-                    (Some(verify_ok_callback), _) => {
+                    (Some(verify_ok_callback), None) => {
                         error!(
                             "block {} have verify_ok_callback, but have no peer_id, this should not happen",
                             unverified_block.block.hash()
                         );
+                        verify_ok_callback(Ok(()))
                     }
                     _ => {}
                 }

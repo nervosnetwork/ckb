@@ -311,17 +311,21 @@ impl Relayer {
 
         let block = Arc::new(block);
 
-        let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
-        let block_clone = Arc::clone(&block);
-        let peer_clone = peer.clone();
         let verify_success_callback = {
-            move || match broadcast_compact_block_tx.send((block_clone, peer_clone)) {
-                Err(_) => {
-                    error!(
+            let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
+            let block = Arc::clone(&block);
+            let peer = peer.clone();
+            move |result: Result<(), ckb_error::Error>| {
+                if result.is_err() {
+                    match broadcast_compact_block_tx.send((block, peer)) {
+                        Err(_) => {
+                            error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
                     );
+                        }
+                        _ => {}
+                    }
                 }
-                _ => {}
             }
         };
 

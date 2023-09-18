@@ -293,17 +293,18 @@ impl Launcher {
         let mut flags = Flags::all();
 
         if support_protocols.contains(&SupportProtocol::Relay) {
-            let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+            let relayer_v3 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared)).v3();
 
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV3,
-                Box::new(relayer.clone().v3()),
+                Box::new(relayer_v3),
                 Arc::clone(&network_state),
             ));
             if !fork_enable {
+                let relayer_v2 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
                 protocols.push(CKBProtocol::new_with_support_protocol(
                     SupportProtocols::RelayV2,
-                    Box::new(relayer),
+                    Box::new(relayer_v2),
                     Arc::clone(&network_state),
                 ))
             }

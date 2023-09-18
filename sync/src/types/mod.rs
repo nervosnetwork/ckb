@@ -47,6 +47,7 @@ use std::{cmp, fmt, iter};
 
 use crate::utils::send_message;
 use ckb_types::core::EpochNumber;
+use ckb_types::error::Error;
 
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
@@ -1082,7 +1083,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_success_callback: impl FnOnce() + Send + Sync + 'static,
+        verify_success_callback: impl FnOnce(Result<(), ckb_error::Error>) + Send + Sync + 'static,
     ) {
         self.accept_block(
             chain,
@@ -1117,7 +1118,7 @@ impl SyncShared {
             chain,
             Arc::clone(&block),
             peer_id,
-            None::<Box<dyn FnOnce() + Send + Sync>>,
+            None::<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
             None,
         );
         // if ret.is_err() {
@@ -1188,7 +1189,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_ok_callback: Option<Box<dyn FnOnce() + Sync + Send>>,
+        verify_ok_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Sync + Send>>,
         verify_failed_callback: Option<fn()>,
     ) {
         // let ret = {
