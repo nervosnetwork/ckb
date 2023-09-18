@@ -73,7 +73,6 @@ pub enum ReconstructionResult {
 type BroadcastCompactBlockType = (Arc<BlockView>, PeerIndex);
 
 /// Relayer protocol handle
-#[derive(Clone)]
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
@@ -316,7 +315,7 @@ impl Relayer {
         let block_clone = Arc::clone(&block);
         let peer_clone = peer.clone();
         let verify_success_callback = {
-            || match broadcast_compact_block_tx.send((block_clone, peer_clone)) {
+            move || match broadcast_compact_block_tx.send((block_clone, peer_clone)) {
                 Err(_) => {
                     error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",

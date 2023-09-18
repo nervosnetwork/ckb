@@ -201,11 +201,7 @@ impl BlockFetcher {
             let mut header = self
                 .active_chain
                 .get_ancestor(&best_known.hash(), start + span - 1)?;
-            let mut status = self
-                .synchronizer
-                .shared()
-                .shared()
-                .get_block_status(&header.hash());
+            let mut status = self.sync_shared.shared().get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
@@ -238,11 +234,7 @@ impl BlockFetcher {
                     fetch.push(header)
                 }
 
-                status = self
-                    .synchronizer
-                    .shared()
-                    .shared()
-                    .get_block_status(&parent_hash);
+                status = self.sync_shared.shared().get_block_status(&parent_hash);
                 header = self
                     .sync_shared
                     .get_header_index_view(&parent_hash, false)?;
@@ -295,7 +287,7 @@ impl BlockFetcher {
                 fetch_last,
                 fetch.len(),
                 tip,
-                self.synchronizer.shared().shared().get_unverified_tip().number(),
+                self.sync_shared.shared().get_unverified_tip().number(),
                 inflight_peer_count,
                 inflight_total_count,
                 trace_timecost_now.elapsed().as_millis(),
