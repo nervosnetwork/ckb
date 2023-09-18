@@ -1090,7 +1090,6 @@ impl SyncShared {
             Arc::clone(&block),
             peer_id,
             Some(Box::new(verify_success_callback)),
-            None,
         )
     }
 
@@ -1119,7 +1118,6 @@ impl SyncShared {
             Arc::clone(&block),
             peer_id,
             None::<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Send + Sync>>,
-            None,
         );
         // if ret.is_err() {
         //     debug!("accept block {:?} {:?}", block, ret);
@@ -1189,8 +1187,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_ok_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Sync + Send>>,
-        verify_failed_callback: Option<fn()>,
+        verify_callback: Option<Box<dyn FnOnce(Result<(), ckb_error::Error>) + Sync + Send>>,
     ) {
         // let ret = {
         //     let mut assume_valid_target = self.state.assume_valid_target();
@@ -1214,8 +1211,7 @@ impl SyncShared {
             block,
             peer_id: Some(peer_id),
             switch: Some(Switch::NONE),
-            verify_ok_callback,
-            // verify_failed_callback,
+            verify_callback,
         };
 
         chain.process_lonely_block(lonely_block);
