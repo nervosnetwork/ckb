@@ -15,11 +15,11 @@ pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 pub struct Entry {
     /// Transaction
     pub tx: TransactionView,
-    // peer id
+    /// peer id
     pub peer: PeerIndex,
     /// Declared cycles
     pub cycle: Cycle,
-    // Expire timestamp
+    /// Expire timestamp
     pub expires_at: u64,
 }
 
