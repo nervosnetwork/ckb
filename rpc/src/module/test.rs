@@ -617,7 +617,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(current_epoch.full_value().into())
     }
 
-    fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
+    async fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: packed::Transaction = tx.into();
         let tx: core::TransactionView = tx.into_view();
         let tx_pool = self.shared.tx_pool_controller();

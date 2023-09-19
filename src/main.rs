@@ -5,10 +5,12 @@ use ckb_build_info::Version;
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+use ckb_async_runtime::new_global_runtime;
 
 fn main() {
     let version = get_version();
-    if let Some(exit_code) = run_app(version).err() {
+    let (handle, _handle_stop_rx, runtime) = new_global_runtime();
+    if let Some(exit_code) = runtime.block_on(run_app(version, handle)).err() {
         ::std::process::exit(exit_code.into());
     }
 }

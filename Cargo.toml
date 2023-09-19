@@ -16,6 +16,9 @@ ckb-build-info = { path = "util/build-info", version = "= 0.112.0-pre" }
 [dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.112.0-pre" }
 ckb-bin = { path = "ckb-bin", version = "= 0.112.0-pre" }
+tokio = { version = "1", features = ["full", "tracing"] }
+ckb-async-runtime = { path = "util/runtime", version = "= 0.112.0-pre" }
+
 
 [dev-dependencies]
 
