@@ -36,7 +36,7 @@ impl<'a> ServiceBuilder<'a> {
     pub fn new(config: &'a RpcConfig) -> Self {
         Self {
             config,
-            io_handler: IoHandler::default(),
+            io_handler: IoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
             rpc_hander: MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
         }
     }
@@ -45,7 +45,7 @@ impl<'a> ServiceBuilder<'a> {
     pub fn enable_chain(mut self, shared: Shared) -> Self {
         if self.config.chain_enable() {
             let methods = ChainRpcImpl { shared };
-            add_chain_rpc_methods(&mut self.rpc_hander, methods);
+            add_chain_rpc_methods(&mut self.io_handler, methods);
         }
         self
     }
@@ -167,7 +167,7 @@ impl<'a> ServiceBuilder<'a> {
             add_integration_test_rpc_methods(&mut self.rpc_hander, methods);
         }
         self
-    }
+    }*/
 
     /// Mounts methods from module Alert if it is enabled in the config.
     pub fn enable_alert(
@@ -177,12 +177,14 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
     ) -> Self {
         if self.config.alert_enable() {
+            eprintln!("enable_alert .............");
             let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
             add_alert_rpc_methods(&mut self.rpc_hander, methods);
         }
         self
     }
 
+    /*
     /// Mounts methods from module Debug if it is enabled in the config.
     pub fn enable_debug(mut self) -> Self {
         if self.config.debug_enable() {
@@ -254,8 +256,8 @@ impl<'a> ServiceBuilder<'a> {
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
-        io_handler.add_sync_method("ping", |_| Ok("pong".into()));
-
+        io_handler.add_method("@ping", |_| async move { Ok("pong".into()) });
+        eprintln!("build .............");
         io_handler
     }
 }

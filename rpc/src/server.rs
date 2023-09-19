@@ -22,28 +22,27 @@ impl RpcServer {
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `notify_controller` - Controller emitting notifications.
     pub async fn start_jsonrpc_server(
-        config: RpcConfig,
         io_handler: IoHandler,
         notify_controller: &NotifyController,
         handle: Handle,
     ) -> Result<(), String> {
-        let rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
-
-        let rpc = Arc::new(rpc);
+        let rpc = Arc::new(io_handler);
         let stream_config = StreamServerConfig::default()
             .with_channel_size(4)
             .with_pipeline_size(4);
 
         // HTTP and WS server.
         let ws_config = stream_config.clone().with_keep_alive(true);
-        let app = jsonrpc_router("/", rpc.clone(), ws_config);
+        let app = jsonrpc_router("/rpc", rpc.clone(), ws_config);
         // You can use additional tower-http middlewares to add e.g. CORS.
         let http = tokio::spawn(async move {
-            axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+            axum::Server::bind(&"0.0.0.0:8114".parse().unwrap())
                 .serve(app.into_make_service())
                 .await
                 .unwrap();
         });
+
+        eprintln!("started http ...........");
 
         // TCP server.
 
@@ -51,7 +50,7 @@ impl RpcServer {
         //
         // You can also use other transports (e.g. TLS, unix socket) and codecs
         // (e.g. netstring, JSON splitter).
-        let listener = TcpListener::bind("0.0.0.0:3001").await.unwrap();
+        let listener = TcpListener::bind("0.0.0.0:8116").await.unwrap();
         let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
         while let Ok((s, _)) = listener.accept().await {
             let rpc = rpc.clone();
