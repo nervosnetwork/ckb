@@ -1,6 +1,9 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::{tokio, Handle};
+use ckb_async_runtime::{
+    tokio::{self, spawn},
+    Handle,
+};
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
@@ -8,11 +11,20 @@ use ckb_stop_handler::{broadcast_exit_signals, wait_all_ckb_services_exit};
 
 use ckb_types::core::cell::setup_system_cell_cache;
 
-pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
+// pub fn run(
+//     args: RunArgs,
+//     version: Version,
+//     async_handle: Handle,
+//     runtime: Runtime,
+// ) -> Result<(), ExitCode> {
+//     //runtime.spawn_blocking(|| run_inner(args, version, async_handle));
+//     runtime.block_on(run_inner(args, version, async_handle))
+// }
+
+pub async fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
     info!("ckb version: {}", version);
-
     let mut launcher = Launcher::new(args, version, async_handle);
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
@@ -45,18 +57,25 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.start_block_filter(&shared);
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rpc_task = spawn(async move {
+        let network_controller = launcher
+            .start_network_and_rpc(
+                &shared,
+                chain_controller.clone(),
+                miner_enable,
+                pack.take_relay_tx_receiver(),
+            )
+            .await;
+        eprintln!("network_controller begin to run ....");
+        eprintln!("end network_controller run ....");
 
-    let network_controller = launcher.start_network_and_rpc(
-        &shared,
-        chain_controller.clone(),
-        miner_enable,
-        pack.take_relay_tx_receiver(),
-    );
-    let network_controller = rt.block_on(network_controller);
+        let tx_pool_builder = pack.take_tx_pool_builder();
+        tx_pool_builder.start(network_controller.clone());
+    });
 
-    let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller.clone());
+    tokio::select! {
+        _ = rpc_task => {},
+    };
 
     ctrlc::set_handler(|| {
         info!("Trapped exit signal, exiting...");

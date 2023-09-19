@@ -20,7 +20,8 @@ use ckb_network::{
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
-use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_rpc::RpcServer;
+use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
@@ -187,9 +188,9 @@ impl Launcher {
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
-        self.async_handle.block_on(observe_listen_port_occupancy(
-            &self.args.config.network.listen_addresses,
-        ))?;
+        // self.async_handle.block_on(observe_listen_port_occupancy(
+        //     &self.args.config.network.listen_addresses,
+        // ))?;
 
         let shared_builder = SharedBuilder::new(
             &self.args.config.bin_name,
@@ -378,7 +379,7 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config).enable_chain(shared.clone());
+        let builder = ServiceBuilder::new(&rpc_config).enable_chain(shared.clone())
         // .enable_pool(
         //     shared.clone(),
         //     rpc_config
@@ -402,7 +403,7 @@ impl Launcher {
         // .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         // .enable_experiment(shared.clone())
         // .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-        // .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+        .enable_alert(alert_verifier, alert_notifier, network_controller.clone());
         // .enable_indexer(
         //     shared.clone(),
         //     &self.args.config.db,
@@ -412,7 +413,6 @@ impl Launcher {
         let io_handler = builder.build();
 
         RpcServer::start_jsonrpc_server(
-            rpc_config.clone(),
             io_handler,
             shared.notify_controller(),
             self.async_handle.clone().into_inner(),
