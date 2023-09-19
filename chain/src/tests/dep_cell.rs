@@ -181,13 +181,15 @@ fn test_package_txs_with_deps() {
         tx_pool_info = tx_pool.get_tx_pool_info().unwrap()
     }
 
+    let test_now = std::time::Instant::now();
     // get block template with txs
     while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 4)
     {
         block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
-            .unwrap()
+            .unwrap();
+        assert!(test_now.elapsed().as_secs() < 120);
     }
 
     let block: Block = block_template.into();
