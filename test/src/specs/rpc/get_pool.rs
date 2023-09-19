@@ -11,10 +11,10 @@ impl Spec for TxPoolEntryStatus {
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
         node0.rpc_client().send_transaction(tx.data().into());
-        node0.assert_pool_entry_status(tx_hash_0.clone(), "Pending");
+        node0.assert_pool_entry_status(tx_hash_0.clone(), "pending");
         node0.mine(1);
-        node0.assert_pool_entry_status(tx_hash_0.clone(), "Gap");
+        node0.assert_pool_entry_status(tx_hash_0.clone(), "gap");
         node0.mine(1);
-        node0.assert_pool_entry_status(tx_hash_0, "Proposed");
+        node0.assert_pool_entry_status(tx_hash_0, "proposed");
     }
 }

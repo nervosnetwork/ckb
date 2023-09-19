@@ -283,11 +283,11 @@ pub trait PoolRpc {
     ///    "result": {
     ///        "ancestors_count": "0x0",
     ///        "descendants_count": "0x0",
-    ///        "entry_status": "Pending",
+    ///        "entry_status": "pending",
     ///        "pending_count": "0x1",
     ///        "proposed_count": "0x0",
     ///        "rank_in_pending": "0x1",
-    ///        "score_sortkey": "AncestorsScoreSortKey { fee: Capacity(96942915023), weight: 274, ancestors_fee: Capacity(96942915023), ancestors_weight: 274 }",
+    ///        "score_sortkey": "fee: 0x16923F7DCF, ancestors_fee: 0x16923F7DCF, weight: 0x112, ancestors_weight: 0x112",
     ///        "timestamp": "0x18aa1baa54c"
     ///    },
     ///    "id": 42

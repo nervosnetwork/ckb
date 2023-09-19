@@ -28,6 +28,16 @@ pub enum Status {
     Proposed,
 }
 
+impl ToString for Status {
+    fn to_string(&self) -> String {
+        match self {
+            Status::Pending => "pending".to_string(),
+            Status::Gap => "gap".to_string(),
+            Status::Proposed => "proposed".to_string(),
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 enum EntryOp {
     Add,
@@ -182,6 +192,7 @@ impl PoolMap {
         self.insert_entry(&entry, status);
         self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
+        self.track_entry_statics();
         Ok(true)
     }
 
@@ -192,6 +203,7 @@ impl PoolMap {
                 e.status = status;
             })
             .expect("unconsistent pool");
+        self.track_entry_statics();
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -508,5 +520,22 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
+    }
+
+    fn track_entry_statics(&self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_tx_pool_entry
+                .pending
+                .set(self.entries.get_by_status(&Status::Pending).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .gap
+                .set(self.entries.get_by_status(&Status::Gap).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .proposed
+                .set(self.proposed_size() as i64);
+        }
     }
 }

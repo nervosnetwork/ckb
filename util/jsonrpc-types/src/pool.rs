@@ -220,11 +220,11 @@ pub enum RawTxPool {
 pub struct PoolTxDetailInfo {
     /// The time added into tx-pool
     pub timestamp: Uint64,
-    /// The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+    /// The detailed status in tx-pool, `pending`, `gap`, `proposed`
     pub entry_status: String,
     /// The rank in pending, starting from 0
     pub rank_in_pending: Uint64,
-    /// The pending(`Pending` and `Gap`) count
+    /// The pending(`pending` and `gap`) count
     pub pending_count: Uint64,
     /// The proposed count
     pub proposed_count: Uint64,

@@ -4698,11 +4698,11 @@ Response
    "result": {
        "ancestors_count": "0x0",
        "descendants_count": "0x0",
-       "entry_status": "Pending",
+       "entry_status": "pending",
        "pending_count": "0x1",
        "proposed_count": "0x0",
        "rank_in_pending": "0x1",
-       "score_sortkey": "AncestorsScoreSortKey { fee: Capacity(96942915023), weight: 274, ancestors_fee: Capacity(96942915023), ancestors_weight: 274 }",
+       "score_sortkey": "fee: 0x16923F7DCF, ancestors_fee: 0x16923F7DCF, weight: 0x112, ancestors_weight: 0x112",
        "timestamp": "0x18aa1baa54c"
    },
    "id": 42
@@ -6567,11 +6567,11 @@ A Tx details info in tx-pool.
 
 *   `timestamp`: [`Uint64`](#type-uint64) - The time added into tx-pool
 
-*   `entry_status`: `string` - The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+*   `entry_status`: `string` - The detailed status in tx-pool, `pending`, `gap`, `proposed`
 
 *   `rank_in_pending`: [`Uint64`](#type-uint64) - The rank in pending, starting from 0
 
-*   `pending_count`: [`Uint64`](#type-uint64) - The pending(`Pending` and `Gap`) count
+*   `pending_count`: [`Uint64`](#type-uint64) - The pending(`pending` and `gap`) count
 
 *   `proposed_count`: [`Uint64`](#type-uint64) - The proposed count
 

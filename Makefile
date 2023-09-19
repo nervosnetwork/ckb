@@ -180,6 +180,13 @@ clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
+.PHONY: bless
+bless: setup-ckb-test
+	cargo clippy --fix --allow-dirty ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
+	cd test && cargo clippy --fix --allow-dirty ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
+	cargo fmt ${VERBOSE} --all
+	cd test && cargo fmt ${VERBOSE} --all
+
 .PHONY: security-audit
 security-audit: ## Use cargo-deny to audit Cargo.lock for crates with security vulnerabilities.
 	cargo deny check --hide-inclusion-graph --show-stats advisories sources

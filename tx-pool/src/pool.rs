@@ -645,13 +645,13 @@ impl TxPool {
             };
             let res = PoolTxDetailInfo {
                 timestamp: entry.inner.timestamp,
-                entry_status: format!("{:?}", entry.status),
+                entry_status: entry.status.to_string(),
                 pending_count: self.pool_map.pending_size(),
                 rank_in_pending,
                 proposed_count: ids.proposed.len(),
                 descendants_count: self.pool_map.calc_descendants(id).len(),
                 ancestors_count: self.pool_map.calc_ancestors(id).len(),
-                score_sortkey: format!("{:?}", entry.inner.as_score_key()),
+                score_sortkey: entry.inner.as_score_key().to_string(),
             };
             Some(res)
         } else {
