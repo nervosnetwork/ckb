@@ -133,12 +133,13 @@ fn test_package_txs_with_deps() {
 
     // proposal txs
     {
-        while (Into::<u64>::into(block_template.number)) != 1 {
+        while (Into::<u64>::into(block_template.number)) < 1 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
         }
+        assert_eq!(block_template.number, 1);
 
         let block: Block = block_template.clone().into();
         let block = block
@@ -156,12 +157,13 @@ fn test_package_txs_with_deps() {
 
     // skip gap
     {
-        while (Into::<u64>::into(block_template.number)) != 2 {
+        while (Into::<u64>::into(block_template.number)) < 2 {
             block_template = shared
                 .get_block_template(None, None, None)
                 .unwrap()
                 .unwrap()
         }
+        assert_eq!(block_template.number, 2);
 
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
@@ -182,13 +184,14 @@ fn test_package_txs_with_deps() {
     }
 
     // get block template with txs
-    while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 4)
-    {
+    while Into::<u64>::into(block_template.number) < 3 {
         block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap()
     }
+    assert_eq!(block_template.number, 3);
+    asseet_eq!(block_template.transactions.len(), 4);
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
