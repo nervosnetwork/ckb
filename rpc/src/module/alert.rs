@@ -70,9 +70,6 @@ pub trait AlertRpc {
     /// ```
     #[rpc(name = "send_alert")]
     async fn send_alert(&self, alert: Alert) -> Result<()>;
-
-    #[rpc(name = "hello")]
-    async fn hello(&self) -> Result<String>;
 }
 
 #[derive(Clone)]
@@ -127,9 +124,5 @@ impl AlertRpc for AlertRpcImpl {
                 e,
             )),
         }
-    }
-
-    async fn hello(&self) -> Result<String> {
-        Ok(format!("Hello, Yukang!"))
     }
 }
