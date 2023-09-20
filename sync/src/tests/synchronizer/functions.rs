@@ -1139,7 +1139,7 @@ fn test_fix_last_common_header() {
         }
 
         let expected = fix_last_common.map(|mark| mark.to_string());
-        let actual = BlockFetcher::new(&synchronizer, peer, IBDState::In)
+        let actual = BlockFetcher::new(Arc::clone(&synchronizer.shared), peer, IBDState::In)
             .update_last_common_header(&best_known_header.number_and_hash())
             .map(|header| {
                 if graph
