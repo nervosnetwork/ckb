@@ -195,9 +195,9 @@ impl Launcher {
         &self,
         block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Shared, SharedPackage), ExitCode> {
-        // self.async_handle.block_on(observe_listen_port_occupancy(
-        //     &self.args.config.network.listen_addresses,
-        // ))?;
+        self.async_handle.block_on(observe_listen_port_occupancy(
+            &self.args.config.network.listen_addresses,
+        ))?;
 
         let shared_builder = SharedBuilder::new(
             &self.args.config.bin_name,
