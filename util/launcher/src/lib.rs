@@ -421,6 +421,7 @@ impl Launcher {
         let io_handler = builder.build();
 
         RpcServer::start_jsonrpc_server(
+            rpc_config,
             io_handler,
             shared.notify_controller(),
             self.async_handle.clone().into_inner(),
