@@ -1,11 +1,11 @@
 #![allow(deprecated)]
-use crate::error::RPCError;
 //use crate::module::SubscriptionSession;
 use crate::module::{
-    add_alert_rpc_methods, add_chain_rpc_methods, add_integration_test_rpc_methods, AlertRpcImpl,
-    ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc,
-    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
+    add_integration_test_rpc_methods, add_miner_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpc,
+    DebugRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
+    IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl,
+    StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -28,7 +28,6 @@ const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 pub struct ServiceBuilder<'a> {
     config: &'a RpcConfig,
     io_handler: IoHandler,
-    rpc_hander: MetaIoHandler<std::option::Option<jsonrpc_utils::pub_sub::Session>>,
 }
 
 impl<'a> ServiceBuilder<'a> {
@@ -37,7 +36,6 @@ impl<'a> ServiceBuilder<'a> {
         Self {
             config,
             io_handler: IoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
-            rpc_hander: MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
         }
     }
 
@@ -71,6 +69,7 @@ impl<'a> ServiceBuilder<'a> {
         }
         self
     }
+    */
 
     /// Mounts methods from module Miner if `enable` is `true` and it is enabled in the config.
     pub fn enable_miner(
@@ -84,16 +83,16 @@ impl<'a> ServiceBuilder<'a> {
             shared,
             chain,
             network_controller,
-        }
-        .to_delegate();
+        };
         if enable && self.config.miner_enable() {
-            self.add_methods(rpc_methods);
+            add_miner_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Miner", rpc_methods);
+            //self.update_disabled_methods("Miner", rpc_methods);
         }
         self
     }
 
+    /*
     /// Mounts methods from module Net if it is enabled in the config.
     pub fn enable_net(
         mut self,
@@ -142,6 +141,7 @@ impl<'a> ServiceBuilder<'a> {
         }
         self
     }
+    */
 
     /// Mounts methods from module Integration if it is enabled in the config.
     pub fn enable_integration_test(
@@ -164,10 +164,10 @@ impl<'a> ServiceBuilder<'a> {
                 network_controller,
                 chain,
             };
-            add_integration_test_rpc_methods(&mut self.rpc_hander, methods);
+            add_integration_test_rpc_methods(&mut self.io_handler, methods);
         }
         self
-    }*/
+    }
 
     /// Mounts methods from module Alert if it is enabled in the config.
     pub fn enable_alert(
@@ -179,20 +179,21 @@ impl<'a> ServiceBuilder<'a> {
         if self.config.alert_enable() {
             eprintln!("enable_alert .............");
             let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
-            add_alert_rpc_methods(&mut self.rpc_hander, methods);
+            add_alert_rpc_methods(&mut self.io_handler, methods);
+        }
+        self
+    }
+
+    /// Mounts methods from module Debug if it is enabled in the config.
+    pub fn enable_debug(mut self) -> Self {
+        if self.config.debug_enable() {
+            //self.io_handler.extend_with(DebugRpcImpl {}.to_delegate());
+            add_debug_rpc_methods(&mut self.io_handler, DebugRpcImpl {});
         }
         self
     }
 
     /*
-    /// Mounts methods from module Debug if it is enabled in the config.
-    pub fn enable_debug(mut self) -> Self {
-        if self.config.debug_enable() {
-            self.io_handler.extend_with(DebugRpcImpl {}.to_delegate());
-        }
-        self
-    }
-
     /// Mounts methods from module Indexer if it is enabled in the config.
     pub fn enable_indexer(
         mut self,
@@ -226,30 +227,6 @@ impl<'a> ServiceBuilder<'a> {
                 move |_param| error.clone(),
             )
         });
-    }
-
-    fn add_methods<I>(&mut self, rpc_methods: I)
-    where
-        I: IntoIterator<Item = (String, RemoteProcedure<Option<SubscriptionSession>>)>,
-    {
-        let enable_deprecated_rpc = self.config.enable_deprecated_rpc;
-        self.io_handler
-            .extend_with(rpc_methods.into_iter().map(|(name, method)| {
-                if let Some(deprecated_method_name) = name.strip_prefix(DEPRECATED_RPC_PREFIX) {
-                    (
-                        deprecated_method_name.to_owned(),
-                        if enable_deprecated_rpc {
-                            method
-                        } else {
-                            RemoteProcedure::Method(Arc::new(|_param, _meta| async {
-                                Err(RPCError::rpc_method_is_deprecated())
-                            }))
-                        },
-                    )
-                } else {
-                    (name, method)
-                }
-            }));
     }
     */
 
