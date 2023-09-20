@@ -6,7 +6,7 @@ mod setup_guard;
 mod subcommand;
 
 use ckb_app_config::{cli, ExitCode, Setup};
-use ckb_async_runtime::Handle;
+use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use ckb_logger::info;
 use ckb_network::tokio;
@@ -25,7 +25,7 @@ pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 ///
 /// * `version` - The version is passed in so the bin crate can collect the version without trigger
 /// re-linking.
-pub async fn run_app(version: Version, mut handle: Handle) -> Result<(), ExitCode> {
+pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
 
@@ -58,13 +58,14 @@ pub async fn run_app(version: Version, mut handle: Handle) -> Result<(), ExitCod
         .expect("SubcommandRequiredElseHelp");
     let is_silent_logging = is_silent_logging(cmd);
 
+    let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
     raise_fd_limit();
 
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()).await,
+        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
         cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
         cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),

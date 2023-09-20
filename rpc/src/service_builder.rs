@@ -18,6 +18,9 @@ use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use ckb_util::Mutex;
+use jsonrpc_core::MetaIoHandler;
+use jsonrpc_core::RemoteProcedure;
+use jsonrpc_utils::pub_sub::Session;
 use std::sync::Arc;
 
 const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
@@ -39,9 +42,13 @@ impl<'a> ServiceBuilder<'a> {
 
     /// Mounts methods from module Chain if it is enabled in the config.
     pub fn enable_chain(mut self, shared: Shared) -> Self {
+        let mut meta_io = MetaIoHandler::default();
         if self.config.chain_enable() {
             let methods = ChainRpcImpl { shared };
-            add_chain_rpc_methods(&mut self.io_handler, methods);
+            add_chain_rpc_methods(&mut meta_io, methods);
+            self.add_methods(meta_io);
+        } else {
+            self.update_disabled_methods("Chain", meta_io);
         }
         self
     }
@@ -53,15 +60,17 @@ impl<'a> ServiceBuilder<'a> {
         extra_well_known_lock_scripts: Vec<Script>,
         extra_well_known_type_scripts: Vec<Script>,
     ) -> Self {
-        let rpc_methods = PoolRpcImpl::new(
-            shared,
-            extra_well_known_lock_scripts,
-            extra_well_known_type_scripts,
-        );
+        let mut meta_io = MetaIoHandler::default();
         if self.config.pool_enable() {
-            add_pool_rpc_methods(&mut self.io_handler, rpc_methods);
+            let rpc_methods = PoolRpcImpl::new(
+                shared,
+                extra_well_known_lock_scripts,
+                extra_well_known_type_scripts,
+            );
+            add_pool_rpc_methods(&mut meta_io, rpc_methods);
+            self.add_methods(meta_io);
         } else {
-            //self.update_disabled_methods("Pool", rpc_methods);
+            self.update_disabled_methods("Pool", meta_io);
         }
         self
     }
@@ -74,15 +83,17 @@ impl<'a> ServiceBuilder<'a> {
         chain: ChainController,
         enable: bool,
     ) -> Self {
-        let rpc_methods = MinerRpcImpl {
-            shared,
-            chain,
-            network_controller,
-        };
+        let mut meta_io = MetaIoHandler::default();
         if enable && self.config.miner_enable() {
-            add_miner_rpc_methods(&mut self.io_handler, rpc_methods);
+            let rpc_methods = MinerRpcImpl {
+                shared,
+                chain,
+                network_controller,
+            };
+            add_miner_rpc_methods(&mut meta_io, rpc_methods);
+            self.add_methods(meta_io);
         } else {
-            //self.update_disabled_methods("Miner", rpc_methods);
+            self.update_disabled_methods("Miner", meta_io);
         }
         self
     }
@@ -93,14 +104,15 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
     ) -> Self {
-        let rpc_methods = NetRpcImpl {
-            network_controller,
-            sync_shared,
-        };
+        let mut meta_io = MetaIoHandler::default();
         if self.config.net_enable() {
-            add_net_rpc_methods(&mut self.io_handler, rpc_methods);
+            let rpc_methods = NetRpcImpl {
+                network_controller,
+                sync_shared,
+            };
+            add_net_rpc_methods(&mut meta_io, rpc_methods);
         } else {
-            //self.update_disabled_methods("Net", rpc_methods);
+            self.update_disabled_methods("Net", meta_io);
         }
         self
     }
@@ -111,25 +123,29 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
     ) -> Self {
-        let rpc_methods = StatsRpcImpl {
-            shared,
-            alert_notifier,
-        };
+        let mut meta_io = MetaIoHandler::default();
         if self.config.stats_enable() {
-            add_stats_rpc_methods(&mut self.io_handler, rpc_methods);
+            let rpc_methods = StatsRpcImpl {
+                shared,
+                alert_notifier,
+            };
+            add_stats_rpc_methods(&mut meta_io, rpc_methods);
+            self.add_methods(meta_io);
         } else {
-            //self.update_disabled_methods("Stats", rpc_methods);
+            self.update_disabled_methods("Stats", meta_io);
         }
         self
     }
 
     /// Mounts methods from module Experiment if it is enabled in the config.
     pub fn enable_experiment(mut self, shared: Shared) -> Self {
+        let mut meta_io = MetaIoHandler::default();
         let rpc_methods = ExperimentRpcImpl { shared };
         if self.config.experiment_enable() {
-            add_experiment_rpc_methods(&mut self.io_handler, rpc_methods);
+            add_experiment_rpc_methods(&mut meta_io, rpc_methods);
+            self.add_methods(meta_io);
         } else {
-            //self.update_disabled_methods("Experiment", rpc_methods);
+            self.update_disabled_methods("Experiment", meta_io);
         }
         self
     }
@@ -141,6 +157,7 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
         chain: ChainController,
     ) -> Self {
+        let mut meta_io = MetaIoHandler::default();
         if self.config.integration_test_enable() {
             // IntegrationTest only on Dummy PoW chain
             assert_eq!(
@@ -153,7 +170,10 @@ impl<'a> ServiceBuilder<'a> {
                 network_controller,
                 chain,
             };
-            add_integration_test_rpc_methods(&mut self.io_handler, methods);
+            add_integration_test_rpc_methods(&mut meta_io, methods);
+            self.add_methods(meta_io);
+        } else {
+            self.update_disabled_methods("IntegrationTest", meta_io);
         }
         self
     }
@@ -165,18 +185,25 @@ impl<'a> ServiceBuilder<'a> {
         alert_notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
     ) -> Self {
+        let mut meta_io = MetaIoHandler::default();
         if self.config.alert_enable() {
             let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
-            add_alert_rpc_methods(&mut self.io_handler, methods);
+            add_alert_rpc_methods(&mut meta_io, methods);
+            self.add_methods(meta_io);
+        } else {
+            self.update_disabled_methods("Alert", meta_io);
         }
         self
     }
 
     /// Mounts methods from module Debug if it is enabled in the config.
     pub fn enable_debug(mut self) -> Self {
+        let mut meta_io = MetaIoHandler::default();
         if self.config.debug_enable() {
-            //self.io_handler.extend_with(DebugRpcImpl {}.to_delegate());
-            add_debug_rpc_methods(&mut self.io_handler, DebugRpcImpl {});
+            add_debug_rpc_methods(&mut meta_io, DebugRpcImpl {});
+            self.add_methods(meta_io);
+        } else {
+            self.update_disabled_methods("Debug", meta_io);
         }
         self
     }
@@ -188,16 +215,43 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
-        let indexer = IndexerService::new(db_config, indexer_config, shared.async_handle().clone());
-        let indexer_handle = indexer.handle();
-        let rpc_methods = IndexerRpcImpl::new(indexer_handle);
+        let mut meta_io = MetaIoHandler::default();
         if self.config.indexer_enable() {
+            let indexer =
+                IndexerService::new(db_config, indexer_config, shared.async_handle().clone());
+            let indexer_handle = indexer.handle();
+            let rpc_methods = IndexerRpcImpl::new(indexer_handle);
             start_indexer(&shared, indexer, indexer_config.index_tx_pool);
-            add_indexer_rpc_methods(&mut self.io_handler, rpc_methods);
+            add_indexer_rpc_methods(&mut meta_io, rpc_methods);
+            self.add_methods(meta_io);
         } else {
-            //self.update_disabled_methods("Indexer", rpc_methods);
+            self.update_disabled_methods("Indexer", meta_io);
         }
         self
+    }
+
+    fn add_methods<I>(&mut self, rpc_methods: I)
+    where
+        I: IntoIterator<Item = (String, RemoteProcedure<Option<Session>>)>,
+    {
+        let enable_deprecated_rpc = self.config.enable_deprecated_rpc;
+        self.io_handler
+            .extend_with(rpc_methods.into_iter().map(|(name, method)| {
+                if let Some(striped_method_name) = name.strip_prefix(DEPRECATED_RPC_PREFIX) {
+                    (
+                        striped_method_name.to_owned(),
+                        if enable_deprecated_rpc {
+                            method
+                        } else {
+                            RemoteProcedure::Method(Arc::new(|_param, _meta| async {
+                                Err(RPCError::rpc_method_is_deprecated())
+                            }))
+                        },
+                    )
+                } else {
+                    (name, method)
+                }
+            }));
     }
 
     fn update_disabled_methods<I, M>(&mut self, module: &str, rpc_methods: I)
@@ -219,7 +273,7 @@ impl<'a> ServiceBuilder<'a> {
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
-        io_handler.add_method("@ping", |_| async move { Ok("pong".into()) });
+        io_handler.add_method("ping", |_| async move { Ok("pong".into()) });
         io_handler
     }
 }

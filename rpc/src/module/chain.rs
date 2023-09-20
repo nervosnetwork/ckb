@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
     Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
@@ -26,10 +27,9 @@ use ckb_types::{
 use ckb_verification::ScriptVerifier;
 use ckb_verification::TxVerifyEnv;
 use jsonrpc_core::Result;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::sync::Arc;
-use jsonrpc_utils::rpc;
-use async_trait::async_trait;
 
 /// RPC Module Chain for methods related to the canonical chain.
 ///
@@ -764,7 +764,8 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_tip_header")]
-    async fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>>;
+    async fn get_tip_header(&self, verbosity: Option<Uint32>)
+        -> Result<ResponseFormat<HeaderView>>;
 
     /// Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
     ///
@@ -1006,7 +1007,10 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_economic_state")]
-    async fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>>;
+    async fn get_block_economic_state(
+        &self,
+        block_hash: H256,
+    ) -> Result<Option<BlockEconomicState>>;
 
     /// Returns a Merkle proof that transactions are included in a block.
     ///
@@ -1562,8 +1566,11 @@ pub trait ChainRpc {
         since = "0.109.0",
         note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
     )]
-    #[rpc(name = "get_fee_rate_statics")]
-    async fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
+    #[rpc(name = "deprecated.get_fee_rate_statics")]
+    async fn get_fee_rate_statics(
+        &self,
+        target: Option<Uint64>,
+    ) -> Result<Option<FeeRateStatistics>>;
 
     /// Returns the fee_rate statistics of confirmed blocks on the chain
     ///
@@ -1605,7 +1612,10 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_fee_rate_statistics")]
-    async fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
+    async fn get_fee_rate_statistics(
+        &self,
+        target: Option<Uint64>,
+    ) -> Result<Option<FeeRateStatistics>>;
 }
 
 #[derive(Clone)]
@@ -1778,7 +1788,10 @@ impl ChainRpc for ChainRpcImpl {
             .map(|h| h.unpack()))
     }
 
-    async fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>> {
+    async fn get_tip_header(
+        &self,
+        verbosity: Option<Uint32>,
+    ) -> Result<ResponseFormat<HeaderView>> {
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
@@ -1825,7 +1838,10 @@ impl ChainRpc for ChainRpcImpl {
         Ok(self.shared.snapshot().tip_header().number().into())
     }
 
-    async fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>> {
+    async fn get_block_economic_state(
+        &self,
+        block_hash: H256,
+    ) -> Result<Option<BlockEconomicState>> {
         let snapshot = self.shared.snapshot();
 
         let block_number = if let Some(block_number) = snapshot.get_block_number(&block_hash.pack())
@@ -2106,12 +2122,18 @@ impl ChainRpc for ChainRpcImpl {
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    async fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
+    async fn get_fee_rate_statics(
+        &self,
+        target: Option<Uint64>,
+    ) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }
 
-    async fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
+    async fn get_fee_rate_statistics(
+        &self,
+        target: Option<Uint64>,
+    ) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }
