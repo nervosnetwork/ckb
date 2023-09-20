@@ -520,7 +520,9 @@ impl ChainService {
 
                             match unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
-                                Err(err) => error!("send unverified_block_tx failed: {}", err),
+                                Err(err) => {
+                                    error!("send unverified_block_tx failed: {}", err)
+                                }
                             };
 
                             if total_difficulty
@@ -691,11 +693,9 @@ impl ChainService {
             Err(SendError(lonely_block)) => {
                 error!("notify new block to orphan pool err: {}", err);
                 if let Some(verify_callback) = lonely_block.verify_callback {
-                    verify_callback(
-                        InternalErrorKind::System
-                            .other("OrphanBlock broker disconnected")
-                            .into(),
-                    );
+                    verify_callback(Err(InternalErrorKind::System
+                        .other("OrphanBlock broker disconnected")
+                        .into()));
                 }
             }
         }
