@@ -1,4 +1,5 @@
-use crate::chain::{ChainService, ForkChanges};
+use crate::chain::ChainService;
+use crate::forkchanges::ForkChanges;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -495,7 +496,7 @@ fn test_fork_proposal_table() {
     assert_eq!(
         &vec![
             packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4])
+            packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
         ]
         .into_iter()
         .collect::<HashSet<_>>(),
