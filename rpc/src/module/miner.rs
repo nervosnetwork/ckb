@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, info, warn};
@@ -9,7 +10,7 @@ use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Verifier;
 use jsonrpc_core::{Error, Result};
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -18,7 +19,8 @@ use std::sync::Arc;
 ///
 /// A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and
 /// submits the found new block.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait MinerRpc {
     /// Returns block template for miners.
     ///
@@ -131,7 +133,7 @@ pub trait MinerRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_template")]
-    fn get_block_template(
+    async fn get_block_template(
         &self,
         bytes_limit: Option<Uint64>,
         proposals_limit: Option<Uint64>,
@@ -220,17 +222,19 @@ pub trait MinerRpc {
     /// }
     /// ```
     #[rpc(name = "submit_block")]
-    fn submit_block(&self, work_id: String, block: Block) -> Result<H256>;
+    async fn submit_block(&self, work_id: String, block: Block) -> Result<H256>;
 }
 
+#[derive(Clone)]
 pub(crate) struct MinerRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
     pub chain: ChainController,
 }
 
+#[async_trait]
 impl MinerRpc for MinerRpcImpl {
-    fn get_block_template(
+    async fn get_block_template(
         &self,
         bytes_limit: Option<Uint64>,
         proposals_limit: Option<Uint64>,
@@ -252,7 +256,7 @@ impl MinerRpc for MinerRpcImpl {
             })
     }
 
-    fn submit_block(&self, work_id: String, block: Block) -> Result<H256> {
+    async fn submit_block(&self, work_id: String, block: Block) -> Result<H256> {
         let block: packed::Block = block.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();

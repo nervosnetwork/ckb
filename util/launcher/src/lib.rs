@@ -39,9 +39,6 @@ use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
-use jsonrpc_utils::{
-    axum_utils::jsonrpc_router, pub_sub::PublishMsg, rpc, stream::StreamServerConfig,
-};
 use std::sync::Arc;
 
 pub use crate::shared_builder::{SharedBuilder, SharedPackage};
@@ -403,23 +400,23 @@ impl Launcher {
         //         .map(|script| script.clone().into())
         //         .collect(),
         // )
-        // .enable_miner(
-        //     shared.clone(),
-        //     network_controller.clone(),
-        //     chain_controller.clone(),
-        //     miner_enable,
-        // )
+        .enable_miner(
+             shared.clone(),
+             network_controller.clone(),
+             chain_controller.clone(),
+             miner_enable,
+        )
         // .enable_net(network_controller.clone(), sync_shared)
         // .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         // .enable_experiment(shared.clone())
-        // .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-        .enable_alert(alert_verifier, alert_notifier, network_controller.clone());
+        .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
+        .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
         // .enable_indexer(
         //     shared.clone(),
         //     &self.args.config.db,
         //     &self.args.config.indexer,
         // )
-        //.enable_debug();
+        .enable_debug();
         let io_handler = builder.build();
 
         RpcServer::start_jsonrpc_server(
