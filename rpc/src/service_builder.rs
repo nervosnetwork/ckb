@@ -2,12 +2,12 @@
 //use crate::module::SubscriptionSession;
 use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
-    add_integration_test_rpc_methods, add_miner_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpc,
-    DebugRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
-    IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl,
-    StatsRpc, StatsRpcImpl,
+    add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
+    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
+    AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
+    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
 };
-use crate::IoHandler;
+use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
@@ -18,8 +18,6 @@ use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use ckb_util::Mutex;
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_core::RemoteProcedure;
 use std::sync::Arc;
 
 const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
@@ -48,7 +46,6 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /*
     /// Mounts methods from module Pool if it is enabled in the config.
     pub fn enable_pool(
         mut self,
@@ -60,16 +57,14 @@ impl<'a> ServiceBuilder<'a> {
             shared,
             extra_well_known_lock_scripts,
             extra_well_known_type_scripts,
-        )
-        .to_delegate();
+        );
         if self.config.pool_enable() {
-            self.add_methods(rpc_methods);
+            add_pool_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Pool", rpc_methods);
+            //self.update_disabled_methods("Pool", rpc_methods);
         }
         self
     }
-    */
 
     /// Mounts methods from module Miner if `enable` is `true` and it is enabled in the config.
     pub fn enable_miner(
@@ -92,7 +87,6 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /*
     /// Mounts methods from module Net if it is enabled in the config.
     pub fn enable_net(
         mut self,
@@ -102,12 +96,11 @@ impl<'a> ServiceBuilder<'a> {
         let rpc_methods = NetRpcImpl {
             network_controller,
             sync_shared,
-        }
-        .to_delegate();
+        };
         if self.config.net_enable() {
-            self.add_methods(rpc_methods);
+            add_net_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Net", rpc_methods);
+            //self.update_disabled_methods("Net", rpc_methods);
         }
         self
     }
@@ -121,27 +114,25 @@ impl<'a> ServiceBuilder<'a> {
         let rpc_methods = StatsRpcImpl {
             shared,
             alert_notifier,
-        }
-        .to_delegate();
+        };
         if self.config.stats_enable() {
-            self.add_methods(rpc_methods);
+            add_stats_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Stats", rpc_methods);
+            //self.update_disabled_methods("Stats", rpc_methods);
         }
         self
     }
 
     /// Mounts methods from module Experiment if it is enabled in the config.
     pub fn enable_experiment(mut self, shared: Shared) -> Self {
-        let rpc_methods = ExperimentRpcImpl { shared }.to_delegate();
+        let rpc_methods = ExperimentRpcImpl { shared };
         if self.config.experiment_enable() {
-            self.add_methods(rpc_methods);
+            add_experiment_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Experiment", rpc_methods);
+            //self.update_disabled_methods("Experiment", rpc_methods);
         }
         self
     }
-    */
 
     /// Mounts methods from module Integration if it is enabled in the config.
     pub fn enable_integration_test(
@@ -152,13 +143,11 @@ impl<'a> ServiceBuilder<'a> {
     ) -> Self {
         if self.config.integration_test_enable() {
             // IntegrationTest only on Dummy PoW chain
-            /*
             assert_eq!(
                 shared.consensus().pow,
                 Pow::Dummy,
                 "Only run integration test on Dummy PoW chain"
             );
-            */
             let methods = IntegrationTestRpcImpl {
                 shared: shared.clone(),
                 network_controller,
@@ -177,7 +166,6 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
     ) -> Self {
         if self.config.alert_enable() {
-            eprintln!("enable_alert .............");
             let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
             add_alert_rpc_methods(&mut self.io_handler, methods);
         }
@@ -193,7 +181,6 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    /*
     /// Mounts methods from module Indexer if it is enabled in the config.
     pub fn enable_indexer(
         mut self,
@@ -203,12 +190,12 @@ impl<'a> ServiceBuilder<'a> {
     ) -> Self {
         let indexer = IndexerService::new(db_config, indexer_config, shared.async_handle().clone());
         let indexer_handle = indexer.handle();
-        let rpc_methods = IndexerRpcImpl::new(indexer_handle).to_delegate();
+        let rpc_methods = IndexerRpcImpl::new(indexer_handle);
         if self.config.indexer_enable() {
             start_indexer(&shared, indexer, indexer_config.index_tx_pool);
-            self.add_methods(rpc_methods);
+            add_indexer_rpc_methods(&mut self.io_handler, rpc_methods);
         } else {
-            self.update_disabled_methods("Indexer", rpc_methods);
+            //self.update_disabled_methods("Indexer", rpc_methods);
         }
         self
     }
@@ -228,13 +215,11 @@ impl<'a> ServiceBuilder<'a> {
             )
         });
     }
-    */
 
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
         io_handler.add_method("@ping", |_| async move { Ok("pong".into()) });
-        eprintln!("build .............");
         io_handler
     }
 }
