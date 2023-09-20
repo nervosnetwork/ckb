@@ -1,14 +1,17 @@
 use crate::IoHandler;
-use ckb_app_config::RpcConfig;
+use axum::routing::post;
+use axum::{Extension, Router};
 use ckb_notify::NotifyController;
 use futures_util::{SinkExt, TryStreamExt};
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_utils::axum_utils::jsonrpc_router;
+use jsonrpc_utils::axum_utils::{handle_jsonrpc, handle_jsonrpc_ws};
+use jsonrpc_utils::pub_sub::Session;
 use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::runtime::Handle;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
+use tower_http::timeout::TimeoutLayer;
 
 #[doc(hidden)]
 pub struct RpcServer {}
@@ -32,10 +35,18 @@ impl RpcServer {
             .with_pipeline_size(4);
 
         // HTTP and WS server.
+        let method_router =
+            post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>);
         let ws_config = stream_config.clone().with_keep_alive(true);
-        let app = jsonrpc_router("/rpc", rpc.clone(), ws_config);
+        let app = Router::new()
+            .route("/", method_router.clone())
+            .route("/*path", method_router)
+            .layer(Extension(rpc.clone()))
+            .layer(Extension(ws_config))
+            .layer(TimeoutLayer::new(Duration::from_secs(30)));
+
         // You can use additional tower-http middlewares to add e.g. CORS.
-        let http = tokio::spawn(async move {
+        let _http = tokio::spawn(async move {
             axum::Server::bind(&"0.0.0.0:8114".parse().unwrap())
                 .serve(app.into_make_service())
                 .await

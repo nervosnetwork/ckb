@@ -1,15 +1,16 @@
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{ExtraLoggerConfig, MainLoggerConfig};
 use ckb_logger_service::Logger;
 use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::time;
-
 /// RPC Module Debug for internal RPC methods.
 ///
 /// **This module is for CKB developers and will not guarantee compatibility.** The methods here
 /// will be changed or removed without advanced notification.
-#[rpc(server)]
 #[doc(hidden)]
+#[rpc]
+#[async_trait]
 pub trait DebugRpc {
     /// Dumps jemalloc memory profiling information into a file.
     ///
@@ -17,10 +18,10 @@ pub trait DebugRpc {
     ///
     /// The RPC returns the path to the dumped file on success or returns an error on failure.
     #[rpc(name = "jemalloc_profiling_dump")]
-    fn jemalloc_profiling_dump(&self) -> Result<String>;
+    async fn jemalloc_profiling_dump(&self) -> Result<String>;
     /// Changes main logger config options while CKB is running.
     #[rpc(name = "update_main_logger")]
-    fn update_main_logger(&self, config: MainLoggerConfig) -> Result<()>;
+    async fn update_main_logger(&self, config: MainLoggerConfig) -> Result<()>;
     /// Sets logger config options for extra loggers.
     ///
     /// CKB nodes allow setting up extra loggers. These loggers will have their own log files and
@@ -32,13 +33,20 @@ pub trait DebugRpc {
     /// * `config_opt` - Adds a new logger or update an existing logger when this is not null.
     /// Removes the logger when this is null.
     #[rpc(name = "set_extra_logger")]
-    fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()>;
+    async fn set_extra_logger(
+        &self,
+        name: String,
+        config_opt: Option<ExtraLoggerConfig>,
+    ) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub(crate) struct DebugRpcImpl {}
 
+#[async_trait]
+
 impl DebugRpc for DebugRpcImpl {
-    fn jemalloc_profiling_dump(&self) -> Result<String> {
+    async fn jemalloc_profiling_dump(&self) -> Result<String> {
         let timestamp = time::SystemTime::now()
             .duration_since(time::SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -54,7 +62,7 @@ impl DebugRpc for DebugRpcImpl {
         }
     }
 
-    fn update_main_logger(&self, config: MainLoggerConfig) -> Result<()> {
+    async fn update_main_logger(&self, config: MainLoggerConfig) -> Result<()> {
         let MainLoggerConfig {
             filter,
             to_stdout,
@@ -71,7 +79,11 @@ impl DebugRpc for DebugRpcImpl {
         })
     }
 
-    fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()> {
+    async fn set_extra_logger(
+        &self,
+        name: String,
+        config_opt: Option<ExtraLoggerConfig>,
+    ) -> Result<()> {
         if let Err(err) = Logger::check_extra_logger_name(&name) {
             return Err(Error {
                 code: InternalError,

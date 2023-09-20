@@ -51,6 +51,7 @@ jsonrpc-utils = { version = "0.2.0", features = ["server", "macros", "axum"] }
 axum = "0.6.1"
 tokio-util = { version = "0.7.3", features = ["codec"] }
 futures-util = { version = "0.3.21"}
+tower-http = { version = "0.3.5", features = ["timeout"] }
 
 
 [dev-dependencies]
