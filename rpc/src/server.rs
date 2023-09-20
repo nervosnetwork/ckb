@@ -1,11 +1,14 @@
 use crate::IoHandler;
 use axum::routing::post;
 use axum::{Extension, Router};
+use ckb_app_config::RpcConfig;
+use ckb_logger::info;
 use ckb_notify::NotifyController;
 use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_utils::axum_utils::{handle_jsonrpc, handle_jsonrpc_ws};
 use jsonrpc_utils::pub_sub::Session;
 use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -25,6 +28,7 @@ impl RpcServer {
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `notify_controller` - Controller emitting notifications.
     pub async fn start_jsonrpc_server(
+        config: RpcConfig,
         io_handler: IoHandler,
         _notify_controller: &NotifyController,
         _handle: Handle,
@@ -46,14 +50,23 @@ impl RpcServer {
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 
         // You can use additional tower-http middlewares to add e.g. CORS.
+        let addr = config.listen_address.clone();
         let _http = tokio::spawn(async move {
-            axum::Server::bind(&"0.0.0.0:8114".parse().unwrap())
-                .serve(app.into_make_service())
-                .await
-                .unwrap();
+            axum::Server::bind(
+                &config
+                    .listen_address
+                    .clone()
+                    .to_socket_addrs()
+                    .expect("config listen_address parsed")
+                    .next()
+                    .expect("config listen_address parsed"),
+            )
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
         });
 
-        eprintln!("started http ...........");
+        info!("Listen HTTP RPCServer on address {}", addr);
 
         // TCP server.
 
@@ -61,24 +74,30 @@ impl RpcServer {
         //
         // You can also use other transports (e.g. TLS, unix socket) and codecs
         // (e.g. netstring, JSON splitter).
-        let listener = TcpListener::bind("0.0.0.0:8116").await.unwrap();
-        let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
-        while let Ok((s, _)) = listener.accept().await {
-            let rpc = rpc.clone();
-            let stream_config = stream_config.clone();
-            let codec = codec.clone();
-            tokio::spawn(async move {
-                let (r, w) = s.into_split();
-                let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
-                let w = FramedWrite::new(w, codec).with(|msg| async move {
-                    Ok::<_, LinesCodecError>(match msg {
-                        StreamMsg::Str(msg) => msg,
-                        _ => "".into(),
-                    })
+        if let Some(tcp_listen_address) = config.tcp_listen_address {
+            let listener = TcpListener::bind(tcp_listen_address).await.unwrap();
+            info!(
+                "listen TCP RPCServer on address {:?}",
+                listener.local_addr().unwrap()
+            );
+            let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
+            while let Ok((s, _)) = listener.accept().await {
+                let rpc = rpc.clone();
+                let stream_config = stream_config.clone();
+                let codec = codec.clone();
+                tokio::spawn(async move {
+                    let (r, w) = s.into_split();
+                    let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
+                    let w = FramedWrite::new(w, codec).with(|msg| async move {
+                        Ok::<_, LinesCodecError>(match msg {
+                            StreamMsg::Str(msg) => msg,
+                            _ => "".into(),
+                        })
+                    });
+                    tokio::pin!(w);
+                    drop(serve_stream_sink(&rpc, w, r, stream_config).await);
                 });
-                tokio::pin!(w);
-                drop(serve_stream_sink(&rpc, w, r, stream_config).await);
-            });
+            }
         }
 
         Ok(())
