@@ -26,8 +26,8 @@ impl RpcServer {
     /// * `notify_controller` - Controller emitting notifications.
     pub async fn start_jsonrpc_server(
         io_handler: IoHandler,
-        notify_controller: &NotifyController,
-        handle: Handle,
+        _notify_controller: &NotifyController,
+        _handle: Handle,
     ) -> Result<(), String> {
         let rpc = Arc::new(io_handler);
         let stream_config = StreamServerConfig::default()

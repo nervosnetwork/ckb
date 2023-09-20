@@ -253,6 +253,7 @@ impl IndexerService {
 ///
 /// The handle is internally reference-counted and can be freely cloned.
 /// A handle can be obtained using the IndexerService::handle method.
+#[derive(Clone)]
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,

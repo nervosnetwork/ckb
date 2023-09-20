@@ -1,14 +1,16 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_indexer::IndexerHandle;
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
     IndexerTip, IndexerTx, JsonBytes, Uint32,
 };
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Indexer.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IndexerRpc {
     /// Returns the indexed tip
     ///
@@ -41,7 +43,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_indexer_tip")]
-    fn get_indexer_tip(&self) -> Result<Option<IndexerTip>>;
+    async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>>;
 
     /// Returns the live cells collection by the lock or type script.
     ///
@@ -389,7 +391,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_cells")]
-    fn get_cells(
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -804,7 +806,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_transactions")]
-    fn get_transactions(
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -867,12 +869,13 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_cells_capacity")]
-    fn get_cells_capacity(
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IndexerRpcImpl {
     pub(crate) handle: IndexerHandle,
 }
@@ -883,14 +886,15 @@ impl IndexerRpcImpl {
     }
 }
 
+#[async_trait]
 impl IndexerRpc for IndexerRpcImpl {
-    fn get_indexer_tip(&self) -> Result<Option<IndexerTip>> {
+    async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle
             .get_indexer_tip()
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_cells(
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -902,7 +906,7 @@ impl IndexerRpc for IndexerRpcImpl {
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_transactions(
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -914,7 +918,7 @@ impl IndexerRpc for IndexerRpcImpl {
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_cells_capacity(
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>> {

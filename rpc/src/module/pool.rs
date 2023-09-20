@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_jsonrpc_types::{
@@ -9,11 +10,12 @@ use ckb_shared::shared::Shared;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 /// RPC Module Pool for transaction memory pool.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait PoolRpc {
     /// Submits a new transaction into the transaction pool. If the transaction is already in the
     /// pool, rebroadcast it to peers.
@@ -101,7 +103,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "send_transaction")]
-    fn send_transaction(
+    async fn send_transaction(
         &self,
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
@@ -142,7 +144,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "remove_transaction")]
-    fn remove_transaction(&self, tx_hash: H256) -> Result<bool>;
+    async fn remove_transaction(&self, tx_hash: H256) -> Result<bool>;
 
     /// Returns the transaction pool information.
     ///
@@ -182,7 +184,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "tx_pool_info")]
-    fn tx_pool_info(&self) -> Result<TxPoolInfo>;
+    async fn tx_pool_info(&self) -> Result<TxPoolInfo>;
 
     /// Removes all transactions from the transaction pool.
     ///
@@ -209,7 +211,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "clear_tx_pool")]
-    fn clear_tx_pool(&self) -> Result<()>;
+    async fn clear_tx_pool(&self) -> Result<()>;
 
     /// Returns all transaction ids in tx pool as a json array of string transaction ids.
     /// ## Params
@@ -253,7 +255,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "get_raw_tx_pool")]
-    fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
+    async fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
 
     /// Query and returns the details of a transaction in the pool, only for trouble shooting
     /// ## Params
@@ -321,9 +323,10 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "tx_pool_ready")]
-    fn tx_pool_ready(&self) -> Result<bool>;
+    async fn tx_pool_ready(&self) -> Result<bool>;
 }
 
+#[derive(Clone)]
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
     well_known_lock_scripts: Vec<packed::Script>,
@@ -428,13 +431,14 @@ fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
     }).expect("checked json str").into_iter().map(Into::into).collect()
 }
 
+#[async_trait]
 impl PoolRpc for PoolRpcImpl {
-    fn tx_pool_ready(&self) -> Result<bool> {
+    async fn tx_pool_ready(&self) -> Result<bool> {
         let tx_pool = self.shared.tx_pool_controller();
         Ok(tx_pool.service_started())
     }
 
-    fn send_transaction(
+    async fn send_transaction(
         &self,
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
@@ -477,7 +481,7 @@ impl PoolRpc for PoolRpcImpl {
         }
     }
 
-    fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
+    async fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
         let tx_pool = self.shared.tx_pool_controller();
 
         tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
@@ -486,7 +490,7 @@ impl PoolRpc for PoolRpcImpl {
         })
     }
 
-    fn tx_pool_info(&self) -> Result<TxPoolInfo> {
+    async fn tx_pool_info(&self) -> Result<TxPoolInfo> {
         let tx_pool = self.shared.tx_pool_controller();
         let get_tx_pool_info = tx_pool.get_tx_pool_info();
         if let Err(e) = get_tx_pool_info {
@@ -499,7 +503,7 @@ impl PoolRpc for PoolRpcImpl {
         Ok(tx_pool_info.into())
     }
 
-    fn clear_tx_pool(&self) -> Result<()> {
+    async fn clear_tx_pool(&self) -> Result<()> {
         let snapshot = Arc::clone(&self.shared.snapshot());
         let tx_pool = self.shared.tx_pool_controller();
         tx_pool
@@ -509,7 +513,7 @@ impl PoolRpc for PoolRpcImpl {
         Ok(())
     }
 
-    fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool> {
+    async fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool> {
         let tx_pool = self.shared.tx_pool_controller();
 
         let raw = if verbose.unwrap_or(false) {

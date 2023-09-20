@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::module::chain::CyclesEstimator;
+use async_trait::async_trait;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     Capacity, DaoWithdrawingCalculationKind, EstimateCycles, OutPoint, Transaction,
@@ -8,14 +9,15 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*};
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Experiment for experimenting methods.
 ///
 /// **EXPERIMENTAL warning**
 ///
 /// The methods here may be removed or changed in future releases without prior notifications.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait ExperimentRpc {
     /// Dry run a transaction and return the execution cycles.
     ///
@@ -98,7 +100,7 @@ pub trait ExperimentRpc {
         note = "Please use the RPC method [`estimate_cycles`](#tymethod.estimate_cycles) instead"
     )]
     #[rpc(name = "dry_run_transaction")]
-    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;
+    async fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;
 
     /// Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
     /// a withdrawing block hash.
@@ -155,24 +157,26 @@ pub trait ExperimentRpc {
     /// }
     /// ```
     #[rpc(name = "calculate_dao_maximum_withdraw")]
-    fn calculate_dao_maximum_withdraw(
+    async fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
         kind: DaoWithdrawingCalculationKind,
     ) -> Result<Capacity>;
 }
 
+#[derive(Clone)]
 pub(crate) struct ExperimentRpcImpl {
     pub shared: Shared,
 }
 
+#[async_trait]
 impl ExperimentRpc for ExperimentRpcImpl {
-    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
+    async fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
         let tx: packed::Transaction = tx.into();
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    fn calculate_dao_maximum_withdraw(
+    async fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
         kind: DaoWithdrawingCalculationKind,
