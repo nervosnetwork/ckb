@@ -7,5 +7,6 @@
 //! [`ChainController`]: chain/struct.ChainController.html
 
 pub mod chain;
+mod forkchanges;
 #[cfg(test)]
 mod tests;
