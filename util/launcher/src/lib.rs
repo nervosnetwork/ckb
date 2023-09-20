@@ -376,37 +376,38 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config).enable_chain(shared.clone())
-        // .enable_pool(
-        //     shared.clone(),
-        //     rpc_config
-        //         .extra_well_known_lock_scripts
-        //         .iter()
-        //         .map(|script| script.clone().into())
-        //         .collect(),
-        //     rpc_config
-        //         .extra_well_known_type_scripts
-        //         .iter()
-        //         .map(|script| script.clone().into())
-        //         .collect(),
-        // )
-        .enable_miner(
-             shared.clone(),
-             network_controller.clone(),
-             chain_controller.clone(),
-             miner_enable,
-        )
-        // .enable_net(network_controller.clone(), sync_shared)
-        // .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
-        // .enable_experiment(shared.clone())
-        .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
-        .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
-        // .enable_indexer(
-        //     shared.clone(),
-        //     &self.args.config.db,
-        //     &self.args.config.indexer,
-        // )
-        .enable_debug();
+        let builder = ServiceBuilder::new(&rpc_config)
+            .enable_chain(shared.clone())
+            .enable_pool(
+                shared.clone(),
+                rpc_config
+                    .extra_well_known_lock_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+                rpc_config
+                    .extra_well_known_type_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+            )
+            .enable_miner(
+                shared.clone(),
+                network_controller.clone(),
+                chain_controller.clone(),
+                miner_enable,
+            )
+            .enable_net(network_controller.clone(), sync_shared)
+            .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
+            .enable_experiment(shared.clone())
+            .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
+            .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+            .enable_indexer(
+                shared.clone(),
+                &self.args.config.db,
+                &self.args.config.indexer,
+            )
+            .enable_debug();
         let io_handler = builder.build();
 
         RpcServer::start_jsonrpc_server(

@@ -18,4 +18,4 @@ pub use crate::server::RpcServer;
 pub use crate::service_builder::ServiceBuilder;
 
 #[doc(hidden)]
-pub type IoHandler = MetaIoHandler<std::option::Option<jsonrpc_utils::pub_sub::Session>>;
+pub type IoHandler = MetaIoHandler<std::option::Option<Session>>;
