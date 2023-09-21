@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_chain::chain::ChainController;
@@ -106,11 +107,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "process_block_without_verify")]
-    async fn process_block_without_verify(
-        &self,
-        data: Block,
-        broadcast: bool,
-    ) -> Result<Option<H256>>;
+    fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>>;
 
     /// Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
     ///
@@ -143,7 +140,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "truncate")]
-    async fn truncate(&self, target_tip_hash: H256) -> Result<()>;
+    fn truncate(&self, target_tip_hash: H256) -> Result<()>;
 
     /// Generate block(with verification) and broadcast the block.
     ///
@@ -172,7 +169,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "generate_block")]
-    async fn generate_block(&self) -> Result<H256>;
+    fn generate_block(&self) -> Result<H256>;
 
     /// Generate epochs during development, can be useful for scenarios
     /// like testing DAO-related functionalities.
@@ -293,7 +290,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "notify_transaction")]
-    async fn notify_transaction(&self, transaction: Transaction) -> Result<H256>;
+    fn notify_transaction(&self, transaction: Transaction) -> Result<H256>;
 
     /// Generate block with block template, attach calculated dao field to build new block,
     ///
@@ -398,7 +395,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "generate_block_with_template")]
-    async fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
+    fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256>;
 
     /// Return calculated dao field according to specified block template.
     ///
@@ -501,7 +498,7 @@ pub trait IntegrationTestRpc {
     /// }
     /// ```
     #[rpc(name = "calculate_dao_field")]
-    async fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 }
 
 #[derive(Clone)]
@@ -513,11 +510,7 @@ pub(crate) struct IntegrationTestRpcImpl {
 
 #[async_trait]
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
-    async fn process_block_without_verify(
-        &self,
-        data: Block,
-        broadcast: bool,
-    ) -> Result<Option<H256>> {
+    fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
         let block: Arc<BlockView> = Arc::new(block.into_view());
         let ret = self
@@ -542,7 +535,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         }
     }
 
-    async fn truncate(&self, target_tip_hash: H256) -> Result<()> {
+    fn truncate(&self, target_tip_hash: H256) -> Result<()> {
         let header = {
             let snapshot = self.shared.snapshot();
             let header = snapshot
@@ -574,7 +567,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(())
     }
 
-    async fn generate_block(&self) -> Result<H256> {
+    fn generate_block(&self) -> Result<H256> {
         let tx_pool = self.shared.tx_pool_controller();
         let block_template = tx_pool
             .get_block_template(None, None, None)
@@ -611,7 +604,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(current_epoch.full_value().into())
     }
 
-    async fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
+    fn notify_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: packed::Transaction = tx.into();
         let tx: core::TransactionView = tx.into_view();
         let tx_pool = self.shared.tx_pool_controller();
@@ -623,8 +616,8 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         Ok(tx_hash.unpack())
     }
 
-    async fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
-        let dao_field = self.calculate_dao_field(block_template.clone()).await?;
+    fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
+        let dao_field = self.calculate_dao_field(block_template.clone())?;
 
         let mut update_dao_template = block_template;
         update_dao_template.dao = dao_field;
@@ -632,7 +625,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         self.process_and_announce_block(block)
     }
 
-    async fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32> {
+    fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32> {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let parent_header = snapshot

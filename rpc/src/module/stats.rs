@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
@@ -53,7 +54,7 @@ pub trait StatsRpc {
     /// }
     /// ```
     #[rpc(name = "get_blockchain_info")]
-    async fn get_blockchain_info(&self) -> Result<ChainInfo>;
+    fn get_blockchain_info(&self) -> Result<ChainInfo>;
 
     /// Returns statistics about the chain.
     ///
@@ -98,7 +99,7 @@ pub trait StatsRpc {
     /// }
     /// ```
     #[rpc(name = "get_deployments_info")]
-    async fn get_deployments_info(&self) -> Result<DeploymentsInfo>;
+    fn get_deployments_info(&self) -> Result<DeploymentsInfo>;
 }
 
 #[derive(Clone)]
@@ -109,7 +110,7 @@ pub(crate) struct StatsRpcImpl {
 
 #[async_trait]
 impl StatsRpc for StatsRpcImpl {
-    async fn get_blockchain_info(&self) -> Result<ChainInfo> {
+    fn get_blockchain_info(&self) -> Result<ChainInfo> {
         let chain = self.shared.consensus().id.clone();
         let (tip_header, median_time) = {
             let snapshot = self.shared.snapshot();
@@ -151,7 +152,7 @@ impl StatsRpc for StatsRpcImpl {
         })
     }
 
-    async fn get_deployments_info(&self) -> Result<DeploymentsInfo> {
+    fn get_deployments_info(&self) -> Result<DeploymentsInfo> {
         let snapshot = self.shared.snapshot();
         let deployments: BTreeMap<DeploymentPos, DeploymentInfo> = self
             .shared

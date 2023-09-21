@@ -8,16 +8,18 @@ use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_utils::axum_utils::{handle_jsonrpc, handle_jsonrpc_ws};
 use jsonrpc_utils::pub_sub::Session;
 use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
-use std::net::ToSocketAddrs;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::runtime::Handle;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 use tower_http::timeout::TimeoutLayer;
 
 #[doc(hidden)]
-pub struct RpcServer {}
+#[derive(Debug)]
+pub struct RpcServer {
+    pub http_address: SocketAddr,
+}
 
 impl RpcServer {
     /// Creates an RPC server.
@@ -27,12 +29,11 @@ impl RpcServer {
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `notify_controller` - Controller emitting notifications.
-    pub async fn start_jsonrpc_server(
+    pub async fn new(
         config: RpcConfig,
         io_handler: IoHandler,
         _notify_controller: &NotifyController,
-        _handle: Handle,
-    ) -> Result<(), String> {
+    ) -> Self {
         let rpc = Arc::new(io_handler);
         let stream_config = StreamServerConfig::default()
             .with_channel_size(4)
@@ -45,28 +46,26 @@ impl RpcServer {
         let app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
-            .layer(Extension(rpc.clone()))
+            .layer(Extension(Arc::clone(&rpc)))
             .layer(Extension(ws_config))
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 
         // You can use additional tower-http middlewares to add e.g. CORS.
-        let addr = config.listen_address.clone();
-        let _http = tokio::spawn(async move {
-            axum::Server::bind(
-                &config
-                    .listen_address
-                    .clone()
-                    .to_socket_addrs()
-                    .expect("config listen_address parsed")
-                    .next()
-                    .expect("config listen_address parsed"),
-            )
-            .serve(app.into_make_service())
-            .await
-            .unwrap();
-        });
+        let incomming = axum::Server::bind(
+            &config
+                .listen_address
+                .clone()
+                .to_socket_addrs()
+                .expect("config listen_address parsed")
+                .next()
+                .expect("config listen_address parsed"),
+        )
+        .serve(app.into_make_service());
+        let local_addr = incomming.local_addr();
+        let http_address = local_addr;
+        let _http = tokio::spawn(async move { (local_addr, incomming.await.unwrap()) });
 
-        info!("Listen HTTP RPCServer on address {}", addr);
+        info!("Listen HTTP RPCServer on address {}", local_addr);
 
         // TCP server.
 
@@ -82,7 +81,7 @@ impl RpcServer {
             );
             let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
             while let Ok((s, _)) = listener.accept().await {
-                let rpc = rpc.clone();
+                let rpc = Arc::clone(&rpc);
                 let stream_config = stream_config.clone();
                 let codec = codec.clone();
                 tokio::spawn(async move {
@@ -100,6 +99,6 @@ impl RpcServer {
             }
         }
 
-        Ok(())
+        Self { http_address }
     }
 }

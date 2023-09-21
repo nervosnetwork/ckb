@@ -1,9 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::{
-    tokio::{self, spawn},
-    Handle,
-};
+use ckb_async_runtime::{tokio::spawn, Handle};
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
@@ -48,7 +45,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     launcher.start_block_filter(&shared);
 
     async_handle.block_on(async move {
-        let rpc_task = spawn(async move {
+        let _rpc_task = spawn(async move {
             let network_controller = launcher
                 .start_network_and_rpc(
                     &shared,
@@ -61,10 +58,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
             let tx_pool_builder = pack.take_tx_pool_builder();
             tx_pool_builder.start(network_controller.clone());
         });
-
-        tokio::select! {
-            _ = rpc_task => {},
-        }
     });
 
     ctrlc::set_handler(|| {
