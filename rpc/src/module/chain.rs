@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use async_trait::async_trait;
@@ -180,7 +181,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block")]
-    async fn get_block(
+    fn get_block(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -314,7 +315,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_by_number")]
-    async fn get_block_by_number(
+    fn get_block_by_number(
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
@@ -393,7 +394,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_header")]
-    async fn get_header(
+    fn get_header(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -474,7 +475,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_header_by_number")]
-    async fn get_header_by_number(
+    fn get_header_by_number(
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
@@ -528,7 +529,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_filter")]
-    async fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>>;
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>>;
 
     /// Returns the information about a transaction requested by transaction hash.
     ///
@@ -650,7 +651,7 @@ pub trait ChainRpc {
     /// ```
     ///
     #[rpc(name = "get_transaction")]
-    async fn get_transaction(
+    fn get_transaction(
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
@@ -698,7 +699,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_hash")]
-    async fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>>;
+    fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>>;
 
     /// Returns the header with the highest block number in the [canonical chain](#canonical-chain).
     ///
@@ -764,8 +765,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_tip_header")]
-    async fn get_tip_header(&self, verbosity: Option<Uint32>)
-        -> Result<ResponseFormat<HeaderView>>;
+    fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>>;
 
     /// Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
     ///
@@ -831,7 +831,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_live_cell")]
-    async fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus>;
+    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus>;
 
     /// Returns the highest block number in the [canonical chain](#canonical-chain).
     ///
@@ -861,7 +861,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_tip_block_number")]
-    async fn get_tip_block_number(&self) -> Result<BlockNumber>;
+    fn get_tip_block_number(&self) -> Result<BlockNumber>;
 
     /// Returns the epoch with the highest number in the [canonical chain](#canonical-chain).
     ///
@@ -897,7 +897,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_current_epoch")]
-    async fn get_current_epoch(&self) -> Result<EpochView>;
+    fn get_current_epoch(&self) -> Result<EpochView>;
 
     /// Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
     ///
@@ -943,7 +943,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_epoch_by_number")]
-    async fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>>;
+    fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>>;
 
     /// Returns increased issuance, miner reward, and the total transaction fee of a block.
     ///
@@ -1007,10 +1007,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_economic_state")]
-    async fn get_block_economic_state(
-        &self,
-        block_hash: H256,
-    ) -> Result<Option<BlockEconomicState>>;
+    fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>>;
 
     /// Returns a Merkle proof that transactions are included in a block.
     ///
@@ -1051,7 +1048,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_transaction_proof")]
-    async fn get_transaction_proof(
+    fn get_transaction_proof(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
@@ -1097,7 +1094,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "verify_transaction_proof")]
-    async fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>>;
+    fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>>;
 
     /// Returns a Merkle proof of transactions' witness included in a block.
     ///
@@ -1143,7 +1140,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_transaction_and_witness_proof")]
-    async fn get_transaction_and_witness_proof(
+    fn get_transaction_and_witness_proof(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
@@ -1194,7 +1191,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "verify_transaction_and_witness_proof")]
-    async fn verify_transaction_and_witness_proof(
+    fn verify_transaction_and_witness_proof(
         &self,
         tx_proof: TransactionAndWitnessProof,
     ) -> Result<Vec<H256>>;
@@ -1308,7 +1305,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_fork_block")]
-    async fn get_fork_block(
+    fn get_fork_block(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -1402,7 +1399,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_consensus")]
-    async fn get_consensus(&self) -> Result<Consensus>;
+    fn get_consensus(&self) -> Result<Consensus>;
 
     /// Returns the past median time by block hash.
     ///
@@ -1442,7 +1439,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_block_median_time")]
-    async fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>>;
+    fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>>;
 
     /// `estimate_cycles` run a transaction and return the execution consumed cycles.
     ///
@@ -1521,7 +1518,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "estimate_cycles")]
-    async fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles>;
+    fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles>;
 
     /// Returns the fee_rate statistics of confirmed blocks on the chain
     ///
@@ -1567,10 +1564,7 @@ pub trait ChainRpc {
         note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
     )]
     #[rpc(name = "deprecated.get_fee_rate_statics")]
-    async fn get_fee_rate_statics(
-        &self,
-        target: Option<Uint64>,
-    ) -> Result<Option<FeeRateStatistics>>;
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 
     /// Returns the fee_rate statistics of confirmed blocks on the chain
     ///
@@ -1612,10 +1606,7 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_fee_rate_statistics")]
-    async fn get_fee_rate_statistics(
-        &self,
-        target: Option<Uint64>,
-    ) -> Result<Option<FeeRateStatistics>>;
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 }
 
 #[derive(Clone)]
@@ -1630,7 +1621,7 @@ const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 #[async_trait]
 
 impl ChainRpc for ChainRpcImpl {
-    async fn get_block(
+    fn get_block(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -1642,7 +1633,7 @@ impl ChainRpc for ChainRpcImpl {
         self.get_block_by_hash(&snapshot, &block_hash, verbosity, with_cycles)
     }
 
-    async fn get_block_by_number(
+    fn get_block_by_number(
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
@@ -1668,7 +1659,7 @@ impl ChainRpc for ChainRpcImpl {
         ret
     }
 
-    async fn get_header(
+    fn get_header(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -1695,7 +1686,7 @@ impl ChainRpc for ChainRpcImpl {
         }
     }
 
-    async fn get_header_by_number(
+    fn get_header_by_number(
         &self,
         block_number: BlockNumber,
         verbosity: Option<Uint32>,
@@ -1730,7 +1721,7 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
-    async fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
+    fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
         let store = self.shared.store();
         let block_hash = block_hash.pack();
         if !store.is_main_chain(&block_hash) {
@@ -1747,7 +1738,7 @@ impl ChainRpc for ChainRpcImpl {
         }))
     }
 
-    async fn get_transaction(
+    fn get_transaction(
         &self,
         tx_hash: H256,
         verbosity: Option<Uint32>,
@@ -1780,7 +1771,7 @@ impl ChainRpc for ChainRpcImpl {
         }
     }
 
-    async fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>> {
+    fn get_block_hash(&self, block_number: BlockNumber) -> Result<Option<H256>> {
         Ok(self
             .shared
             .snapshot()
@@ -1788,10 +1779,7 @@ impl ChainRpc for ChainRpcImpl {
             .map(|h| h.unpack()))
     }
 
-    async fn get_tip_header(
-        &self,
-        verbosity: Option<Uint32>,
-    ) -> Result<ResponseFormat<HeaderView>> {
+    fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>> {
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_HEADER_VERBOSITY_LEVEL);
@@ -1808,13 +1796,13 @@ impl ChainRpc for ChainRpcImpl {
         }
     }
 
-    async fn get_current_epoch(&self) -> Result<EpochView> {
+    fn get_current_epoch(&self) -> Result<EpochView> {
         Ok(EpochView::from_ext(
             self.shared.snapshot().epoch_ext().pack(),
         ))
     }
 
-    async fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>> {
+    fn get_epoch_by_number(&self, epoch_number: EpochNumber) -> Result<Option<EpochView>> {
         let snapshot = self.shared.snapshot();
         Ok(snapshot
             .get_epoch_index(epoch_number.into())
@@ -1825,7 +1813,7 @@ impl ChainRpc for ChainRpcImpl {
             }))
     }
 
-    async fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
+    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
         let cell_status = self
             .shared
             .snapshot()
@@ -1834,14 +1822,11 @@ impl ChainRpc for ChainRpcImpl {
         Ok(cell_status.into())
     }
 
-    async fn get_tip_block_number(&self) -> Result<BlockNumber> {
+    fn get_tip_block_number(&self) -> Result<BlockNumber> {
         Ok(self.shared.snapshot().tip_header().number().into())
     }
 
-    async fn get_block_economic_state(
-        &self,
-        block_hash: H256,
-    ) -> Result<Option<BlockEconomicState>> {
+    fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>> {
         let snapshot = self.shared.snapshot();
 
         let block_number = if let Some(block_number) = snapshot.get_block_number(&block_hash.pack())
@@ -1909,7 +1894,7 @@ impl ChainRpc for ChainRpcImpl {
         }))
     }
 
-    async fn get_transaction_proof(
+    fn get_transaction_proof(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
@@ -1931,7 +1916,7 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
-    async fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>> {
+    fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Result<Vec<H256>> {
         let snapshot = self.shared.snapshot();
 
         snapshot
@@ -1974,7 +1959,7 @@ impl ChainRpc for ChainRpcImpl {
             })
     }
 
-    async fn get_transaction_and_witness_proof(
+    fn get_transaction_and_witness_proof(
         &self,
         tx_hashes: Vec<H256>,
         block_hash: Option<H256>,
@@ -1998,7 +1983,7 @@ impl ChainRpc for ChainRpcImpl {
         })
     }
 
-    async fn verify_transaction_and_witness_proof(
+    fn verify_transaction_and_witness_proof(
         &self,
         tx_proof: TransactionAndWitnessProof,
     ) -> Result<Vec<H256>> {
@@ -2070,7 +2055,7 @@ impl ChainRpc for ChainRpcImpl {
             })
     }
 
-    async fn get_fork_block(
+    fn get_fork_block(
         &self,
         block_hash: H256,
         verbosity: Option<Uint32>,
@@ -2098,12 +2083,12 @@ impl ChainRpc for ChainRpcImpl {
         }
     }
 
-    async fn get_consensus(&self) -> Result<Consensus> {
+    fn get_consensus(&self) -> Result<Consensus> {
         let consensus = self.shared.consensus().clone();
         Ok(consensus.into())
     }
 
-    async fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {
+    fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {
         let block_hash = block_hash.pack();
         let snapshot = self.shared.snapshot();
         if !snapshot.is_main_chain(&block_hash) {
@@ -2117,23 +2102,17 @@ impl ChainRpc for ChainRpcImpl {
         Ok(Some(median_time.into()))
     }
 
-    async fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles> {
+    fn estimate_cycles(&self, tx: Transaction) -> Result<EstimateCycles> {
         let tx: packed::Transaction = tx.into();
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    async fn get_fee_rate_statics(
-        &self,
-        target: Option<Uint64>,
-    ) -> Result<Option<FeeRateStatistics>> {
+    fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }
 
-    async fn get_fee_rate_statistics(
-        &self,
-        target: Option<Uint64>,
-    ) -> Result<Option<FeeRateStatistics>> {
+    fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>> {
         Ok(FeeRateCollector::new(self.shared.snapshot().as_ref())
             .statistics(target.map(Into::into)))
     }

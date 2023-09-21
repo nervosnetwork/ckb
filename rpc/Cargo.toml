@@ -23,12 +23,6 @@ ckb-network-alert = { path = "../util/network-alert", version = "= 0.113.0-pre" 
 ckb-app-config = { path = "../util/app-config", version = "= 0.113.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.113.0-pre" }
 jsonrpc-core = "18.0"
-jsonrpc-derive = "18.0"
-jsonrpc-http-server = "18.0"
-jsonrpc-tcp-server = "18.0"
-jsonrpc-ws-server = "18.0"
-jsonrpc-server-utils = "18.0"
-jsonrpc-pubsub = "18.0"
 serde_json = "1.0"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.113.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.113.0-pre" }
@@ -47,7 +41,6 @@ itertools.workspace = true
 tokio = "1"
 quote = "1.0.27"
 async-trait = "0.1"
-jsonrpc-utils = { version = "0.2.0", features = ["server", "macros", "axum"] }
 axum = "0.6.1"
 tokio-util = { version = "0.7.3", features = ["codec"] }
 futures-util = { version = "0.3.21"}

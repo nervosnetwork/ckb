@@ -265,30 +265,27 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         .enable_alert(alert_verifier, alert_notifier, network_controller);
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(
-        rpc_config,
-        io_handler,
-        shared.notify_controller(),
-        shared.async_handle().clone().into_inner(),
-    );
+    let shared_clone = shared.clone();
+    let handler = shared_clone.async_handle().clone();
+    let rpc_server = handler.block_on(async move {
+        RpcServer::new(rpc_config, io_handler, shared_clone.notify_controller()).await
+    });
+
+    let rpc_client = reqwest::blocking::Client::new();
     let rpc_uri = format!(
         "http://{}:{}/",
-        rpc_server.http_address().ip(),
-        rpc_server.http_address().port()
+        rpc_server.http_address.ip(),
+        rpc_server.http_address.port()
     );
-    let rpc_client = reqwest::blocking::Client::new();
-
     let suite = RpcTestSuite {
         shared,
         chain_controller: chain_controller.clone(),
-        rpc_server,
         rpc_uri,
         rpc_client,
         _tmp_dir: temp_dir,
     };
 
     suite.wait_block_template_number(height + 1);
-
     // insert a fork block for rpc `get_fork_block` test
     {
         let fork_block = parent
@@ -307,7 +304,6 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
     }
 
     suite.send_example_transaction();
-
     suite
 }
 

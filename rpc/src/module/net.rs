@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{
@@ -76,7 +77,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "local_node_info")]
-    async fn local_node_info(&self) -> Result<LocalNode>;
+    fn local_node_info(&self) -> Result<LocalNode>;
 
     /// Returns the connected peers' information.
     ///
@@ -220,7 +221,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "get_peers")]
-    async fn get_peers(&self) -> Result<Vec<RemoteNode>>;
+    fn get_peers(&self) -> Result<Vec<RemoteNode>>;
 
     /// Returns all banned IPs/Subnets.
     ///
@@ -254,7 +255,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "get_banned_addresses")]
-    async fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>>;
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>>;
 
     /// Clears all banned IPs/Subnets.
     ///
@@ -281,7 +282,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "clear_banned_addresses")]
-    async fn clear_banned_addresses(&self) -> Result<()>;
+    fn clear_banned_addresses(&self) -> Result<()>;
 
     /// Inserts or deletes an IP/Subnet from the banned list
     ///
@@ -330,7 +331,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "set_ban")]
-    async fn set_ban(
+    fn set_ban(
         &self,
         address: String,
         command: String,
@@ -373,7 +374,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "sync_state")]
-    async fn sync_state(&self) -> Result<SyncState>;
+    fn sync_state(&self) -> Result<SyncState>;
 
     /// Disable/enable all p2p network activity
     ///
@@ -406,7 +407,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "set_network_active")]
-    async fn set_network_active(&self, state: bool) -> Result<()>;
+    fn set_network_active(&self, state: bool) -> Result<()>;
 
     /// Attempts to add a node to the peers list and try connecting to it.
     ///
@@ -466,7 +467,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "add_node")]
-    async fn add_node(&self, peer_id: String, address: String) -> Result<()>;
+    fn add_node(&self, peer_id: String, address: String) -> Result<()>;
 
     /// Attempts to remove a node from the peers list and try disconnecting from it.
     ///
@@ -503,7 +504,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "remove_node")]
-    async fn remove_node(&self, peer_id: String) -> Result<()>;
+    fn remove_node(&self, peer_id: String) -> Result<()>;
 
     /// Requests that a ping is sent to all connected peers, to measure ping time.
     ///
@@ -530,7 +531,7 @@ pub trait NetRpc {
     /// }
     /// ```
     #[rpc(name = "ping_peers")]
-    async fn ping_peers(&self) -> Result<()>;
+    fn ping_peers(&self) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -541,7 +542,7 @@ pub(crate) struct NetRpcImpl {
 
 #[async_trait]
 impl NetRpc for NetRpcImpl {
-    async fn local_node_info(&self) -> Result<LocalNode> {
+    fn local_node_info(&self) -> Result<LocalNode> {
         Ok(LocalNode {
             version: self.network_controller.version().to_owned(),
             node_id: self.network_controller.node_id(),
@@ -569,7 +570,7 @@ impl NetRpc for NetRpcImpl {
         })
     }
 
-    async fn get_peers(&self) -> Result<Vec<RemoteNode>> {
+    fn get_peers(&self) -> Result<Vec<RemoteNode>> {
         let peers: Vec<RemoteNode> = self
             .network_controller
             .connected_peers()
@@ -656,7 +657,7 @@ impl NetRpc for NetRpcImpl {
         Ok(peers)
     }
 
-    async fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>> {
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddr>> {
         Ok(self
             .network_controller
             .get_banned_addrs()
@@ -670,12 +671,12 @@ impl NetRpc for NetRpcImpl {
             .collect())
     }
 
-    async fn clear_banned_addresses(&self) -> Result<()> {
+    fn clear_banned_addresses(&self) -> Result<()> {
         self.network_controller.clear_banned_addrs();
         Ok(())
     }
 
-    async fn set_ban(
+    fn set_ban(
         &self,
         address: String,
         command: String,
@@ -713,7 +714,7 @@ impl NetRpc for NetRpcImpl {
         }
     }
 
-    async fn sync_state(&self) -> Result<SyncState> {
+    fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
         let state = chain.shared().state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
@@ -733,12 +734,12 @@ impl NetRpc for NetRpcImpl {
         Ok(sync_state)
     }
 
-    async fn set_network_active(&self, state: bool) -> Result<()> {
+    fn set_network_active(&self, state: bool) -> Result<()> {
         self.network_controller.set_active(state);
         Ok(())
     }
 
-    async fn add_node(&self, peer_id: String, address: String) -> Result<()> {
+    fn add_node(&self, peer_id: String, address: String) -> Result<()> {
         if let Ok(multiaddr) = address.parse::<Multiaddr>() {
             if extract_peer_id(&multiaddr).is_some() {
                 self.network_controller.add_node(multiaddr)
@@ -749,14 +750,14 @@ impl NetRpc for NetRpcImpl {
         Ok(())
     }
 
-    async fn remove_node(&self, peer_id: String) -> Result<()> {
+    fn remove_node(&self, peer_id: String) -> Result<()> {
         if let Ok(id) = peer_id.parse() {
             self.network_controller.remove_node(&id)
         }
         Ok(())
     }
 
-    async fn ping_peers(&self) -> Result<()> {
+    fn ping_peers(&self) -> Result<()> {
         self.network_controller.ping_peers();
         Ok(())
     }
