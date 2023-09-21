@@ -83,7 +83,6 @@ struct RpcTestSuite {
     rpc_uri: String,
     shared: Shared,
     chain_controller: ChainController,
-    rpc_server: RpcServer,
     _tmp_dir: tempfile::TempDir,
 }
 
@@ -298,22 +297,22 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
         .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
     let io_handler = builder.build();
 
-    let rpc_server = RpcServer::new(
-        rpc_config,
-        io_handler,
-        shared.notify_controller(),
-        shared.async_handle().clone().into_inner(),
-    );
+    let shared_clone = shared.clone();
+    let handler = shared_clone.async_handle().clone();
+    let rpc_server = handler.block_on(async move {
+        RpcServer::new(rpc_config, io_handler, shared_clone.notify_controller()).await
+    });
+
+    let rpc_client = Client::new();
     let rpc_uri = format!(
         "http://{}:{}/",
-        rpc_server.http_address().ip(),
-        rpc_server.http_address().port()
+        rpc_server.http_address.ip(),
+        rpc_server.http_address.port()
     );
-    let rpc_client = Client::new();
+
     RpcTestSuite {
         shared,
         chain_controller,
-        rpc_server,
         rpc_uri,
         rpc_client,
         _tmp_dir: tmp_dir,

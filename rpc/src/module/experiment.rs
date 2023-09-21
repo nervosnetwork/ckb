@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use crate::error::RPCError;
 use crate::module::chain::CyclesEstimator;
 use async_trait::async_trait;
@@ -100,7 +101,7 @@ pub trait ExperimentRpc {
         note = "Please use the RPC method [`estimate_cycles`](#tymethod.estimate_cycles) instead"
     )]
     #[rpc(name = "dry_run_transaction")]
-    async fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;
+    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;
 
     /// Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
     /// a withdrawing block hash.
@@ -157,7 +158,7 @@ pub trait ExperimentRpc {
     /// }
     /// ```
     #[rpc(name = "calculate_dao_maximum_withdraw")]
-    async fn calculate_dao_maximum_withdraw(
+    fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
         kind: DaoWithdrawingCalculationKind,
@@ -171,12 +172,12 @@ pub(crate) struct ExperimentRpcImpl {
 
 #[async_trait]
 impl ExperimentRpc for ExperimentRpcImpl {
-    async fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
+    fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
         let tx: packed::Transaction = tx.into();
         CyclesEstimator::new(&self.shared).run(tx)
     }
 
-    async fn calculate_dao_maximum_withdraw(
+    fn calculate_dao_maximum_withdraw(
         &self,
         out_point: OutPoint,
         kind: DaoWithdrawingCalculationKind,
