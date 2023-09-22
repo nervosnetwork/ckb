@@ -7,9 +7,10 @@ use ckb_network::{NetworkController, SupportProtocols};
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
+use futures_util::{stream::BoxStream, Stream};
 use jsonrpc_core::Result;
-use jsonrpc_utils::rpc;
-use std::sync::Arc;
+use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
+use std::{sync::Arc, time::Duration};
 
 /// RPC Module Alert for network alerts.
 ///
@@ -71,6 +72,11 @@ pub trait AlertRpc {
     /// ```
     #[rpc(name = "send_alert")]
     fn send_alert(&self, alert: Alert) -> Result<()>;
+
+    /// {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": [1] }
+    type S: Stream<Item = PublishMsg<u64>> + Send + 'static;
+    #[rpc(pub_sub(notify = "subscription", unsubscribe = "unsubscribe"))]
+    fn subscribe(&self, interval: u64) -> Result<Self::S>;
 }
 
 #[derive(Clone)]
@@ -124,6 +130,25 @@ impl AlertRpc for AlertRpcImpl {
                 RPCError::AlertFailedToVerifySignatures,
                 e,
             )),
+        }
+    }
+
+    type S = BoxStream<'static, PublishMsg<u64>>;
+    fn subscribe(&self, interval: u64) -> Result<Self::S> {
+        if interval > 0 {
+            Ok(Box::pin(async_stream::stream! {
+                for i in 0..10 {
+                    tokio::time::sleep(Duration::from_secs(interval)).await;
+                    yield PublishMsg::result(&i);
+                }
+                yield PublishMsg::error(&jsonrpc_core::Error {
+                    code: jsonrpc_core::ErrorCode::ServerError(-32000),
+                    message: "ended".into(),
+                    data: None,
+                });
+            }))
+        } else {
+            Err(jsonrpc_core::Error::invalid_params("invalid interval"))
         }
     }
 }

@@ -376,7 +376,7 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config)
+        let mut builder = ServiceBuilder::new(&rpc_config)
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
@@ -407,10 +407,18 @@ impl Launcher {
                 &self.args.config.db,
                 &self.args.config.indexer,
             )
+            //.enable_subscription(shared.clone())
             .enable_debug();
+        builder.enable_subscription(shared.clone()).await;
         let io_handler = builder.build();
 
-        RpcServer::new(rpc_config, io_handler, shared.notify_controller()).await;
+        RpcServer::new(
+            rpc_config,
+            io_handler,
+            self.async_handle.clone().into_inner(),
+            shared.notify_controller(),
+        )
+        .await;
 
         network_controller
     }
