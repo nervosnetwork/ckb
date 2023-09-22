@@ -6,6 +6,7 @@ use crate::module::{
     add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
     AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
     IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
+    SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -201,6 +202,15 @@ impl<'a> ServiceBuilder<'a> {
             add_indexer_rpc_methods,
             methods
         )
+    }
+
+    pub async fn enable_subscription(&mut self, shared: Shared) {
+        let _methods = SubscriptionRpcImpl::new(
+            shared.notify_controller().clone(),
+            shared.async_handle().clone(),
+            &mut self.io_handler,
+        )
+        .await;
     }
 
     fn add_methods<I>(&mut self, rpc_methods: I)

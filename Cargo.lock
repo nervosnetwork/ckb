@@ -134,6 +134,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bddcadddf5e9015d310179a59bb28c4d4b9920ad0f11e8e14dbadf654890c9a6"
 
 [[package]]
+name = "async-stream"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd56dd203fef61ac097dd65721a419ddccb106b2d2b70ba60a6b529f03961a51"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.12",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1265,9 +1287,11 @@ dependencies = [
 name = "ckb-rpc"
 version = "0.113.0-pre"
 dependencies = [
+ "async-stream",
  "async-trait",
  "axum",
  "ckb-app-config",
+ "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-constant",
