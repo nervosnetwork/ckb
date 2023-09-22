@@ -119,7 +119,7 @@ mod miner;
 mod net;
 pub(crate) mod pool;
 mod stats;
-//mod subscription;
+mod subscription;
 mod test;
 
 pub(crate) use self::alert::AlertRpcImpl;
@@ -132,6 +132,7 @@ pub(crate) use self::net::NetRpcImpl;
 pub(crate) use self::pool::PoolRpcImpl;
 pub(crate) use self::stats::StatsRpcImpl;
 //pub(crate) use self::subscription::SubscriptionSession;
+pub(crate) use self::subscription::SubscriptionRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 
 pub use self::alert::add_alert_rpc_methods;
@@ -152,6 +153,6 @@ pub use self::pool::add_pool_rpc_methods;
 pub use self::pool::PoolRpc;
 pub use self::stats::add_stats_rpc_methods;
 pub use self::stats::StatsRpc;
-pub use self::test::add_integration_test_rpc_methods;
 //pub use self::subscription::SubscriptionRpc;
+pub use self::test::add_integration_test_rpc_methods;
 pub use self::test::IntegrationTestRpc;
