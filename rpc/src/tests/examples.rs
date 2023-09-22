@@ -260,8 +260,8 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         )
         .enable_debug()
         .enable_alert(alert_verifier, alert_notifier, network_controller);
-    let io_handler = builder.build();
 
+    let io_handler = builder.build();
     let shared_clone = shared.clone();
     let handler = shared_clone.async_handle().clone();
     let rpc_server = handler.block_on(async move {
@@ -274,10 +274,16 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
         rpc_server.http_address.ip(),
         rpc_server.http_address.port()
     );
+    let tcp_uri = rpc_server
+        .tcp_address
+        .as_ref()
+        .map(|addr| format!("{}:{}", addr.ip(), addr.port()));
+
     let suite = RpcTestSuite {
         shared,
         chain_controller: chain_controller.clone(),
         rpc_uri,
+        tcp_uri,
         rpc_client,
         _tmp_dir: temp_dir,
     };
