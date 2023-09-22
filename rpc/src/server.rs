@@ -19,6 +19,7 @@ use tower_http::timeout::TimeoutLayer;
 #[derive(Debug)]
 pub struct RpcServer {
     pub http_address: SocketAddr,
+    pub tcp_address: Option<SocketAddr>,
 }
 
 impl RpcServer {
@@ -61,6 +62,7 @@ impl RpcServer {
                 .expect("config listen_address parsed"),
         )
         .serve(app.into_make_service());
+
         let local_addr = incomming.local_addr();
         let http_address = local_addr;
         let _http = tokio::spawn(async move { (local_addr, incomming.await.unwrap()) });
@@ -73,32 +75,36 @@ impl RpcServer {
         //
         // You can also use other transports (e.g. TLS, unix socket) and codecs
         // (e.g. netstring, JSON splitter).
+        let mut tcp_address = None;
         if let Some(tcp_listen_address) = config.tcp_listen_address {
             let listener = TcpListener::bind(tcp_listen_address).await.unwrap();
-            info!(
-                "listen TCP RPCServer on address {:?}",
-                listener.local_addr().unwrap()
-            );
-            let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
-            while let Ok((s, _)) = listener.accept().await {
-                let rpc = Arc::clone(&rpc);
-                let stream_config = stream_config.clone();
-                let codec = codec.clone();
-                tokio::spawn(async move {
-                    let (r, w) = s.into_split();
-                    let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
-                    let w = FramedWrite::new(w, codec).with(|msg| async move {
-                        Ok::<_, LinesCodecError>(match msg {
-                            StreamMsg::Str(msg) => msg,
-                            _ => "".into(),
-                        })
+            tcp_address = listener.local_addr().ok();
+            info!("listen TCP RPCServer on address {:?}", tcp_address.unwrap());
+            tokio::spawn(async move {
+                let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
+                while let Ok((s, _)) = listener.accept().await {
+                    let rpc = Arc::clone(&rpc);
+                    let stream_config = stream_config.clone();
+                    let codec = codec.clone();
+                    tokio::spawn(async move {
+                        let (r, w) = s.into_split();
+                        let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
+                        let w = FramedWrite::new(w, codec).with(|msg| async move {
+                            Ok::<_, LinesCodecError>(match msg {
+                                StreamMsg::Str(msg) => msg,
+                                _ => "".into(),
+                            })
+                        });
+                        tokio::pin!(w);
+                        drop(serve_stream_sink(&rpc, w, r, stream_config).await);
                     });
-                    tokio::pin!(w);
-                    drop(serve_stream_sink(&rpc, w, r, stream_config).await);
-                });
-            }
+                }
+            });
         }
 
-        Self { http_address }
+        Self {
+            http_address,
+            tcp_address,
+        }
     }
 }
