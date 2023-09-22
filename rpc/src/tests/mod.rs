@@ -22,7 +22,10 @@ use ckb_types::{
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::error::Error;
 use std::{cmp, collections::HashSet, fmt, sync::Arc};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 mod error;
 mod examples;
@@ -81,6 +84,7 @@ impl RpcTestResponse {
 struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
+    tcp_uri: Option<String>,
     shared: Shared,
     chain_controller: ChainController,
     _tmp_dir: tempfile::TempDir,
@@ -101,6 +105,20 @@ impl RpcTestSuite {
             })
             .json::<RpcTestResponse>()
             .expect("Deserialize RpcTestRequest")
+    }
+
+    async fn tcp(&self, request: &RpcTestRequest) -> Result<RpcTestResponse, Box<dyn Error>> {
+        // Connect to the server.
+        assert!(self.tcp_uri.is_some());
+        let mut stream = TcpStream::connect(self.tcp_uri.as_ref().unwrap()).await?;
+        let json = serde_json::to_string(&request)? + "\n";
+        stream.write_all(json.as_bytes()).await?;
+        // Read the server's response.
+        let mut buffer = [0; 1024];
+        let n = stream.read(&mut buffer).await?;
+        let response = std::str::from_utf8(&buffer[..n])?;
+        let message: RpcTestResponse = serde_json::from_str(response)?;
+        Ok(message)
     }
 
     fn wait_block_template_number(&self, target: u64) {
@@ -203,7 +221,8 @@ fn always_success_transaction() -> TransactionView {
 }
 
 // setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test
-// there is a similar fn `setup_rpc_test_suite` which enables all rpc modules, may be refactored into one fn with different paramsters in other PRs
+// there is a similar fn `setup_rpc_test_suite` which enables all rpc modules,
+// may be refactored into one fn with different paramsters in other PRs
 fn setup(consensus: Consensus) -> RpcTestSuite {
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)
@@ -271,7 +290,7 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
     // Start rpc services
     let rpc_config = RpcConfig {
         listen_address: "127.0.0.1:0".to_owned(),
-        tcp_listen_address: None,
+        tcp_listen_address: Some("127.0.0.1:0".to_owned()),
         ws_listen_address: None,
         max_request_body_size: 20_000_000,
         threads: None,
@@ -311,11 +330,16 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
         rpc_server.http_address.ip(),
         rpc_server.http_address.port()
     );
+    let tcp_uri = rpc_server
+        .tcp_address
+        .as_ref()
+        .map(|addr| format!("{}:{}", addr.ip(), addr.port()));
 
     RpcTestSuite {
         shared,
         chain_controller,
         rpc_uri,
+        tcp_uri,
         rpc_client,
         _tmp_dir: tmp_dir,
     }
