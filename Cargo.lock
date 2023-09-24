@@ -1229,6 +1229,7 @@ dependencies = [
  "ckb-pow",
  "ckb-reward-calculator",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-sync",
  "ckb-systemtime",
@@ -2796,8 +2797,7 @@ dependencies = [
 [[package]]
 name = "jsonrpc-utils"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f82ed5157e86d6cd293f7d72d6af1000e8b8dbd8e4dd4493d71d0ffb48226348"
+source = "git+https://github.com/chenyukang/jsonrpc-utils.git?branch=exit-signal#a805ab711f8deaa7fdcc161936544d35531bf718"
 dependencies = [
  "anyhow",
  "axum",
@@ -2810,13 +2810,13 @@ dependencies = [
  "rand 0.8.5",
  "serde_json",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
 name = "jsonrpc-utils-macros"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8727d2c8bb2833f22c4306879a5cf4cc4a8659170c211e9b523b86aab654f823"
+source = "git+https://github.com/chenyukang/jsonrpc-utils.git?branch=exit-signal#a805ab711f8deaa7fdcc161936544d35531bf718"
 dependencies = [
  "proc-macro2",
  "quote",
