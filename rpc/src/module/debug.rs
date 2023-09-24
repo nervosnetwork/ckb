@@ -41,7 +41,6 @@ pub trait DebugRpc {
 pub(crate) struct DebugRpcImpl {}
 
 #[async_trait]
-
 impl DebugRpc for DebugRpcImpl {
     fn jemalloc_profiling_dump(&self) -> Result<String> {
         let timestamp = time::SystemTime::now()
