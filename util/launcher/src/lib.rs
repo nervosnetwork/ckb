@@ -417,7 +417,6 @@ impl Launcher {
                 &self.args.config.db,
                 &self.args.config.indexer,
             )
-            //.enable_subscription(shared.clone())
             .enable_debug();
         builder.enable_subscription(shared.clone()).await;
         let io_handler = builder.build();

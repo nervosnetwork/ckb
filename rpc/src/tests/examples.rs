@@ -598,7 +598,6 @@ fn test_rpc_examples() {
         println!("Test RPC Example {}", example.request);
         around_rpc_example(&suite, example);
     }
-    eprintln!("finished ....");
 }
 
 fn replace_rpc_response<T>(example: &RpcTestExample, response: &mut RpcTestResponse)
