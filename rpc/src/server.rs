@@ -55,7 +55,6 @@ impl RpcServer {
 
         // TCP server with line delimited json codec.
         let mut tcp_address = None;
-        let exit_signal: CancellationToken = new_tokio_exit_rx();
         if let Some(tcp_listen_address) = config.tcp_listen_address {
             let listener = TcpListener::bind(tcp_listen_address).await.unwrap();
             tcp_address = listener.local_addr().ok();
@@ -66,15 +65,18 @@ impl RpcServer {
                     .with_channel_size(4)
                     .with_keep_alive(true)
                     .with_keep_alive_duration(Duration::from_secs(60))
-                    .with_pipeline_size(4);
+                    .with_pipeline_size(4)
+                    .with_exit_signal(new_tokio_exit_rx());
+
+                let exit_signal: CancellationToken = new_tokio_exit_rx();
                 tokio::select! {
                     _ = async {
-                        while let Ok((s, _)) = listener.accept().await {
+                        while let Ok((stream, _)) = listener.accept().await {
                             let rpc = Arc::clone(&rpc);
                             let stream_config = stream_config.clone();
                             let codec = codec.clone();
                             tokio::spawn(async move {
-                                let (r, w) = s.into_split();
+                                let (r, w) = stream.into_split();
                                 let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
                                 let w = FramedWrite::new(w, codec).with(|msg| async move {
                                     Ok::<_, LinesCodecError>(match msg {
