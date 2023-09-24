@@ -39,7 +39,8 @@ tempfile.workspace = true
 quote = "1.0.27"
 async-trait = "0.1"
 http-body = "0.4.5"
-jsonrpc-utils = { version = "0.2.0", features = ["server", "macros", "axum"] }
+#jsonrpc-utils = { version = "0.2.0", features = ["server", "macros", "axum"] }
+jsonrpc-utils = { git = "https://github.com/chenyukang/jsonrpc-utils.git", branch = "exit-signal", features = ["server", "macros", "axum"] }
 
 [dev-dependencies]
 ckb-systemtime = {path = "../systemtime", version = "= 0.113.0-pre", features = ["enable_faketime"]  }

@@ -1,40 +1,13 @@
 use async_trait::async_trait;
 use ckb_async_runtime::Handle;
-
 use ckb_jsonrpc_types::Topic;
 use ckb_notify::NotifyController;
-use futures_util::Stream;
-use futures_util::StreamExt;
-use jsonrpc_core::{MetaIoHandler, Params};
-use jsonrpc_utils::pub_sub::add_pub_sub;
-use jsonrpc_utils::pub_sub::PubSub;
-use jsonrpc_utils::pub_sub::PublishMsg;
-use jsonrpc_utils::pub_sub::Session;
-use jsonrpc_utils::rpc;
+use futures_util::{stream::BoxStream, Stream};
+use jsonrpc_core::Result;
+use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
 use tokio::sync::broadcast;
 
-use tokio::sync::broadcast::Receiver;
-use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tokio_stream::wrappers::BroadcastStream;
-
 const SUBSCRIBER_NAME: &str = "TcpSubscription";
-
-// #[derive(Clone)]
-// pub struct SubscriptionSession {
-//     pub(crate) subscription_ids: Arc<RwLock<HashSet<SubscriptionId>>>,
-//     pub(crate) session: Arc<Session>,
-// }
-
-// impl SubscriptionSession {
-//     pub fn new(session: Session) -> Self {
-//         Self {
-//             subscription_ids: Arc::new(RwLock::new(HashSet::new())),
-//             session: Arc::new(session),
-//         }
-//     }
-// }
-
-// impl Metadata for SubscriptionSession {}
 
 /// RPC Module Subscription that CKB node will push new messages to subscribers.
 ///
@@ -167,48 +140,24 @@ pub trait SubscriptionRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x2a"
+    ///   "result": "0xf3ec7c262bcd8f8656975a5fbf6571a5"
     /// }
     /// ```
-    //#[pubsub(subscription = "subscribe", subscribe, name = "subscribe")]
-    type S: Stream<Item = PublishMsg<String>> + Send + 'static;
-    #[rpc(pub_sub(notify = "subscribe", unsubscribe = "unsubscribe"))]
-    fn subscribe(&self, topic: Topic);
-
-    /*
-    /// Unsubscribes from a subscribed topic.
+    /// Unsubscribe Request
     ///
-    /// ## Params
-    ///
-    /// * `id` - Subscription ID
-    ///
-    /// ## Examples
-    ///
-    /// Request
-    ///
-    /// ```json
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "method": "unsubscribe",
     ///   "params": [
-    ///     "0x2a"
-    ///   ]
+    ///     "0xf3ec7c262bcd8f8656975a5fbf6571a5"
+    ///    ]
     /// }
-    /// ```
     ///
-    /// Response
     ///
-    /// ```json
-    /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": true
-    /// }
-    /// ```
-    /// #[pubsub(subscription = "subscribe", unsubscribe, name = "unsubscribe")]
-    /// fn unsubscribe(&self, meta: Option<Self::Metadata>, id: SubscriptionId) -> Result<bool>;
-     */
+    type S: Stream<Item = PublishMsg<String>> + Send + 'static;
+    #[rpc(pub_sub(notify = "subscribe", unsubscribe = "unsubscribe"))]
+    fn subscribe(&self, topic: Topic) -> Result<Self::S>;
 }
 
 #[derive(Clone)]
@@ -228,37 +177,30 @@ macro_rules! publiser_send {
     }};
 }
 
-impl PubSub<Result<PublishMsg<String>, BroadcastStreamRecvError>> for SubscriptionRpcImpl {
-    type Stream = BroadcastStream<PublishMsg<String>>;
-
-    fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
-        let params: Vec<Topic> = params.parse()?;
-        let topic = params.get(0).expect("invalid params");
+#[async_trait]
+impl SubscriptionRpc for SubscriptionRpcImpl {
+    type S = BoxStream<'static, PublishMsg<String>>;
+    fn subscribe(&self, topic: Topic) -> Result<Self::S> {
         let tx = match topic {
-            Topic::NewTipHeader => &self.new_tip_header_sender,
-            Topic::NewTipBlock => &self.new_tip_block_sender,
-            Topic::NewTransaction => &self.new_transaction_sender,
-            Topic::ProposedTransaction => &self.proposed_transaction_sender,
-            Topic::RejectedTransaction => &self.new_reject_transaction_sender,
+            Topic::NewTipHeader => self.new_tip_header_sender.clone(),
+            Topic::NewTipBlock => self.new_tip_block_sender.clone(),
+            Topic::NewTransaction => self.new_transaction_sender.clone(),
+            Topic::ProposedTransaction => self.proposed_transaction_sender.clone(),
+            Topic::RejectedTransaction => self.new_reject_transaction_sender.clone(),
         };
-        Ok(BroadcastStream::new(tx.subscribe()).map(|result| {
-            result.unwrap_or_else(|_| {
-                PublishMsg::error(&jsonrpc_core::Error {
-                    code: jsonrpc_core::ErrorCode::ServerError(-32000),
-                    message: "subscription internal error".into(),
-                    data: None,
-                })
-            })
+        Ok(Box::pin(async_stream::stream! {
+               loop {
+                   match tx.clone().subscribe().recv().await {
+                       Ok(msg) => yield msg,
+                       Err(_) => break,
+                   }
+               }
         }))
     }
 }
 
 impl SubscriptionRpcImpl {
-    pub async fn new(
-        notify_controller: NotifyController,
-        handle: Handle,
-        io_handle: &mut MetaIoHandler<Option<Session>>,
-    ) {
+    pub async fn new(notify_controller: NotifyController, handle: Handle) -> Self {
         let mut new_block_receiver = notify_controller
             .subscribe_new_block(SUBSCRIBER_NAME.to_string())
             .await;
@@ -307,33 +249,12 @@ impl SubscriptionRpcImpl {
             }
         }});
 
-        let mut meta_io = MetaIoHandler::default();
-        add_pub_sub(
-            &mut meta_io,
-            "subscribe",
-            "subscription",
-            "unsubscribe",
-            move |params: Params| {
-                let params: Vec<Topic> = params.parse()?;
-                let topic = params.get(0).expect("invalid params");
-                let tx = match topic {
-                    Topic::NewTipHeader => &new_tip_header_sender,
-                    Topic::NewTipBlock => &new_tip_block_sender,
-                    Topic::NewTransaction => &new_transaction_sender,
-                    Topic::ProposedTransaction => &proposed_transaction_sender,
-                    Topic::RejectedTransaction => &new_reject_transaction_sender,
-                };
-                Ok(BroadcastStream::new(tx.subscribe()).map(|result| {
-                    result.unwrap_or_else(|_| {
-                        PublishMsg::error(&jsonrpc_core::Error {
-                            code: jsonrpc_core::ErrorCode::ServerError(-32000),
-                            message: "subscription internal error".into(),
-                            data: None,
-                        })
-                    })
-                }))
-            },
-        );
-        io_handle.extend_with(meta_io.into_iter());
+        Self {
+            new_tip_header_sender,
+            new_tip_block_sender,
+            new_transaction_sender,
+            proposed_transaction_sender,
+            new_reject_transaction_sender,
+        }
     }
 }

@@ -4,8 +4,8 @@ use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
     add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
     add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
-    AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
-    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
+    add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl,
+    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
     SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
@@ -205,12 +205,16 @@ impl<'a> ServiceBuilder<'a> {
     }
 
     pub async fn enable_subscription(&mut self, shared: Shared) {
-        let _methods = SubscriptionRpcImpl::new(
-            shared.notify_controller().clone(),
-            shared.async_handle().clone(),
-            &mut self.io_handler,
-        )
-        .await;
+        if self.config.subscription_enable() {
+            let methods = SubscriptionRpcImpl::new(
+                shared.notify_controller().clone(),
+                shared.async_handle().clone(),
+            )
+            .await;
+            let mut meta_io = MetaIoHandler::default();
+            add_subscription_rpc_methods(&mut meta_io, methods);
+            self.add_methods(meta_io);
+        }
     }
 
     fn add_methods<I>(&mut self, rpc_methods: I)
