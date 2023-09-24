@@ -131,7 +131,6 @@ pub(crate) use self::miner::MinerRpcImpl;
 pub(crate) use self::net::NetRpcImpl;
 pub(crate) use self::pool::PoolRpcImpl;
 pub(crate) use self::stats::StatsRpcImpl;
-//pub(crate) use self::subscription::SubscriptionSession;
 pub(crate) use self::subscription::SubscriptionRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 

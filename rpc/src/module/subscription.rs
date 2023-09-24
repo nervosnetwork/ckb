@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use async_trait::async_trait;
 use ckb_async_runtime::Handle;
 use ckb_jsonrpc_types::Topic;
@@ -6,8 +8,6 @@ use futures_util::{stream::BoxStream, Stream};
 use jsonrpc_core::Result;
 use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
 use tokio::sync::broadcast;
-
-const SUBSCRIBER_NAME: &str = "TcpSubscription";
 
 /// RPC Module Subscription that CKB node will push new messages to subscribers.
 ///
@@ -140,7 +140,7 @@ pub trait SubscriptionRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0xf3ec7c262bcd8f8656975a5fbf6571a5"
+    ///   "result": "0xf3"
     /// }
     /// ```
     /// Unsubscribe Request
@@ -150,8 +150,8 @@ pub trait SubscriptionRpc {
     ///   "jsonrpc": "2.0",
     ///   "method": "unsubscribe",
     ///   "params": [
-    ///     "0xf3ec7c262bcd8f8656975a5fbf6571a5"
-    ///    ]
+    ///     "0xf3"
+    ///   ]
     /// }
     ///
     ///
@@ -189,11 +189,8 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
             Topic::RejectedTransaction => self.new_reject_transaction_sender.clone(),
         };
         Ok(Box::pin(async_stream::stream! {
-               loop {
-                   match tx.clone().subscribe().recv().await {
-                       Ok(msg) => yield msg,
-                       Err(_) => break,
-                   }
+               while let Ok(msg) = tx.clone().subscribe().recv().await {
+                    yield msg;
                }
         }))
     }
@@ -201,6 +198,8 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 
 impl SubscriptionRpcImpl {
     pub async fn new(notify_controller: NotifyController, handle: Handle) -> Self {
+        const SUBSCRIBER_NAME: &str = "TcpSubscription";
+
         let mut new_block_receiver = notify_controller
             .subscribe_new_block(SUBSCRIBER_NAME.to_string())
             .await;

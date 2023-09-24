@@ -42,11 +42,11 @@ impl RpcServer {
     ) -> Self {
         let rpc = Arc::new(io_handler);
 
-        let http_address = Self::start_server(rpc.clone(), config.listen_address.to_owned()).await;
+        let http_address = Self::start_server(&rpc, config.listen_address.to_owned()).await;
         info!("Listen HTTP RPCServer on address {}", http_address);
 
         let ws_address = if let Some(addr) = config.ws_listen_address {
-            let local_addr = Self::start_server(rpc.clone(), addr).await;
+            let local_addr = Self::start_server(&rpc, addr).await;
             info!("Listen WebSocket RPCServer on address {}", local_addr);
             Some(local_addr)
         } else {
@@ -65,30 +65,37 @@ impl RpcServer {
                     .with_channel_size(4)
                     .with_keep_alive(true)
                     .with_keep_alive_duration(Duration::from_secs(60))
-                    .with_pipeline_size(4)
-                    .with_exit_signal(new_tokio_exit_rx());
+                    .with_pipeline_size(4);
 
                 let exit_signal: CancellationToken = new_tokio_exit_rx();
                 tokio::select! {
                     _ = async {
-                        while let Ok((stream, _)) = listener.accept().await {
-                            let rpc = Arc::clone(&rpc);
-                            let stream_config = stream_config.clone();
-                            let codec = codec.clone();
-                            tokio::spawn(async move {
-                                let (r, w) = stream.into_split();
-                                let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
-                                let w = FramedWrite::new(w, codec).with(|msg| async move {
-                                    Ok::<_, LinesCodecError>(match msg {
-                                        StreamMsg::Str(msg) => msg,
-                                        _ => "".into(),
-                                    })
+                            while let Ok((stream, _)) = listener.accept().await {
+                                let rpc = Arc::clone(&rpc);
+                                let stream_config = stream_config.clone();
+                                let codec = codec.clone();
+                                tokio::spawn(async move {
+                                    let (r, w) = stream.into_split();
+                                    let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
+                                    let w = FramedWrite::new(w, codec).with(|msg| async move {
+                                        Ok::<_, LinesCodecError>(match msg {
+                                            StreamMsg::Str(msg) => msg,
+                                            _ => "".into(),
+                                        })
+                                    });
+                                    tokio::pin!(w);
+                                    let exit_signal: CancellationToken = new_tokio_exit_rx();
+                                    tokio::select! {
+                                        result = serve_stream_sink(&rpc, w, r, stream_config) => {
+                                            if let Err(err) = result {
+                                                info!("TCP RPCServer error: {:?}", err);
+                                            }
+                                        }
+                                        _ = exit_signal.cancelled() => {}
+                                    }
                                 });
-                                tokio::pin!(w);
-                                drop(serve_stream_sink(&rpc, w, r, stream_config).await);
-                            });
-                        }
-                    } => {},
+                            }
+                        } => {},
                     _ = exit_signal.cancelled() => {
                         info!("TCP RPCServer stopped");
                     }
@@ -103,7 +110,10 @@ impl RpcServer {
         }
     }
 
-    async fn start_server(rpc: Arc<MetaIoHandler<Option<Session>>>, address: String) -> SocketAddr {
+    async fn start_server(
+        rpc: &Arc<MetaIoHandler<Option<Session>>>,
+        address: String,
+    ) -> SocketAddr {
         let stream_config = StreamServerConfig::default()
             .with_channel_size(4)
             .with_pipeline_size(4);
@@ -116,7 +126,7 @@ impl RpcServer {
         let app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
-            .layer(Extension(Arc::clone(&rpc)))
+            .layer(Extension(Arc::clone(rpc)))
             .layer(Extension(ws_config))
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 

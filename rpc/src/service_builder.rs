@@ -1,5 +1,4 @@
 #![allow(deprecated)]
-//use crate::module::SubscriptionSession;
 use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
     add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
@@ -260,7 +259,7 @@ impl<'a> ServiceBuilder<'a> {
     /// Builds the RPC methods handler used in the RPC server.
     pub fn build(self) -> IoHandler {
         let mut io_handler = self.io_handler;
-        io_handler.add_method("ping", |_| async move { Ok("pong".into()) });
+        io_handler.add_method("ping", |_| async { Ok("pong".into()) });
         io_handler
     }
 }

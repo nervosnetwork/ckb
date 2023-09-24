@@ -1563,7 +1563,7 @@ pub trait ChainRpc {
         since = "0.109.0",
         note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
     )]
-    #[rpc(name = "deprecated.get_fee_rate_statics")]
+    #[rpc(name = "get_fee_rate_statics")]
     fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 
     /// Returns the fee_rate statistics of confirmed blocks on the chain
@@ -1619,7 +1619,6 @@ const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
 const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 
 #[async_trait]
-
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
         &self,
