@@ -153,6 +153,7 @@ pub use self::pool::add_pool_rpc_methods;
 pub use self::pool::PoolRpc;
 pub use self::stats::add_stats_rpc_methods;
 pub use self::stats::StatsRpc;
-//pub use self::subscription::SubscriptionRpc;
+pub use self::subscription::add_subscription_rpc_methods;
+pub use self::subscription::SubscriptionRpc;
 pub use self::test::add_integration_test_rpc_methods;
 pub use self::test::IntegrationTestRpc;

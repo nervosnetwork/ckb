@@ -45,7 +45,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     launcher.start_block_filter(&shared);
 
     async_handle.block_on(async move {
-        let _rpc_task = spawn(async move {
+        spawn(async move {
             let network_controller = launcher
                 .start_network_and_rpc(
                     &shared,
