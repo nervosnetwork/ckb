@@ -1,11 +1,7 @@
-use crate::{RpcServer, ServiceBuilder};
-use ckb_app_config::{BlockAssemblerConfig, NetworkConfig, RpcConfig, RpcModule};
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::ScriptHashType;
-use ckb_launcher::SharedBuilder;
-use ckb_network::{Flags, NetworkService, NetworkState};
+
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -15,7 +11,6 @@ use ckb_types::{
         cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
         TransactionView,
     },
-    h256,
     packed::{CellInput, OutPoint},
     prelude::*,
 };
@@ -23,14 +18,17 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::error::Error;
-use std::{cmp, collections::HashSet, fmt, sync::Arc};
+use std::{cmp, collections::HashSet, fmt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+use self::setup::setup_rpc_test_suite;
 
 mod error;
 mod examples;
 mod fee_rate;
 mod module;
+mod setup;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq, Default)]
 struct RpcTestRequest {
@@ -81,7 +79,7 @@ impl RpcTestResponse {
 }
 
 #[allow(dead_code)]
-struct RpcTestSuite {
+pub(crate) struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
     tcp_uri: Option<String>,
@@ -224,6 +222,8 @@ fn always_success_transaction() -> TransactionView {
 // there is a similar fn `setup_rpc_test_suite` which enables all rpc modules,
 // may be refactored into one fn with different paramsters in other PRs
 fn setup(consensus: Consensus) -> RpcTestSuite {
+    setup_rpc_test_suite(20, Some(consensus))
+    /*
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(consensus)
         .block_assembler_config(Some(BlockAssemblerConfig {
@@ -339,4 +339,5 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
         rpc_client,
         _tmp_dir: tmp_dir,
     }
+    */
 }
