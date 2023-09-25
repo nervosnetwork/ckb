@@ -39,26 +39,26 @@ impl RpcServer {
 
         let http_address = Self::start_server(&rpc, config.listen_address.to_owned())
             .await
-            .and_then(|addr| {
-                info!("Listen HTTP RPCServer on address: {}", addr);
-                Ok(addr)
+            .map(|local_addr| {
+                info!("Listen HTTP RPCServer on address: {}", local_addr);
+                local_addr
             })
             .unwrap();
 
         let ws_address = if let Some(addr) = config.ws_listen_address {
-            let r = Self::start_server(&rpc, addr).await.and_then(|addr| {
+            let local_addr = Self::start_server(&rpc, addr).await.map(|addr| {
                 info!("Listen WebSocket RPCServer on address: {}", addr);
-                Ok(addr)
+                addr
             });
-            r.ok()
+            local_addr.ok()
         } else {
             None
         };
 
         let tcp_address = if let Some(addr) = config.tcp_listen_address {
-            let local_addr = Self::start_tcp_server(rpc, addr).await.and_then(|addr| {
+            let local_addr = Self::start_tcp_server(rpc, addr).await.map(|addr| {
                 info!("Listen TCP RPCServer on address: {}", addr);
-                Ok(addr)
+                addr
             });
             local_addr.ok()
         } else {
