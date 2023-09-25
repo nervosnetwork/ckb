@@ -320,15 +320,7 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
 
     let shared_clone = shared.clone();
     let handler = shared_clone.async_handle().clone();
-    let rpc_server = handler.block_on(async move {
-        RpcServer::new(
-            rpc_config,
-            io_handler,
-            shared_clone.async_handle().clone().into_inner(),
-            shared_clone.notify_controller(),
-        )
-        .await
-    });
+    let rpc_server = handler.block_on(async move { RpcServer::new(rpc_config, io_handler).await });
 
     let rpc_client = Client::new();
     let rpc_uri = format!(
