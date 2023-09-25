@@ -895,7 +895,6 @@ dependencies = [
 name = "ckb-launcher"
 version = "0.113.0-pre"
 dependencies = [
- "async-trait",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-block-filter",
@@ -919,11 +918,8 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "http-body",
- "jsonrpc-utils",
  "num_cpus",
  "once_cell",
- "quote",
  "tempfile",
 ]
 
@@ -1324,7 +1320,6 @@ dependencies = [
  "itertools 0.11.0",
  "jsonrpc-core",
  "pretty_assertions",
- "quote",
  "reqwest",
  "serde",
  "serde_json",

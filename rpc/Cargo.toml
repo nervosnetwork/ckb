@@ -39,14 +39,12 @@ ckb-pow = { path = "../pow", version = "= 0.113.0-pre" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.113.0-pre" }
 itertools.workspace = true
 tokio = "1"
-quote = "1.0.27"
 async-trait = "0.1"
 axum = "0.6.1"
 tokio-util = { version = "0.7.3", features = ["codec"] }
 futures-util = { version = "0.3.21"}
 tower-http = { version = "0.3.5", features = ["timeout"] }
 async-stream = "0.3.3"
-tokio-stream = { version = "0.1.9", features = ["sync"] }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.112.0-pre" }
 
 [dev-dependencies]
