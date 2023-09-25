@@ -421,13 +421,7 @@ impl Launcher {
         builder.enable_subscription(shared.clone()).await;
         let io_handler = builder.build();
 
-        RpcServer::new(
-            rpc_config,
-            io_handler,
-            self.async_handle.clone().into_inner(),
-            shared.notify_controller(),
-        )
-        .await;
+        RpcServer::new(rpc_config, io_handler).await;
 
         network_controller
     }
