@@ -717,6 +717,7 @@ name = "ckb-fixed-hash-core"
 version = "0.112.0-pre"
 dependencies = [
  "faster-hex",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror",

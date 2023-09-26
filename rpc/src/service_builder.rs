@@ -3,9 +3,9 @@ use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
     add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
     add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
-    add_subscription_rpc_methods, alert_rpc_doc, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl,
-    ExperimentRpcImpl, IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl,
-    PoolRpcImpl, StatsRpcImpl, SubscriptionRpcImpl,
+    add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl,
+    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
+    SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -172,8 +172,6 @@ impl<'a> ServiceBuilder<'a> {
         network_controller: NetworkController,
     ) -> Self {
         let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
-        let json = alert_rpc_doc();
-        eprintln!("alert rpc doc: {}", json);
         set_rpc_module_methods!(self, "Alert", alert_enable, add_alert_rpc_methods, methods)
     }
 

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// RPC Module Stats for getting various statistic data.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait StatsRpc {
     /// Returns statistics about the chain.

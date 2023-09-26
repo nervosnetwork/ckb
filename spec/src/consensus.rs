@@ -17,8 +17,8 @@ use ckb_constant::{
     hardfork::{mainnet, testnet},
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
+use ckb_jsonrpc_types::RationalU256;
 use ckb_pow::{Pow, PowEngine};
-use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{

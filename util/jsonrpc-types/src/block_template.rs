@@ -3,13 +3,14 @@ use crate::{
     Timestamp, Transaction, Uint32, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 
 /// A block template for miners.
 ///
 /// Miners optional pick transactions and then assemble the final block.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockTemplate {
     /// Block version.
     ///
@@ -172,7 +173,7 @@ impl From<BlockTemplate> for packed::Block {
 }
 
 /// The uncle block template of the new block for miners.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct UncleTemplate {
     /// The uncle block hash.
     pub hash: H256,
@@ -201,7 +202,7 @@ impl From<UncleTemplate> for packed::UncleBlock {
 }
 
 /// The cellbase transaction template of the new block for miners.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct CellbaseTemplate {
     /// The cellbase transaction hash.
     pub hash: H256,
@@ -222,7 +223,7 @@ impl From<CellbaseTemplate> for packed::Transaction {
 }
 
 /// Transaction template which is ready to be committed in the new block.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TransactionTemplate {
     /// Transaction hash.
     pub hash: H256,

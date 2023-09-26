@@ -16,7 +16,7 @@ use jsonrpc_utils::rpc;
 /// **EXPERIMENTAL warning**
 ///
 /// The methods here may be removed or changed in future releases without prior notifications.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait ExperimentRpc {
     /// Dry run a transaction and return the execution cycles.

@@ -1,9 +1,10 @@
 use crate::{Cycle, OutPoint};
 use ckb_types::H256;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Response result of the RPC method `estimate_cycles`.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct EstimateCycles {
     /// The count of cycles that the VM has consumed to verify this transaction.
     pub cycles: Cycle,
@@ -14,7 +15,7 @@ pub struct EstimateCycles {
 ///
 /// [`H256`]: struct.H256.html
 /// [`OutPoint`]: struct.OutPoint.html
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum DaoWithdrawingCalculationKind {
     /// the assumed reference block hash for withdrawing phase 1 transaction

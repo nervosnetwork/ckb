@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// RPC for Integration Test.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait IntegrationTestRpc {
     /// process block without any block verification.

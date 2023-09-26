@@ -1,5 +1,6 @@
 use ckb_types::{packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
+use schemars::JsonSchema;
 use std::fmt;
 
 /// The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
@@ -9,7 +10,7 @@ use std::fmt;
 /// ```text
 /// 0xa0ef4eb5f4ceeb08a4c8
 /// ```
-#[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct ProposalShortId(pub [u8; 10]);
 
 impl ProposalShortId {

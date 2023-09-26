@@ -10,6 +10,7 @@ mod fee_rate;
 mod fixed_bytes;
 mod indexer;
 mod info;
+mod json_schema;
 mod net;
 mod pool;
 mod primitive;
@@ -50,6 +51,7 @@ pub use self::pool::{
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
 pub use self::uints::{Uint128, Uint32, Uint64};
+pub use ckb_types::core::RationalU256;
 pub use indexer::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerRange, IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey,
@@ -59,13 +61,14 @@ pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,
     Timestamp, Version,
 };
+use schemars::JsonSchema;
 pub use serde::{Deserialize, Serialize};
 
 use ckb_types::bytes::Bytes;
 
 /// The enum `Either` with variants `Left` and `Right` is a general purpose
 /// sum type with two cases.
-#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum Either<L, R> {
     /// A value of type `L`.
@@ -80,7 +83,7 @@ pub enum Either<L, R> {
 ///
 /// `ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized
 /// Hex format.
-#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(transparent)]
 pub struct ResponseFormat<V> {
     /// The inner value.

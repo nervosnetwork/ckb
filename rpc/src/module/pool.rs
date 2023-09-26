@@ -12,7 +12,7 @@ use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 /// RPC Module Pool for transaction memory pool.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait PoolRpc {
     /// Submits a new transaction into the transaction pool. If the transaction is already in the

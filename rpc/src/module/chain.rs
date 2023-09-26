@@ -53,7 +53,7 @@ use std::sync::Arc;
 /// * it is found as an output in any transaction in the [canonical chain](#canonical-chain),
 /// and
 /// * it is not found as an input in any transaction in the canonical chain.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait ChainRpc {
     /// Returns the information about a block by hash.

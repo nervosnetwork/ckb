@@ -44,7 +44,7 @@ use tokio::sync::broadcast;
 /// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 /// ```
 #[allow(clippy::needless_return)]
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait SubscriptionRpc {
     /// Context to implement the subscription RPC.
