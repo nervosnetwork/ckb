@@ -204,12 +204,17 @@ impl<'a> GetLastStateProofProcess<'a> {
         let snapshot = self.protocol.shared.snapshot();
 
         let last_block_hash = self.message.last_hash().to_entity();
-        let last_block = if let Some(block) = snapshot.get_block(&last_block_hash) {
-            block
-        } else {
+        let last_block = if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
                 .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc);
+        } else if let Some(block) = snapshot.get_block(&last_block_hash) {
+            block
+        } else {
+            let errmsg = format!(
+                "the block is in the main chain but not found, its hash is {last_block_hash:#x}"
+            );
+            return StatusCode::InternalError.with_context(errmsg);
         };
 
         let start_block_hash = self.message.start_hash().to_entity();
