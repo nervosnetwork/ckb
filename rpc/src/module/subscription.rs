@@ -1,5 +1,4 @@
 #![allow(missing_docs)]
-
 use async_trait::async_trait;
 use ckb_async_runtime::Handle;
 use ckb_jsonrpc_types::Topic;
@@ -45,16 +44,14 @@ use tokio::sync::broadcast;
 ///
 /// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 /// ```
-///
-///
-
 #[allow(clippy::needless_return)]
 #[rpc]
 #[async_trait]
 pub trait SubscriptionRpc {
     /// Context to implement the subscription RPC.
-    /// type Metadata;
 
+    /// The stream of subscription messages.
+    type S: Stream<Item = PublishMsg<String>> + Send + 'static;
     /// Subscribes to a topic.
     ///
     /// ## Params
@@ -121,7 +118,7 @@ pub trait SubscriptionRpc {
     ///
     /// ## Examples
     ///
-    /// Request
+    /// Subscribe Request
     ///
     /// ```json
     /// {
@@ -134,7 +131,7 @@ pub trait SubscriptionRpc {
     /// }
     /// ```
     ///
-    /// Response
+    /// Subscribe Response
     ///
     /// ```json
     /// {
@@ -142,9 +139,10 @@ pub trait SubscriptionRpc {
     ///   "jsonrpc": "2.0",
     ///   "result": "0xf3"
     /// }
-    /// ```
+    ///
     /// Unsubscribe Request
     ///
+    /// ```json
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
@@ -153,9 +151,18 @@ pub trait SubscriptionRpc {
     ///     "0xf3"
     ///   ]
     /// }
+    /// ```
     ///
+    /// Unsubscribe Response
     ///
-    type S: Stream<Item = PublishMsg<String>> + Send + 'static;
+    /// ```json
+    /// {
+    ///  "id": 42,
+    ///  "jsonrpc": "2.0",
+    ///  "result": true
+    /// }
+    /// ```
+    ///
     #[rpc(pub_sub(notify = "subscribe", unsubscribe = "unsubscribe"))]
     fn subscribe(&self, topic: Topic) -> Result<Self::S>;
 }
