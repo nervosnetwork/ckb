@@ -1,5 +1,6 @@
 use ckb_types::{bytes::Bytes, packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
+use schemars::JsonSchema;
 use std::fmt;
 
 /// Variable-length binary encoded as a 0x-prefixed hex string in JSON.
@@ -15,6 +16,14 @@ use std::fmt;
 /// | "0x0"      | Invalid, each byte requires 2 digits |
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct JsonBytes(Bytes);
+impl JsonSchema for JsonBytes {
+    fn schema_name() -> String {
+        String::from("JsonBytes")
+    }
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        gen.subschema_for::<String>().into_object().into()
+    }
+}
 
 impl JsonBytes {
     /// Creates the `JsonBytes` from `Bytes`.

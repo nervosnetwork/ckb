@@ -1,5 +1,6 @@
 use crate::{Uint32, Uint64};
 use ckb_types::core::EpochNumberWithFraction as CkbEpochNumberWithFraction;
+use schemars::JsonSchema;
 
 /// Consecutive block number starting from 0.
 ///
@@ -41,6 +42,15 @@ pub type Cycle = Uint64;
 ///
 /// This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 pub type Timestamp = Uint64;
+impl JsonSchema for Uint64 {
+    fn schema_name() -> String {
+        String::from("Uint64")
+    }
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        gen.subschema_for::<u64>().into_object().into()
+    }
+}
+
 /// The simple increasing integer version.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).

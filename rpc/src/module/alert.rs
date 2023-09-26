@@ -17,7 +17,7 @@ use std::sync::Arc;
 ///
 /// The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
 /// and belong to early CKB developers.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait AlertRpc {
     /// Sends an alert.
