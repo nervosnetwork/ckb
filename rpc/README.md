@@ -4841,6 +4841,122 @@ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x
     * `topic`: `string`
 * result: `string`
 
+Subscribes to a topic.
+
+###### Params
+
+*   `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
+
+###### Returns
+
+This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed topics to the current RPC connection. The subscript ID is also attached as `params.subscription` in the push messages.
+
+Example push message:
+
+
+```
+{
+  "jsonrpc": "2.0",
+  "method": "subscribe",
+  "params": {
+    "result": { ... },
+    "subscription": "0x2a"
+  }
+}
+```
+
+
+###### Topics
+
+###### `new_tip_header`
+
+Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the block header to subscribers.
+
+The type of the `params.result` in the push message is [`HeaderView`](#type-headerview).
+
+###### `new_tip_block`
+
+Whenever there’s a block that is appended to the canonical chain, the CKB node will publish the whole block to subscribers.
+
+The type of the `params.result` in the push message is [`BlockView`](#type-blockview).
+
+###### `new_transaction`
+
+Subscribers will get notified when a new transaction is submitted to the pool.
+
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
+
+###### `proposed_transaction`
+
+Subscribers will get notified when an in-pool transaction is proposed by chain.
+
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](#type-pooltransactionentry).
+
+###### `rejected_transaction`
+
+Subscribers will get notified when a pending transaction is rejected by tx-pool.
+
+The type of the `params.result` in the push message is an array contain:
+
+The type of the `params.result` in the push message is a two-elements array, where
+
+*   the first item type is [`PoolTransactionEntry`](#type-pooltransactionentry), and
+
+*   the second item type is [`PoolTransactionReject`](#type-pooltransactionreject).
+
+###### Examples
+
+Subscribe Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "subscribe",
+  "params": [
+    "new_tip_header"
+  ]
+}
+```
+
+
+Subscribe Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xf3"
+}
+
+Unsubscribe Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "unsubscribe",
+  "params": [
+    "0xf3"
+  ]
+}
+```
+
+
+Unsubscribe Response
+
+
+```
+{
+ "id": 42,
+ "jsonrpc": "2.0",
+ "result": true
+}
+```
+
+
 
 ## RPC Errors
 
