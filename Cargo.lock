@@ -2788,9 +2788,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-utils"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3f93e501bda012e033e77c7bc87af91b5bcdc509b5c8dd69f46267d9b99b431"
+checksum = "b1c90fdbaa763131c108245b8b12fe28b0d6bb5bf992a8a6f4a40433d50f6873"
 dependencies = [
  "anyhow",
  "axum",
@@ -2807,9 +2807,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-utils-macros"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8727d2c8bb2833f22c4306879a5cf4cc4a8659170c211e9b523b86aab654f823"
+checksum = "c5159dd39c68c8f844b369cb1b46beb253cd22ac70570021c550a6e0dc29f0c3"
 dependencies = [
  "proc-macro2",
  "quote",
