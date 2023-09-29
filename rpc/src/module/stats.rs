@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
