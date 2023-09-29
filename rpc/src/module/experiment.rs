@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::error::RPCError;
 use crate::module::chain::CyclesEstimator;
 use async_trait::async_trait;

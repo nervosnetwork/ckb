@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{ExtraLoggerConfig, MainLoggerConfig};
 use ckb_logger_service::Logger;

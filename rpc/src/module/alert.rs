@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_jsonrpc_types::Alert;
