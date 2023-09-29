@@ -10,13 +10,13 @@
 #![no_std]
 
 #[cfg(feature = "ckb-contract")]
-pub use blake2b_wasm::{Blake2b, Blake2bBuilder};
+pub use blake2b_ref::{Blake2b, Blake2bBuilder};
 
 #[cfg(all(not(feature = "ckb-contract"), target_arch = "wasm32"))]
-pub use blake2b_wasm::{Blake2b, Blake2bBuilder};
+pub use blake2b_ref::{Blake2b, Blake2bBuilder};
 
 #[cfg(all(not(feature = "ckb-contract"), not(target_arch = "wasm32")))]
-pub use blake2b_native::{Blake2b, Blake2bBuilder};
+pub use blake2b_rs::{Blake2b, Blake2bBuilder};
 
 #[doc(hidden)]
 pub const BLAKE2B_KEY: &[u8] = &[];
