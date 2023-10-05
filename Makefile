@@ -204,12 +204,16 @@ bench-test:
 
 .PHONY: ci
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
+ci: fmt clippy test bench-test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
 	git diff --exit-code Cargo.lock
 
 .PHONY: check-cargotoml
 check-cargotoml:
 	./devtools/ci/check-cargotoml.sh
+
+.PHONY: check-cargo-metadata
+check-cargo-metadata: ## Check cargo metadata is success
+	cargo metadata --format-version 1 --all-features --manifest-path ./Cargo.toml &> /dev/null
 
 .PHONY: check-whitespace
 check-whitespaces:
