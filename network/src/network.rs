@@ -1095,8 +1095,12 @@ impl NetworkService {
             .unzip();
 
         let receiver: CancellationToken = new_tokio_exit_rx();
+
+        let server_canceller: CancellationToken = CancellationToken::new();
+
         let (start_sender, start_receiver) = mpsc::channel();
         {
+            let server_canceller_clone = server_canceller.clone();
             let network_state = Arc::clone(&network_state);
             let p2p_control: ServiceAsyncControl = p2p_control.clone().into();
             handle.spawn_task(async move {
@@ -1134,6 +1138,15 @@ impl NetworkService {
 
                             break;
                         },
+                        _ = server_canceller_clone.cancelled() => {
+
+                            debug!("NetworkController dropped, start shutdown...");
+                            let _ = p2p_control.shutdown().await;
+                            // Drop senders to stop all corresponding background task
+                            drop(bg_signals);
+
+                            break;
+                        },
                         else => {
                             let _ = p2p_control.shutdown().await;
                             // Drop senders to stop all corresponding background task
@@ -1165,6 +1178,7 @@ impl NetworkService {
             network_state,
             p2p_control,
             ping_controller,
+            server_canceller,
         })
     }
 }
@@ -1176,6 +1190,13 @@ pub struct NetworkController {
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     ping_controller: Option<Sender<()>>,
+    server_canceller: CancellationToken,
+}
+
+impl Drop for NetworkController {
+    fn drop(&mut self) {
+        self.server_canceller.cancel();
+    }
 }
 
 impl NetworkController {

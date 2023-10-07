@@ -1,5 +1,5 @@
 use ckb_channel::TrySendError;
-use ckb_logger::{debug, error, info, trace, warn};
+use ckb_logger::{debug, info, trace, warn};
 use ckb_util::Mutex;
 use tokio_util::sync::CancellationToken;
 
