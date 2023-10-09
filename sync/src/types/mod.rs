@@ -2,7 +2,9 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::{ChainController, LonelyBlock, VerifyCallback};
+use ckb_chain::chain::{
+    ChainController, LonelyBlock, VerifiedBlockStatus, VerifyCallback, VerifyResult,
+};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
@@ -1083,7 +1085,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_success_callback: impl FnOnce(Result<(), ckb_error::Error>) + Send + Sync + 'static,
+        verify_success_callback: impl FnOnce(VerifyResult) + Send + Sync + 'static,
     ) {
         self.accept_block(
             chain,

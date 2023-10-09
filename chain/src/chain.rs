@@ -55,12 +55,15 @@ const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
-pub type VerifyCallback = dyn FnOnce(Result<VerifiedBlockStatus, ckb_error::Error>) + Send + Sync;
+pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
+
+pub type VerifyCallback = dyn FnOnce(VerifyResult) + Send + Sync;
 
 /// VerifiedBlockStatus is
 pub enum VerifiedBlockStatus {
     // The block is being seen for the first time.
-    FirstSeen,
+    FirstSeenAndVerified,
+    FirstSeenButNotVerified,
 
     // The block has been verified before.
     PreviouslyVerified,
@@ -383,10 +386,7 @@ impl ChainService {
         }
     }
 
-    fn consume_unverified_blocks(
-        &self,
-        unverified_block: &UnverifiedBlock,
-    ) -> Result<VerifiedBlockStatus, Error> {
+    fn consume_unverified_blocks(&self, unverified_block: &UnverifiedBlock) -> VerifyResult {
         // process this unverified block
         let verify_result = self.verify_block(unverified_block);
         match &verify_result {
@@ -694,7 +694,7 @@ impl ChainService {
         match lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(SendError(lonely_block)) => {
-                error!("notify new block to orphan pool err: {}", err);
+                error!("failed to notify new block to orphan pool");
                 if let Some(verify_callback) = lonely_block.verify_callback {
                     verify_callback(Err(InternalErrorKind::System
                         .other("OrphanBlock broker disconnected")
@@ -795,7 +795,7 @@ impl ChainService {
         Ok(Some((parent_header, cannon_total_difficulty)))
     }
 
-    fn verify_block(&self, unverified_block: &UnverifiedBlock) -> Result<(), Error> {
+    fn verify_block(&self, unverified_block: &UnverifiedBlock) -> VerifyResult {
         let log_now = std::time::Instant::now();
 
         let UnverifiedBlock {
@@ -810,20 +810,28 @@ impl ChainService {
             .shared
             .store()
             .get_block_ext(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
+            .expect("parent should be stored already");
 
         if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
             match ext.verified {
                 Some(verified) => {
                     debug!(
-                        "block {}-{} has been verified: {}",
+                        "block {}-{} has been verified, previously verified result: {}",
                         block.number(),
                         block.hash(),
                         verified
                     );
-                    return Ok(());
+                    return if verified {
+                        Ok(VerifiedBlockStatus::PreviouslyVerified)
+                    } else {
+                        Err(InternalErrorKind::Other
+                            .other("block previously verified failed")
+                            .into())
+                    };
                 }
-                _ => {}
+                _ => {
+                    // we didn't verify this block, going on verify now
+                }
             }
         }
 
@@ -941,6 +949,8 @@ impl ChainService {
             if let Some(metrics) = ckb_metrics::handle() {
                 metrics.ckb_chain_tip.set(block.header().number() as i64);
             }
+
+            Ok(VerifiedBlockStatus::FirstSeenAndVerified)
         } else {
             self.shared.refresh_snapshot();
             info!(
@@ -959,8 +969,8 @@ impl ChainService {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
             }
+            Ok(VerifiedBlockStatus::FirstSeenButNotVerified)
         }
-        Ok(())
     }
 
     fn insert_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
