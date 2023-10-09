@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::chain::ChainController;
+use ckb_chain::chain::{ChainController, VerifiedBlockStatus, VerifyResult};
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, info, warn};
 use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
@@ -275,17 +275,16 @@ impl MinerRpc for MinerRpcImpl {
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        let (verify_result_tx, verify_result_rx) =
-            ckb_channel::oneshot::channel::<std::result::Result<(), ckb_error::Error>>();
-        let verify_callback =
-            move |verify_result: std::result::Result<(), ckb_error::Error>| match verify_result_tx
-                .send(verify_result)
-            {
-                Err(_) => {
-                    error!("send verify result failed, the Receiver in MinerRpc is disconnected")
-                }
-                _ => {}
-            };
+        let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
+        let verify_callback = move |verify_result: std::result::Result<
+            VerifiedBlockStatus,
+            ckb_error::Error,
+        >| match verify_result_tx.send(verify_result) {
+            Err(_) => {
+                error!("send verify result failed, the Receiver in MinerRpc is disconnected")
+            }
+            _ => {}
+        };
 
         self.chain
             .process_block_with_callback(Arc::clone(&block), Box::new(verify_callback));
