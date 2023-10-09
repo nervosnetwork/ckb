@@ -1,7 +1,6 @@
 use ckb_jsonrpc_types::Status;
 
 use crate::specs::tx_pool::utils::prepare_tx_family;
-use crate::utils::{blank, commit, propose};
 use crate::{Node, Spec};
 use std::collections::HashSet;
 
@@ -29,7 +28,7 @@ impl Spec for HandlingDescendantsOfProposed {
 
         // 2. Propose `tx_family.a` only, then we expect `tx_family.b` being proposed in the next
         //    blocks, even after `tx_family.a` expiring, out of `tx_family.a`'s proposal window
-        node.submit_block(&propose(node, &[family.a()]));
+        node.submit_blank_block_with_proposals(&[family.a()]);
         (0..=window.farthest() + window.closest()).for_each(|_| {
             let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
             assert!(
@@ -40,7 +39,7 @@ impl Spec for HandlingDescendantsOfProposed {
                 block.union_proposal_ids(),
             );
 
-            node.submit_block(&blank(node)); // continuously submit blank blocks.
+            node.submit_blank_block(); // continuously submit blank blocks.
         });
 
         // 3. At this point, `tx_family.a` has been moved in pending-pool since it is
@@ -77,11 +76,12 @@ impl Spec for HandlingDescendantsOfCommitted {
         node.submit_transaction(family.b());
 
         // 2. Propose and commit `tx_family.a` only
-        node.submit_block(&propose(node, &[family.a()]));
+        node.submit_blank_block_with_proposals(&[family.a()]);
         (0..window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         }); // continuously submit blank blocks.
-        node.submit_block(&commit(node, &[family.a()]));
+        node.submit_blank_block_with_transactions(&[family.a()])
+            .unwrap();
 
         let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
         assert_eq!(
@@ -114,9 +114,9 @@ impl Spec for ProposeOutOfOrder {
         node.submit_transaction(family.b());
 
         // 2. Propose `[tx_family.b, tx_family.a]`, then continuously submit blank blocks.
-        node.submit_block(&propose(node, &[family.b(), family.a()]));
+        node.submit_blank_block_with_proposals(&[family.b(), family.a()]);
         (0..window.closest()).for_each(|_| {
-            node.submit_block(&blank(node)); // continuously submit blank blocks.
+            node.submit_blank_block(); // continuously submit blank blocks.
         });
 
         // 3. Expect committing `[tx_family.a, tx_family.b]`.
@@ -141,13 +141,13 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
         // 1. Propose `tx_family.a` into gap-pool.
         let family = prepare_tx_family(node);
         node.submit_transaction(family.a());
-        node.submit_block(&propose(node, &[family.a()]));
+        node.submit_blank_block_with_proposals(&[family.a()]);
 
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
 
         (0..=window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
 
         // commit `tx_family.a`
@@ -158,7 +158,7 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
         node.submit_block(&block);
 
         (0..=window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
 
         // commit `tx_family.b`
@@ -183,9 +183,9 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
         let family = prepare_tx_family(node);
         let tx_a = family.a();
         node.submit_transaction(tx_a);
-        node.submit_block(&propose(node, &[tx_a]));
+        node.submit_blank_block_with_proposals(&[tx_a]);
         (0..=window.closest()).for_each(|_| {
-            node.submit_block(&blank(node));
+            node.submit_blank_block();
         });
 
         // tx_a should in Proposed status
@@ -227,16 +227,14 @@ impl Spec for ProposeTransactionButParentNot {
         // 2. Propose `tx_family.b`, but `tx_family.a` not, then continuously submit blank blocks.
         //    In the time, miner should not commit `tx_family.b` as its parent `tx_family.a` has
         //    not been not proposed and committed yet.
-        node.submit_block(&propose(node, &[family.b()]));
+        node.submit_blank_block_with_proposals(&[family.b()]);
         (0..window.closest()).for_each(|_| {
-            node.submit_block(&blank(node)); // continuously submit blank blocks.
+            node.submit_blank_block(); // continuously submit blank blocks.
         });
         let block = node.new_block(None, None, None);
         assert_eq!(block.transactions()[1..], []);
 
-        let block = commit(node, &[family.b()]);
-        node.rpc_client()
-            .submit_block("".to_string(), block.data().into())
+        node.submit_blank_block_with_transactions(&[family.b()])
             .expect_err("should be failed as it contains invalid transaction");
     }
 }

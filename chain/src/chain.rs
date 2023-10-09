@@ -777,6 +777,7 @@ impl ChainService {
                                     switch,
                                     Arc::clone(&txs_verify_cache),
                                     &mmr,
+                                    &txn,
                                 );
                                 contextual_block_verifier.verify(&resolved, b)
                             };

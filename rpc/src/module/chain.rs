@@ -1,12 +1,13 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
 use ckb_jsonrpc_types::{
-    BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
-    Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
-    ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction, TransactionAndWitnessProof,
-    TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
+    self, BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
+    CellsStatusProof, Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics,
+    HeaderView, OutPoint, ResponseFormat, ResponseFormatInnerType, Timestamp, Transaction,
+    TransactionAndWitnessProof, TransactionProof, TransactionWithStatusResponse, Uint32, Uint64,
 };
 use ckb_logger::error;
+use ckb_merkle_mountain_range::helper::{get_peak_map, leaf_index_to_mmr_size};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
@@ -20,7 +21,10 @@ use ckb_types::{
     },
     packed,
     prelude::*,
-    utilities::{merkle_root, MerkleProof, CBMT},
+    utilities::{
+        merkle_mountain_range::{hash_out_point_and_status, CellsRootMMRProof},
+        merkle_root, MerkleProof, CBMT,
+    },
     H256,
 };
 use ckb_verification::ScriptVerifier;
@@ -1193,6 +1197,133 @@ pub trait ChainRpc {
         tx_proof: TransactionAndWitnessProof,
     ) -> Result<Vec<H256>>;
 
+    /// Returns a proof of the cells status in the specified block.
+    ///
+    /// ## Params
+    ///
+    /// * `out_points` - Cells' out points to prove
+    /// * `block_hash` - An optional parameter, if specified, generate proof for the block with this hash, otherwise use the tip block
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_cells_status_proof",
+    ///   "params": [
+    ///     [
+    ///       {
+    ///         "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+    ///         "index": "0x0"
+    ///       }
+    ///     ]
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "cells_count": "0x3f6",
+    ///     "cells_status": [
+    ///       {
+    ///         "mmr_position": "0x0",
+    ///         "out_point": {
+    ///           "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+    ///           "index": "0x0"
+    ///         },
+    ///         "created_by": "0x0",
+    ///         "consumed_by": null
+    ///       }
+    ///     ],
+    ///     "merkle_proof": [
+    ///       "0xdeb75ce5f1a45df88aca9370c01224fcbba5e996b190a8a6ca4b7b3df18b5d42",
+    ///       "0x29deb32dfc73c95d62be24915c5edafc2c0c8e61eda94e6abed78e18f6e1af1b",
+    ///       "0xa936c971f5c59b1a200a6b3f2cc8d11ef099fa7a7b18e5faa5792d8aab3ef6a8",
+    ///       "0x3b98c55e5a8d274c0c5558de7f1c9c2427fddd291ff961b95e3f5e0deffbd717",
+    ///       "0x384b248b63348edc3466016c73cb8657feeccc181c5d73f318dd16b2d59e0305",
+    ///       "0xa173912a34b254a2ebc921f7559c0a777fa556362a6761522a2204bd7b524c7e",
+    ///       "0xaa6a62aa7388c1df92c16d605233e13ed861234bb803cd37ee1112cfe244b94a",
+    ///       "0x9819e43079dad6302e80cc6f0db90cd55aff16dd5380fc461aa02cab19af2d4c",
+    ///       "0x944db3a79017c60da31dddb33f796d196dd5c0209ddb738398f489ac3c2b7159",
+    ///       "0xe4e6bb25e72c3ce034aa02231e42b2c05030495c37e29530ed7c8fc429f902f9"
+    ///     ]
+    ///   }
+    /// }
+    /// ```
+    #[rpc(name = "get_cells_status_proof")]
+    fn get_cells_status_proof(
+        &self,
+        out_points: Vec<OutPoint>,
+        block_hash: Option<H256>,
+    ) -> Result<CellsStatusProof>;
+
+    /// Verifies that a cells status proof is valid or not.
+    ///
+    /// ## Params
+    ///
+    /// * `out_points` - Cells' out points to prove
+    /// * `block_hash` - An optional parameter, if specified, generate proof for the block with this hash, otherwise use the tip block
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "verify_cells_status_proof",
+    ///   "params": [{
+    ///     "block_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "cells_count": "0x3f6",
+    ///     "cells_status": [
+    ///       {
+    ///         "mmr_position": "0x0",
+    ///         "out_point": {
+    ///           "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3",
+    ///           "index": "0x0"
+    ///         },
+    ///         "created_by": "0x0",
+    ///         "consumed_by": null
+    ///       }
+    ///     ],
+    ///     "merkle_proof": [
+    ///       "0xdeb75ce5f1a45df88aca9370c01224fcbba5e996b190a8a6ca4b7b3df18b5d42",
+    ///       "0x29deb32dfc73c95d62be24915c5edafc2c0c8e61eda94e6abed78e18f6e1af1b",
+    ///       "0xa936c971f5c59b1a200a6b3f2cc8d11ef099fa7a7b18e5faa5792d8aab3ef6a8",
+    ///       "0x3b98c55e5a8d274c0c5558de7f1c9c2427fddd291ff961b95e3f5e0deffbd717",
+    ///       "0x384b248b63348edc3466016c73cb8657feeccc181c5d73f318dd16b2d59e0305",
+    ///       "0xa173912a34b254a2ebc921f7559c0a777fa556362a6761522a2204bd7b524c7e",
+    ///       "0xaa6a62aa7388c1df92c16d605233e13ed861234bb803cd37ee1112cfe244b94a",
+    ///       "0x9819e43079dad6302e80cc6f0db90cd55aff16dd5380fc461aa02cab19af2d4c",
+    ///       "0x944db3a79017c60da31dddb33f796d196dd5c0209ddb738398f489ac3c2b7159",
+    ///       "0xe4e6bb25e72c3ce034aa02231e42b2c05030495c37e29530ed7c8fc429f902f9"
+    ///     ]
+    ///   }]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": true
+    /// }
+    /// ```
+    #[rpc(name = "verify_cells_status_proof")]
+    fn verify_cells_status_proof(&self, proof: CellsStatusProof) -> Result<bool>;
+
     /// Returns the information about a fork block by hash.
     ///
     /// ## Params
@@ -2047,6 +2178,133 @@ impl ChainRpc for ChainRpcImpl {
                         RPCError::invalid_params("Invalid transaction_and_witness proof")
                     })
             })
+    }
+
+    fn get_cells_status_proof(
+        &self,
+        out_points: Vec<OutPoint>,
+        block_hash: Option<H256>,
+    ) -> Result<CellsStatusProof> {
+        if out_points.is_empty() {
+            return Err(RPCError::invalid_params("out_points cannot be empty"));
+        }
+
+        let snapshot = self.shared.snapshot();
+        let block_hash = block_hash
+            .map(|h| h.pack())
+            .unwrap_or(snapshot.tip_header().hash());
+        if !snapshot.is_main_chain(&block_hash) {
+            return Err(RPCError::invalid_params(format!(
+                "Cannot find block {:#x} on main chain",
+                block_hash
+            )));
+        }
+
+        let mut cells_status = Vec::with_capacity(out_points.len());
+        for out_point in out_points {
+            let out_point = out_point.into();
+            if let Some(status) = snapshot.get_cells_root_mmr_status(&out_point) {
+                cells_status.push((out_point, status));
+            } else {
+                return Err(RPCError::invalid_params(format!(
+                    "Cannot find out_point {:?}",
+                    out_point
+                )));
+            }
+        }
+        cells_status.sort_unstable_by_key(|(_out_point, status)| status.mmr_position);
+
+        let block_number = snapshot
+            .get_block_number(&block_hash)
+            .expect("block exists");
+        let cells_root_mmr = snapshot.cells_root_mmr(block_number);
+        let proof = cells_root_mmr
+            .gen_proof(
+                cells_status
+                    .iter()
+                    .map(|(_out_point, status)| status.mmr_position)
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|err| RPCError::custom(RPCError::ChainIndexIsInconsistent, err.to_string()))?;
+
+        let cells_status_proof = CellsStatusProof {
+            block_hash: block_hash.unpack(),
+            cells_count: get_peak_map(cells_root_mmr.mmr_size()).into(),
+            cells_status: cells_status
+                .into_iter()
+                .map(|(out_point, status)| ckb_jsonrpc_types::CellStatus {
+                    mmr_position: status.mmr_position.into(),
+                    out_point: out_point.into(),
+                    created_by: status.created_by.into(),
+                    consumed_by: status.is_consumed().then(|| status.consumed_by.into()),
+                })
+                .collect(),
+            merkle_proof: proof.proof_items().to_vec(),
+        };
+
+        Ok(cells_status_proof)
+    }
+
+    fn verify_cells_status_proof(&self, proof: CellsStatusProof) -> Result<bool> {
+        let cells_count = proof.cells_count.value();
+        if cells_count == 0 {
+            return Err(RPCError::invalid_params("cells_count cannot be zero"));
+        }
+
+        let snapshot = self.shared.snapshot();
+        let block_hash = proof.block_hash.pack();
+        if !snapshot.is_main_chain(&block_hash) {
+            return Err(RPCError::invalid_params(format!(
+                "Cannot find block {:#x} on main chain",
+                block_hash
+            )));
+        }
+
+        let extension = snapshot.get_block_extension(&block_hash);
+        if extension.is_none() {
+            return Err(RPCError::invalid_params(format!(
+                "Cannot find block extension {:#x}",
+                block_hash
+            )));
+        }
+
+        // we assume that the LightClient and CellsCommitments soft fork are activated in sequence.
+        let extension = extension.unwrap().raw_data();
+        if extension.len() < 64 {
+            return Err(RPCError::invalid_params(
+                "Block extension length is less than 64 bytes, CellsCommitments soft fork is not activated",
+            ));
+        }
+
+        let cells_root_mmr_proof =
+            CellsRootMMRProof::new(leaf_index_to_mmr_size(cells_count - 1), proof.merkle_proof);
+
+        Ok(cells_root_mmr_proof
+            .verify(
+                H256(
+                    extension[32..64]
+                        .try_into()
+                        .expect("slice with a constant size"),
+                ),
+                proof
+                    .cells_status
+                    .into_iter()
+                    .map(|status| {
+                        (
+                            status.mmr_position.value(),
+                            hash_out_point_and_status(
+                                &status.out_point.into(),
+                                status.created_by.into(),
+                                status
+                                    .consumed_by
+                                    .map(Into::into)
+                                    .unwrap_or_else(|| u64::MAX),
+                            ),
+                        )
+                    })
+                    .collect(),
+            )
+            .is_ok())
     }
 
     fn get_fork_block(

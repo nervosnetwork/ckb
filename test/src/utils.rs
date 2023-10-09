@@ -261,27 +261,6 @@ pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
     utxos
 }
 
-/// Return a blank block with additional committed transactions
-pub fn commit(node: &Node, committed: &[&TransactionView]) -> BlockView {
-    let committed = committed
-        .iter()
-        .map(|t| t.to_owned().to_owned())
-        .collect::<Vec<_>>();
-    blank(node)
-        .as_advanced_builder()
-        .transactions(committed)
-        .build()
-}
-
-/// Return a blank block with additional proposed transactions
-pub fn propose(node: &Node, proposals: &[&TransactionView]) -> BlockView {
-    let proposals = proposals.iter().map(|tx| tx.proposal_short_id());
-    blank(node)
-        .as_advanced_builder()
-        .proposals(proposals)
-        .build()
-}
-
 /// Return a block with `proposals = [], transactions = [cellbase], uncles = []`
 pub fn blank(node: &Node) -> BlockView {
     let example = node.new_block(None, None, None);

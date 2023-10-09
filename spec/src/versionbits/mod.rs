@@ -59,8 +59,10 @@ pub enum ActiveMode {
 pub enum DeploymentPos {
     /// Dummy
     Testdummy,
-    /// light client protocol
+    /// Light client protocol
     LightClient,
+    /// Tranaction output commitments
+    CellsCommitments,
 }
 
 /// VersionbitsIndexer

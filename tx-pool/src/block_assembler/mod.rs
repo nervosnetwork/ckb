@@ -10,9 +10,8 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_chain_spec::versionbits::DeploymentPos;
 use ckb_dao::DaoCalculator;
-use ckb_error::{AnyError, InternalErrorKind};
+use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
@@ -117,17 +116,20 @@ impl BlockAssembler {
         let cellbase = Self::build_cellbase(&config, &snapshot)
             .expect("build cellbase for BlockAssembler initial");
 
-        let extension =
-            Self::build_extension(&snapshot).expect("build extension for BlockAssembler initial");
+        let dummy_extension = snapshot.build_dummy_extension();
         let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
-
+            Self::basic_block_size(cellbase.data(), &[], iter::empty(), dummy_extension.clone());
         let (dao, _checked_txs) =
             Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])
                 .expect("calc_dao for BlockAssembler initial");
-
+        if dummy_extension.is_some() {
+            let extension = snapshot
+                .build_extension(&cellbase, [].iter())
+                .expect("build extension for BlockAssembler#new")
+                .expect("checked dummy extension");
+            builder.extension(extension);
+        }
         let work_id = AtomicU64::new(0);
-
         builder
             .transactions(vec![])
             .proposals(vec![])
@@ -135,9 +137,6 @@ impl BlockAssembler {
             .work_id(work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
         let template = builder.build();
 
         let size = TemplateSize {
@@ -170,7 +169,7 @@ impl BlockAssembler {
 
         let current_template = &current.template;
         let uncles = &current_template.uncles;
-
+        let dummy_extension = current.snapshot.build_dummy_extension();
         let (proposals, txs, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -208,6 +207,17 @@ impl BlockAssembler {
         let total_size = basic_size + txs_size;
 
         let mut builder = BlockTemplateBuilder::from_template(&current.template);
+        if dummy_extension.is_some() {
+            let extension = current
+                .snapshot
+                .build_extension(
+                    &current_template.cellbase,
+                    checked_txs.iter().map(|tx| tx.transaction()),
+                )
+                .expect("build extension for BlockAssembler#update_full")
+                .expect("checked dummy extension");
+            builder.extension(extension);
+        }
         builder
             .set_proposals(Vec::from_iter(proposals))
             .set_transactions(checked_txs)
@@ -247,13 +257,23 @@ impl BlockAssembler {
         let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
         let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
 
-        let extension = Self::build_extension(&snapshot)?;
-        let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
+        let dummy_extension = snapshot.build_dummy_extension();
+        let basic_block_size = Self::basic_block_size(
+            cellbase.data(),
+            &uncles,
+            iter::empty(),
+            dummy_extension.clone(),
+        );
 
         let (dao, _checked_txs) =
             Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])?;
-
+        if dummy_extension.is_some() {
+            let extension = snapshot
+                .build_extension(&cellbase, [].iter())
+                .expect("build extension for BlockAssembler#update_blank")
+                .expect("checked dummy extension");
+            builder.extension(extension);
+        }
         builder
             .transactions(vec![])
             .proposals(vec![])
@@ -262,9 +282,6 @@ impl BlockAssembler {
             .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1))
             .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
         let template = builder.build();
 
         trace!(
@@ -381,7 +398,7 @@ impl BlockAssembler {
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        let extension = Self::build_extension(&current.snapshot)?;
+        let dummy_extension = current.snapshot.build_dummy_extension();
         let txs = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
@@ -392,7 +409,7 @@ impl BlockAssembler {
                 current_template.cellbase.data(),
                 &current_template.uncles,
                 current_template.proposals.iter(),
-                extension.clone(),
+                dummy_extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
@@ -416,6 +433,17 @@ impl BlockAssembler {
             let new_txs_size = checked_txs.iter().map(|tx| tx.size).sum();
             let new_total_size = current.size.calc_total_by_txs(new_txs_size);
             let mut builder = BlockTemplateBuilder::from_template(&current.template);
+            if dummy_extension.is_some() {
+                let extension: Bytes = current
+                    .snapshot
+                    .build_extension(
+                        &current_template.cellbase,
+                        checked_txs.iter().map(|tx| tx.transaction()),
+                    )
+                    .expect("build extension for BlockAssembler#update_transactions")
+                    .expect("checked dummy extension");
+                builder.extension(extension);
+            }
             builder
                 .set_transactions(checked_txs)
                 .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
@@ -424,9 +452,6 @@ impl BlockAssembler {
                     current.template.current_time,
                 ))
                 .dao(dao);
-            if let Some(data) = extension {
-                builder.extension(data);
-            }
             current.template = builder.build();
             current.size.txs = new_txs_size;
             current.size.total = new_total_size;
@@ -517,21 +542,6 @@ impl BlockAssembler {
         };
 
         Ok(tx)
-    }
-
-    pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {
-        let tip_header = snapshot.tip_header();
-        let mmr_activate = snapshot.versionbits_active(DeploymentPos::LightClient);
-        if mmr_activate {
-            let chain_root = snapshot
-                .chain_root_mmr(tip_header.number())
-                .get_root()
-                .map_err(|e| InternalErrorKind::MMR.other(e))?;
-            let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
-            Ok(Some(bytes))
-        } else {
-            Ok(None)
-        }
     }
 
     pub(crate) async fn prepare_uncles(

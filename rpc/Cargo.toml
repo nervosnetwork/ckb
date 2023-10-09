@@ -43,6 +43,7 @@ ckb-tx-pool = { path = "../tx-pool", version = "= 0.112.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.112.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.112.0-pre" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.112.0-pre" }
+ckb-merkle-mountain-range =  { git = "https://github.com/quake/merkle-mountain-range", branch = "quake/updatable" }
 itertools.workspace = true
 tokio = "1"
 

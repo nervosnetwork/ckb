@@ -126,8 +126,11 @@ pub enum BlockErrorKind {
     /// The calculated extra-hash does not match with the one in the header.
     InvalidExtraHash,
 
-    /// The calculated hash of chain root does not match with the one in the header.
+    /// The calculated hash of chain root does not match with the one in the extension field.
     InvalidChainRoot,
+
+    /// The calculated hash of cells root does not match with the one in the extension field.
+    InvalidCellsRoot,
 }
 
 def_error_base_on_kind!(

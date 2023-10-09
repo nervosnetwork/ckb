@@ -1,5 +1,5 @@
 use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family};
-use crate::utils::{blank, propose};
+use crate::utils::blank;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::TxStatus;
 use ckb_types::core::BlockView;
@@ -41,18 +41,17 @@ impl Spec for ReorgHandleProposals {
         node_a.submit_transaction(family.b());
         node_b.submit_transaction(family.a());
         node_b.submit_transaction(family.b());
-
-        node_a.submit_block(&propose(node_a, &[family.a()]));
-        node_b.submit_block(&propose(node_b, &[family.b()]));
+        node_a.submit_blank_block_with_proposals(&[family.a()]);
+        node_b.submit_blank_block_with_proposals(&[family.b()]);
 
         assert!(node_a.get_transaction(family.a().hash()) == TxStatus::pending());
         assert!(node_a.get_transaction(family.b().hash()) == TxStatus::pending());
 
         (0..window.closest()).for_each(|_| {
-            node_a.submit_block(&blank(node_a));
+            node_a.submit_blank_block();
         });
         (0..window.closest()).for_each(|_| {
-            node_b.submit_block(&blank(node_b));
+            node_b.submit_blank_block();
         });
 
         assert_new_block_committed(node_a, &[family.a().clone()]);

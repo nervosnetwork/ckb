@@ -256,3 +256,16 @@ impl From<TransactionTemplate> for packed::Transaction {
         data.into()
     }
 }
+
+impl From<packed::Transaction> for TransactionTemplate {
+    fn from(tx: packed::Transaction) -> Self {
+        let tx_view = tx.into_view();
+        TransactionTemplate {
+            hash: tx_view.hash().unpack(),
+            required: false,
+            cycles: None,
+            depends: None,
+            data: tx_view.data().into(),
+        }
+    }
+}

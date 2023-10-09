@@ -35,13 +35,7 @@ impl Spec for ProposalExpireRuleForCommittingAndExpiredAtOneTime {
             commit_window.1 - 1,
         );
         while node.get_tip_block_number() + 1 != commit_window.1 {
-            let example = node.new_block(None, None, None);
-            let blank_block = example
-                .as_advanced_builder()
-                .set_proposals(vec![])
-                .set_transactions(vec![example.transaction(0).unwrap()])
-                .build();
-            node.submit_block(&blank_block);
+            node.submit_blank_block();
         }
         assert_eq!(node.get_tip_block_number(), commit_window.1 - 1);
 

@@ -14,7 +14,7 @@ ckb-shared = { path = "../../shared", version = "= 0.112.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.112.0-pre" }
 ckb-types = { path = "../types", version = "= 0.112.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.112.0-pre" }
-ckb-merkle-mountain-range = "0.5.2"
+ckb-merkle-mountain-range =  { git = "https://github.com/quake/merkle-mountain-range", branch = "quake/updatable" }
 ckb-systemtime = {path = "../systemtime", version = "= 0.112.0-pre"}
 
 [dev-dependencies]

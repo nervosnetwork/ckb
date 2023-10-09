@@ -504,7 +504,9 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
         let next_number = template.number.value() + 1;
 
         template.current_time = (template.current_time.value() + offset).into();
-        rpc_client.generate_block_with_template(template.clone());
+        rpc_client
+            .generate_block_with_template(template.clone())
+            .unwrap();
         blocks.push(packed::Block::from(template).into_view());
 
         while rpc_client

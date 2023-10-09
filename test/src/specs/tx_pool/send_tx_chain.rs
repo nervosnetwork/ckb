@@ -62,13 +62,7 @@ impl Spec for SendTxChain {
         }
         assert_eq!(txs.len(), MAX_ANCESTORS_COUNT + 1);
 
-        let template = node0.new_block(None, None, None);
-        let block_with_proposals = template
-            .as_advanced_builder()
-            .set_proposals(txs.iter().map(|tx| tx.proposal_short_id()).collect())
-            .set_transactions(vec![template.transaction(0).unwrap()])
-            .build();
-        node0.submit_block(&block_with_proposals);
+        node0.submit_blank_block_with_proposals(txs.iter().collect::<Vec<_>>().as_slice());
         node0.mine(node0.consensus().tx_proposal_window().closest());
 
         info!("submit proposed txs chain to node0");

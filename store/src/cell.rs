@@ -1,6 +1,11 @@
 use crate::{ChainStore, StoreTransaction};
-use ckb_error::Error;
-use ckb_types::{core::BlockView, packed, prelude::*};
+use ckb_error::{Error, InternalErrorKind};
+use ckb_types::{
+    core::{BlockNumber, BlockView},
+    packed,
+    prelude::*,
+    utilities::merkle_mountain_range::{hash_out_point_and_status, CellStatus},
+};
 use std::collections::HashMap;
 
 /**
@@ -25,6 +30,39 @@ use std::collections::HashMap;
 // Apply the effects of this block on the live cell set.
 pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
+
+    // update cells root mmr
+    let block_number = block.header().number();
+    let mut cells_root_mmr = txn.cells_root_mmr(block_number);
+    for tx in transactions.iter() {
+        for input in tx.inputs().into_iter() {
+            let out_point = input.previous_output();
+            // cellbase and genesis block's tx may not have previous output
+            if let Some(mut cell_status) = txn.get_cells_root_mmr_status(&out_point) {
+                cells_root_mmr
+                    .update(
+                        cell_status.mmr_position,
+                        hash_out_point_and_status(&out_point, cell_status.created_by, block_number),
+                    )
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                cell_status.mark_as_consumed(block_number);
+                txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
+            }
+        }
+
+        for out_point in tx.output_pts().into_iter() {
+            let hash = hash_out_point_and_status(&out_point, block_number, BlockNumber::MAX);
+            let mmr_position = cells_root_mmr
+                .push(hash)
+                .map_err(|e| InternalErrorKind::MMR.other(e))?;
+            let cell_status = CellStatus::new(mmr_position, block_number);
+            txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
+        }
+    }
+    cells_root_mmr
+        .commit()
+        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+    txn.insert_cells_root_mmr_size(block_number, cells_root_mmr.mmr_size())?;
 
     // add new live cells
     let new_cells = transactions
@@ -84,6 +122,46 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
 /// Undoes the effects of this block on the live cell set.
 pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
+
+    // undo cells root mmr updates
+    let block_number = block.header().number();
+    let mut cells_root_mmr = txn.cells_root_mmr(block_number);
+
+    for tx in transactions.iter() {
+        for input in tx.inputs().into_iter() {
+            let out_point = input.previous_output();
+            if let Some(mut cell_status) = txn.get_cells_root_mmr_status(&out_point) {
+                cells_root_mmr
+                    .update(
+                        cell_status.mmr_position,
+                        hash_out_point_and_status(
+                            &out_point,
+                            cell_status.created_by,
+                            BlockNumber::MAX,
+                        ),
+                    )
+                    .map_err(|e| InternalErrorKind::MMR.other(e))?;
+                cell_status.mark_as_live();
+                txn.insert_cells_root_mmr_status(&out_point, &cell_status)?;
+            }
+        }
+
+        for out_point in tx.output_pts().into_iter() {
+            txn.delete_cells_root_mmr_status(&out_point)?;
+        }
+    }
+    cells_root_mmr
+        .commit()
+        .map_err(|e| InternalErrorKind::MMR.other(e))?;
+
+    let current_mmr_size = txn.get_cells_root_mmr_size(block_number);
+    let pre_mmr_size = txn.get_cells_root_mmr_size(block_number - 1);
+    for pos in pre_mmr_size..current_mmr_size {
+        txn.delete_cells_root_mmr_element(pos, block_number)?;
+    }
+    txn.delete_cells_root_mmr_size(block_number)?;
+
+    // restore inputs
     let mut input_pts = HashMap::with_capacity(transactions.len());
 
     for tx in transactions.iter().skip(1) {
@@ -95,7 +173,6 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
         }
     }
 
-    // restore inputs
     // skip cellbase
     let undo_deads = input_pts
         .iter()

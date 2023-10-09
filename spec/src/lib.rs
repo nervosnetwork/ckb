@@ -545,7 +545,17 @@ impl ChainSpec {
                     active_mode: ActiveMode::Always,
                     threshold: TESTNET_ACTIVATION_THRESHOLD,
                 };
+                let cells_commitments = Deployment {
+                    bit: 2,
+                    start: 0,
+                    timeout: 0,
+                    min_activation_epoch: 0,
+                    period: 10,
+                    active_mode: ActiveMode::Always,
+                    threshold: TESTNET_ACTIVATION_THRESHOLD,
+                };
                 deployments.insert(DeploymentPos::LightClient, light_client);
+                deployments.insert(DeploymentPos::CellsCommitments, cells_commitments);
                 Some(deployments)
             }
         }

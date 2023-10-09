@@ -915,9 +915,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-merkle-mountain-range"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56ccb671c5921be8a84686e6212ca184cb1d7c51cadcdbfcbd1cc3f042f5dfb8"
+version = "0.6.0"
+source = "git+https://github.com/quake/merkle-mountain-range?branch=quake/updatable#267702ae1391d817abf782142a1c245f516866a3"
 dependencies = [
  "cfg-if 1.0.0",
 ]
@@ -1184,6 +1183,7 @@ dependencies = [
  "ckb-logger",
  "ckb-logger-service",
  "ckb-memory-tracker",
+ "ckb-merkle-mountain-range",
  "ckb-network",
  "ckb-network-alert",
  "ckb-notify",
@@ -1279,6 +1279,7 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-db",
  "ckb-db-schema",
+ "ckb-error",
  "ckb-freezer",
  "ckb-merkle-mountain-range",
  "ckb-proposal-table",
@@ -1317,6 +1318,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-freezer",
+ "ckb-logger",
  "ckb-merkle-mountain-range",
  "ckb-traits",
  "ckb-types",
@@ -3144,9 +3146,9 @@ dependencies = [
 
 [[package]]
 name = "multi_index_map"
-version = "0.6.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03f409d5f41e6b8a2faa0b363c4523742f0ef5e4015fd4e298a5c7dbb3a3e01c"
+checksum = "403d9206ea9dc4c5c66d549539cbafb551a73148fa0e25208c95f3f86d6c88d1"
 dependencies = [
  "multi_index_map_derive",
  "rustc-hash",
@@ -3155,9 +3157,9 @@ dependencies = [
 
 [[package]]
 name = "multi_index_map_derive"
-version = "0.6.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98e81cd436463efbaa95a2d2bac3028e6998a4bb2ef8a82a661de3567bb79d5a"
+checksum = "7683a7716b8144281c7208a328c1afd40b779f86700697a0dc25e81e444255cb"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro-error",

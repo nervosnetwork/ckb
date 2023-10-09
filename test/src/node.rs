@@ -318,6 +318,51 @@ impl Node {
         hash
     }
 
+    pub fn submit_blank_block(&self) -> Byte32 {
+        let mut template = self.rpc_client().get_block_template(None, None, None);
+        template.uncles.clear();
+        template.transactions.clear();
+        template.proposals.clear();
+
+        let hash = self
+            .rpc_client()
+            .generate_block_with_template(template)
+            .unwrap();
+        self.wait_for_tx_pool();
+        hash
+    }
+
+    pub fn submit_blank_block_with_proposals(&self, proposals: &[&TransactionView]) -> Byte32 {
+        let mut template = self.rpc_client().get_block_template(None, None, None);
+        template.uncles.clear();
+        template.transactions.clear();
+        template.proposals = proposals
+            .iter()
+            .map(|tx| tx.proposal_short_id().into())
+            .collect();
+
+        let hash = self
+            .rpc_client()
+            .generate_block_with_template(template)
+            .unwrap();
+        self.wait_for_tx_pool();
+        hash
+    }
+
+    pub fn submit_blank_block_with_transactions(
+        &self,
+        txs: &[&TransactionView],
+    ) -> Result<Byte32, AnyError> {
+        let mut template = self.rpc_client().get_block_template(None, None, None);
+        template.uncles.clear();
+        template.proposals.clear();
+        template.transactions = txs.iter().map(|tx| tx.data().into()).collect();
+
+        let result = self.rpc_client().generate_block_with_template(template);
+        self.wait_for_tx_pool();
+        result
+    }
+
     pub fn process_block_without_verify(&self, block: &BlockView, broadcast: bool) -> Byte32 {
         self.rpc_client()
             .process_block_without_verify(block.data().into(), broadcast)

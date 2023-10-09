@@ -48,6 +48,7 @@ impl From<DeploymentPos> for JsonDeploymentPos {
         match pos {
             DeploymentPos::Testdummy => JsonDeploymentPos::Testdummy,
             DeploymentPos::LightClient => JsonDeploymentPos::LightClient,
+            DeploymentPos::CellsCommitments => JsonDeploymentPos::CellsCommitments,
         }
     }
 }
