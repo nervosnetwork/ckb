@@ -714,7 +714,7 @@ pub struct Header {
     /// The extension hash is the hash of the extension.
     /// The extra hash is the hash on uncles hash and extension hash concatenated together.
     ///
-    /// # Notice
+    /// **Notice**
     ///
     /// This field is renamed from `uncles_hash` since 0.100.0.
     /// More details can be found in [CKB RFC 0031].

@@ -67,6 +67,7 @@ pub struct DeploymentInfo {
     /// The first epoch which the current state applies
     pub since: EpochNumber,
     /// With each epoch and softfork, we associate a deployment state. The possible states are:
+    ///
     /// * `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
     /// * `STARTED` for all blocks reach or past the start_epoch.
     /// * `LOCKED_IN` for one period after the first period with STARTED blocks of which at least threshold has the associated bit set in version.
