@@ -25,7 +25,7 @@ use crate::utils::{
     is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
 };
 use crate::{Status, StatusCode};
-use ckb_chain::chain::ChainController;
+use ckb_chain::chain::{ChainController, VerifiedBlockStatus, VerifyResult};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error, error_target, info_target, trace_target, warn_target};
 use ckb_network::{
@@ -315,12 +315,18 @@ impl Relayer {
             let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
             let block = Arc::clone(&block);
             let peer = peer.clone();
-            move |result: Result<(), ckb_error::Error>| match result {
-                Ok(()) => match broadcast_compact_block_tx.send((block, peer)) {
-                    Err(_) => {
-                        error!(
+            move |result: VerifyResult| match result {
+                Ok(verified_block_status) => match verified_block_status {
+                    VerifiedBlockStatus::FirstSeenAndVerified
+                    | VerifiedBlockStatus::FirstSeenAndVerified => {
+                        match broadcast_compact_block_tx.send((block, peer)) {
+                            Err(_) => {
+                                error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
                     );
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 },
