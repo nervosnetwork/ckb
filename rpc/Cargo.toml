@@ -10,7 +10,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [[bin]]
 name = "ckb-rpc-gen-doc"
-path = "src/bin/gen_doc.rs"
+path = "src/gen_doc/main.rs"
 
 [dependencies]
 ckb-chain-spec = { path = "../spec", version = "= 0.112.0-pre" }
