@@ -16,11 +16,19 @@ impl RpcModule {
             "    * [Module {}](#module-{})\n",
             capitlized, self.module_title
         ));
-        for method in &self.module_methods {
+        let mut method_names = self
+            .module_methods
+            .iter()
+            .map(|method| method["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        if capitlized == "Subscription" {
+            method_names.push("subscribe");
+            method_names.push("unsubscribe");
+        }
+        for name in method_names.iter() {
             res.push_str(&format!(
                 "        * [Method `{}`](#method-{})\n",
-                method["name"].as_str().unwrap(),
-                method["name"].as_str().unwrap()
+                name, name
             ));
         }
         res
@@ -144,11 +152,15 @@ impl RpcDocGenerator {
         // generate error menu
         res.push_str("* [RPC Errors](#rpc-errors)\n");
 
-        // generate methods content
+        // generate module methods content
         for rpc_module in self.rpc_module_methods.iter() {
             let content = format!("{}\n", rpc_module.gen_methods_content());
             res.push_str(&content);
         }
+
+        // generate subscription module, which is handled specially here
+        // since jsonrpc-utils ignore the `SubscriptionRpc`
+        gen_subscription_rpc_doc(&mut res);
 
         // generate type content
         res.push_str("## RPC Types\n");
@@ -306,4 +318,36 @@ fn gen_errors_content(res: &mut String) {
         let doc = format!("\n### ERROR `{}`\n{}\n", enum_ty, desc);
         res.push_str(&doc);
     }
+}
+
+fn gen_subscription_rpc_doc(res: &mut String) {
+    let pubsub_module_source = include_str!("../module/subscription.rs");
+    // read comments before `pub trait SubscriptionRpc` and treat it as module summary
+    let summary = pubsub_module_source
+        .lines()
+        .take_while(|l| !l.contains("pub trait SubscriptionRpc"))
+        .filter(|l| l.starts_with("///"))
+        .map(|l| {
+            l.trim_start()
+                .trim_start_matches("///")
+                .replacen(" ", "", 1)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // read the continues comments between `S: Stream` and `fn subscribe`
+    let sub_desc = pubsub_module_source
+        .lines()
+        .skip_while(|l| !l.contains("S: Stream"))
+        .filter(|l| l.trim().starts_with("///"))
+        .map(|l| {
+            l.trim_start()
+                .trim_start_matches("///")
+                .replacen(" ", "", 1)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    res.push_str(format!("{}\n\n", summary).as_str());
+    res.push_str(format!("{}\n", sub_desc).as_str());
 }

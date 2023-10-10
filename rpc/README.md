@@ -102,6 +102,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
         * [Method `get_deployments_info`](#method-get_deployments_info)
     * [Module Subscription](#module-subscription)
+        * [Method `subscribe`](#method-subscribe)
+        * [Method `unsubscribe`](#method-unsubscribe)
 * [RPC Types](#rpc-types)
     * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
@@ -4458,6 +4460,166 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Subscription
+
+RPC Module Subscription that CKB node will push new messages to subscribers.
+
+RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
+TCP (enable with rpc.tcp_listen_address configuration option) and WebSocket (enable with
+rpc.ws_listen_address).
+
+###### Examples
+
+TCP RPC subscription:
+
+```bash
+telnet localhost 18114
+> {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
+< {"jsonrpc":"2.0","result":"0x0","id":2}
+< {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+"subscription":0}}
+< {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+"subscription":0}}
+< ...
+> {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}
+< {"jsonrpc":"2.0","result":true,"id":2}
+```
+
+WebSocket RPC subscription:
+
+```javascript
+let socket = new WebSocket("ws://localhost:28114")
+
+socket.onmessage = function(event) {
+  console.log(`Data received from server: ${event.data}`);
+}
+
+socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
+
+socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
+```
+
+#### Method `subscribe`
+Subscribes to a topic.
+
+###### Params
+
+* `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
+
+###### Returns
+
+This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
+topics to the current RPC connection. The subscript ID is also attached as
+`params.subscription` in the push messages.
+
+Example push message:
+
+```json+skip
+{
+  "jsonrpc": "2.0",
+  "method": "subscribe",
+  "params": {
+    "result": { ... },
+    "subscription": "0x2a"
+  }
+}
+```
+
+##### Topics
+
+###### `new_tip_header`
+
+Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
+block header to subscribers.
+
+The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
+
+###### `new_tip_block`
+
+Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
+whole block to subscribers.
+
+The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
+
+###### `new_transaction`
+
+Subscribers will get notified when a new transaction is submitted to the pool.
+
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+
+###### `proposed_transaction`
+
+Subscribers will get notified when an in-pool transaction is proposed by chain.
+
+The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
+
+###### `rejected_transaction`
+
+Subscribers will get notified when a pending transaction is rejected by tx-pool.
+
+The type of the `params.result` in the push message is an array contain:
+
+The type of the `params.result` in the push message is a two-elements array, where
+
+-   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
+-   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
+
+###### Examples
+
+Subscribe Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "subscribe",
+  "params": [
+    "new_tip_header"
+  ]
+}
+```
+
+Subscribe Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xf3"
+}
+```
+
+#### Method `unsubscribe`
+* `unsubscribe(id)`
+    * `id`: `string`
+* result: `boolean`
+
+Unsubscribes from a subscribed topic.
+###### Params
+*   `id` - Subscription ID
+
+###### Examples
+Unsubscribe Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "unsubscribe",
+  "params": [
+    "0xf3"
+  ]
+}
+```
+
+Unsubscribe Response
+
+```json
+{
+ "id": 42,
+ "jsonrpc": "2.0",
+ "result": true
+}
+```
 
 ## RPC Types
 ### Type `Alert`

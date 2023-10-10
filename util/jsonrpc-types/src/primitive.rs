@@ -41,7 +41,6 @@ pub type Cycle = Uint64;
 ///
 /// This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 pub type Timestamp = Uint64;
-
 /// The simple increasing integer version.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
