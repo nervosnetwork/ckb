@@ -260,7 +260,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 * `get_block(block_hash, verbosity, with_cycles)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
-    * `with_cycles`: `boolean `|` null`
+    * `with_cycles`: `boolean` `|` `null`
 * result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
  Returns the information about a block by hash.
@@ -390,7 +390,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 * `get_block_by_number(block_number, verbosity, with_cycles)`
     * `block_number`: [`Uint64`](#type-uint64)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
-    * `with_cycles`: `boolean `|` null`
+    * `with_cycles`: `boolean` `|` `null`
 * result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
  Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
@@ -732,7 +732,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 * `get_transaction(tx_hash, verbosity, only_committed)`
     * `tx_hash`: [`H256`](#type-h256)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
-    * `only_committed`: `boolean `|` null`
+    * `only_committed`: `boolean` `|` `null`
 * result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
  Returns the information about a transaction requested by transaction hash.
@@ -3834,8 +3834,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `address`: `string`
     * `command`: `string`
     * `ban_time`: [`Uint64`](#type-uint64) `|` `null`
-    * `absolute`: `boolean `|` null`
-    * `reason`: `string `|` null`
+    * `absolute`: `boolean` `|` `null`
+    * `reason`: `string` `|` `null`
 * result: `null`
 
  Inserts or deletes an IP/Subnet from the banned list
@@ -4293,7 +4293,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_raw_tx_pool`
 * `get_raw_tx_pool(verbose)`
-    * `verbose`: `boolean `|` null`
+    * `verbose`: `boolean` `|` `null`
 * result: [`RawTxPool`](#type-rawtxpool)
 
  Returns all transaction ids in tx pool as a json array of string transaction ids.

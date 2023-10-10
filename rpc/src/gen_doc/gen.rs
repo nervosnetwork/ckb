@@ -275,10 +275,10 @@ fn gen_type(ty: &Value) -> String {
                         .as_array()
                         .unwrap()
                         .iter()
-                        .map(gen_type)
+                        .map(|t| format!("`{}`", gen_type(t)))
                         .collect::<Vec<_>>()
                         .join(" `|` ");
-                    format!("`{}`", ty)
+                    format!("{}", ty)
                 } else {
                     format!("`{}`", ty.as_str().unwrap())
                 }
