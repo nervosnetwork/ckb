@@ -199,7 +199,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Alert
 #### Method `send_alert`
 * `send_alert(alert)`
-    * `alert`: [`Alert`](#type-Alert)
+    * `alert`: [`Alert`](#type-alert)
 * result: `null`
 
  Sends an alert.
@@ -255,10 +255,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Chain
 #### Method `get_block`
 * `get_block(block_hash, verbosity, with_cycles)`
-    * `block_hash`: [`H256`](#type-H256)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
     * `with_cycles`: `boolean `|` null`
-* result: [`BlockResponse`](#type-BlockResponse) `|` `null`
+* result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
  Returns the information about a block by hash.
 
@@ -385,10 +385,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_block_by_number`
 * `get_block_by_number(block_number, verbosity, with_cycles)`
-    * `block_number`: [`Uint64`](#type-Uint64)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
+    * `block_number`: [`Uint64`](#type-uint64)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
     * `with_cycles`: `boolean `|` null`
-* result: [`BlockResponse`](#type-BlockResponse) `|` `null`
+* result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
  Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
@@ -518,9 +518,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_header`
 * `get_header(block_hash, verbosity)`
-    * `block_hash`: [`H256`](#type-H256)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-Either_for_HeaderView_and_JsonBytes) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
+* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
 
  Returns the information about a block header by hash.
 
@@ -595,9 +595,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_header_by_number`
 * `get_header_by_number(block_number, verbosity)`
-    * `block_number`: [`Uint64`](#type-Uint64)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-Either_for_HeaderView_and_JsonBytes) `|` `null`
+    * `block_number`: [`Uint64`](#type-uint64)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
+* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
 
  Returns the block header in the [canonical chain](#canonical-chain) with the specific block
  number.
@@ -675,8 +675,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_block_filter`
 * `get_block_filter(block_hash)`
-    * `block_hash`: [`H256`](#type-H256)
-* result: [`BlockFilter`](#type-BlockFilter) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`BlockFilter`](#type-blockfilter) `|` `null`
 
  Returns the block filter by block hash.
 
@@ -727,10 +727,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_transaction`
 * `get_transaction(tx_hash, verbosity, only_committed)`
-    * `tx_hash`: [`H256`](#type-H256)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
+    * `tx_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
     * `only_committed`: `boolean `|` null`
-* result: [`TransactionWithStatusResponse`](#type-TransactionWithStatusResponse)
+* result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
  Returns the information about a transaction requested by transaction hash.
 
@@ -853,8 +853,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
 #### Method `get_block_hash`
 * `get_block_hash(block_number)`
-    * `block_number`: [`Uint64`](#type-Uint64)
-* result: [`H256`](#type-H256) `|` `null`
+    * `block_number`: [`Uint64`](#type-uint64)
+* result: [`H256`](#type-h256) `|` `null`
 
  Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
  `block_number`.
@@ -898,8 +898,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-Either_for_HeaderView_and_JsonBytes)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
+* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes)
 
  Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
@@ -966,9 +966,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_live_cell`
 * `get_live_cell(out_point, with_data)`
-    * `out_point`: [`OutPoint`](#type-OutPoint)
+    * `out_point`: [`OutPoint`](#type-outpoint)
     * `with_data`: `boolean`
-* result: [`CellWithStatus`](#type-CellWithStatus)
+* result: [`CellWithStatus`](#type-cellwithstatus)
 
  Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
 
@@ -1036,7 +1036,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_tip_block_number`
 * `get_tip_block_number()`
 
-* result: [`Uint64`](#type-Uint64)
+* result: [`Uint64`](#type-uint64)
 
  Returns the highest block number in the [canonical chain](#canonical-chain).
 
@@ -1068,7 +1068,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_current_epoch`
 * `get_current_epoch()`
 
-* result: [`EpochView`](#type-EpochView)
+* result: [`EpochView`](#type-epochview)
 
  Returns the epoch with the highest number in the [canonical chain](#canonical-chain).
 
@@ -1105,8 +1105,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_epoch_by_number`
 * `get_epoch_by_number(epoch_number)`
-    * `epoch_number`: [`Uint64`](#type-Uint64)
-* result: [`EpochView`](#type-EpochView) `|` `null`
+    * `epoch_number`: [`Uint64`](#type-uint64)
+* result: [`EpochView`](#type-epochview) `|` `null`
 
  Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
 
@@ -1153,8 +1153,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_block_economic_state`
 * `get_block_economic_state(block_hash)`
-    * `block_hash`: [`H256`](#type-H256)
-* result: [`BlockEconomicState`](#type-BlockEconomicState) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`BlockEconomicState`](#type-blockeconomicstate) `|` `null`
 
  Returns increased issuance, miner reward, and the total transaction fee of a block.
 
@@ -1219,9 +1219,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_transaction_proof`
 * `get_transaction_proof(tx_hashes, block_hash)`
-    * `tx_hashes`: `Array<` [`H256`](#type-H256) `>`
-    * `block_hash`: [`H256`](#type-H256) `|` `null`
-* result: [`TransactionProof`](#type-TransactionProof)
+    * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
+    * `block_hash`: [`H256`](#type-h256) `|` `null`
+* result: [`TransactionProof`](#type-transactionproof)
 
  Returns a Merkle proof that transactions are included in a block.
 
@@ -1263,8 +1263,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `verify_transaction_proof`
 * `verify_transaction_proof(tx_proof)`
-    * `tx_proof`: [`TransactionProof`](#type-TransactionProof)
-* result: `Array<` [`H256`](#type-H256) `>`
+    * `tx_proof`: [`TransactionProof`](#type-transactionproof)
+* result: `Array<` [`H256`](#type-h256) `>`
 
  Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
@@ -1307,9 +1307,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_transaction_and_witness_proof`
 * `get_transaction_and_witness_proof(tx_hashes, block_hash)`
-    * `tx_hashes`: `Array<` [`H256`](#type-H256) `>`
-    * `block_hash`: [`H256`](#type-H256) `|` `null`
-* result: [`TransactionAndWitnessProof`](#type-TransactionAndWitnessProof)
+    * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
+    * `block_hash`: [`H256`](#type-h256) `|` `null`
+* result: [`TransactionAndWitnessProof`](#type-transactionandwitnessproof)
 
  Returns a Merkle proof of transactions' witness included in a block.
 
@@ -1356,8 +1356,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `verify_transaction_and_witness_proof`
 * `verify_transaction_and_witness_proof(tx_proof)`
-    * `tx_proof`: [`TransactionAndWitnessProof`](#type-TransactionAndWitnessProof)
-* result: `Array<` [`H256`](#type-H256) `>`
+    * `tx_proof`: [`TransactionAndWitnessProof`](#type-transactionandwitnessproof)
+* result: `Array<` [`H256`](#type-h256) `>`
 
  Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
@@ -1405,9 +1405,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_fork_block`
 * `get_fork_block(block_hash, verbosity)`
-    * `block_hash`: [`H256`](#type-H256)
-    * `verbosity`: [`AlertId`](#type-AlertId) `|` `null`
-* result: [`Either_for_BlockView_and_JsonBytes`](#type-Either_for_BlockView_and_JsonBytes) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+    * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
+* result: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) `|` `null`
 
  Returns the information about a fork block by hash.
 
@@ -1520,7 +1520,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_consensus`
 * `get_consensus()`
 
-* result: [`Consensus`](#type-Consensus)
+* result: [`Consensus`](#type-consensus)
 
  Return various consensus parameters.
 
@@ -1611,8 +1611,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_block_median_time`
 * `get_block_median_time(block_hash)`
-    * `block_hash`: [`H256`](#type-H256)
-* result: [`Uint64`](#type-Uint64) `|` `null`
+    * `block_hash`: [`H256`](#type-h256)
+* result: [`Uint64`](#type-uint64) `|` `null`
 
  Returns the past median time by block hash.
 
@@ -1653,8 +1653,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `estimate_cycles`
 * `estimate_cycles(tx)`
-    * `tx`: [`Transaction`](#type-Transaction)
-* result: [`EstimateCycles`](#type-EstimateCycles)
+    * `tx`: [`Transaction`](#type-transaction)
+* result: [`EstimateCycles`](#type-estimatecycles)
 
  `estimate_cycles` run a transaction and return the execution consumed cycles.
 
@@ -1734,8 +1734,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_fee_rate_statics`
 * `get_fee_rate_statics(target)`
-    * `target`: [`Uint64`](#type-Uint64) `|` `null`
-* result: [`FeeRateStatistics`](#type-FeeRateStatistics) `|` `null`
+    * `target`: [`Uint64`](#type-uint64) `|` `null`
+* result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
  Returns the fee_rate statistics of confirmed blocks on the chain
 
@@ -1778,8 +1778,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_fee_rate_statistics`
 * `get_fee_rate_statistics(target)`
-    * `target`: [`Uint64`](#type-Uint64) `|` `null`
-* result: [`FeeRateStatistics`](#type-FeeRateStatistics) `|` `null`
+    * `target`: [`Uint64`](#type-uint64) `|` `null`
+* result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
  Returns the fee_rate statistics of confirmed blocks on the chain
 
@@ -1834,14 +1834,14 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  The RPC returns the path to the dumped file on success or returns an error on failure.
 #### Method `update_main_logger`
 * `update_main_logger(config)`
-    * `config`: [`MainLoggerConfig`](#type-MainLoggerConfig)
+    * `config`: [`MainLoggerConfig`](#type-mainloggerconfig)
 * result: `null`
 
  Changes main logger config options while CKB is running.
 #### Method `set_extra_logger`
 * `set_extra_logger(name, config_opt)`
     * `name`: `string`
-    * `config_opt`: [`ExtraLoggerConfig`](#type-ExtraLoggerConfig) `|` `null`
+    * `config_opt`: [`ExtraLoggerConfig`](#type-extraloggerconfig) `|` `null`
 * result: `null`
 
  Sets logger config options for extra loggers.
@@ -1858,8 +1858,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Experiment
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
-    * `tx`: [`Transaction`](#type-Transaction)
-* result: [`EstimateCycles`](#type-EstimateCycles)
+    * `tx`: [`Transaction`](#type-transaction)
+* result: [`EstimateCycles`](#type-estimatecycles)
 
  Dry run a transaction and return the execution cycles.
 
@@ -1939,9 +1939,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `calculate_dao_maximum_withdraw`
 * `calculate_dao_maximum_withdraw(out_point, kind)`
-    * `out_point`: [`OutPoint`](#type-OutPoint)
-    * `kind`: [`DaoWithdrawingCalculationKind`](#type-DaoWithdrawingCalculationKind)
-* result: [`Uint64`](#type-Uint64)
+    * `out_point`: [`OutPoint`](#type-outpoint)
+    * `kind`: [`DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
+* result: [`Uint64`](#type-uint64)
 
  Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
  a withdrawing block hash.
@@ -2002,7 +2002,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_indexer_tip`
 * `get_indexer_tip()`
 
-* result: [`IndexerTip`](#type-IndexerTip) `|` `null`
+* result: [`IndexerTip`](#type-indexertip) `|` `null`
 
  Returns the indexed tip
 
@@ -2036,11 +2036,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_cells`
 * `get_cells(search_key, order, limit, after)`
-    * `search_key`: [`IndexerSearchKey`](#type-IndexerSearchKey)
-    * `order`: [`IndexerOrder`](#type-IndexerOrder)
-    * `limit`: [`AlertId`](#type-AlertId)
-    * `after`: [`JsonBytes`](#type-JsonBytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerCell`](#type-IndexerPagination_for_IndexerCell)
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`AlertId`](#type-alertid)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
 
  Returns the live cells collection by the lock or type script.
 
@@ -2387,11 +2387,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_transactions`
 * `get_transactions(search_key, order, limit, after)`
-    * `search_key`: [`IndexerSearchKey`](#type-IndexerSearchKey)
-    * `order`: [`IndexerOrder`](#type-IndexerOrder)
-    * `limit`: [`AlertId`](#type-AlertId)
-    * `after`: [`JsonBytes`](#type-JsonBytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerTx`](#type-IndexerPagination_for_IndexerTx)
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`AlertId`](#type-alertid)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
 
  Returns the transactions collection by the lock or type script.
 
@@ -2798,8 +2798,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `get_cells_capacity`
 * `get_cells_capacity(search_key)`
-    * `search_key`: [`IndexerSearchKey`](#type-IndexerSearchKey)
-* result: [`IndexerCellsCapacity`](#type-IndexerCellsCapacity) `|` `null`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+* result: [`IndexerCellsCapacity`](#type-indexercellscapacity) `|` `null`
 
  Returns the live cells capacity by the lock or type script.
 
@@ -2859,9 +2859,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Integration_test
 #### Method `process_block_without_verify`
 * `process_block_without_verify(data, broadcast)`
-    * `data`: [`Block`](#type-Block)
+    * `data`: [`Block`](#type-block)
     * `broadcast`: `boolean`
-* result: [`H256`](#type-H256) `|` `null`
+* result: [`H256`](#type-h256) `|` `null`
 
  process block without any block verification.
 
@@ -2942,7 +2942,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `truncate`
 * `truncate(target_tip_hash)`
-    * `target_tip_hash`: [`H256`](#type-H256)
+    * `target_tip_hash`: [`H256`](#type-h256)
 * result: `null`
 
  Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
@@ -2978,7 +2978,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `generate_block`
 * `generate_block()`
 
-* result: [`H256`](#type-H256)
+* result: [`H256`](#type-h256)
 
  Generate block(with verification) and broadcast the block.
 
@@ -3009,8 +3009,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `generate_epochs`
 * `generate_epochs(num_epochs)`
-    * `num_epochs`: [`Uint64`](#type-Uint64)
-* result: [`Uint64`](#type-Uint64)
+    * `num_epochs`: [`Uint64`](#type-uint64)
+* result: [`Uint64`](#type-uint64)
 
  Generate epochs during development, can be useful for scenarios
  like testing DAO-related functionalities.
@@ -3064,8 +3064,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `notify_transaction`
 * `notify_transaction(transaction)`
-    * `transaction`: [`Transaction`](#type-Transaction)
-* result: [`H256`](#type-H256)
+    * `transaction`: [`Transaction`](#type-transaction)
+* result: [`H256`](#type-h256)
 
  Add transaction to tx-pool.
 
@@ -3133,8 +3133,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `generate_block_with_template`
 * `generate_block_with_template(block_template)`
-    * `block_template`: [`BlockTemplate`](#type-BlockTemplate)
-* result: [`H256`](#type-H256)
+    * `block_template`: [`BlockTemplate`](#type-blocktemplate)
+* result: [`H256`](#type-h256)
 
  Generate block with block template, attach calculated dao field to build new block,
 
@@ -3241,8 +3241,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `calculate_dao_field`
 * `calculate_dao_field(block_template)`
-    * `block_template`: [`BlockTemplate`](#type-BlockTemplate)
-* result: [`Byte32`](#type-Byte32)
+    * `block_template`: [`BlockTemplate`](#type-blocktemplate)
+* result: [`Byte32`](#type-byte32)
 
  Return calculated dao field according to specified block template.
 
@@ -3349,10 +3349,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Miner
 #### Method `get_block_template`
 * `get_block_template(bytes_limit, proposals_limit, max_version)`
-    * `bytes_limit`: [`Uint64`](#type-Uint64) `|` `null`
-    * `proposals_limit`: [`Uint64`](#type-Uint64) `|` `null`
-    * `max_version`: [`AlertId`](#type-AlertId) `|` `null`
-* result: [`BlockTemplate`](#type-BlockTemplate)
+    * `bytes_limit`: [`Uint64`](#type-uint64) `|` `null`
+    * `proposals_limit`: [`Uint64`](#type-uint64) `|` `null`
+    * `max_version`: [`AlertId`](#type-alertid) `|` `null`
+* result: [`BlockTemplate`](#type-blocktemplate)
 
  Returns block template for miners.
 
@@ -3467,8 +3467,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `submit_block`
 * `submit_block(work_id, block)`
     * `work_id`: `string`
-    * `block`: [`Block`](#type-Block)
-* result: [`H256`](#type-H256)
+    * `block`: [`Block`](#type-block)
+* result: [`H256`](#type-h256)
 
  Submit new block to the network.
 
@@ -3556,7 +3556,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `local_node_info`
 * `local_node_info()`
 
-* result: [`LocalNode`](#type-LocalNode)
+* result: [`LocalNode`](#type-localnode)
 
  Returns the local node information.
 
@@ -3618,7 +3618,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_peers`
 * `get_peers()`
 
-* result: `Array<` [`RemoteNode`](#type-RemoteNode) `>`
+* result: `Array<` [`RemoteNode`](#type-remotenode) `>`
 
  Returns the connected peers' information.
 
@@ -3764,7 +3764,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_banned_addresses`
 * `get_banned_addresses()`
 
-* result: `Array<` [`BannedAddr`](#type-BannedAddr) `>`
+* result: `Array<` [`BannedAddr`](#type-bannedaddr) `>`
 
  Returns all banned IPs/Subnets.
 
@@ -3830,7 +3830,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 * `set_ban(address, command, ban_time, absolute, reason)`
     * `address`: `string`
     * `command`: `string`
-    * `ban_time`: [`Uint64`](#type-Uint64) `|` `null`
+    * `ban_time`: [`Uint64`](#type-uint64) `|` `null`
     * `absolute`: `boolean `|` null`
     * `reason`: `string `|` null`
 * result: `null`
@@ -3884,7 +3884,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `sync_state`
 * `sync_state()`
 
-* result: [`SyncState`](#type-SyncState)
+* result: [`SyncState`](#type-syncstate)
 
  Returns chain synchronization state of this node.
 
@@ -4089,9 +4089,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ### Module Pool
 #### Method `send_transaction`
 * `send_transaction(tx, outputs_validator)`
-    * `tx`: [`Transaction`](#type-Transaction)
-    * `outputs_validator`: [`OutputsValidator`](#type-OutputsValidator) `|` `null`
-* result: [`H256`](#type-H256)
+    * `tx`: [`Transaction`](#type-transaction)
+    * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
+* result: [`H256`](#type-h256)
 
  Submits a new transaction into the transaction pool. If the transaction is already in the
  pool, rebroadcast it to peers.
@@ -4180,7 +4180,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 #### Method `remove_transaction`
 * `remove_transaction(tx_hash)`
-    * `tx_hash`: [`H256`](#type-H256)
+    * `tx_hash`: [`H256`](#type-h256)
 * result: `boolean`
 
  Removes a transaction and all transactions which depends on it from tx pool if it exists.
@@ -4220,7 +4220,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `tx_pool_info`
 * `tx_pool_info()`
 
-* result: [`TxPoolInfo`](#type-TxPoolInfo)
+* result: [`TxPoolInfo`](#type-txpoolinfo)
 
  Returns the transaction pool information.
 
@@ -4291,7 +4291,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_raw_tx_pool`
 * `get_raw_tx_pool(verbose)`
     * `verbose`: `boolean `|` null`
-* result: [`RawTxPool`](#type-RawTxPool)
+* result: [`RawTxPool`](#type-rawtxpool)
 
  Returns all transaction ids in tx pool as a json array of string transaction ids.
  ###### Params
@@ -4368,7 +4368,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_blockchain_info`
 * `get_blockchain_info()`
 
-* result: [`ChainInfo`](#type-ChainInfo)
+* result: [`ChainInfo`](#type-chaininfo)
 
  Returns statistics about the chain.
 
@@ -4411,7 +4411,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 #### Method `get_deployments_info`
 * `get_deployments_info()`
 
-* result: [`DeploymentsInfo`](#type-DeploymentsInfo)
+* result: [`DeploymentsInfo`](#type-deploymentsinfo)
 
  Returns statistics about the chain.
 
@@ -4482,17 +4482,17 @@ An alert is a message about critical problems to be broadcast to all nodes via t
  }
  ```
 #### Fields:
-* `cancel`:  - Cancel a previous sent alert.
+* `cancel`: [`AlertId`](#type-alertid) - Cancel a previous sent alert.
 
-* `id`:  - The identifier of the alert. Clients use id to filter duplicated alerts.
+* `id`: [`AlertId`](#type-alertid) - The identifier of the alert. Clients use id to filter duplicated alerts.
 
-* `message`:  - Alert message.
+* `message`: `string` - Alert message.
 
-* `notice_until`:  - The alert is expired after this timestamp.
+* `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
 
-* `priority`:  - Alerts are sorted by priority, highest first.
+* `priority`: [`AlertId`](#type-alertid) - Alerts are sorted by priority, highest first.
 
-* `signatures`:  - The list of required signatures.
+* `signatures`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - The list of required signatures.
 
 
 ### Type `AlertId`
@@ -4502,39 +4502,39 @@ An alert is a message about critical problems to be broadcast to all nodes via t
 ### Type `AlertMessage`
 An alert sent by RPC `send_alert`.
 #### Fields:
-* `id`:  - The unique alert ID.
+* `id`: [`AlertId`](#type-alertid) - The unique alert ID.
 
-* `message`:  - Alert message.
+* `message`: `string` - Alert message.
 
-* `notice_until`:  - The alert is expired after this timestamp.
+* `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
 
-* `priority`:  - Alerts are sorted by priority, highest first.
+* `priority`: [`AlertId`](#type-alertid) - Alerts are sorted by priority, highest first.
 
 
 ### Type `BannedAddr`
 A banned P2P address.
 #### Fields:
-* `address`:  - The P2P address.
+* `address`: `string` - The P2P address.
 
     Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
 
-* `ban_reason`:  - The reason.
+* `ban_reason`: `string` - The reason.
 
-* `ban_until`:  - The address is banned until this time.
+* `ban_until`: [`Uint64`](#type-uint64) - The address is banned until this time.
 
-* `created_at`:  - When this address is banned.
+* `created_at`: [`Uint64`](#type-uint64) - When this address is banned.
 
 
 ### Type `Block`
 The JSON view of a Block used as a parameter in the RPC.
 #### Fields:
-* `header`:  - The block header.
+* `header`: [`Header`](#type-header) - The block header.
 
-* `proposals`:  - The proposal IDs in the block body.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
 
-* `transactions`:  - The transactions in the block body.
+* `transactions`: `Array<` [`Transaction`](#type-transaction) `>` - The transactions in the block body.
 
-* `uncles`:  - The uncles blocks in the block body.
+* `uncles`: `Array<` [`UncleBlock`](#type-uncleblock) `>` - The uncles blocks in the block body.
 
 
 ### Type `BlockEconomicState`
@@ -4542,29 +4542,29 @@ Block Economic State.
 
  It includes the rewards details and when it is finalized.
 #### Fields:
-* `finalized_at`:  - The block hash of the block which creates the rewards as cells in its cellbase transaction.
+* `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
 
-* `issuance`:  - Block base rewards.
+* `issuance`: [`BlockIssuance`](#type-blockissuance) - Block base rewards.
 
-* `miner_reward`:  - Block rewards for miners.
+* `miner_reward`: [`MinerReward`](#type-minerreward) - Block rewards for miners.
 
-* `txs_fee`:  - The total fees of all transactions committed in the block.
+* `txs_fee`: [`Uint64`](#type-uint64) - The total fees of all transactions committed in the block.
 
 
 ### Type `BlockFilter`
 Block filter data and hash.
 #### Fields:
-* `data`:  - The the hex-encoded filter data of the block
+* `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
 
-* `hash`:  - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
+* `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
 
 
 ### Type `BlockIssuance`
 Block base rewards.
 #### Fields:
-* `primary`:  - The primary base rewards.
+* `primary`: [`Uint64`](#type-uint64) - The primary base rewards.
 
-* `secondary`:  - The secondary base rewards.
+* `secondary`: [`Uint64`](#type-uint64) - The secondary base rewards.
 
 
 ### Type `BlockResponse`
@@ -4576,107 +4576,107 @@ A block template for miners.
 
  Miners optional pick transactions and then assemble the final block.
 #### Fields:
-* `bytes_limit`:  - The block serialized size limit.
+* `bytes_limit`: [`Uint64`](#type-uint64) - The block serialized size limit.
 
     Miners must keep the block size below this limit, otherwise, the CKB node will reject the block
     submission.
-
+    
     It is guaranteed that the block does not exceed the limit if miners do not add new
     transaction commitments.
 
-* `cellbase`:  - Provided cellbase transaction template.
+* `cellbase`: [`CellbaseTemplate`](#type-cellbasetemplate) - Provided cellbase transaction template.
 
     Miners must use it as the cellbase transaction without changes in the assembled block.
 
-* `compact_target`:  - The compacted difficulty target for the new block.
+* `compact_target`: [`AlertId`](#type-alertid) - The compacted difficulty target for the new block.
 
     Miners must use it unchanged in the assembled block.
 
-* `current_time`:  - The timestamp for the new block.
+* `current_time`: [`Uint64`](#type-uint64) - The timestamp for the new block.
 
     CKB node guarantees that this timestamp is larger than the median of the previous 37 blocks.
-
+    
     Miners can increase it to the current time. It is not recommended to decrease it, since it may violate the median block timestamp consensus rule.
 
-* `cycles_limit`:  - The cycles limit.
+* `cycles_limit`: [`Uint64`](#type-uint64) - The cycles limit.
 
     Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block
     submission.
-
+    
     It is guaranteed that the block does not exceed the limit if miners do not add new
     transactions to the block.
 
-* `dao`:  - Reference DAO field.
+* `dao`: [`Byte32`](#type-byte32) - Reference DAO field.
 
     This field is only valid when miners use all and only use the provided transactions in the
     template. Two fields must be updated when miners want to select transactions:
-
+    
     * `S_i`, bytes 16 to 23
     * `U_i`, bytes 24 to 31
-
+    
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
 
-* `epoch`:  - The epoch progress information for the new block.
+* `epoch`: [`Uint64`](#type-uint64) - The epoch progress information for the new block.
 
     Miners must use it unchanged in the assembled block.
 
-* `number`:  - The block number for the new block.
+* `number`: [`Uint64`](#type-uint64) - The block number for the new block.
 
     Miners must use it unchanged in the assembled block.
 
-* `parent_hash`:  - The parent block hash of the new block.
+* `parent_hash`: [`H256`](#type-h256) - The parent block hash of the new block.
 
     Miners must use it unchanged in the assembled block.
 
-* `proposals`:  - Provided proposal ids list of transactions for the new block.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Provided proposal ids list of transactions for the new block.
 
-* `transactions`:  - Provided valid transactions which can be committed in the new block.
+* `transactions`: `Array<` [`TransactionTemplate`](#type-transactiontemplate) `>` - Provided valid transactions which can be committed in the new block.
 
     Miners must include the transactions marked as `required` in the assembled new block.
 
-* `uncles`:  - Provided valid uncle blocks candidates for the new block.
+* `uncles`: `Array<` [`UncleTemplate`](#type-uncletemplate) `>` - Provided valid uncle blocks candidates for the new block.
 
     Miners must include the uncles marked as `required` in the assembled new block.
 
-* `uncles_count_limit`:  - The uncle count limit.
+* `uncles_count_limit`: [`Uint64`](#type-uint64) - The uncle count limit.
 
     Miners must keep the uncles count below this limit, otherwise, the CKB node will reject the
     block submission.
 
-* `version`:  - Block version.
+* `version`: [`AlertId`](#type-alertid) - Block version.
 
     Miners must use it unchanged in the assembled block.
 
-* `work_id`:  - Work ID. The miner must submit the new assembled and resolved block using the same work ID.
+* `work_id`: [`Uint64`](#type-uint64) - Work ID. The miner must submit the new assembled and resolved block using the same work ID.
 
 
 ### Type `BlockView`
 The JSON view of a Block including header and body.
 #### Fields:
-* `header`:  - The block header.
+* `header`: [`HeaderView`](#type-headerview) - The block header.
 
-* `proposals`:  - The proposal IDs in the block body.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
 
-* `transactions`:  - The transactions in the block body.
+* `transactions`: `Array<` [`TransactionView`](#type-transactionview) `>` - The transactions in the block body.
 
-* `uncles`:  - The uncles blocks in the block body.
+* `uncles`: `Array<` [`UncleBlockView`](#type-uncleblockview) `>` - The uncles blocks in the block body.
 
 
 ### Type `BlockWithCyclesResponse`
 BlockResponse with cycles format wrapper
 #### Fields:
-* `block`:  - The block structure
+* `block`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The block structure
 
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is
  hard-coded into the client implementation
 #### Fields:
-* `active`:  - Whether the rules are active
+* `active`: `boolean` - Whether the rules are active
 
-* `epoch`:  - The first epoch which the rules will be enforced
+* `epoch`: [`Uint64`](#type-uint64) - The first epoch which the rules will be enforced
 
-* `status`:  - SoftFork status
+* `status`: [`SoftForkStatus`](#type-softforkstatus) - SoftFork status
 
 
 ### Type `Byte32`
@@ -4695,9 +4695,9 @@ The cell data content and hash.
  }
  ```
 #### Fields:
-* `content`:  - Cell content.
+* `content`: [`JsonBytes`](#type-jsonbytes) - Cell content.
 
-* `hash`:  - Cell content hash.
+* `hash`: [`H256`](#type-h256) - Cell content hash.
 
 
 ### Type `CellDep`
@@ -4715,9 +4715,9 @@ The cell dependency of a transaction.
  }
  ```
 #### Fields:
-* `dep_type`:  - Dependency type.
+* `dep_type`: [`DepType`](#type-deptype) - Dependency type.
 
-* `out_point`:  - Reference to the cell.
+* `out_point`: [`OutPoint`](#type-outpoint) - Reference to the cell.
 
 
 ### Type `CellInfo`
@@ -4743,7 +4743,7 @@ The JSON view of a cell combining the fields in cell output and cell data.
  }
  ```
 #### Fields:
-* `output`:  - Cell fields appears in the transaction `outputs` array.
+* `output`: [`CellOutput`](#type-celloutput) - Cell fields appears in the transaction `outputs` array.
 
 
 ### Type `CellInput`
@@ -4761,9 +4761,9 @@ The input cell of a transaction.
  }
  ```
 #### Fields:
-* `previous_output`:  - Reference to the input cell.
+* `previous_output`: [`OutPoint`](#type-outpoint) - Reference to the input cell.
 
-* `since`:  - Restrict when the transaction can be committed into the chain.
+* `since`: [`Uint64`](#type-uint64) - Restrict when the transaction can be committed into the chain.
 
     See the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
 
@@ -4785,12 +4785,12 @@ The fields of an output cell except the cell data.
  }
  ```
 #### Fields:
-* `capacity`:  - The cell capacity.
+* `capacity`: [`Uint64`](#type-uint64) - The cell capacity.
 
     The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of
     the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
 
-* `lock`:  - The lock script.
+* `lock`: [`Script`](#type-script) - The lock script.
 
 
 ### Type `CellWithStatus`
@@ -4826,10 +4826,10 @@ The JSON view of a cell with its status information.
  }
  ```
 #### Fields:
-* `status`:  - Status of the cell.
+* `status`: `string` - Status of the cell.
 
     Allowed values: "live", "dead", "unknown".
-
+    
     * `live` - The transaction creating this cell is in the chain, and there are no
     transactions found in the chain that uses this cell as an input.
     * `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not
@@ -4843,84 +4843,84 @@ The JSON view of a cell with its status information.
 ### Type `CellbaseTemplate`
 The cellbase transaction template of the new block for miners.
 #### Fields:
-* `data`:  - The cellbase transaction.
+* `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
 
-* `hash`:  - The cellbase transaction hash.
+* `hash`: [`H256`](#type-h256) - The cellbase transaction hash.
 
 
 ### Type `ChainInfo`
 Chain information.
 #### Fields:
-* `alerts`:  - Active alerts stored in the local node.
+* `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Active alerts stored in the local node.
 
-* `chain`:  - The network name.
+* `chain`: `string` - The network name.
 
     Examples:
-
+    
     * "ckb" - Mirana the mainnet.
     * "ckb_testnet" - Pudge the testnet.
 
-* `difficulty`:  - Current difficulty.
+* `difficulty`: `string` - Current difficulty.
 
     Decoded from the epoch `compact_target`.
 
-* `epoch`:  - The epoch information of tip block in the chain.
+* `epoch`: [`Uint64`](#type-uint64) - The epoch information of tip block in the chain.
 
-* `is_initial_block_download`:  - Whether the local node is in IBD, Initial Block Download.
+* `is_initial_block_download`: `boolean` - Whether the local node is in IBD, Initial Block Download.
 
     When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     the IBD until it catches up the synchronization.
-
+    
     During IBD, the local node only synchronizes the chain with one selected remote node and
     stops responding the most P2P requests.
 
-* `median_time`:  - The median time of the last 37 blocks, including the tip block.
+* `median_time`: [`Uint64`](#type-uint64) - The median time of the last 37 blocks, including the tip block.
 
 
 ### Type `Consensus`
 Consensus defines various parameters that influence chain consensus
 #### Fields:
-* `block_version`:  - The block version number supported
+* `block_version`: [`AlertId`](#type-alertid) - The block version number supported
 
-* `cellbase_maturity`:  - The Cellbase maturity
+* `cellbase_maturity`: [`Uint64`](#type-uint64) - The Cellbase maturity
 
-* `epoch_duration_target`:  - The expected epoch_duration
+* `epoch_duration_target`: [`Uint64`](#type-uint64) - The expected epoch_duration
 
-* `genesis_hash`:  - The genesis block hash
+* `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
 
-* `hardfork_features`:  - Hardfork features
+* `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
 
-* `id`:  - Names the network.
+* `id`: `string` - Names the network.
 
-* `initial_primary_epoch_reward`:  - The initial primary_epoch_reward
+* `initial_primary_epoch_reward`: [`Uint64`](#type-uint64) - The initial primary_epoch_reward
 
-* `max_block_bytes`:  - Maximum number of bytes to use for the entire block
+* `max_block_bytes`: [`Uint64`](#type-uint64) - Maximum number of bytes to use for the entire block
 
-* `max_block_cycles`:  - Maximum cycles that all the scripts in all the commit transactions can take
+* `max_block_cycles`: [`Uint64`](#type-uint64) - Maximum cycles that all the scripts in all the commit transactions can take
 
-* `max_block_proposals_limit`:  - The Limit to the number of proposals per block
+* `max_block_proposals_limit`: [`Uint64`](#type-uint64) - The Limit to the number of proposals per block
 
-* `max_uncles_num`:  - The maximum amount of uncles allowed for a block
+* `max_uncles_num`: [`Uint64`](#type-uint64) - The maximum amount of uncles allowed for a block
 
-* `median_time_block_count`:  - This parameter indicates the count of past blocks used in the median time calculation
+* `median_time_block_count`: [`Uint64`](#type-uint64) - This parameter indicates the count of past blocks used in the median time calculation
 
-* `orphan_rate_target`:  - The expected orphan_rate
+* `orphan_rate_target`: `string` - The expected orphan_rate
 
-* `permanent_difficulty_in_dummy`:  - Keep difficulty be permanent if the pow is dummy
+* `permanent_difficulty_in_dummy`: `boolean` - Keep difficulty be permanent if the pow is dummy
 
-* `primary_epoch_reward_halving_interval`:  - Primary reward is cut in half every halving_interval epoch
+* `primary_epoch_reward_halving_interval`: [`Uint64`](#type-uint64) - Primary reward is cut in half every halving_interval epoch
 
-* `proposer_reward_ratio`:  - The two-step-transaction-confirmation proposer reward ratio
+* `proposer_reward_ratio`: `string` - The two-step-transaction-confirmation proposer reward ratio
 
-* `secondary_epoch_reward`:  - The secondary primary_epoch_reward
+* `secondary_epoch_reward`: [`Uint64`](#type-uint64) - The secondary primary_epoch_reward
 
-* `softforks`:  - Softforks
+* `softforks`: `object` - Softforks
 
-* `tx_proposal_window`:  - The two-step-transaction-confirmation proposal window
+* `tx_proposal_window`: [`ProposalWindow`](#type-proposalwindow) - The two-step-transaction-confirmation proposal window
 
-* `tx_version`:  - The tx version number supported
+* `tx_version`: [`AlertId`](#type-alertid) - The tx version number supported
 
-* `type_id_code_hash`:  - The "TYPE_ID" in hex
+* `type_id_code_hash`: [`H256`](#type-h256) - The "TYPE_ID" in hex
 
 
 ### Type `DaoWithdrawingCalculationKind`
@@ -4938,19 +4938,19 @@ The dep cell type. Allowed values: "code" and "dep_group".
 ### Type `Deployment`
 RFC0043 deployment params
 #### Fields:
-* `bit`:  - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+* `bit`: `integer` - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
  It is chosen from the set {0,1,2,...,28}.
 
-* `min_activation_epoch`:  - Specifies the epoch at which the softfork is allowed to become active.
+* `min_activation_epoch`: [`Uint64`](#type-uint64) - Specifies the epoch at which the softfork is allowed to become active.
 
-* `period`:  - Specifies length of epochs of the signalling period.
+* `period`: [`Uint64`](#type-uint64) - Specifies length of epochs of the signalling period.
 
-* `start`:  - Specifies the first epoch in which the bit gains meaning.
+* `start`: [`Uint64`](#type-uint64) - Specifies the first epoch in which the bit gains meaning.
 
-* `threshold`:  - Specifies the minimum ratio of block per `period`,
+* `threshold`: [`Ratio`](#type-ratio) - Specifies the minimum ratio of block per `period`,
  which indicate the locked_in of the softfork during the `period`.
 
-* `timeout`:  - Specifies an epoch at which the miner signaling ends.
+* `timeout`: [`Uint64`](#type-uint64) - Specifies an epoch at which the miner signaling ends.
  Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
  the deployment is considered failed on all descendants of the block.
 
@@ -4958,18 +4958,18 @@ RFC0043 deployment params
 ### Type `DeploymentInfo`
 An object containing various state info regarding deployments of consensus changes
 #### Fields:
-* `bit`:  - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+* `bit`: `integer` - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
  It is chosen from the set {0,1,2,...,28}.
 
-* `min_activation_epoch`:  - specifies the epoch at which the softfork is allowed to become active.
+* `min_activation_epoch`: [`Uint64`](#type-uint64) - specifies the epoch at which the softfork is allowed to become active.
 
-* `period`:  - the length in epochs of the signalling period
+* `period`: [`Uint64`](#type-uint64) - the length in epochs of the signalling period
 
-* `since`:  - The first epoch which the current state applies
+* `since`: [`Uint64`](#type-uint64) - The first epoch which the current state applies
 
-* `start`:  - specifies the first epoch in which the bit gains meaning.
+* `start`: [`Uint64`](#type-uint64) - specifies the first epoch in which the bit gains meaning.
 
-* `state`:  - With each epoch and softfork, we associate a deployment state. The possible states are:
+* `state`: [`DeploymentState`](#type-deploymentstate) - With each epoch and softfork, we associate a deployment state. The possible states are:
 
     * `DEFINED` is the first state that each softfork starts. The blocks of 0 epoch is by definition in this state for each deployment.
     * `STARTED` for all blocks reach or past the start_epoch.
@@ -4977,9 +4977,9 @@ An object containing various state info regarding deployments of consensus chang
     * `ACTIVE` for all blocks after the LOCKED_IN period.
     * `FAILED` for all blocks after the timeout_epoch, if LOCKED_IN was not reached.
 
-* `threshold`:  - the ratio of blocks with the version bit set required to activate the feature
+* `threshold`: [`Ratio`](#type-ratio) - the ratio of blocks with the version bit set required to activate the feature
 
-* `timeout`:  - specifies an epoch at which the miner signaling ends.
+* `timeout`: [`Uint64`](#type-uint64) - specifies an epoch at which the miner signaling ends.
  Once this epoch has been reached,
  if the softfork has not yet locked_in (excluding this epoch block's bit state),
  the deployment is considered failed on all descendants of the block.
@@ -4992,11 +4992,11 @@ The possible softfork deployment state
 ### Type `DeploymentsInfo`
 Chain information.
 #### Fields:
-* `deployments`:  - deployments info
+* `deployments`: `object` - deployments info
 
-* `epoch`:  - requested block epoch
+* `epoch`: [`Uint64`](#type-uint64) - requested block epoch
 
-* `hash`:  - requested block hash
+* `hash`: [`H256`](#type-h256) - requested block hash
 
 
 ### Type `Either_for_BlockView_and_JsonBytes`
@@ -5030,13 +5030,13 @@ JSON view of an epoch.
  }
  ```
 #### Fields:
-* `compact_target`:  - The difficulty target for any block in this epoch.
+* `compact_target`: [`AlertId`](#type-alertid) - The difficulty target for any block in this epoch.
 
-* `length`:  - The number of blocks in this epoch.
+* `length`: [`Uint64`](#type-uint64) - The number of blocks in this epoch.
 
-* `number`:  - Consecutive epoch number starting from 0.
+* `number`: [`Uint64`](#type-uint64) - Consecutive epoch number starting from 0.
 
-* `start_number`:  - The block number of the first block in the epoch.
+* `start_number`: [`Uint64`](#type-uint64) - The block number of the first block in the epoch.
 
     It also equals the total count of blocks in all the epochs which epoch number is
     less than this epoch.
@@ -5045,24 +5045,24 @@ JSON view of an epoch.
 ### Type `EstimateCycles`
 Response result of the RPC method `estimate_cycles`.
 #### Fields:
-* `cycles`:  - The count of cycles that the VM has consumed to verify this transaction.
+* `cycles`: [`Uint64`](#type-uint64) - The count of cycles that the VM has consumed to verify this transaction.
 
 
 ### Type `ExtraLoggerConfig`
 Runtime logger config for extra loggers.
 #### Fields:
-* `filter`:  - Sets log levels for different modules.
+* `filter`: `string` - Sets log levels for different modules.
 
     **Examples**
-
+    
     Set the log level to info for all modules
-
+    
     ```text
     info
     ```
-
+    
     Set the log level to debug for listed modules and info for other modules.
-
+    
     ```text
     info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
     ```
@@ -5071,9 +5071,9 @@ Runtime logger config for extra loggers.
 ### Type `FeeRateStatistics`
 The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
 #### Fields:
-* `mean`:  - mean
+* `mean`: [`Uint64`](#type-uint64) - mean
 
-* `median`:  - median
+* `median`: [`Uint64`](#type-uint64) - median
 
 
 ### Type `H256`
@@ -5087,7 +5087,7 @@ The 32-byte fixed-length binary data.
 ### Type `HardForkFeature`
 The information about one hardfork feature.
 #### Fields:
-* `rfc`:  - The related RFC ID.
+* `rfc`: `string` - The related RFC ID.
 
 
 ### Type `Header`
@@ -5095,58 +5095,58 @@ The block header.
 
  Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
 #### Fields:
-* `compact_target`:  - The block difficulty target.
+* `compact_target`: [`AlertId`](#type-alertid) - The block difficulty target.
 
     It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is
     within the target.
 
-* `dao`:  - DAO fields.
+* `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
 
-* `epoch`:  - The epoch information of this block.
+* `epoch`: [`Uint64`](#type-uint64) - The epoch information of this block.
 
     See `EpochNumberWithFraction` for details.
 
-* `extra_hash`:  - The hash on `uncles` and extension in the block body.
+* `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
     The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
     The extension hash is the hash of the extension.
     The extra hash is the hash on uncles hash and extension hash concatenated together.
-
+    
     **Notice**
-
+    
     This field is renamed from `uncles_hash` since 0.100.0.
     More details can be found in [CKB RFC 0031].
-
+    
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
-* `nonce`:  - Miner can modify this field to find a proper value such that the Eaglesong of the header is
+* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
  within the target encoded from `compact_target`.
 
-* `number`:  - The consecutive block number starting from 0.
+* `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
-* `parent_hash`:  - The header hash of the parent block.
+* `parent_hash`: [`H256`](#type-h256) - The header hash of the parent block.
 
-* `proposals_hash`:  - The hash on `proposals` in the block body.
+* `proposals_hash`: [`H256`](#type-h256) - The hash on `proposals` in the block body.
 
     It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
 
-* `timestamp`:  - The block timestamp.
+* `timestamp`: [`Uint64`](#type-uint64) - The block timestamp.
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
-
+    
     Miners should put the time when the block is created in the header, however, the precision
     is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
-* `transactions_root`:  - The commitment to all the transactions in the block.
+* `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
     It is a hash on two Merkle Tree roots:
-
+    
     * The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
     * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
 
-* `version`:  - The block version.
+* `version`: [`AlertId`](#type-alertid) - The block version.
 
     It must equal to 0 now and is reserved for future upgrades.
 
@@ -5176,60 +5176,60 @@ The JSON view of a Header.
  }
  ```
 #### Fields:
-* `compact_target`:  - The block difficulty target.
+* `compact_target`: [`AlertId`](#type-alertid) - The block difficulty target.
 
     It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is
     within the target.
 
-* `dao`:  - DAO fields.
+* `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
 
-* `epoch`:  - The epoch information of this block.
+* `epoch`: [`Uint64`](#type-uint64) - The epoch information of this block.
 
     See `EpochNumberWithFraction` for details.
 
-* `extra_hash`:  - The hash on `uncles` and extension in the block body.
+* `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
     The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
     The extension hash is the hash of the extension.
     The extra hash is the hash on uncles hash and extension hash concatenated together.
-
+    
     **Notice**
-
+    
     This field is renamed from `uncles_hash` since 0.100.0.
     More details can be found in [CKB RFC 0031].
-
+    
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
-* `hash`:  - The header hash. It is also called the block hash.
+* `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
 
-* `nonce`:  - Miner can modify this field to find a proper value such that the Eaglesong of the header is
+* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
  within the target encoded from `compact_target`.
 
-* `number`:  - The consecutive block number starting from 0.
+* `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
-* `parent_hash`:  - The header hash of the parent block.
+* `parent_hash`: [`H256`](#type-h256) - The header hash of the parent block.
 
-* `proposals_hash`:  - The hash on `proposals` in the block body.
+* `proposals_hash`: [`H256`](#type-h256) - The hash on `proposals` in the block body.
 
     It is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together.
 
-* `timestamp`:  - The block timestamp.
+* `timestamp`: [`Uint64`](#type-uint64) - The block timestamp.
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
-
+    
     Miners should put the time when the block is created in the header, however, the precision
     is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
-* `transactions_root`:  - The commitment to all the transactions in the block.
+* `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
     It is a hash on two Merkle Tree roots:
-
+    
     * The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
     * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
 
-* `version`:  - The block version.
+* `version`: [`AlertId`](#type-alertid) - The block version.
 
     It must equal to 0 now and is reserved for future upgrades.
 
@@ -5237,13 +5237,13 @@ The JSON view of a Header.
 ### Type `IndexerCell`
 Live cell
 #### Fields:
-* `block_number`:  - the number of the transaction committed in the block
+* `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
-* `out_point`:  - reference to a cell via transaction hash and output index
+* `out_point`: [`OutPoint`](#type-outpoint) - reference to a cell via transaction hash and output index
 
-* `output`:  - the fields of an output cell
+* `output`: [`CellOutput`](#type-celloutput) - the fields of an output cell
 
-* `tx_index`:  - the position index of the transaction committed in the block
+* `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
 
 ### Type `IndexerCellType`
@@ -5253,11 +5253,11 @@ Cell type
 ### Type `IndexerCellsCapacity`
 Cells capacity
 #### Fields:
-* `block_hash`:  - indexed tip block hash
+* `block_hash`: [`H256`](#type-h256) - indexed tip block hash
 
-* `block_number`:  - indexed tip block number
+* `block_number`: [`Uint64`](#type-uint64) - indexed tip block number
 
-* `capacity`:  - total capacity
+* `capacity`: [`Uint64`](#type-uint64) - total capacity
 
 
 ### Type `IndexerOrder`
@@ -5267,17 +5267,17 @@ Order Desc | Asc
 ### Type `IndexerPagination_for_IndexerCell`
 IndexerPagination wraps objects array and last_cursor to provide paging
 #### Fields:
-* `last_cursor`:  - pagination parameter
+* `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
-* `objects`:  - objects collection
+* `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
 
 ### Type `IndexerPagination_for_IndexerTx`
 IndexerPagination wraps objects array and last_cursor to provide paging
 #### Fields:
-* `last_cursor`:  - pagination parameter
+* `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
-* `objects`:  - objects collection
+* `objects`: `Array<` [`IndexerTx`](#type-indexertx) `>` - objects collection
 
 
 ### Type `IndexerScriptSearchMode`
@@ -5291,9 +5291,9 @@ ScriptType `Lock` | `Type`
 ### Type `IndexerSearchKey`
 SearchKey represent indexer support params
 #### Fields:
-* `script`:  - Script
+* `script`: [`Script`](#type-script) - Script
 
-* `script_type`:  - Script Type
+* `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
 
 
 ### Type `IndexerSearchKeyFilter`
@@ -5303,9 +5303,9 @@ IndexerSearchKeyFilter represent indexer params `filter`
 ### Type `IndexerTip`
 Indexer tip information
 #### Fields:
-* `block_hash`:  - indexed tip block hash
+* `block_hash`: [`H256`](#type-h256) - indexed tip block hash
 
-* `block_number`:  - indexed tip block number
+* `block_number`: [`Uint64`](#type-uint64) - indexed tip block number
 
 
 ### Type `IndexerTx`
@@ -5315,27 +5315,27 @@ Indexer Transaction Object
 ### Type `IndexerTxWithCell`
 Ungrouped Tx inner type
 #### Fields:
-* `block_number`:  - the number of the transaction committed in the block
+* `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
-* `io_index`:  - the position index of the cell in the transaction inputs or outputs
+* `io_index`: [`AlertId`](#type-alertid) - the position index of the cell in the transaction inputs or outputs
 
-* `io_type`:  - io type
+* `io_type`: [`IndexerCellType`](#type-indexercelltype) - io type
 
-* `tx_hash`:  - transaction hash
+* `tx_hash`: [`H256`](#type-h256) - transaction hash
 
-* `tx_index`:  - the position index of the transaction committed in the block
+* `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
 
 ### Type `IndexerTxWithCells`
 Grouped Tx inner type
 #### Fields:
-* `block_number`:  - the number of the transaction committed in the block
+* `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
-* `cells`:  - Array [[io_type, io_index]]
+* `cells`: `Array<` ([`IndexerCellType`](#type-indexercelltype) , [`AlertId`](#type-alertid)) `>` - Array [(io_type, io_index)]
 
-* `tx_hash`:  - transaction hash
+* `tx_hash`: [`H256`](#type-h256) - transaction hash
 
-* `tx_index`:  - the position index of the transaction committed in the block
+* `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
 
 ### Type `JsonBytes`
@@ -5382,23 +5382,23 @@ The information of the node itself.
  }
  ```
 #### Fields:
-* `active`:  - Whether this node is active.
+* `active`: `boolean` - Whether this node is active.
 
     An inactive node ignores incoming p2p messages and drops outgoing messages.
 
-* `addresses`:  - P2P addresses of this node.
+* `addresses`: `Array<` [`NodeAddress`](#type-nodeaddress) `>` - P2P addresses of this node.
 
     A node can have multiple addresses.
 
-* `connections`:  - Count of currently connected peers.
+* `connections`: [`Uint64`](#type-uint64) - Count of currently connected peers.
 
-* `node_id`:  - The unique node ID derived from the p2p private key.
+* `node_id`: `string` - The unique node ID derived from the p2p private key.
 
     The private key is generated randomly on the first boot.
 
-* `protocols`:  - Supported protocols.
+* `protocols`: `Array<` [`LocalNodeProtocol`](#type-localnodeprotocol) `>` - Supported protocols.
 
-* `version`:  - CKB node version.
+* `version`: `string` - CKB node version.
 
     Example: "version": "0.34.0 (f37f598 2020-07-17)"
 
@@ -5406,11 +5406,11 @@ The information of the node itself.
 ### Type `LocalNodeProtocol`
 The information of a P2P protocol that is supported by the local node.
 #### Fields:
-* `id`:  - Unique protocol ID.
+* `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
-* `name`:  - Readable protocol name.
+* `name`: `string` - Readable protocol name.
 
-* `support_versions`:  - Supported versions.
+* `support_versions`: `Array<` `string` `>` - Supported versions.
 
     See [Semantic Version](https://semver.org/) about how to specify a version.
 
@@ -5424,41 +5424,41 @@ Proof of CKB Merkle Tree.
 
  CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
 #### Fields:
-* `indices`:  - Leaves indices in the CBMT that are proved present in the block.
+* `indices`: `Array<` [`AlertId`](#type-alertid) `>` - Leaves indices in the CBMT that are proved present in the block.
 
     These are indices in the CBMT tree not the transaction indices in the block.
 
-* `lemmas`:  - Hashes of all siblings along the paths to root.
+* `lemmas`: `Array<` [`H256`](#type-h256) `>` - Hashes of all siblings along the paths to root.
 
 
 ### Type `MinerReward`
 Block rewards for miners.
 #### Fields:
-* `committed`:  - The transaction fees that are rewarded to miners because the transaction is committed in the block.
+* `committed`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is committed in the block.
 
     Miners get 60% of the transaction fee for each transaction committed in the block.
 
-* `primary`:  - The primary base block reward allocated to miners.
+* `primary`: [`Uint64`](#type-uint64) - The primary base block reward allocated to miners.
 
-* `proposal`:  - The transaction fees that are rewarded to miners because the transaction is proposed in the block or
+* `proposal`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is proposed in the block or
  its uncles.
 
     Miners get 40% of the transaction fee for each transaction proposed in the block and
     committed later in its active commit window.
 
-* `secondary`:  - The secondary base block reward allocated to miners.
+* `secondary`: [`Uint64`](#type-uint64) - The secondary base block reward allocated to miners.
 
 
 ### Type `NodeAddress`
 Node P2P address and score.
 #### Fields:
-* `address`:  - P2P address.
+* `address`: `string` - P2P address.
 
     This is the same address used in the whitelist in ckb.toml.
-
+    
     Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
 
-* `score`:  - Address score.
+* `score`: [`Uint64`](#type-uint64) - Address score.
 
     A higher score means a higher probability of a successful connection.
 
@@ -5475,9 +5475,9 @@ Reference to a cell via transaction hash and output index.
  }
  ```
 #### Fields:
-* `index`:  - The output index of the cell in the transaction specified by `tx_hash`.
+* `index`: [`AlertId`](#type-alertid) - The output index of the cell in the transaction specified by `tx_hash`.
 
-* `tx_hash`:  - Transaction hash in which the cell is an output.
+* `tx_hash`: [`H256`](#type-h256) - Transaction hash in which the cell is an output.
 
 
 ### Type `OutputsValidator`
@@ -5487,11 +5487,11 @@ Transaction output validators that prevent common mistakes.
 ### Type `PeerSyncState`
 The chain synchronization state between the local node and a remote node.
 #### Fields:
-* `can_fetch_count`:  - The count of blocks are available for concurrency download.
+* `can_fetch_count`: [`Uint64`](#type-uint64) - The count of blocks are available for concurrency download.
 
-* `inflight_count`:  - The count of concurrency downloading blocks.
+* `inflight_count`: [`Uint64`](#type-uint64) - The count of concurrency downloading blocks.
 
-* `unknown_header_list_size`:  - The total size of unknown header list.
+* `unknown_header_list_size`: [`Uint64`](#type-uint64) - The total size of unknown header list.
 
     **Deprecated**: this is an internal state and will be removed in a future release.
 
@@ -5526,18 +5526,18 @@ Two protocol parameters `closest` and `farthest` define the closest
                              commit
  ```
 #### Fields:
-* `closest`:  - The closest distance between the proposal and the commitment.
+* `closest`: [`Uint64`](#type-uint64) - The closest distance between the proposal and the commitment.
 
-* `farthest`:  - The farthest distance between the proposal and the commitment.
+* `farthest`: [`Uint64`](#type-uint64) - The farthest distance between the proposal and the commitment.
 
 
 ### Type `Ratio`
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
  unsigned 64-bit integers.
 #### Fields:
-* `denom`:  - Denominator.
+* `denom`: [`Uint64`](#type-uint64) - Denominator.
 
-* `numer`:  - Numerator.
+* `numer`: [`Uint64`](#type-uint64) - Numerator.
 
 
 ### Type `RawTxPool`
@@ -5619,39 +5619,39 @@ Information of a remote node.
  }
  ```
 #### Fields:
-* `addresses`:  - The remote node addresses.
+* `addresses`: `Array<` [`NodeAddress`](#type-nodeaddress) `>` - The remote node addresses.
 
-* `connected_duration`:  - Elapsed time in milliseconds since the remote node is connected.
+* `connected_duration`: [`Uint64`](#type-uint64) - Elapsed time in milliseconds since the remote node is connected.
 
-* `is_outbound`:  - Whether this is an outbound remote node.
+* `is_outbound`: `boolean` - Whether this is an outbound remote node.
 
     If the connection is established by the local node, `is_outbound` is true.
 
-* `node_id`:  - The remote node ID which is derived from its P2P private key.
+* `node_id`: `string` - The remote node ID which is derived from its P2P private key.
 
-* `protocols`:  - Active protocols.
+* `protocols`: `Array<` [`RemoteNodeProtocol`](#type-remotenodeprotocol) `>` - Active protocols.
 
     CKB uses Tentacle multiplexed network framework. Multiple protocols are running
     simultaneously in the connection.
 
-* `version`:  - The remote node version.
+* `version`: `string` - The remote node version.
 
 
 ### Type `RemoteNodeProtocol`
 The information about an active running protocol.
 #### Fields:
-* `id`:  - Unique protocol ID.
+* `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
-* `version`:  - Active protocol version.
+* `version`: `string` - Active protocol version.
 
 
 ### Type `Rfc0043`
 Represent soft fork deployments
  where activation is controlled by rfc0043 signaling
 #### Fields:
-* `rfc0043`:  - RFC0043 deployment params
+* `rfc0043`: [`Deployment`](#type-deployment) - RFC0043 deployment params
 
-* `status`:  - SoftFork status
+* `status`: [`SoftForkStatus`](#type-softforkstatus) - SoftFork status
 
 
 ### Type `Script`
@@ -5667,11 +5667,11 @@ Describes the lock script and type script for a cell.
  }
  ```
 #### Fields:
-* `args`:  - Arguments for script.
+* `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
 
-* `code_hash`:  - The hash used to match the script code.
+* `code_hash`: [`H256`](#type-h256) - The hash used to match the script code.
 
-* `hash_type`:  - Specifies how to use the `code_hash` to match the script code.
+* `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
 
 
 ### Type `ScriptHashType`
@@ -5707,38 +5707,38 @@ Status for transaction
 ### Type `SyncState`
 The overall chain synchronization state of this local node.
 #### Fields:
-* `best_known_block_number`:  - This is the best known block number observed by the local node from the P2P network.
+* `best_known_block_number`: [`Uint64`](#type-uint64) - This is the best known block number observed by the local node from the P2P network.
 
     The best here means that the block leads a chain which has the best known accumulated
     difficulty.
-
+    
     This can be used to estimate the synchronization progress. If this RPC returns B, and the
     RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks.
 
-* `best_known_block_timestamp`:  - This is timestamp of the same block described in `best_known_block_number`.
+* `best_known_block_timestamp`: [`Uint64`](#type-uint64) - This is timestamp of the same block described in `best_known_block_number`.
 
-* `fast_time`:  - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
+* `fast_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
 
-* `ibd`:  - Whether the local node is in IBD, Initial Block Download.
+* `ibd`: `boolean` - Whether the local node is in IBD, Initial Block Download.
 
     When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     the IBD until it catches up the synchronization.
-
+    
     During IBD, the local node only synchronizes the chain with one selected remote node and
     stops responding to most P2P requests.
 
-* `inflight_blocks_count`:  - Count of downloading blocks.
+* `inflight_blocks_count`: [`Uint64`](#type-uint64) - Count of downloading blocks.
 
-* `low_time`:  - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+* `low_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
 
-* `normal_time`:  - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
+* `normal_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
 
-* `orphan_blocks_count`:  - Count of orphan blocks the local node has downloaded.
+* `orphan_blocks_count`: [`Uint64`](#type-uint64) - Count of orphan blocks the local node has downloaded.
 
     The local node downloads multiple blocks simultaneously but blocks must be connected
     consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan
     block.
-
+    
     If this number is too high, it indicates that block download has stuck at some block.
 
 
@@ -5747,36 +5747,36 @@ The transaction.
 
  Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
 #### Fields:
-* `cell_deps`:  - An array of cell deps.
+* `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
     CKB locates lock script and type script code via cell deps. The script also can use syscalls
     to read the cells here.
-
+    
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
-* `header_deps`:  - An array of header deps.
+* `header_deps`: `Array<` [`H256`](#type-h256) `>` - An array of header deps.
 
     The block must already be in the canonical chain.
-
+    
     Lock script and type script can read the header information of blocks listed here.
 
-* `inputs`:  - An array of input cells.
+* `inputs`: `Array<` [`CellInput`](#type-cellinput) `>` - An array of input cells.
 
     In the canonical chain, any cell can only appear as an input once.
 
-* `outputs`:  - An array of output cells.
+* `outputs`: `Array<` [`CellOutput`](#type-celloutput) `>` - An array of output cells.
 
-* `outputs_data`:  - Output cells data.
+* `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
     This is a parallel array of outputs. The cell capacity, lock, and type of the output i is
     `outputs[i]` and its data is `outputs_data[i]`.
 
-* `version`:  - Reserved for future usage. It must equal 0 in current version.
+* `version`: [`AlertId`](#type-alertid) - Reserved for future usage. It must equal 0 in current version.
 
-* `witnesses`:  - An array of variable-length binaries.
+* `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
-
+    
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
@@ -5784,33 +5784,33 @@ The transaction.
 ### Type `TransactionAndWitnessProof`
 Merkle proof for transactions' witnesses in a block.
 #### Fields:
-* `block_hash`:  - Block hash
+* `block_hash`: [`H256`](#type-h256) - Block hash
 
-* `transactions_proof`:  - Merkle proof of all transactions' hash
+* `transactions_proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions' hash
 
-* `witnesses_proof`:  - Merkle proof of transactions' witnesses
+* `witnesses_proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of transactions' witnesses
 
 
 ### Type `TransactionProof`
 Merkle proof for transactions in a block.
 #### Fields:
-* `block_hash`:  - Block hash
+* `block_hash`: [`H256`](#type-h256) - Block hash
 
-* `proof`:  - Merkle proof of all transactions' hash
+* `proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions' hash
 
-* `witnesses_root`:  - Merkle root of all transactions' witness hash
+* `witnesses_root`: [`H256`](#type-h256) - Merkle root of all transactions' witness hash
 
 
 ### Type `TransactionTemplate`
 Transaction template which is ready to be committed in the new block.
 #### Fields:
-* `data`:  - The transaction.
+* `data`: [`Transaction`](#type-transaction) - The transaction.
 
     Miners must keep it unchanged when including it in the new block.
 
-* `hash`:  - Transaction hash.
+* `hash`: [`H256`](#type-h256) - Transaction hash.
 
-* `required`:  - Whether miner must include this transaction in the new block.
+* `required`: `boolean` - Whether miner must include this transaction in the new block.
 
 
 ### Type `TransactionView`
@@ -5864,38 +5864,38 @@ The JSON view of a Transaction.
  }
  ```
 #### Fields:
-* `cell_deps`:  - An array of cell deps.
+* `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
     CKB locates lock script and type script code via cell deps. The script also can use syscalls
     to read the cells here.
-
+    
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
-* `hash`:  - The transaction hash.
+* `hash`: [`H256`](#type-h256) - The transaction hash.
 
-* `header_deps`:  - An array of header deps.
+* `header_deps`: `Array<` [`H256`](#type-h256) `>` - An array of header deps.
 
     The block must already be in the canonical chain.
-
+    
     Lock script and type script can read the header information of blocks listed here.
 
-* `inputs`:  - An array of input cells.
+* `inputs`: `Array<` [`CellInput`](#type-cellinput) `>` - An array of input cells.
 
     In the canonical chain, any cell can only appear as an input once.
 
-* `outputs`:  - An array of output cells.
+* `outputs`: `Array<` [`CellOutput`](#type-celloutput) `>` - An array of output cells.
 
-* `outputs_data`:  - Output cells data.
+* `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
     This is a parallel array of outputs. The cell capacity, lock, and type of the output i is
     `outputs[i]` and its data is `outputs_data[i]`.
 
-* `version`:  - Reserved for future usage. It must equal 0 in current version.
+* `version`: [`AlertId`](#type-alertid) - Reserved for future usage. It must equal 0 in current version.
 
-* `witnesses`:  - An array of variable-length binaries.
+* `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
-
+    
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
@@ -5903,87 +5903,87 @@ The JSON view of a Transaction.
 ### Type `TransactionWithStatusResponse`
 The JSON view of a transaction as well as its status.
 #### Fields:
-* `tx_status`:  - The Transaction status.
+* `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
 
 ### Type `TxPoolEntries`
 Tx-pool entries object
 #### Fields:
-* `pending`:  - Pending tx verbose info
+* `pending`: `object` - Pending tx verbose info
 
-* `proposed`:  - Proposed tx verbose info
+* `proposed`: `object` - Proposed tx verbose info
 
 
 ### Type `TxPoolEntry`
 Transaction entry info
 #### Fields:
-* `ancestors_count`:  - Number of in-tx-pool ancestor transactions
+* `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
-* `ancestors_cycles`:  - Cycles of in-tx-pool ancestor transactions
+* `ancestors_cycles`: [`Uint64`](#type-uint64) - Cycles of in-tx-pool ancestor transactions
 
-* `ancestors_size`:  - Size of in-tx-pool ancestor transactions
+* `ancestors_size`: [`Uint64`](#type-uint64) - Size of in-tx-pool ancestor transactions
 
-* `cycles`:  - Consumed cycles.
+* `cycles`: [`Uint64`](#type-uint64) - Consumed cycles.
 
-* `fee`:  - The transaction fee.
+* `fee`: [`Uint64`](#type-uint64) - The transaction fee.
 
-* `size`:  - The transaction serialized size in block.
+* `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
 
-* `timestamp`:  - The unix timestamp when entering the Txpool, unit: Millisecond
+* `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
 
 
 ### Type `TxPoolIds`
 Array of transaction ids
 #### Fields:
-* `pending`:  - Pending transaction ids
+* `pending`: `Array<` [`H256`](#type-h256) `>` - Pending transaction ids
 
-* `proposed`:  - Proposed transaction ids
+* `proposed`: `Array<` [`H256`](#type-h256) `>` - Proposed transaction ids
 
 
 ### Type `TxPoolInfo`
 Transaction pool information.
 #### Fields:
-* `last_txs_updated_at`:  - Last updated time. This is the Unix timestamp in milliseconds.
+* `last_txs_updated_at`: [`Uint64`](#type-uint64) - Last updated time. This is the Unix timestamp in milliseconds.
 
-* `max_tx_pool_size`:  - Total limit on the size of transactions in the tx-pool
+* `max_tx_pool_size`: [`Uint64`](#type-uint64) - Total limit on the size of transactions in the tx-pool
 
-* `min_fee_rate`:  - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+* `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
-* `min_rbf_rate`:  - RBF rate threshold.
+* `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold.
 
     The pool reject to replace for transactions which fee rate is below this threshold.
     if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
-
+    
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
-* `orphan`:  - Count of orphan transactions.
+* `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
     An orphan transaction has an input cell from the transaction which is neither in the chain
     nor in the transaction pool.
 
-* `pending`:  - Count of transactions in the pending state.
+* `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
     The pending transactions must be proposed in a new block first.
 
-* `proposed`:  - Count of transactions in the proposed state.
+* `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
     The proposed transactions are ready to be committed in the new block after the block
     `tip_hash`.
 
-* `tip_hash`:  - The associated chain tip block hash.
+* `tip_hash`: [`H256`](#type-h256) - The associated chain tip block hash.
 
     The transaction pool is stateful. It manages the transactions which are valid to be
     committed after this block.
 
-* `tip_number`:  - The block number of the block `tip_hash`.
+* `tip_number`: [`Uint64`](#type-uint64) - The block number of the block `tip_hash`.
 
-* `total_tx_cycles`:  - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
-* `total_tx_size`:  - Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
+* `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
 
-* `tx_size_limit`:  - Limiting transactions to tx_size_limit
+* `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
 
     Transactions with a large size close to the block size limit may not be packaged,
     because the block header and cellbase are occupied,
@@ -5993,7 +5993,7 @@ Transaction pool information.
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
 #### Fields:
-* `status`:  - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
+* `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
 
 ### Type `Uint128`
@@ -6018,9 +6018,9 @@ The uncle block used as a parameter in the RPC.
  3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
  4. B2 is the first block in its chain to refer to B1.
 #### Fields:
-* `header`:  - The uncle block header.
+* `header`: [`Header`](#type-header) - The uncle block header.
 
-* `proposals`:  - Proposal IDs in the uncle block body.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
 
 ### Type `UncleBlockView`
@@ -6037,22 +6037,24 @@ The uncle block.
  3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
  4. B2 is the first block in its chain to refer to B1.
 #### Fields:
-* `header`:  - The uncle block header.
+* `header`: [`HeaderView`](#type-headerview) - The uncle block header.
 
-* `proposals`:  - Proposal IDs in the uncle block body.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
 
 ### Type `UncleTemplate`
 The uncle block template of the new block for miners.
 #### Fields:
-* `hash`:  - The uncle block hash.
+* `hash`: [`H256`](#type-h256) - The uncle block hash.
 
-* `header`:  - The header of the uncle block.
-
-    Miners must keep this unchanged when including this uncle in the new block.
-
-* `proposals`:  - The proposals of the uncle block.
+* `header`: [`Header`](#type-header) - The header of the uncle block.
 
     Miners must keep this unchanged when including this uncle in the new block.
 
-* `required`:  - Whether miners must include this uncle in the submit block.
+* `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposals of the uncle block.
+
+    Miners must keep this unchanged when including this uncle in the new block.
+
+* `required`: `boolean` - Whether miners must include this uncle in the submit block.
+
+

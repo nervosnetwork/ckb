@@ -12,7 +12,13 @@ fn to_type(ty: &Value) -> String {
         Value::Object(map) => {
             if let Some(ty) = map.get("type") {
                 if ty.as_str() == Some("array") {
-                    format!("`Array<` {} `>`", to_type(&map["items"]))
+                    // if `maxItems` is not set, then it's a fixed length array
+                    // means it's a tuple, will be handled by `Value::Array` case
+                    if map.get("maxItems").is_none() {
+                        format!("`Array<` {} `>`", to_type(&map["items"]))
+                    } else {
+                        to_type(&map["items"])
+                    }
                 } else if ty.as_array().is_some() {
                     let ty = ty
                         .as_array()
@@ -35,8 +41,13 @@ fn to_type(ty: &Value) -> String {
                     .join(" `|` ")
             } else {
                 let ty = map["$ref"].as_str().unwrap().split('/').last().unwrap();
-                format!("[`{}`](#type-{})", ty, ty)
+                format!("[`{}`](#type-{})", ty, ty.to_lowercase())
             }
+        }
+        Value::Array(arr) => {
+            // the `tuple` case
+            let elems = arr.iter().map(to_type).collect::<Vec<_>>().join(" , ");
+            format!("({})", elems)
         }
         Value::Null => "".to_owned(),
         _ => ty.as_str().unwrap().to_string(),
@@ -114,7 +125,7 @@ impl RpcModule {
     }
 }
 
-fn format_type_field(desc: &str) -> String {
+fn gen_type_desc(desc: &str) -> String {
     // split desc by "\n\n" and only keep the first line
     // then add extra leading space for left lines
     let split = desc.split("\n\n");
@@ -156,9 +167,9 @@ fn gen_type_fields(ty: &Value) -> String {
                 let field = field.as_str().unwrap();
                 let field_desc = ty["properties"][field]["description"]
                     .as_str()
-                    .map_or_else(|| "".to_owned(), format_type_field);
-                let ty = to_type(&ty["properties"][field]["schema"]);
-                format!("* `{}`: {}{}", field, ty, field_desc)
+                    .map_or_else(|| "".to_owned(), gen_type_desc);
+                let ty_ref = to_type(&ty["properties"][field]);
+                format!("* `{}`: {}{}", field, ty_ref, field_desc)
             })
             .collect::<Vec<_>>()
             .join("\n");

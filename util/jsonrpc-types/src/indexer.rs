@@ -242,7 +242,7 @@ pub struct IndexerTxWithCells {
     pub block_number: BlockNumber,
     /// the position index of the transaction committed in the block
     pub tx_index: Uint32,
-    /// Array [[io_type, io_index]]
+    /// Array [(io_type, io_index)]
     pub cells: Vec<(IndexerCellType, Uint32)>,
 }
 
