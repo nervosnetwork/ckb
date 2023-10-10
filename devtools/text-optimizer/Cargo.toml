@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 cargo_metadata = "0.18"
 clap = { version = "4", features = ["derive", "string"] }
+env_logger = "0.10"
+log = "0.4"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 serde = "1.0"
 serde_yaml = "0.9"

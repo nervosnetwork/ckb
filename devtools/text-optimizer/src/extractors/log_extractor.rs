@@ -6,7 +6,6 @@ use syn::Macro;
 impl syn::visit::Visit<'_> for LogExtractor {
     fn visit_macro(&mut self, node: &Macro) {
         if let Some(ident) = node.path.get_ident() {
-            // Determine if the macro is println!
             if ident == "error"
                 || ident == "warn"
                 || ident == "info"
@@ -15,7 +14,7 @@ impl syn::visit::Visit<'_> for LogExtractor {
             {
                 if let Some(lit) = node.tokens.clone().into_iter().next() {
                     if let Some(text) = extract_contents_in_brackets(lit.to_string()) {
-                        println!("Found format string: {}", text);
+                        log::trace!("Found target text: {}", text);
 
                         let span = lit.span();
                         let start_line = span.start().line;

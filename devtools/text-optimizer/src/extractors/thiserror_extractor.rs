@@ -1,18 +1,31 @@
 use super::{extract_contents_in_brackets, ThiserrorExtractor};
 use crate::types::{Category, Meta, TextInfo};
+use syn::spanned::Spanned;
 use syn::Expr::{self, Lit};
 use syn::Lit::Str;
 
 impl syn::visit::Visit<'_> for ThiserrorExtractor {
     fn visit_attribute(&mut self, attr: &syn::Attribute) {
         if attr.path().is_ident("error") {
-            let precondition: Expr = attr.parse_args().unwrap();
+            let precondition: Expr = {
+                if let Ok(precondition) = attr.parse_args() {
+                    precondition
+                } else {
+                    let span = attr.span();
+                    log::warn!(
+                        "parse args failed, ignore the file: {:?}, code line: {:?}",
+                        self.file_path,
+                        span.start().line
+                    );
+                    return;
+                }
+            };
             if let Lit(lit) = precondition {
                 if let Str(lit_str) = lit.lit {
                     let lit = lit_str.token().to_string();
 
                     if let Some(text) = extract_contents_in_brackets(lit) {
-                        println!("Found format string: {}", text);
+                        log::trace!("Found target text: {}", text);
 
                         let span = lit_str.span();
                         let start_line = span.start().line;

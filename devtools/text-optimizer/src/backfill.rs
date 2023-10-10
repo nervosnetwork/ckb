@@ -10,7 +10,7 @@ use std::{
 pub fn backfill(input_dir: &PathBuf) {
     let log_text_file = input_dir.to_owned().join(LOG_TEXT_FILE);
     let log_text_list = load_yaml(&log_text_file).expect("load yaml");
-    println!("{:#?}", log_text_list);
+    log::debug!("{:#?}", log_text_list);
 
     for log_text in log_text_list {
         let file_path = log_text.metadata().file();

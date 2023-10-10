@@ -40,6 +40,9 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
+        
     match &cli.command {
         Some(Commands::Extract { output_dir }) => {
             extract(PathBuf::from(PROJECT_ROOT), output_dir);

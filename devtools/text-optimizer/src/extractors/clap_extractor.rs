@@ -13,7 +13,7 @@ impl syn::visit::Visit<'_> for ClapExtractor {
                     let lit = lit_str.token().to_string();
 
                     if let Some(text) = extract_contents_in_brackets(lit) {
-                        println!("Found format string: {}", text);
+                        log::trace!("Found target text: {}", text);
 
                         let span = lit_str.span();
                         let start_line = span.start().line;
