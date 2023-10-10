@@ -23,7 +23,10 @@ impl From<serde_yaml::Error> for MyError {
 
 pub fn save_yaml(file: &PathBuf, data: &[TextInfo]) -> Result<(), MyError> {
     let mut file = File::create(file)?;
-    file.write_fmt(format_args!("# Number of TextInfo items: {}\n\n", data.len()))?;
+    file.write_fmt(format_args!(
+        "# Number of TextInfo items: {}\n\n",
+        data.len()
+    ))?;
     serde_yaml::to_writer(file, data)?;
     Ok(())
 }
