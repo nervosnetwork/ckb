@@ -14,3 +14,7 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 serde = "1.0"
 serde_yaml = "0.9"
 syn = { version = "2", features = ["visit", "full"] }
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
