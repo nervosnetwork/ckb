@@ -1,5 +1,6 @@
 use super::types::TextInfo;
 use std::io::Read;
+use std::io::Write;
 use std::{fs::File, path::PathBuf};
 
 #[derive(Debug)]
@@ -21,7 +22,8 @@ impl From<serde_yaml::Error> for MyError {
 }
 
 pub fn save_yaml(file: &PathBuf, data: &[TextInfo]) -> Result<(), MyError> {
-    let file = File::create(file)?;
+    let mut file = File::create(file)?;
+    file.write_fmt(format_args!("# Number of TextInfo items: {}\n\n", data.len()))?;
     serde_yaml::to_writer(file, data)?;
     Ok(())
 }
