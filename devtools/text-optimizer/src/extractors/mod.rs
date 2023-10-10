@@ -38,8 +38,13 @@ macro_rules! define_extractor {
                 self.list.push(text_info)
             }
 
-            pub fn get_text_list(&self) -> &[TextInfo] {
+            pub fn text_list(&self) -> &[TextInfo] {
                 &self.list
+            }
+
+            #[allow(dead_code)]
+            pub fn file_path(&self) -> &PathBuf {
+                &self.file_path
             }
         }
     };
@@ -152,43 +157,35 @@ fn save_as_file(
 
     println!();
 
-    save_yaml(
-        &output_dir.join(LOG_TEXT_FILE),
-        log_extractor.get_text_list(),
-    )
-    .expect("save yaml");
+    save_yaml(&output_dir.join(LOG_TEXT_FILE), log_extractor.text_list()).expect("save yaml");
     println!(
         "Extract LOG category text: {:?}",
-        log_extractor.get_text_list().len()
+        log_extractor.text_list().len()
     );
 
-    save_yaml(
-        &output_dir.join(CLAP_TEXT_FILE),
-        clap_extractor.get_text_list(),
-    )
-    .expect("save yaml");
+    save_yaml(&output_dir.join(CLAP_TEXT_FILE), clap_extractor.text_list()).expect("save yaml");
     println!(
         "Extract CLAP category text: {:?}",
-        clap_extractor.get_text_list().len()
+        clap_extractor.text_list().len()
     );
 
     save_yaml(
         &output_dir.join(STD_OUTPUT_TEXT_FILE),
-        std_output_extractor.get_text_list(),
+        std_output_extractor.text_list(),
     )
     .expect("save yaml");
     println!(
         "Extract STD OUPUT category text: {:?}",
-        std_output_extractor.get_text_list().len()
+        std_output_extractor.text_list().len()
     );
 
     save_yaml(
         &output_dir.join(THISERROR_TEXT_FILE),
-        thiserror_extractor.get_text_list(),
+        thiserror_extractor.text_list(),
     )
     .expect("save yaml");
     println!(
         "Extract THISERROR category text: {:?}",
-        thiserror_extractor.get_text_list().len()
+        thiserror_extractor.text_list().len()
     );
 }
