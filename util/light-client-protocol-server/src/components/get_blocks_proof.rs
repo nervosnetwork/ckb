@@ -40,14 +40,15 @@ impl<'a> GetBlocksProofProcess<'a> {
 
         let snapshot = self.protocol.shared.snapshot();
 
-        let last_hash = self.message.last_hash().to_entity();
-        let last_block = if let Some(block) = snapshot.get_block(&last_hash) {
-            block
-        } else {
+        let last_block_hash = self.message.last_hash().to_entity();
+        if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
                 .reply_tip_state::<packed::SendBlocksProof>(self.peer, self.nc);
-        };
+        }
+        let last_block = snapshot
+            .get_block(&last_block_hash)
+            .expect("block should be in store");
 
         let block_hashes: Vec<_> = self
             .message
@@ -59,42 +60,30 @@ impl<'a> GetBlocksProofProcess<'a> {
         let mut uniq = HashSet::new();
         if !block_hashes
             .iter()
-            .chain([last_hash.clone()].iter())
+            .chain([last_block_hash].iter())
             .all(|hash| uniq.insert(hash))
         {
             return StatusCode::MalformedProtocolMessage
                 .with_context("duplicate block hash exists");
         }
 
-        let (positions, block_headers, missing_blocks) = block_hashes
+        let (found, missing): (Vec<_>, Vec<_>) = block_hashes
             .into_iter()
-            .map(|block_hash| {
-                snapshot
-                    .get_block_header(&block_hash)
-                    .map(|header| header.number())
-                    .filter(|number| *number != last_block.number())
-                    .and_then(|number| snapshot.get_ancestor(&last_hash, number))
-                    .filter(|header| header.hash() == block_hash)
-                    .ok_or(block_hash)
-            })
-            .fold(
-                (Vec::new(), Vec::new(), Vec::new()),
-                |(mut positions, mut block_headers, mut missing_blocks), result| {
-                    match result {
-                        Ok(header) => {
-                            positions.push(leaf_index_to_pos(header.number()));
-                            block_headers.push(header);
-                        }
-                        Err(block_hash) => {
-                            missing_blocks.push(block_hash);
-                        }
-                    }
-                    (positions, block_headers, missing_blocks)
-                },
-            );
+            .partition(|block_hash| snapshot.is_main_chain(block_hash));
 
-        let proved_items = block_headers.into_iter().map(|view| view.data()).pack();
-        let missing_items = missing_blocks.pack();
+        let mut positions = Vec::with_capacity(found.len());
+        let mut block_headers = Vec::with_capacity(found.len());
+
+        for block_hash in found {
+            let header = snapshot
+                .get_block_header(&block_hash)
+                .expect("header should be in store");
+            positions.push(leaf_index_to_pos(header.number()));
+            block_headers.push(header.data());
+        }
+
+        let proved_items = block_headers.pack();
+        let missing_items = missing.pack();
 
         self.protocol.reply_proof::<packed::SendBlocksProof>(
             self.peer,
