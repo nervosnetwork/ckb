@@ -1,0 +1,14 @@
+[package]
+name = "text-optimizer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cargo_metadata = "0.18"
+clap = { version = "4", features = ["derive", "string"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+serde = "1.0"
+serde_yaml = "0.9"
+syn = { version = "2", features = ["visit", "full"] }

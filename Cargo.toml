@@ -92,6 +92,7 @@ members = [
     "util/launcher",
     "ckb-bin"
 ]
+exclude = ["devtools/text-optimizer"]
 
 [workspace.dependencies]
 tempfile = "3"
