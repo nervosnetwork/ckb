@@ -150,24 +150,45 @@ fn save_as_file(
 ) {
     fs::create_dir_all(output_dir).expect("create dir all");
 
+    println!();
+
     save_yaml(
         &output_dir.join(LOG_TEXT_FILE),
         log_extractor.get_text_list(),
     )
     .expect("save yaml");
+    println!(
+        "Extract LOG category text: {:?}",
+        log_extractor.get_text_list().len()
+    );
+
     save_yaml(
         &output_dir.join(CLAP_TEXT_FILE),
         clap_extractor.get_text_list(),
     )
     .expect("save yaml");
+    println!(
+        "Extract CLAP category text: {:?}",
+        clap_extractor.get_text_list().len()
+    );
+
     save_yaml(
         &output_dir.join(STD_OUTPUT_TEXT_FILE),
         std_output_extractor.get_text_list(),
     )
     .expect("save yaml");
+    println!(
+        "Extract STD OUPUT category text: {:?}",
+        std_output_extractor.get_text_list().len()
+    );
+
     save_yaml(
         &output_dir.join(THISERROR_TEXT_FILE),
         thiserror_extractor.get_text_list(),
     )
     .expect("save yaml");
+    println!(
+        "Extract THISERROR category text: {:?}",
+        thiserror_extractor.get_text_list().len()
+    );
 }
