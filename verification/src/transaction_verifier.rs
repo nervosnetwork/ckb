@@ -585,10 +585,16 @@ impl CapacityVerifier {
             .resolved_inputs
             .iter()
             .any(|cell_meta| {
-                cell_uses_dao_type_script(
-                    &cell_meta.cell_output,
-                    self.dao_type_hash.as_ref().expect("No dao system cell"),
-                )
+                cell_meta
+                    .cell_output
+                    .type_()
+                    .to_opt()
+                    .map(|t| {
+                        Into::<u8>::into(t.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+                            && &t.code_hash()
+                                == self.dao_type_hash.as_ref().expect("No dao system cell")
+                    })
+                    .unwrap_or(false)
             })
     }
 }
