@@ -89,6 +89,7 @@ members = [
     "util/launcher/migration-template",
     "util/light-client-protocol-server",
     "util/launcher",
+    "devtools/doc/rpc-gen",
     "ckb-bin"
 ]
 

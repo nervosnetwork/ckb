@@ -26,7 +26,8 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn gen_rpc_readme(readme_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Generate rpc readme
+pub fn gen_rpc_readme(readme_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let all_rpc = vec![
         alert_rpc_doc(),
         net_rpc_doc(),

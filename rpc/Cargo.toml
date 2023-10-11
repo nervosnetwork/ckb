@@ -8,10 +8,6 @@ description = "CKB RPC server."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
-[[bin]]
-name = "ckb-rpc-gen-doc"
-path = "src/gen_doc/main.rs"
-
 [dependencies]
 ckb-chain-spec = { path = "../spec", version = "= 0.112.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.112.0-pre" }
@@ -53,7 +49,7 @@ futures-util = { version = "0.3.21" }
 tower-http = { version = "0.3.5", features = ["timeout"] }
 async-stream = "0.3.3"
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.112.0-pre" }
-schemars = { git = "https://github.com/chenyukang/schemars", branch = "fix-derive"}
+schemars = { git = "https://github.com/chenyukang/schemars", branch = "fix-derive" }
 #schemars = "0.8.15"
 
 [dev-dependencies]

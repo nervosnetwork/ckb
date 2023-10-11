@@ -57,7 +57,7 @@ pub trait AlertRpc {
     ///
     /// Response
     ///
-    /// ```json
+        /// ```json
     /// {
     ///   "error": {
     ///     "code": -1000,

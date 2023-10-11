@@ -333,7 +333,7 @@ fn gen_errors_content(res: &mut String) {
 /// generate subscription module, which is handled specially here
 /// since jsonrpc-utils ignore the `SubscriptionRpc`
 fn gen_subscription_rpc_doc(res: &mut String) {
-    let pubsub_module_source = include_str!("../module/subscription.rs");
+    let pubsub_module_source = include_str!("../../../../rpc/src/module/subscription.rs");
     // read comments before `pub trait SubscriptionRpc` and treat it as module summary
     let summary = pubsub_module_source
         .lines()

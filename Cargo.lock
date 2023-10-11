@@ -1252,6 +1252,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-rpc-gen"
+version = "0.1.0"
+dependencies = [
+ "ckb-rpc",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ckb-rust-unstable-port"
 version = "0.112.0-pre"
 dependencies = [

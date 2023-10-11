@@ -107,8 +107,8 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc:  ## Generate rpc documentation
-	cd rpc && cargo build
-	./target/debug/ckb-rpc-gen-doc rpc/README.md
+	cd devtools/doc/rpc-gen && cargo build
+	./target/debug/ckb-rpc-gen rpc/README.md
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
