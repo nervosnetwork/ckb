@@ -142,9 +142,10 @@ function run-integration-directly {
 }
 
 function run-gen-rpc-doc {
-  rm -ErrorAction SilentlyContinue -Force target/doc/ckb_rpc/module/trait.*.html
-  cargo doc --workspace
-  python3 ./devtools/doc/rpc.py > rpc/README.md
+  pushd devtools/doc/rpc-gen/
+  cargo build
+  popd
+  ./target/debug/rpc-gen rpc/README.md
 }
 
 try {
