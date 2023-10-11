@@ -4,11 +4,11 @@ use ckb_logger_service::Logger;
 use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
 use jsonrpc_utils::rpc;
 use std::time;
+
 /// RPC Module Debug for internal RPC methods.
 ///
 /// **This module is for CKB developers and will not guarantee compatibility.** The methods here
 /// will be changed or removed without advanced notification.
-#[doc(hidden)]
 #[rpc(openrpc)]
 #[async_trait]
 pub trait DebugRpc {

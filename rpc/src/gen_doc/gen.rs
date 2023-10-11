@@ -5,11 +5,12 @@ use std::fs;
 
 struct RpcModule {
     pub module_title: String,
+    pub module_description: String,
     pub module_methods: Vec<serde_json::Value>,
 }
 
 impl RpcModule {
-    pub fn gen_methods_menu(&self) -> String {
+    pub fn gen_module_menu(&self) -> String {
         let mut res = String::new();
         let capitlized = capitlize(self.module_title.as_str());
         res.push_str(&format!(
@@ -34,10 +35,13 @@ impl RpcModule {
         res
     }
 
-    pub fn gen_methods_content(&self) -> String {
+    pub fn gen_module_content(&self) -> String {
         let mut res = String::new();
         let capitlized = capitlize(self.module_title.as_str());
+        let description = self.module_description.replace("##", "#####");
+
         res.push_str(&format!("### Module {}\n", capitlized));
+        res.push_str(&format!("{}\n\n", description));
 
         for method in &self.module_methods {
             // generate method signatures
@@ -87,14 +91,21 @@ impl RpcDocGenerator {
         let mut all_types: Vec<&Map<String, Value>> = vec![];
         for rpc in all_rpc {
             if let serde_json::Value::Object(map) = rpc {
-                let module_title = map["info"]["title"].as_str().unwrap();
-                // strip `_rpc` suffix
-                let module_title = &module_title[..module_title.len() - 4];
+                let module_title = map["info"]["title"]
+                    .as_str()
+                    .unwrap()
+                    .trim_end_matches("_rpc")
+                    .to_string();
+                let module_description = map["info"]["description"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 let module_methods = map["methods"].as_array().unwrap();
                 let types = map["components"]["schemas"].as_object().unwrap();
                 all_types.push(types);
                 rpc_module_methods.push(RpcModule {
-                    module_title: module_title.to_owned(),
+                    module_title,
+                    module_description,
                     module_methods: module_methods.to_owned(),
                 });
             }
@@ -136,7 +147,7 @@ impl RpcDocGenerator {
         // generate methods menu
         res.push_str("\n\n* [RPC Methods](#rpc-methods)\n");
         for rpc_module in self.rpc_module_methods.iter() {
-            res.push_str(&rpc_module.gen_methods_menu());
+            res.push_str(&rpc_module.gen_module_menu());
         }
 
         // generate type menu
@@ -154,12 +165,11 @@ impl RpcDocGenerator {
 
         // generate module methods content
         for rpc_module in self.rpc_module_methods.iter() {
-            let content = format!("{}\n", rpc_module.gen_methods_content());
+            let content = format!("{}\n", rpc_module.gen_module_content());
             res.push_str(&content);
         }
 
-        // generate subscription module, which is handled specially here
-        // since jsonrpc-utils ignore the `SubscriptionRpc`
+        // generate subscription module
         gen_subscription_rpc_doc(&mut res);
 
         // generate type content
@@ -278,7 +288,7 @@ fn gen_type(ty: &Value) -> String {
                         .map(|t| format!("`{}`", gen_type(t)))
                         .collect::<Vec<_>>()
                         .join(" `|` ");
-                    format!("{}", ty)
+                    ty.to_string()
                 } else {
                     format!("`{}`", ty.as_str().unwrap())
                 }
@@ -320,6 +330,8 @@ fn gen_errors_content(res: &mut String) {
     }
 }
 
+/// generate subscription module, which is handled specially here
+/// since jsonrpc-utils ignore the `SubscriptionRpc`
 fn gen_subscription_rpc_doc(res: &mut String) {
     let pubsub_module_source = include_str!("../module/subscription.rs");
     // read comments before `pub trait SubscriptionRpc` and treat it as module summary
@@ -330,7 +342,7 @@ fn gen_subscription_rpc_doc(res: &mut String) {
         .map(|l| {
             l.trim_start()
                 .trim_start_matches("///")
-                .replacen(" ", "", 1)
+                .replacen(' ', "", 1)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -343,7 +355,7 @@ fn gen_subscription_rpc_doc(res: &mut String) {
         .map(|l| {
             l.trim_start()
                 .trim_start_matches("///")
-                .replacen(" ", "", 1)
+                .replacen(' ', "", 1)
         })
         .collect::<Vec<_>>()
         .join("\n");

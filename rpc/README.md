@@ -200,6 +200,13 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `UncleTemplate`](#type-uncletemplate)
 * [RPC Errors](#rpc-errors)
 ### Module Alert
+ RPC Module Alert for network alerts.
+
+ An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
+
+ The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
+ and belong to early CKB developers.
+
 #### Method `send_alert`
 * `send_alert(alert)`
     * `alert`: [`Alert`](#type-alert)
@@ -256,6 +263,29 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Chain
+ RPC Module Chain for methods related to the canonical chain.
+
+ This module queries information about the canonical chain.
+
+ ##### Canonical Chain
+
+ A canonical chain is the one with the most accumulated work. The accumulated work is
+ the sum of difficulties of all the blocks in the chain.
+
+ ##### Chain Reorganization
+
+ Chain Reorganization happens when CKB found a chain that has accumulated more work than the
+ canonical chain. The reorganization reverts the blocks in the current canonical chain if needed,
+ and switch the canonical chain to that better chain.
+
+ ##### Live Cell
+
+ A cell is live if
+
+ * it is found as an output in any transaction in the [canonical chain](#canonical-chain),
+ and
+ * it is not found as an input in any transaction in the canonical chain.
+
 #### Method `get_block`
 * `get_block(block_hash, verbosity, with_cycles)`
     * `block_hash`: [`H256`](#type-h256)
@@ -1825,6 +1855,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Debug
+ RPC Module Debug for internal RPC methods.
+
+ **This module is for CKB developers and will not guarantee compatibility.** The methods here
+ will be changed or removed without advanced notification.
+
 #### Method `jemalloc_profiling_dump`
 * `jemalloc_profiling_dump()`
 
@@ -1859,6 +1894,12 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  Removes the logger when this is null.
 
 ### Module Experiment
+ RPC Module Experiment for experimenting methods.
+
+ **EXPERIMENTAL warning**
+
+ The methods here may be removed or changed in future releases without prior notifications.
+
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
@@ -2002,6 +2043,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Indexer
+ RPC Module Indexer.
+
 #### Method `get_indexer_tip`
 * `get_indexer_tip()`
 
@@ -2860,6 +2903,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Integration_test
+ RPC for Integration Test.
+
 #### Method `process_block_without_verify`
 * `process_block_without_verify(data, broadcast)`
     * `data`: [`Block`](#type-block)
@@ -3350,6 +3395,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Miner
+ RPC Module Miner for miners.
+
+ A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and
+ submits the found new block.
+
 #### Method `get_block_template`
 * `get_block_template(bytes_limit, proposals_limit, max_version)`
     * `bytes_limit`: [`Uint64`](#type-uint64) `|` `null`
@@ -3556,6 +3606,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Net
+ RPC Module Net for P2P network.
+
 #### Method `local_node_info`
 * `local_node_info()`
 
@@ -4090,6 +4142,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Pool
+ RPC Module Pool for transaction memory pool.
+
 #### Method `send_transaction`
 * `send_transaction(tx, outputs_validator)`
     * `tx`: [`Transaction`](#type-transaction)
@@ -4368,6 +4422,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Stats
+ RPC Module Stats for getting various statistic data.
+
 #### Method `get_blockchain_info`
 * `get_blockchain_info()`
 
@@ -4460,6 +4516,43 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
  ```
 
 ### Module Subscription
+ RPC Module Subscription that CKB node will push new messages to subscribers.
+
+ RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
+ TCP (enable with rpc.tcp_listen_address configuration option) and WebSocket (enable with
+ rpc.ws_listen_address).
+
+ ############### Examples
+
+ TCP RPC subscription:
+
+ ```bash
+ telnet localhost 18114
+ > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
+ < {"jsonrpc":"2.0","result":"0x0","id":2}
+ < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+"subscription":0}}
+ < {"jsonrpc":"2.0","method":"subscribe","params":{"result":"...block header json...",
+"subscription":0}}
+ < ...
+ > {"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}
+ < {"jsonrpc":"2.0","result":true,"id":2}
+ ```
+
+ WebSocket RPC subscription:
+
+ ```javascript
+ let socket = new WebSocket("ws://localhost:28114")
+
+ socket.onmessage = function(event) {
+   console.log(`Data received from server: ${event.data}`);
+ }
+
+ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}`)
+
+ socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
+ ```
+
 
 RPC Module Subscription that CKB node will push new messages to subscribers.
 
