@@ -4796,7 +4796,7 @@ The JSON view of a Block used as a parameter in the RPC.
 ### Type `BlockEconomicState`
 Block Economic State.
 
- It includes the rewards details and when it is finalized.
+It includes the rewards details and when it is finalized.
 #### Fields:
 * `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
 
@@ -4830,7 +4830,7 @@ The wrapper represent response of `get_block` | `get_block_by_number`, return a 
 ### Type `BlockTemplate`
 A block template for miners.
 
- Miners optional pick transactions and then assemble the final block.
+Miners optional pick transactions and then assemble the final block.
 #### Fields:
 * `bytes_limit`: [`Uint64`](#type-uint64) - The block serialized size limit.
 
@@ -4926,7 +4926,7 @@ BlockResponse with cycles format wrapper
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is
- hard-coded into the client implementation
+hard-coded into the client implementation
 #### Fields:
 * `active`: `boolean` - Whether the rules are active
 
@@ -5181,10 +5181,10 @@ Consensus defines various parameters that influence chain consensus
 
 ### Type `DaoWithdrawingCalculationKind`
 An enum to represent the two kinds of dao withdrawal amount calculation option.
- `DaoWithdrawingCalculationKind` is equivalent to [`H256`] `|` [`OutPoint`].
+`DaoWithdrawingCalculationKind` is equivalent to [`H256`] `|` [`OutPoint`].
 
- [`H256`]: struct.H256.html
- [`OutPoint`]: struct.OutPoint.html
+[`H256`]: struct.H256.html
+[`OutPoint`]: struct.OutPoint.html
 
 
 ### Type `DepType`
@@ -5195,7 +5195,7 @@ The dep cell type. Allowed values: "code" and "dep_group".
 RFC0043 deployment params
 #### Fields:
 * `bit`: `integer` - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
- It is chosen from the set {0,1,2,...,28}.
+It is chosen from the set {0,1,2,...,28}.
 
 * `min_activation_epoch`: [`Uint64`](#type-uint64) - Specifies the epoch at which the softfork is allowed to become active.
 
@@ -5204,18 +5204,18 @@ RFC0043 deployment params
 * `start`: [`Uint64`](#type-uint64) - Specifies the first epoch in which the bit gains meaning.
 
 * `threshold`: [`Ratio`](#type-ratio) - Specifies the minimum ratio of block per `period`,
- which indicate the locked_in of the softfork during the `period`.
+which indicate the locked_in of the softfork during the `period`.
 
 * `timeout`: [`Uint64`](#type-uint64) - Specifies an epoch at which the miner signaling ends.
- Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
- the deployment is considered failed on all descendants of the block.
+Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
+the deployment is considered failed on all descendants of the block.
 
 
 ### Type `DeploymentInfo`
 An object containing various state info regarding deployments of consensus changes
 #### Fields:
 * `bit`: `integer` - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
- It is chosen from the set {0,1,2,...,28}.
+It is chosen from the set {0,1,2,...,28}.
 
 * `min_activation_epoch`: [`Uint64`](#type-uint64) - specifies the epoch at which the softfork is allowed to become active.
 
@@ -5236,9 +5236,9 @@ An object containing various state info regarding deployments of consensus chang
 * `threshold`: [`Ratio`](#type-ratio) - the ratio of blocks with the version bit set required to activate the feature
 
 * `timeout`: [`Uint64`](#type-uint64) - specifies an epoch at which the miner signaling ends.
- Once this epoch has been reached,
- if the softfork has not yet locked_in (excluding this epoch block's bit state),
- the deployment is considered failed on all descendants of the block.
+Once this epoch has been reached,
+if the softfork has not yet locked_in (excluding this epoch block's bit state),
+the deployment is considered failed on all descendants of the block.
 
 
 ### Type `DeploymentState`
@@ -5257,17 +5257,17 @@ Chain information.
 
 ### Type `Either_for_BlockView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
- sum type with two cases.
+sum type with two cases.
 
 
 ### Type `Either_for_HeaderView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
- sum type with two cases.
+sum type with two cases.
 
 
 ### Type `Either_for_TransactionView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
- sum type with two cases.
+sum type with two cases.
 
 
 ### Type `EpochView`
@@ -5335,9 +5335,9 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 ### Type `H256`
 The 32-byte fixed-length binary data.
 
- The name comes from the number of bits in the data.
+The name comes from the number of bits in the data.
 
- In JSONRPC, it is encoded as a 0x-prefixed hex string.
+In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
 
 ### Type `HardForkFeature`
@@ -5349,7 +5349,7 @@ The information about one hardfork feature.
 ### Type `Header`
 The block header.
 
- Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
+Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
 #### Fields:
 * `compact_target`: [`AlertId`](#type-alertid) - The block difficulty target.
 
@@ -5378,7 +5378,7 @@ The block header.
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
 * `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
- within the target encoded from `compact_target`.
+within the target encoded from `compact_target`.
 
 * `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
@@ -5461,7 +5461,7 @@ The JSON view of a Header.
 * `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
 
 * `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
- within the target encoded from `compact_target`.
+within the target encoded from `compact_target`.
 
 * `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
@@ -5678,7 +5678,7 @@ Runtime logger config.
 ### Type `MerkleProof`
 Proof of CKB Merkle Tree.
 
- CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
+CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
 #### Fields:
 * `indices`: `Array<` [`AlertId`](#type-alertid) `>` - Leaves indices in the CBMT that are proved present in the block.
 
@@ -5697,7 +5697,7 @@ Block rewards for miners.
 * `primary`: [`Uint64`](#type-uint64) - The primary base block reward allocated to miners.
 
 * `proposal`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is proposed in the block or
- its uncles.
+its uncles.
 
     Miners get 40% of the transaction fee for each transaction proposed in the block and
     committed later in its active commit window.
@@ -5789,7 +5789,7 @@ Two protocol parameters `closest` and `farthest` define the closest
 
 ### Type `Ratio`
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
- unsigned 64-bit integers.
+unsigned 64-bit integers.
 #### Fields:
 * `denom`: [`Uint64`](#type-uint64) - Denominator.
 
@@ -5799,10 +5799,10 @@ Represents the ratio `numerator / denominator`, where `numerator` and `denominat
 ### Type `RawTxPool`
 All transactions in tx-pool.
 
- `RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolEntries`][].
+`RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolEntries`][].
 
- [`TxPoolIds`]: struct.TxPoolIds.html
- [`TxPoolEntries`]: struct.TxPoolEntries.html
+[`TxPoolIds`]: struct.TxPoolIds.html
+[`TxPoolEntries`]: struct.TxPoolEntries.html
 
 
 ### Type `RemoteNode`
@@ -5903,7 +5903,7 @@ The information about an active running protocol.
 
 ### Type `Rfc0043`
 Represent soft fork deployments
- where activation is controlled by rfc0043 signaling
+where activation is controlled by rfc0043 signaling
 #### Fields:
 * `rfc0043`: [`Deployment`](#type-deployment) - RFC0043 deployment params
 
@@ -5933,17 +5933,17 @@ Describes the lock script and type script for a cell.
 ### Type `ScriptHashType`
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
- Allowed kinds: "data", "type", "data1" and "data2"
+Allowed kinds: "data", "type", "data1" and "data2"
 
- Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
- and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
- in the RFC *CKB Transaction Structure*.
+Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
+and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
+in the RFC *CKB Transaction Structure*.
 
- The hash type is split into the high 7 bits and the low 1 bit,
- when the low 1 bit is 1, it indicates the type,
- when the low 1 bit is 0, it indicates the data,
- and then it relies on the high 7 bits to indicate
- that the data actually corresponds to the version.
+The hash type is split into the high 7 bits and the low 1 bit,
+when the low 1 bit is 1, it indicates the type,
+when the low 1 bit is 0, it indicates the data,
+and then it relies on the high 7 bits to indicate
+that the data actually corresponds to the version.
 
 
 ### Type `SoftFork`
@@ -5952,8 +5952,8 @@ SoftFork information
 
 ### Type `SoftForkStatus`
 SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is
- hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
- where activation is controlled by rfc0043 signaling).
+hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
+where activation is controlled by rfc0043 signaling).
 
 
 ### Type `Status`
@@ -6001,7 +6001,7 @@ The overall chain synchronization state of this local node.
 ### Type `Transaction`
 The transaction.
 
- Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
+Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
 #### Fields:
 * `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
@@ -6263,16 +6263,16 @@ Transaction status and the block hash if it is committed.
 ### Type `UncleBlock`
 The uncle block used as a parameter in the RPC.
 
- The chain stores only the uncle block header and proposal IDs. The header ensures the block is
- covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
- a block can commit transactions proposed in an uncle.
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is
+covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
+a block can commit transactions proposed in an uncle.
 
- A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
 
- 1. They are in the same epoch, sharing the same difficulty;
- 2. B2 block number is larger than B1;
- 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
- 4. B2 is the first block in its chain to refer to B1.
+1. They are in the same epoch, sharing the same difficulty;
+2. B2 block number is larger than B1;
+3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+4. B2 is the first block in its chain to refer to B1.
 #### Fields:
 * `header`: [`Header`](#type-header) - The uncle block header.
 
@@ -6282,16 +6282,16 @@ The uncle block used as a parameter in the RPC.
 ### Type `UncleBlockView`
 The uncle block.
 
- The chain stores only the uncle block header and proposal IDs. The header ensures the block is
- covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
- a block can commit transactions proposed in an uncle.
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is
+covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
+a block can commit transactions proposed in an uncle.
 
- A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
+A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
 
- 1. They are in the same epoch, sharing the same difficulty;
- 2. B2 block number is larger than B1;
- 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
- 4. B2 is the first block in its chain to refer to B1.
+1. They are in the same epoch, sharing the same difficulty;
+2. B2 block number is larger than B1;
+3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
+4. B2 is the first block in its chain to refer to B1.
 #### Fields:
 * `header`: [`HeaderView`](#type-headerview) - The uncle block header.
 
@@ -6317,50 +6317,50 @@ The uncle block template of the new block for miners.
 ## RPC Errors
 CKB RPC error codes.
 
- CKB RPC follows the JSON RPC specification about the [error object](https://www.jsonrpc.org/specification#error_object).
+CKB RPC follows the JSON RPC specification about the [error object](https://www.jsonrpc.org/specification#error_object).
 
- Besides the pre-defined errors, all CKB defined errors are listed here.
+Besides the pre-defined errors, all CKB defined errors are listed here.
 
- Here is a reference to the pre-defined errors:
+Here is a reference to the pre-defined errors:
 
- | code             | message          | meaning                                            |
- | ---------------- | ---------------- | -------------------------------------------------- |
- | -32700           | Parse error      | Invalid JSON was received by the server.           |
- | -32600           | Invalid Request  | The JSON sent is not a valid Request object.       |
- | -32601           | Method not found | The method does not exist / is not available.      |
- | -32602           | Invalid params   | Invalid method parameter(s).                       |
- | -32603           | Internal error   | Internal JSON-RPC error.                           |
- | -32000 to -32099 | Server error     | Reserved for implementation-defined server-errors. |
+| code             | message          | meaning                                            |
+| ---------------- | ---------------- | -------------------------------------------------- |
+| -32700           | Parse error      | Invalid JSON was received by the server.           |
+| -32600           | Invalid Request  | The JSON sent is not a valid Request object.       |
+| -32601           | Method not found | The method does not exist / is not available.      |
+| -32602           | Invalid params   | Invalid method parameter(s).                       |
+| -32603           | Internal error   | Internal JSON-RPC error.                           |
+| -32000 to -32099 | Server error     | Reserved for implementation-defined server-errors. |
 
- CKB application-defined errors follow some patterns to assign the codes:
+CKB application-defined errors follow some patterns to assign the codes:
 
- * -1 ~ -999 are general errors
- * -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
- codes.
+* -1 ~ -999 are general errors
+* -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
+codes.
 
- Unless otherwise noted, all the errors return optional detailed information as `string` in the error
- object `data` field.
+Unless otherwise noted, all the errors return optional detailed information as `string` in the error
+object `data` field.
 ### ERROR `CKBInternalError`
 (-1): CKB internal errors are considered to never happen or only happen when the system
- resources are exhausted.
+resources are exhausted.
 
 ### ERROR `Deprecated`
 (-2): The CKB method has been deprecated and disabled.
 
- Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated
- methods.
+Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated
+methods.
 
 ### ERROR `Invalid`
 (-3): Error code -3 is no longer used.
 
- Before v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses
- -3 since v0.35.0.
+Before v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses
+-3 since v0.35.0.
 
 ### ERROR `RPCModuleIsDisabled`
 (-4): The RPC method is not enabled.
 
- CKB groups RPC methods into modules, and a method is enabled only when the module is
- explicitly enabled in the config file.
+CKB groups RPC methods into modules, and a method is enabled only when the module is
+explicitly enabled in the config file.
 
 ### ERROR `DaoError`
 (-5): DAO related errors.
@@ -6371,7 +6371,7 @@ CKB RPC error codes.
 ### ERROR `ConfigError`
 (-7): The error is caused by a config file option.
 
- Users have to edit the config file to fix the error.
+Users have to edit the config file to fix the error.
 
 ### ERROR `P2PFailedToBroadcast`
 (-101): The CKB local node failed to broadcast a message to its peers.
@@ -6379,27 +6379,27 @@ CKB RPC error codes.
 ### ERROR `DatabaseError`
 (-200): Internal database error.
 
- The CKB node persists data to the database. This is the error from the underlying database
- module.
+The CKB node persists data to the database. This is the error from the underlying database
+module.
 
 ### ERROR `ChainIndexIsInconsistent`
 (-201): The chain index is inconsistent.
 
- An example of an inconsistent index is that the chain index says a block hash is in the chain
- but the block cannot be read from the database.
+An example of an inconsistent index is that the chain index says a block hash is in the chain
+but the block cannot be read from the database.
 
- This is a fatal error usually due to a serious bug. Please back up the data directory and
- re-sync the chain from scratch.
+This is a fatal error usually due to a serious bug. Please back up the data directory and
+re-sync the chain from scratch.
 
 ### ERROR `DatabaseIsCorrupt`
 (-202): The underlying database is corrupt.
 
- This is a fatal error usually caused by the underlying database used by CKB. Please back up
- the data directory and re-sync the chain from scratch.
+This is a fatal error usually caused by the underlying database used by CKB. Please back up
+the data directory and re-sync the chain from scratch.
 
 ### ERROR `TransactionFailedToResolve`
 (-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or
- dependencies.
+dependencies.
 
 ### ERROR `TransactionFailedToVerify`
 (-302): Failed to verify the transaction.
@@ -6412,7 +6412,7 @@ CKB RPC error codes.
 
 ### ERROR `PoolRejectedTransactionByIllTransactionChecker`
 (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue
- link in the error message for details.
+link in the error message for details.
 
 ### ERROR `PoolRejectedTransactionByMinFeeRate`
 (-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
@@ -6426,7 +6426,7 @@ CKB RPC error codes.
 ### ERROR `PoolRejectedTransactionByMaxAncestorsCountLimit`
 (-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
 
- Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
+Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
 
 ### ERROR `PoolIsFull`
 (-1106): The transaction is rejected because the pool has reached its limit.
@@ -6437,7 +6437,7 @@ CKB RPC error codes.
 ### ERROR `PoolRejectedMalformedTransaction`
 (-1108): The transaction is rejected because it does not make sense in the context.
 
- For example, a cellbase transaction is not allowed in `send_transaction` RPC.
+For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 
 ### ERROR `TransactionExpired`
 (-1109): The transaction is expired from tx-pool after `expiry_hours`.
