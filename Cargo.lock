@@ -1253,11 +1253,10 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc-gen"
-version = "0.1.0"
+version = "0.112.0-pre"
 dependencies = [
  "ckb-rpc",
  "schemars",
- "serde",
  "serde_json",
 ]
 
