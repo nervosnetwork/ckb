@@ -501,6 +501,26 @@ impl Spec for RbfRejectReplaceProposed {
             .unwrap()
             .to_string()
             .contains("all conflict Txs should be in Pending status"));
+
+        // when tx1 was confirmed, tx2 should be rejected
+        let window_count = node0.consensus().tx_proposal_window().closest();
+        node0.mine(window_count);
+        let ret = wait_until(20, || {
+            let res = rpc_client0.get_transaction(txs[2].hash());
+            res.tx_status.status == Status::Committed
+        });
+        assert!(ret, "tx1 should be committed");
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+
+        // resolve tx2 failed with `unknown` when resolve inputs used by tx1
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("TransactionFailedToResolve: Resolve failed Unknown"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
