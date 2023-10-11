@@ -375,6 +375,25 @@ table SendBlocksProof {
     missing_block_hashes:       Byte32Vec,
 }
 
+table SendBlocksProofV1 {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // Block headers for the blocks which require verifying.
+    headers:                    HeaderVec,
+
+    // Block hashes for the blocks which were not found.
+    missing_block_hashes:       Byte32Vec,
+
+    // Uncle hashes for the blocks which require verifying.
+    blocks_uncles_hash:         Byte32Vec,
+
+    // Block extension for the blocks which require verifying.
+    blocks_extension:           BytesOptVec,
+}
+
 table GetTransactionsProof {
     // Refer to `GetLastStateProof.last_hash`.
     last_hash:                  Byte32,
