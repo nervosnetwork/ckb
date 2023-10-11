@@ -221,8 +221,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
                     let is_dao_type_script = |type_script: Script| {
                         Into::<u8>::into(type_script.hash_type())
                             == Into::<u8>::into(ScriptHashType::Type)
-                            && type_script.code_hash()
-                                == self.consensus.dao_type_hash().expect("No dao system cell")
+                            && type_script.code_hash() == self.consensus.dao_type_hash()
                     };
                     let is_withdrawing_input =
                         |cell_meta: &CellMeta| match self.data_loader.load_cell_data(cell_meta) {

@@ -524,15 +524,12 @@ impl<'a> DuplicateDepsVerifier<'a> {
 pub struct CapacityVerifier {
     resolved_transaction: Arc<ResolvedTransaction>,
     // It's Option because special genesis block do not have dao system cell
-    dao_type_hash: Option<Byte32>,
+    dao_type_hash: Byte32,
 }
 
 impl CapacityVerifier {
     /// Create a new `CapacityVerifier`
-    pub fn new(
-        resolved_transaction: Arc<ResolvedTransaction>,
-        dao_type_hash: Option<Byte32>,
-    ) -> Self {
+    pub fn new(resolved_transaction: Arc<ResolvedTransaction>, dao_type_hash: Byte32) -> Self {
         CapacityVerifier {
             resolved_transaction,
             dao_type_hash,
@@ -584,12 +581,7 @@ impl CapacityVerifier {
         self.resolved_transaction
             .resolved_inputs
             .iter()
-            .any(|cell_meta| {
-                cell_uses_dao_type_script(
-                    &cell_meta.cell_output,
-                    self.dao_type_hash.as_ref().expect("No dao system cell"),
-                )
-            })
+            .any(|cell_meta| cell_uses_dao_type_script(&cell_meta.cell_output, &self.dao_type_hash))
     }
 }
 
@@ -990,17 +982,14 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
         }
     }
 
-    fn dao_type_hash(&self) -> Option<Byte32> {
+    fn dao_type_hash(&self) -> Byte32 {
         self.consensus.dao_type_hash()
     }
 
     /// Verifies that for all Nervos DAO transactions, withdrawing cells must use lock scripts
     /// of the same size as corresponding deposit cells
     pub fn verify(&self) -> Result<(), Error> {
-        if self.dao_type_hash().is_none() {
-            return Ok(());
-        }
-        let dao_type_hash = self.dao_type_hash().unwrap();
+        let dao_type_hash = self.dao_type_hash();
         for (i, (input_meta, cell_output)) in self
             .resolved_transaction
             .resolved_inputs

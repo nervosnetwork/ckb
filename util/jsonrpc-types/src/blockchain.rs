@@ -1339,7 +1339,7 @@ pub struct Consensus {
     /// The genesis block hash
     pub genesis_hash: H256,
     /// The dao type hash
-    pub dao_type_hash: Option<H256>,
+    pub dao_type_hash: H256,
     /// The secp256k1_blake160_sighash_all_type_hash
     pub secp256k1_blake160_sighash_all_type_hash: Option<H256>,
     /// The secp256k1_blake160_multisig_all_type_hash
