@@ -523,7 +523,6 @@ impl<'a> DuplicateDepsVerifier<'a> {
 /// Perform inputs and outputs `capacity` field related verification
 pub struct CapacityVerifier {
     resolved_transaction: Arc<ResolvedTransaction>,
-    // It's Option because special genesis block do not have dao system cell
     dao_type_hash: Byte32,
 }
 
