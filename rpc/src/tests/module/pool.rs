@@ -37,7 +37,7 @@ fn test_default_outputs_validator() {
 
         // invalid code hash
         let tx = build_tx(
-            &consensus.dao_type_hash().unwrap(),
+            &consensus.dao_type_hash(),
             core::ScriptHashType::Type,
             vec![1; 20],
         );
@@ -76,7 +76,7 @@ fn test_default_outputs_validator() {
         let lock_type_hash = consensus
             .secp256k1_blake160_multisig_all_type_hash()
             .unwrap();
-        let type_type_hash = consensus.dao_type_hash().unwrap();
+        let type_type_hash = consensus.dao_type_hash();
         // valid output lock
         let tx = build_tx_with_type(
             &lock_type_hash,
