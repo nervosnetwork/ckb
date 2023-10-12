@@ -200,91 +200,91 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `UncleTemplate`](#type-uncletemplate)
 * [RPC Errors](#rpc-errors)
 ### Module Alert
- RPC Module Alert for network alerts.
+RPC Module Alert for network alerts.
 
- An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
+An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
 
- The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
- and belong to early CKB developers.
+The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
+and belong to early CKB developers.
 
 #### Method `send_alert`
 * `send_alert(alert)`
     * `alert`: [`Alert`](#type-alert)
 * result: `null`
 
- Sends an alert.
+Sends an alert.
 
- This RPC returns `null` on success.
+This RPC returns `null` on success.
 
- ###### Errors
+###### Errors
 
- * [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
- * [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
- * `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
+* [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
+* [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
+* `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "jsonrpc": "2.0",
-   "method": "send_alert",
-   "params": [
-     {
-       "id": "0x1",
-       "cancel": "0x0",
-       "priority": "0x1",
-       "message": "An example alert message!",
-       "notice_until": "0x24bcca57c00",
-       "signatures": [
-         "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
-         "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
-       ]
-     }
-   ],
-   "id": 42
- }
- ```
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "send_alert",
+  "params": [
+    {
+      "id": "0x1",
+      "cancel": "0x0",
+      "priority": "0x1",
+      "message": "An example alert message!",
+      "notice_until": "0x24bcca57c00",
+      "signatures": [
+        "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
+        "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
+      ]
+    }
+  ],
+  "id": 42
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "error": {
-     "code": -1000,
-     "data": "SigNotEnough",
-     "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
-   },
-   "jsonrpc": "2.0",
-   "result": null,
-   "id": 42
- }
- ```
+```json
+{
+  "error": {
+    "code": -1000,
+    "data": "SigNotEnough",
+    "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
+  },
+  "jsonrpc": "2.0",
+  "result": null,
+  "id": 42
+}
+```
 
 ### Module Chain
- RPC Module Chain for methods related to the canonical chain.
+RPC Module Chain for methods related to the canonical chain.
 
- This module queries information about the canonical chain.
+This module queries information about the canonical chain.
 
- ##### Canonical Chain
+##### Canonical Chain
 
- A canonical chain is the one with the most accumulated work. The accumulated work is
- the sum of difficulties of all the blocks in the chain.
+A canonical chain is the one with the most accumulated work. The accumulated work is
+the sum of difficulties of all the blocks in the chain.
 
- ##### Chain Reorganization
+##### Chain Reorganization
 
- Chain Reorganization happens when CKB found a chain that has accumulated more work than the
- canonical chain. The reorganization reverts the blocks in the current canonical chain if needed,
- and switch the canonical chain to that better chain.
+Chain Reorganization happens when CKB found a chain that has accumulated more work than the
+canonical chain. The reorganization reverts the blocks in the current canonical chain if needed,
+and switch the canonical chain to that better chain.
 
- ##### Live Cell
+##### Live Cell
 
- A cell is live if
+A cell is live if
 
- * it is found as an output in any transaction in the [canonical chain](#canonical-chain),
- and
- * it is not found as an input in any transaction in the canonical chain.
+* it is found as an output in any transaction in the [canonical chain](#canonical-chain),
+and
+* it is not found as an input in any transaction in the canonical chain.
 
 #### Method `get_block`
 * `get_block(block_hash, verbosity, with_cycles)`
@@ -293,129 +293,129 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `with_cycles`: `boolean` `|` `null`
 * result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
- Returns the information about a block by hash.
+Returns the information about a block by hash.
 
- ###### Params
+###### Params
 
- * `block_hash` - the block hash.
- * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
- * `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
+* `block_hash` - the block hash.
+* `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+* `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
 
- ###### Returns
+###### Returns
 
- The RPC returns a block or null. When the RPC returns a block, the block hash must equal to
- the parameter `block_hash`.
+The RPC returns a block or null. When the RPC returns a block, the block hash must equal to
+the parameter `block_hash`.
 
- If the block is in the [canonical chain](#canonical-chain), the RPC must return the block
- information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
- storage or simply returns null for all blocks that are not in the canonical chain. And
- because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
- RPC may sometimes return null and sometimes return the block.
+If the block is in the [canonical chain](#canonical-chain), the RPC must return the block
+information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
+storage or simply returns null for all blocks that are not in the canonical chain. And
+because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
+RPC may sometimes return null and sometimes return the block.
 
- When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
- schema.
+When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the block serialized by molecule using schema `table Block`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the block serialized by molecule using schema `table Block`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block",
-   "params": [
-      "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block",
+  "params": [
+     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "header": {
-       "compact_target": "0x1e083126",
-       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-       "epoch": "0x7080018000001",
-       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-       "nonce": "0x0",
-       "number": "0x400",
-       "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "timestamp": "0x5cd2b117",
-       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-       "version": "0x0"
-     },
-     "proposals": [],
-     "transactions": [
-       {
-         "cell_deps": [],
-         "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x400"
-           }
-         ],
-         "outputs": [
-           {
-             "capacity": "0x18e64b61cf",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
-         ]
-       }
-     ],
-     "uncles": []
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "header": {
+      "compact_target": "0x1e083126",
+      "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+      "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+      "nonce": "0x0",
+      "number": "0x400",
+      "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+      "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "timestamp": "0x5cd2b117",
+      "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+      "version": "0x0"
+    },
+    "proposals": [],
+    "transactions": [
+      {
+        "cell_deps": [],
+        "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
+        "header_deps": [],
+        "inputs": [
+          {
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x400"
+          }
+        ],
+        "outputs": [
+          {
+            "capacity": "0x18e64b61cf",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+        ]
+      }
+    ],
+    "uncles": []
+  }
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 
- When specifying with_cycles, the response object will be different like below:
+When specifying with_cycles, the response object will be different like below:
 
- ```text
- {
-     "id": 42,
-     "jsonrpc": "2.0",
-     "result": {
-         "block": <Object> or "0x...",
-         "cycles": []
-     }
- }
- ```
+```text
+{
+    "id": 42,
+    "jsonrpc": "2.0",
+    "result": {
+        "block": <Object> or "0x...",
+        "cycles": []
+    }
+}
+```
 #### Method `get_block_by_number`
 * `get_block_by_number(block_number, verbosity, with_cycles)`
     * `block_number`: [`Uint64`](#type-uint64)
@@ -423,341 +423,341 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `with_cycles`: `boolean` `|` `null`
 * result: [`BlockResponse`](#type-blockresponse) `|` `null`
 
- Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
+Returns the block in the [canonical chain](#canonical-chain) with the specific block number.
 
- ###### Params
+###### Params
 
- * `block_number` - the block number.
- * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
- * `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
+* `block_number` - the block number.
+* `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+* `with_cycles` - whether the return cycles of block transactions. (**Optional**, default false.)
 
- ###### Returns
+###### Returns
 
- The RPC returns the block when `block_number` is less than or equal to the tip block
- number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
- null otherwise.
+The RPC returns the block when `block_number` is less than or equal to the tip block
+number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
+null otherwise.
 
- Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
- different blocks in different invocations with the same `block_number`.
+Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+different blocks in different invocations with the same `block_number`.
 
- When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
- schema.
+When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the block serialized by molecule using schema `table Block`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the block serialized by molecule using schema `table Block`.
 
- ###### Errors
+###### Errors
 
- * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
- * [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
+* [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
+* [`DatabaseIsCorrupt (-202)`](../enum.RPCError.html#variant.DatabaseIsCorrupt) - The data read from database is dirty. Please report it as a bug.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_by_number",
-   "params": [
-     "0x400"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_by_number",
+  "params": [
+    "0x400"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "header": {
-       "compact_target": "0x1e083126",
-       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-       "epoch": "0x7080018000001",
-       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-       "nonce": "0x0",
-       "number": "0x400",
-       "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "timestamp": "0x5cd2b117",
-       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-       "version": "0x0"
-     },
-     "proposals": [],
-     "transactions": [
-       {
-         "cell_deps": [],
-         "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x400"
-           }
-         ],
-         "outputs": [
-           {
-             "capacity": "0x18e64b61cf",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
-         ]
-       }
-     ],
-     "uncles": []
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "header": {
+      "compact_target": "0x1e083126",
+      "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+      "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+      "nonce": "0x0",
+      "number": "0x400",
+      "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+      "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "timestamp": "0x5cd2b117",
+      "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+      "version": "0x0"
+    },
+    "proposals": [],
+    "transactions": [
+      {
+        "cell_deps": [],
+        "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
+        "header_deps": [],
+        "inputs": [
+          {
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x400"
+          }
+        ],
+        "outputs": [
+          {
+            "capacity": "0x18e64b61cf",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+        ]
+      }
+    ],
+    "uncles": []
+  }
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 
- When specifying with_cycles, the response object will be different like below:
+When specifying with_cycles, the response object will be different like below:
 
- ```text
- {
-     "id": 42,
-     "jsonrpc": "2.0",
-     "result": {
-         "block": <Object> or "0x...",
-         "cycles": []
-     }
- }
- ```
+```text
+{
+    "id": 42,
+    "jsonrpc": "2.0",
+    "result": {
+        "block": <Object> or "0x...",
+        "cycles": []
+    }
+}
+```
 #### Method `get_header`
 * `get_header(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
 * result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
 
- Returns the information about a block header by hash.
+Returns the information about a block header by hash.
 
- ###### Params
+###### Params
 
- * `block_hash` - the block hash.
- * `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
+* `block_hash` - the block hash.
+* `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
- ###### Returns
+###### Returns
 
- The RPC returns a header or null. When the RPC returns a header, the block hash must equal to
- the parameter `block_hash`.
+The RPC returns a header or null. When the RPC returns a header, the block hash must equal to
+the parameter `block_hash`.
 
- If the block is in the [canonical chain](#canonical-chain), the RPC must return the header
- information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
- storage or simply returns null for all blocks that are not in the canonical chain. And
- because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
- RPC may sometimes return null and sometimes return the block header.
+If the block is in the [canonical chain](#canonical-chain), the RPC must return the header
+information. Otherwise, the behavior is undefined. The RPC may return blocks found in local
+storage or simply returns null for all blocks that are not in the canonical chain. And
+because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
+RPC may sometimes return null and sometimes return the block header.
 
- When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
- schema.
+When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the block header serialized by molecule using schema `table Header`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the block header serialized by molecule using schema `table Header`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_header",
-   "params": [
-     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_header",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "compact_target": "0x1e083126",
-     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-     "epoch": "0x7080018000001",
-     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "nonce": "0x0",
-     "number": "0x400",
-     "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "timestamp": "0x5cd2b117",
-     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-     "version": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "compact_target": "0x1e083126",
+    "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+    "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "nonce": "0x0",
+    "number": "0x400",
+    "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+    "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": "0x5cd2b117",
+    "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+    "version": "0x0"
+  }
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 #### Method `get_header_by_number`
 * `get_header_by_number(block_number, verbosity)`
     * `block_number`: [`Uint64`](#type-uint64)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
 * result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
 
- Returns the block header in the [canonical chain](#canonical-chain) with the specific block
- number.
+Returns the block header in the [canonical chain](#canonical-chain) with the specific block
+number.
 
- ###### Params
+###### Params
 
- * `block_number` - Number of a block
- * `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
+* `block_number` - Number of a block
+* `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
- ###### Returns
+###### Returns
 
- The RPC returns the block header when `block_number` is less than or equal to the tip block
- number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
- null otherwise.
+The RPC returns the block header when `block_number` is less than or equal to the tip block
+number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
+null otherwise.
 
- Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
- different block headers in different invocations with the same `block_number`.
+Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+different block headers in different invocations with the same `block_number`.
 
- When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
- schema.
+When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the block header serialized by molecule using schema `table Header`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the block header serialized by molecule using schema `table Header`.
 
- ###### Errors
+###### Errors
 
- * [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
+* [`ChainIndexIsInconsistent (-201)`](../enum.RPCError.html#variant.ChainIndexIsInconsistent) - The index is inconsistent. It says a block hash is in the main chain, but cannot read it from the database.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_header_by_number",
-   "params": [
-     "0x400"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_header_by_number",
+  "params": [
+    "0x400"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "compact_target": "0x1e083126",
-     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-     "epoch": "0x7080018000001",
-     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "nonce": "0x0",
-     "number": "0x400",
-     "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "timestamp": "0x5cd2b117",
-     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-     "version": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "compact_target": "0x1e083126",
+    "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+    "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "nonce": "0x0",
+    "number": "0x400",
+    "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+    "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": "0x5cd2b117",
+    "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+    "version": "0x0"
+  }
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 #### Method `get_block_filter`
 * `get_block_filter(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
 * result: [`BlockFilter`](#type-blockfilter) `|` `null`
 
- Returns the block filter by block hash.
+Returns the block filter by block hash.
 
- ###### Params
+###### Params
 
- * `block_hash` - the block hash.
+* `block_hash` - the block hash.
 
- ###### Returns
+###### Returns
 
- The block filter data
+The block filter data
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_filter",
-   "params": [
-     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_filter",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 
- The response looks like below when the block have block filter.
+The response looks like below when the block have block filter.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-    "data": "0x...",
-    "hash": "0x..."
-   }
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+   "data": "0x...",
+   "hash": "0x..."
+  }
+}
+```
 #### Method `get_transaction`
 * `get_transaction(tx_hash, verbosity, only_committed)`
     * `tx_hash`: [`H256`](#type-h256)
@@ -765,1321 +765,1320 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `only_committed`: `boolean` `|` `null`
 * result: [`TransactionWithStatusResponse`](#type-transactionwithstatusresponse)
 
- Returns the information about a transaction requested by transaction hash.
+Returns the information about a transaction requested by transaction hash.
 
- ###### Returns
+###### Returns
 
- This RPC returns `null` if the transaction is not committed in the
- [canonical chain](#canonical-chain) nor the transaction memory pool.
+This RPC returns `null` if the transaction is not committed in the
+[canonical chain](#canonical-chain) nor the transaction memory pool.
 
- If the transaction is in the chain, the block hash is also returned.
+If the transaction is in the chain, the block hash is also returned.
 
- ###### Params
+###### Params
 
- * `tx_hash` - Hash of a transaction
- * `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
- * `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
+* `tx_hash` - Hash of a transaction
+* `verbosity` - result format which allows 0, 1 and 2. (**Optional**, the defaults to 2.)
+* `only_committed` - whether to query committed transaction only. (**Optional**, if not set, it will query all status of transactions.)
 
- ###### Returns
+###### Returns
 
- When verbosity=0, it's response value is as same as verbosity=2, but it
- return a 0x-prefixed hex encoded molecule packed::Transaction on `transaction` field
+When verbosity=0, it's response value is as same as verbosity=2, but it
+return a 0x-prefixed hex encoded molecule packed::Transaction on `transaction` field
 
- When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
+When verbosity is 1: The RPC does not return the transaction content and the field transaction must be null.
 
- When verbosity is 2: if tx_status.status is pending, proposed, or committed,
- the RPC returns the transaction content as field transaction, otherwise the field is null.
+When verbosity is 2: if tx_status.status is pending, proposed, or committed,
+the RPC returns the transaction content as field transaction, otherwise the field is null.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_transaction",
-   "params": [
-     "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_transaction",
+  "params": [
+    "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "transaction": {
-       "cell_deps": [
-         {
-           "dep_type": "code",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-           }
-         }
-       ],
-       "hash": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-       "header_deps": [
-         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-       ],
-       "inputs": [
-         {
-           "previous_output": {
-             "index": "0x0",
-             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-           },
-           "since": "0x0"
-         }
-       ],
-       "outputs": [
-         {
-           "capacity": "0x2540be400",
-           "lock": {
-             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-             "hash_type": "data",
-             "args": "0x"
-           },
-           "type": null
-         }
-       ],
-       "outputs_data": [
-         "0x"
-       ],
-       "version": "0x0",
-       "witnesses": []
-     },
-     "cycles": "0x219",
-     "time_added_to_pool" : "0x187b3d137a1",
-     "fee": "0x16923f7dcf",
-     "min_replace_fee": "0x16923f7f6a",
-     "tx_status": {
-       "block_hash": null,
-       "status": "pending",
-       "reason": null
-     }
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "transaction": {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "hash": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    },
+    "cycles": "0x219",
+    "time_added_to_pool" : "0x187b3d137a1",
+    "fee": "0x16923f7dcf",
+    "min_replace_fee": "0x16923f7f6a",
+    "tx_status": {
+      "block_hash": null,
+      "status": "pending",
+      "reason": null
+    }
+  }
+}
+```
 
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "transaction": "0x.....",
-     "cycles": "0x219",
-     "tx_status": {
-       "block_hash": null,
-       "status": "pending",
-       "reason": null
-     }
-   }
- }
- ```
-
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "transaction": "0x.....",
+    "cycles": "0x219",
+    "tx_status": {
+      "block_hash": null,
+      "status": "pending",
+      "reason": null
+    }
+  }
+}
+```
 #### Method `get_block_hash`
 * `get_block_hash(block_number)`
     * `block_number`: [`Uint64`](#type-uint64)
 * result: [`H256`](#type-h256) `|` `null`
 
- Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
- `block_number`.
+Returns the hash of a block in the [canonical chain](#canonical-chain) with the specified
+`block_number`.
 
- ###### Params
+###### Params
 
- * `block_number` - Block number
+* `block_number` - Block number
 
- ###### Returns
+###### Returns
 
- The RPC returns the block hash when `block_number` is less than or equal to the tip block
- number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
- null otherwise.
+The RPC returns the block hash when `block_number` is less than or equal to the tip block
+number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
+null otherwise.
 
- Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
- different block hashes in different invocations with the same `block_number`.
+Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+different block hashes in different invocations with the same `block_number`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_hash",
-   "params": [
-     "0x400"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_hash",
+  "params": [
+    "0x400"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+}
+```
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
 * result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes)
 
- Returns the header with the highest block number in the [canonical chain](#canonical-chain).
+Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
- Because of [chain reorganization](#chain-reorganization), the block number returned can be
- less than previous invocations and different invocations may return different block headers
- with the same block number.
+Because of [chain reorganization](#chain-reorganization), the block number returned can be
+less than previous invocations and different invocations may return different block headers
+with the same block number.
 
- ###### Params
+###### Params
 
- * `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
+* `verbosity` - result format which allows 0 and 1. (**Optional**, the default is 1.)
 
- ###### Returns
+###### Returns
 
- When `verbosity` is 1, the RPC returns a JSON object as the `result`. See HeaderView for the
- schema.
+When `verbosity` is 1, the RPC returns a JSON object as the `result`. See HeaderView for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the header serialized by molecule using schema `table Header`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the header serialized by molecule using schema `table Header`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_tip_header",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_tip_header",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "jsonrpc": "2.0",
-   "result": {
-     "compact_target": "0x1e083126",
-     "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-     "epoch": "0x7080018000001",
-     "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "nonce": "0x0",
-     "number": "0x400",
-     "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-     "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-     "timestamp": "0x5cd2b117",
-     "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-     "version": "0x0"
-   },
-   "id": 42
- }
- ```
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "compact_target": "0x1e083126",
+    "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+    "epoch": "0x7080018000001",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "nonce": "0x0",
+    "number": "0x400",
+    "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+    "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": "0x5cd2b117",
+    "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+    "version": "0x0"
+  },
+  "id": 42
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 #### Method `get_live_cell`
 * `get_live_cell(out_point, with_data)`
     * `out_point`: [`OutPoint`](#type-outpoint)
     * `with_data`: `boolean`
 * result: [`CellWithStatus`](#type-cellwithstatus)
 
- Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
+Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
 
- ###### Returns
+###### Returns
 
- This RPC tells whether a cell is live or not.
+This RPC tells whether a cell is live or not.
 
- If the cell is live, the RPC will return details about the cell. Otherwise, the field `cell` is
- null in the result.
+If the cell is live, the RPC will return details about the cell. Otherwise, the field `cell` is
+null in the result.
 
- If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the
- result.
+If the cell is live and `with_data` is set to `false`, the field `cell.data` is null in the
+result.
 
- ###### Params
+###### Params
 
- * `out_point` - Reference to the cell by transaction hash and output index.
- * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
- does not need the data, it should set this to `false` to save bandwidth.
+* `out_point` - Reference to the cell by transaction hash and output index.
+* `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
+does not need the data, it should set this to `false` to save bandwidth.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_live_cell",
-   "params": [
-     {
-       "index": "0x0",
-       "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-     },
-     true
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_live_cell",
+  "params": [
+    {
+      "index": "0x0",
+      "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    },
+    true
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "cell": {
-       "data": {
-         "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
-         "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-       },
-       "output": {
-         "capacity": "0x802665800",
-         "lock": {
-           "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "hash_type": "data",
-           "args": "0x"
-         },
-         "type": null
-       }
-     },
-     "status": "live"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cell": {
+      "data": {
+        "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+        "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+      },
+      "output": {
+        "capacity": "0x802665800",
+        "lock": {
+          "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "hash_type": "data",
+          "args": "0x"
+        },
+        "type": null
+      }
+    },
+    "status": "live"
+  }
+}
+```
 #### Method `get_tip_block_number`
 * `get_tip_block_number()`
 
 * result: [`Uint64`](#type-uint64)
 
- Returns the highest block number in the [canonical chain](#canonical-chain).
+Returns the highest block number in the [canonical chain](#canonical-chain).
 
- Because of [chain reorganization](#chain-reorganization), the returned block number may be
- less than a value returned in the previous invocation.
+Because of [chain reorganization](#chain-reorganization), the returned block number may be
+less than a value returned in the previous invocation.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_tip_block_number",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_tip_block_number",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x400"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x400"
+}
+```
 #### Method `get_current_epoch`
 * `get_current_epoch()`
 
 * result: [`EpochView`](#type-epochview)
 
- Returns the epoch with the highest number in the [canonical chain](#canonical-chain).
+Returns the epoch with the highest number in the [canonical chain](#canonical-chain).
 
- Pay attention that like blocks with the specific block number may change because of [chain
- reorganization](#chain-reorganization), This RPC may return different epochs which have
- the same epoch number.
+Pay attention that like blocks with the specific block number may change because of [chain
+reorganization](#chain-reorganization), This RPC may return different epochs which have
+the same epoch number.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_current_epoch",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_current_epoch",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "compact_target": "0x1e083126",
-     "length": "0x708",
-     "number": "0x1",
-     "start_number": "0x3e8"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "compact_target": "0x1e083126",
+    "length": "0x708",
+    "number": "0x1",
+    "start_number": "0x3e8"
+  }
+}
+```
 #### Method `get_epoch_by_number`
 * `get_epoch_by_number(epoch_number)`
     * `epoch_number`: [`Uint64`](#type-uint64)
 * result: [`EpochView`](#type-epochview) `|` `null`
 
- Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
+Returns the epoch in the [canonical chain](#canonical-chain) with the specific epoch number.
 
- ###### Params
+###### Params
 
- * `epoch_number` - Epoch number
+* `epoch_number` - Epoch number
 
- ###### Returns
+###### Returns
 
- The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch number
- returned by [`get_current_epoch`](#tymethod.get_current_epoch) and returns null otherwise.
+The RPC returns the epoch when `epoch_number` is less than or equal to the current epoch number
+returned by [`get_current_epoch`](#tymethod.get_current_epoch) and returns null otherwise.
 
- Because of [chain reorganization](#chain-reorganization), for the same `epoch_number`, this
- RPC may return null or different epochs in different invocations.
+Because of [chain reorganization](#chain-reorganization), for the same `epoch_number`, this
+RPC may return null or different epochs in different invocations.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_epoch_by_number",
-   "params": [
-     "0x0"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_epoch_by_number",
+  "params": [
+    "0x0"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "compact_target": "0x20010000",
-     "length": "0x3e8",
-     "number": "0x0",
-     "start_number": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "compact_target": "0x20010000",
+    "length": "0x3e8",
+    "number": "0x0",
+    "start_number": "0x0"
+  }
+}
+```
 #### Method `get_block_economic_state`
 * `get_block_economic_state(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
 * result: [`BlockEconomicState`](#type-blockeconomicstate) `|` `null`
 
- Returns increased issuance, miner reward, and the total transaction fee of a block.
+Returns increased issuance, miner reward, and the total transaction fee of a block.
 
- This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
+This RPC returns null if the block is not in the [canonical chain](#canonical-chain).
 
- CKB delays CKB creation for miners. The output cells in the cellbase of block N are for the
- miner creating block `N - 1 - ProposalWindow.farthest`.
+CKB delays CKB creation for miners. The output cells in the cellbase of block N are for the
+miner creating block `N - 1 - ProposalWindow.farthest`.
 
- In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for
- miner creating block 89.
+In mainnet, `ProposalWindow.farthest` is 10, so the outputs in block 100 are rewards for
+miner creating block 89.
 
- Because of the delay, this RPC returns null if the block rewards are not finalized yet. For
- example, the economic state for block 89 is only available when the number returned by
- [`get_tip_block_number`](#tymethod.get_tip_block_number) is greater than or equal to 100.
+Because of the delay, this RPC returns null if the block rewards are not finalized yet. For
+example, the economic state for block 89 is only available when the number returned by
+[`get_tip_block_number`](#tymethod.get_tip_block_number) is greater than or equal to 100.
 
- ###### Params
+###### Params
 
- * `block_hash` - Specifies the block hash which rewards should be analyzed.
+* `block_hash` - Specifies the block hash which rewards should be analyzed.
 
- ###### Returns
+###### Returns
 
- If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
- its rewards have been finalized, return the block rewards analysis for this block. A special
- case is that the return value for genesis block is null.
+If the block with the hash `block_hash` is in the [canonical chain](#canonical-chain) and
+its rewards have been finalized, return the block rewards analysis for this block. A special
+case is that the return value for genesis block is null.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_economic_state",
-   "params": [
-     "0x02530b25ad0ff677acc365cb73de3e8cc09c7ddd58272e879252e199d08df83b"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_economic_state",
+  "params": [
+    "0x02530b25ad0ff677acc365cb73de3e8cc09c7ddd58272e879252e199d08df83b"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "finalized_at": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "issuance": {
-       "primary": "0x18ce922bca",
-       "secondary": "0x7f02ec655"
-     },
-     "miner_reward": {
-       "committed": "0x0",
-       "primary": "0x18ce922bca",
-       "proposal": "0x0",
-       "secondary": "0x17b93605"
-     },
-     "txs_fee": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "finalized_at": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "issuance": {
+      "primary": "0x18ce922bca",
+      "secondary": "0x7f02ec655"
+    },
+    "miner_reward": {
+      "committed": "0x0",
+      "primary": "0x18ce922bca",
+      "proposal": "0x0",
+      "secondary": "0x17b93605"
+    },
+    "txs_fee": "0x0"
+  }
+}
+```
 #### Method `get_transaction_proof`
 * `get_transaction_proof(tx_hashes, block_hash)`
     * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
     * `block_hash`: [`H256`](#type-h256) `|` `null`
 * result: [`TransactionProof`](#type-transactionproof)
 
- Returns a Merkle proof that transactions are included in a block.
+Returns a Merkle proof that transactions are included in a block.
 
- ###### Params
+###### Params
 
- * `tx_hashes` - Transaction hashes, all transactions must be in the same block
- * `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
+* `tx_hashes` - Transaction hashes, all transactions must be in the same block
+* `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_transaction_proof",
-   "params": [
-     [ "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3" ]
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_transaction_proof",
+  "params": [
+    [ "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3" ]
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-     "proof": {
-       "indices": [ "0x0" ],
-       "lemmas": []
-     },
-     "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+    "proof": {
+      "indices": [ "0x0" ],
+      "lemmas": []
+    },
+    "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
+  }
+}
+```
 #### Method `verify_transaction_proof`
 * `verify_transaction_proof(tx_proof)`
     * `tx_proof`: [`TransactionProof`](#type-transactionproof)
 * result: `Array<` [`H256`](#type-h256) `>`
 
- Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
+Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
- ###### Parameters
+###### Parameters
 
- * `transaction_proof` - proof generated by [`get_transaction_proof`](#tymethod.get_transaction_proof).
+* `transaction_proof` - proof generated by [`get_transaction_proof`](#tymethod.get_transaction_proof).
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "verify_transaction_proof",
-   "params": [
-     {
-       "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-       "proof": {
-         "indices": [ "0x0" ],
-         "lemmas": []
-       },
-       "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "verify_transaction_proof",
+  "params": [
+    {
+      "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+      "proof": {
+        "indices": [ "0x0" ],
+        "lemmas": []
+      },
+      "witnesses_root": "0x2bb631f4a251ec39d943cc238fc1e39c7f0e99776e8a1e7be28a03c70c4f4853"
+    }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": [
-     "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": [
+    "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+  ]
+}
+```
 #### Method `get_transaction_and_witness_proof`
 * `get_transaction_and_witness_proof(tx_hashes, block_hash)`
     * `tx_hashes`: `Array<` [`H256`](#type-h256) `>`
     * `block_hash`: [`H256`](#type-h256) `|` `null`
 * result: [`TransactionAndWitnessProof`](#type-transactionandwitnessproof)
 
- Returns a Merkle proof of transactions' witness included in a block.
+Returns a Merkle proof of transactions' witness included in a block.
 
- ###### Params
+###### Params
 
- * `tx_hashes` - Transaction hashes, all transactions must be in the same block
- * `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
+* `tx_hashes` - Transaction hashes, all transactions must be in the same block
+* `block_hash` - An optional parameter, if specified, looks for transactions in the block with this hash
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_transaction_and_witness_proof",
-   "params": [
-     [ "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3" ]
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_transaction_and_witness_proof",
+  "params": [
+    [ "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3" ]
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-         "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-         "transactions_proof": {
-             "indices": [ "0x0" ],
-             "lemmas": []
-         },
-         "witnesses_proof": {
-             "indices": [
-                 "0x0"
-             ],
-             "lemmas": []
-         }
-     },
-     "id": 42
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "transactions_proof": {
+            "indices": [ "0x0" ],
+            "lemmas": []
+        },
+        "witnesses_proof": {
+            "indices": [
+                "0x0"
+            ],
+            "lemmas": []
+        }
+    },
+    "id": 42
+}
+```
 #### Method `verify_transaction_and_witness_proof`
 * `verify_transaction_and_witness_proof(tx_proof)`
     * `tx_proof`: [`TransactionAndWitnessProof`](#type-transactionandwitnessproof)
 * result: `Array<` [`H256`](#type-h256) `>`
 
- Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
+Verifies that a proof points to transactions in a block, returning the transaction hashes it commits to.
 
- ###### Parameters
+###### Parameters
 
- * `tx_proof` - proof generated by [`get_transaction_and_witness_proof`](#tymethod.get_transaction_and_witness_proof).
+* `tx_proof` - proof generated by [`get_transaction_and_witness_proof`](#tymethod.get_transaction_and_witness_proof).
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "verify_transaction_and_witness_proof",
-   "params": [
-     {
-       "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-         "transactions_proof": {
-             "indices": [ "0x0" ],
-             "lemmas": []
-         },
-         "witnesses_proof": {
-             "indices": [
-                 "0x0"
-             ],
-             "lemmas": []
-         }
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "verify_transaction_and_witness_proof",
+  "params": [
+    {
+      "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "transactions_proof": {
+            "indices": [ "0x0" ],
+            "lemmas": []
+        },
+        "witnesses_proof": {
+            "indices": [
+                "0x0"
+            ],
+            "lemmas": []
+        }
+    }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": [
-     "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": [
+    "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+  ]
+}
+```
 #### Method `get_fork_block`
 * `get_fork_block(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`AlertId`](#type-alertid) `|` `null`
 * result: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) `|` `null`
 
- Returns the information about a fork block by hash.
+Returns the information about a fork block by hash.
 
- ###### Params
+###### Params
 
- * `block_hash` - the fork block hash.
- * `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
+* `block_hash` - the fork block hash.
+* `verbosity` - result format which allows 0 and 2. (**Optional**, the default is 2.)
 
- ###### Returns
+###### Returns
 
- The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to
- the parameter `block_hash`.
+The RPC returns a fork block or null. When the RPC returns a block, the block hash must equal to
+the parameter `block_hash`.
 
- Please note that due to the technical nature of the peer to peer sync, the RPC may return null or a fork block
- result on different nodes with same `block_hash` even they are fully synced to the [canonical chain](#canonical-chain).
- And because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
- RPC may sometimes return null and sometimes return the fork block.
+Please note that due to the technical nature of the peer to peer sync, the RPC may return null or a fork block
+result on different nodes with same `block_hash` even they are fully synced to the [canonical chain](#canonical-chain).
+And because of [chain reorganization](#chain-reorganization), for the same `block_hash`, the
+RPC may sometimes return null and sometimes return the fork block.
 
- When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
- schema.
+When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
+schema.
 
- When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
- encodes the block serialized by molecule using schema `table Block`.
+When `verbosity` is 0, it returns a 0x-prefixed hex string as the `result`. The string
+encodes the block serialized by molecule using schema `table Block`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_fork_block",
-   "params": [
-     "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fork_block",
+  "params": [
+    "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "header": {
-       "compact_target": "0x1e083126",
-       "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-       "epoch": "0x7080018000001",
-       "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
-       "nonce": "0x0",
-       "number": "0x400",
-       "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-       "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "timestamp": "0x5cd2b118",
-       "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-       "version": "0x0"
-     },
-     "proposals": [],
-     "transactions": [
-       {
-         "cell_deps": [],
-         "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x400"
-           }
-         ],
-         "outputs": [
-           {
-             "capacity": "0x18e64b61cf",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
-         ]
-       }
-     ],
-     "uncles": []
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "header": {
+      "compact_target": "0x1e083126",
+      "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+      "epoch": "0x7080018000001",
+      "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+      "nonce": "0x0",
+      "number": "0x400",
+      "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+      "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "timestamp": "0x5cd2b118",
+      "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+      "version": "0x0"
+    },
+    "proposals": [],
+    "transactions": [
+      {
+        "cell_deps": [],
+        "hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17",
+        "header_deps": [],
+        "inputs": [
+          {
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x400"
+          }
+        ],
+        "outputs": [
+          {
+            "capacity": "0x18e64b61cf",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+        ]
+      }
+    ],
+    "uncles": []
+  }
+}
+```
 
- The response looks like below when `verbosity` is 0.
+The response looks like below when `verbosity` is 0.
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x..."
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x..."
+}
+```
 #### Method `get_consensus`
 * `get_consensus()`
 
 * result: [`Consensus`](#type-consensus)
 
- Return various consensus parameters.
+Return various consensus parameters.
 
- ###### Returns
+###### Returns
 
- If any hardfork feature has `epoch=null`, it means the feature will never be activated.
+If any hardfork feature has `epoch=null`, it means the feature will never be activated.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_consensus",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_consensus",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-         "block_version": "0x0",
-         "cellbase_maturity": "0x10000000000",
-         "dao_type_hash": null,
-         "epoch_duration_target": "0x3840",
-         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
-         "hardfork_features": [
-             { "rfc": "0028", "epoch_number": "0x1526" },
-             { "rfc": "0029", "epoch_number": "0x0" },
-             { "rfc": "0030", "epoch_number": "0x0" },
-             { "rfc": "0031", "epoch_number": "0x0" },
-             { "rfc": "0032", "epoch_number": "0x0" },
-             { "rfc": "0036", "epoch_number": "0x0" },
-             { "rfc": "0038", "epoch_number": "0x0" },
-             { "rfc": "0048", "epoch_number": null },
-             { "rfc": "0049", "epoch_number": null }
-          ],
-         "id": "main",
-         "initial_primary_epoch_reward": "0x71afd498d000",
-         "max_block_bytes": "0x91c08",
-         "max_block_cycles": "0xd09dc300",
-         "max_block_proposals_limit": "0x5dc",
-         "max_uncles_num": "0x2",
-         "median_time_block_count": "0x25",
-         "orphan_rate_target": {
-             "denom": "0x28",
-             "numer": "0x1"
-         },
-         "permanent_difficulty_in_dummy": false,
-         "primary_epoch_reward_halving_interval": "0x2238",
-         "proposer_reward_ratio": {
-             "denom": "0xa",
-             "numer": "0x4"
-         },
-         "secondary_epoch_reward": "0x37d0c8e28542",
-         "secp256k1_blake160_multisig_all_type_hash": null,
-         "secp256k1_blake160_sighash_all_type_hash": null,
-         "softforks": {
-             "testdummy": {
-                 "status": "rfc0043",
-                 "rfc0043": {
-                     "bit": 1,
-                     "min_activation_epoch": "0x0",
-                     "period": "0xa",
-                     "start": "0x0",
-                     "threshold": {
-                         "denom": "0x4",
-                         "numer": "0x3"
-                     },
-                     "timeout": "0x0"
-                 }
-             }
-         },
-         "tx_proposal_window": {
-             "closest": "0x2",
-             "farthest": "0xa"
-         },
-         "tx_version": "0x0",
-         "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
-     }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+        "block_version": "0x0",
+        "cellbase_maturity": "0x10000000000",
+        "dao_type_hash": null,
+        "epoch_duration_target": "0x3840",
+        "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
+        "hardfork_features": [
+            { "rfc": "0028", "epoch_number": "0x1526" },
+            { "rfc": "0029", "epoch_number": "0x0" },
+            { "rfc": "0030", "epoch_number": "0x0" },
+            { "rfc": "0031", "epoch_number": "0x0" },
+            { "rfc": "0032", "epoch_number": "0x0" },
+            { "rfc": "0036", "epoch_number": "0x0" },
+            { "rfc": "0038", "epoch_number": "0x0" },
+            { "rfc": "0048", "epoch_number": null },
+            { "rfc": "0049", "epoch_number": null }
+         ],
+        "id": "main",
+        "initial_primary_epoch_reward": "0x71afd498d000",
+        "max_block_bytes": "0x91c08",
+        "max_block_cycles": "0xd09dc300",
+        "max_block_proposals_limit": "0x5dc",
+        "max_uncles_num": "0x2",
+        "median_time_block_count": "0x25",
+        "orphan_rate_target": {
+            "denom": "0x28",
+            "numer": "0x1"
+        },
+        "permanent_difficulty_in_dummy": false,
+        "primary_epoch_reward_halving_interval": "0x2238",
+        "proposer_reward_ratio": {
+            "denom": "0xa",
+            "numer": "0x4"
+        },
+        "secondary_epoch_reward": "0x37d0c8e28542",
+        "secp256k1_blake160_multisig_all_type_hash": null,
+        "secp256k1_blake160_sighash_all_type_hash": null,
+        "softforks": {
+            "testdummy": {
+                "status": "rfc0043",
+                "rfc0043": {
+                    "bit": 1,
+                    "min_activation_epoch": "0x0",
+                    "period": "0xa",
+                    "start": "0x0",
+                    "threshold": {
+                        "denom": "0x4",
+                        "numer": "0x3"
+                    },
+                    "timeout": "0x0"
+                }
+            }
+        },
+        "tx_proposal_window": {
+            "closest": "0x2",
+            "farthest": "0xa"
+        },
+        "tx_version": "0x0",
+        "type_id_code_hash": "0x00000000000000000000000000000000000000000000000000545950455f4944"
+    }
+}
+```
 #### Method `get_block_median_time`
 * `get_block_median_time(block_hash)`
     * `block_hash`: [`H256`](#type-h256)
 * result: [`Uint64`](#type-uint64) `|` `null`
 
- Returns the past median time by block hash.
+Returns the past median time by block hash.
 
- ###### Params
+###### Params
 
- * `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
+* `block_hash` - A median time is calculated for a consecutive block sequence. `block_hash` indicates the highest block of the sequence.
 
- ###### Returns
+###### Returns
 
- When the given block hash is not on the current canonical chain, this RPC returns null;
- otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
+When the given block hash is not on the current canonical chain, this RPC returns null;
+otherwise returns the median time of the consecutive 37 blocks where the given block_hash has the highest height.
 
- Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
+Note that the given block is included in the median time. The included block number range is `[MAX(block - 36, 0), block]`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_median_time",
-   "params": [
-     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_median_time",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x5cd2b105"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x5cd2b105"
+}
+```
 #### Method `estimate_cycles`
 * `estimate_cycles(tx)`
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
 
- `estimate_cycles` run a transaction and return the execution consumed cycles.
+`estimate_cycles` run a transaction and return the execution consumed cycles.
 
- This method will not check the transaction validity, but only run the lock script
- and type script and then return the execution cycles.
+This method will not check the transaction validity, but only run the lock script
+and type script and then return the execution cycles.
 
- It is used to estimate how many cycles the scripts consume.
+It is used to estimate how many cycles the scripts consume.
 
- ###### Errors
+###### Errors
 
- * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
- * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "estimate_cycles",
-   "params": [
-     {
-       "cell_deps": [
-         {
-           "dep_type": "code",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-           }
-         }
-       ],
-       "header_deps": [
-         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-       ],
-       "inputs": [
-         {
-           "previous_output": {
-             "index": "0x0",
-             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-           },
-           "since": "0x0"
-         }
-       ],
-       "outputs": [
-         {
-           "capacity": "0x2540be400",
-           "lock": {
-             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-             "hash_type": "data",
-             "args": "0x"
-           },
-           "type": null
-         }
-       ],
-       "outputs_data": [
-         "0x"
-       ],
-       "version": "0x0",
-       "witnesses": []
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "estimate_cycles",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "cycles": "0x219"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cycles": "0x219"
+  }
+}
+```
 #### Method `get_fee_rate_statics`
 * `get_fee_rate_statics(target)`
     * `target`: [`Uint64`](#type-uint64) `|` `null`
 * result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
- Returns the fee_rate statistics of confirmed blocks on the chain
+Returns the fee_rate statistics of confirmed blocks on the chain
 
- ###### Params
+###### Params
 
- * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
-  If the number is even, automatically add one. If not specified, defaults to 21
+* `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+ If the number is even, automatically add one. If not specified, defaults to 21
 
- ###### Returns
+###### Returns
 
- If the query finds the corresponding historical data,
- the corresponding statistics are returned,
- containing the mean and median, in shannons per kilo-weight.
- If not, it returns null.
+If the query finds the corresponding historical data,
+the corresponding statistics are returned,
+containing the mean and median, in shannons per kilo-weight.
+If not, it returns null.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_fee_rate_statics",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fee_rate_statics",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "mean": "0xe79d",
-     "median": "0x14a8"
-    }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "mean": "0xe79d",
+    "median": "0x14a8"
+   }
+}
+```
 #### Method `get_fee_rate_statistics`
 * `get_fee_rate_statistics(target)`
     * `target`: [`Uint64`](#type-uint64) `|` `null`
 * result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
- Returns the fee_rate statistics of confirmed blocks on the chain
+Returns the fee_rate statistics of confirmed blocks on the chain
 
- ###### Params
+###### Params
 
- * `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
-  If the number is even, automatically add one. If not specified, defaults to 21
+* `target` - Specify the number (1 - 101) of confirmed blocks to be counted.
+ If the number is even, automatically add one. If not specified, defaults to 21
 
- ###### Returns
+###### Returns
 
- If the query finds the corresponding historical data,
- the corresponding statistics are returned,
- containing the mean and median, in shannons per kilo-weight.
- If not, it returns null.
+If the query finds the corresponding historical data,
+the corresponding statistics are returned,
+containing the mean and median, in shannons per kilo-weight.
+If not, it returns null.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_fee_rate_statistics",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fee_rate_statistics",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "mean": "0xe79d",
-     "median": "0x14a8"
-    }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "mean": "0xe79d",
+    "median": "0x14a8"
+   }
+}
+```
 
 ### Module Debug
- RPC Module Debug for internal RPC methods.
+RPC Module Debug for internal RPC methods.
 
- **This module is for CKB developers and will not guarantee compatibility.** The methods here
- will be changed or removed without advanced notification.
+**This module is for CKB developers and will not guarantee compatibility.** The methods here
+will be changed or removed without advanced notification.
 
 #### Method `jemalloc_profiling_dump`
 * `jemalloc_profiling_dump()`
 
 * result: `string`
 
- Dumps jemalloc memory profiling information into a file.
+Dumps jemalloc memory profiling information into a file.
 
- The file is stored in the server running the CKB node.
+The file is stored in the server running the CKB node.
 
- The RPC returns the path to the dumped file on success or returns an error on failure.
+The RPC returns the path to the dumped file on success or returns an error on failure.
 #### Method `update_main_logger`
 * `update_main_logger(config)`
     * `config`: [`MainLoggerConfig`](#type-mainloggerconfig)
 * result: `null`
 
- Changes main logger config options while CKB is running.
+Changes main logger config options while CKB is running.
 #### Method `set_extra_logger`
 * `set_extra_logger(name, config_opt)`
     * `name`: `string`
     * `config_opt`: [`ExtraLoggerConfig`](#type-extraloggerconfig) `|` `null`
 * result: `null`
 
- Sets logger config options for extra loggers.
+Sets logger config options for extra loggers.
 
- CKB nodes allow setting up extra loggers. These loggers will have their own log files and
- they only append logs to their log files.
+CKB nodes allow setting up extra loggers. These loggers will have their own log files and
+they only append logs to their log files.
 
- ###### Params
+###### Params
 
- * `name` - Extra logger name
- * `config_opt` - Adds a new logger or update an existing logger when this is not null.
- Removes the logger when this is null.
+* `name` - Extra logger name
+* `config_opt` - Adds a new logger or update an existing logger when this is not null.
+Removes the logger when this is null.
 
 ### Module Experiment
- RPC Module Experiment for experimenting methods.
+RPC Module Experiment for experimenting methods.
 
- **EXPERIMENTAL warning**
+**EXPERIMENTAL warning**
 
- The methods here may be removed or changed in future releases without prior notifications.
+The methods here may be removed or changed in future releases without prior notifications.
 
 #### Method `dry_run_transaction`
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
 
- Dry run a transaction and return the execution cycles.
+Dry run a transaction and return the execution cycles.
 
- This method will not check the transaction validity, but only run the lock script
- and type script and then return the execution cycles.
+This method will not check the transaction validity, but only run the lock script
+and type script and then return the execution cycles.
 
- It is used to debug transaction scripts and query how many cycles the scripts consume.
+It is used to debug transaction scripts and query how many cycles the scripts consume.
 
- ###### Errors
+###### Errors
 
- * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
- * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - There is a script returns with an error.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "dry_run_transaction",
-   "params": [
-     {
-       "cell_deps": [
-         {
-           "dep_type": "code",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-           }
-         }
-       ],
-       "header_deps": [
-         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-       ],
-       "inputs": [
-         {
-           "previous_output": {
-             "index": "0x0",
-             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-           },
-           "since": "0x0"
-         }
-       ],
-       "outputs": [
-         {
-           "capacity": "0x2540be400",
-           "lock": {
-             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-             "hash_type": "data",
-             "args": "0x"
-           },
-           "type": null
-         }
-       ],
-       "outputs_data": [
-         "0x"
-       ],
-       "version": "0x0",
-       "witnesses": []
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "dry_run_transaction",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "cycles": "0x219"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cycles": "0x219"
+  }
+}
+```
 #### Method `calculate_dao_maximum_withdraw`
 * `calculate_dao_maximum_withdraw(out_point, kind)`
     * `out_point`: [`OutPoint`](#type-outpoint)
     * `kind`: [`DaoWithdrawingCalculationKind`](#type-daowithdrawingcalculationkind)
 * result: [`Uint64`](#type-uint64)
 
- Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
- a withdrawing block hash.
+Calculates the maximum withdrawal one can get, given a referenced DAO cell, and
+a withdrawing block hash.
 
- ###### Params
+###### Params
 
- * `out_point` - Reference to the DAO cell, the depositing transaction's output.
- * `kind` - Two kinds of dao withdrawal amount calculation option.
+* `out_point` - Reference to the DAO cell, the depositing transaction's output.
+* `kind` - Two kinds of dao withdrawal amount calculation option.
 
- option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the
- [canonical chain](trait.ChainRpc.html#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction's output, assuming the output of phase 1 transaction is the same as the depositing transaction's output.
+option 1, the assumed reference block hash for withdrawing phase 1 transaction, this block must be in the
+[canonical chain](trait.ChainRpc.html#canonical-chain), the calculation of occupied capacity will be based on the depositing transaction's output, assuming the output of phase 1 transaction is the same as the depositing transaction's output.
 
- option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction's output.
+option 2, the out point of the withdrawing phase 1 transaction, the calculation of occupied capacity will be based on corresponding phase 1 transaction's output.
 
- ###### Returns
+###### Returns
 
- The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
+The RPC returns the final capacity when the cell `out_point` is withdrawn using the block hash or withdrawing phase 1 transaction out point as the reference.
 
- In CKB, scripts cannot get the information about in which block the transaction is
- committed. A workaround is letting the transaction reference a block hash so the script
- knows that the transaction is committed at least after the reference block.
+In CKB, scripts cannot get the information about in which block the transaction is
+committed. A workaround is letting the transaction reference a block hash so the script
+knows that the transaction is committed at least after the reference block.
 
- ###### Errors
+###### Errors
 
- * [`DaoError (-5)`](../enum.RPCError.html#variant.DaoError) - The given out point is not a valid cell for DAO computation.
- * [`CKBInternalError (-1)`](../enum.RPCError.html#variant.CKBInternalError) - Mathematics overflow.
+* [`DaoError (-5)`](../enum.RPCError.html#variant.DaoError) - The given out point is not a valid cell for DAO computation.
+* [`CKBInternalError (-1)`](../enum.RPCError.html#variant.CKBInternalError) - Mathematics overflow.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "calculate_dao_maximum_withdraw",
-   "params": [
-     {
-       "index": "0x0",
-       "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-     },
-     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "calculate_dao_maximum_withdraw",
+  "params": [
+    {
+      "index": "0x0",
+      "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    },
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x4a8b4e8a4"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x4a8b4e8a4"
+}
+```
 
 ### Module Indexer
- RPC Module Indexer.
+RPC Module Indexer.
 
 #### Method `get_indexer_tip`
 * `get_indexer_tip()`
 
 * result: [`IndexerTip`](#type-indexertip) `|` `null`
 
- Returns the indexed tip
+Returns the indexed tip
 
- ###### Returns
-   * block_hash - indexed tip block hash
-   * block_number - indexed tip block number
+###### Returns
+  * block_hash - indexed tip block hash
+  * block_number - indexed tip block number
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_indexer_tip"
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_indexer_tip"
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "jsonrpc": "2.0",
-   "result": {
-     "block_hash": "0x4959d6e764a2edc6038dbf03d61ebcc99371115627b186fdcccb2161fbd26edc",
-     "block_number": "0x5b513e"
-   },
-   "id": 2
- }
- ```
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "block_hash": "0x4959d6e764a2edc6038dbf03d61ebcc99371115627b186fdcccb2161fbd26edc",
+    "block_number": "0x5b513e"
+  },
+  "id": 2
+}
+```
 #### Method `get_cells`
 * `get_cells(search_key, order, limit, after)`
     * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
@@ -2088,349 +2087,349 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
 * result: [`IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
 
- Returns the live cells collection by the lock or type script.
+Returns the live cells collection by the lock or type script.
 
- ###### Params
+###### Params
 
- * search_key:
-     - script - Script, supports prefix search
-     - scrip_type - enum, lock | type
-     - filter - filter cells by following conditions, all conditions are optional
-          - script: if search script type is lock, filter cells by type script prefix, and vice versa
-          - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
-          - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
-          - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
-          - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
-     - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
- * order: enum, asc | desc
- * limit: result size limit
- * after_cursor: pagination parameter, optional
+* search_key:
+    - script - Script, supports prefix search
+    - scrip_type - enum, lock | type
+    - filter - filter cells by following conditions, all conditions are optional
+         - script: if search script type is lock, filter cells by type script prefix, and vice versa
+         - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+* order: enum, asc | desc
+* limit: result size limit
+* after_cursor: pagination parameter, optional
 
- ###### Returns
+###### Returns
 
- * objects:
-     - output: the fields of an output cell
-     - output_data: the cell data
-     - out_point: reference to a cell via transaction hash and output index
-     - block_number: the number of the transaction committed in the block
-     - tx_index: the position index of the transaction committed in the block
- * last_cursor: pagination parameter
+* objects:
+    - output: the fields of an output cell
+    - output_data: the cell data
+    - out_point: reference to a cell via transaction hash and output index
+    - block_number: the number of the transaction committed in the block
+    - tx_index: the position index of the transaction committed in the block
+* last_cursor: pagination parameter
 
- ###### Examples
+###### Examples
 
- * get cells by lock script
+* get cells by lock script
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_cells",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-                 "hash_type": "type",
-                 "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
-             },
-             "script_type": "lock"
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
-    {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b0f8c0000000100000000",
-       "objects": [
-         {
-           "block_number": "0x5b0e6d",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9"
-           },
-           "output": {
-             "capacity": "0x189640200",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0e90",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6"
-           },
-           "output": {
-             "capacity": "0x189640200",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0ead",
-           "out_point": {
-             "index": "0x1",
-             "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581"
-           },
-           "output": {
-             "capacity": "0xe36dceec20",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0eeb",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48"
-           },
-           "output": {
-             "capacity": "0x174876e800",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0f8c",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c"
-           },
-           "output": {
-             "capacity": "0x189640200",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         }
-       ]
-     },
-     "id": 2
-   }
- ```
+```json
+   {
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b0f8c0000000100000000",
+      "objects": [
+        {
+          "block_number": "0x5b0e6d",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581"
+          },
+          "output": {
+            "capacity": "0xe36dceec20",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48"
+          },
+          "output": {
+            "capacity": "0x174876e800",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c"
+          },
+          "output": {
+            "capacity": "0x189640200",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+  }
+```
 
- * get cells by lock script and filter by type script
+* get cells by lock script and filter by type script
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_cells",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
-                 "hash_type": "type",
-                 "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
-             },
-             "script_type": "lock",
-             "filter": {
-                 "script": {
-                     "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
-                     "hash_type": "type",
-                     "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b"
-                 }
-             }
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+                "hash_type": "type",
+                "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
+            },
+            "script_type": "lock",
+            "filter": {
+                "script": {
+                    "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
+                    "hash_type": "type",
+                    "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b"
+                }
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf870000000100000001",
-       "objects": [
-         {
-           "block_number": "0x2adf87",
-           "out_point": {
-             "index": "0x1",
-             "tx_hash": "0x04ecbc2df39e3682326a3b23c1bd2465e07eae2379ac0cc713834a1f79753779"
-           },
-           "output": {
-             "capacity": "0x436d81500",
-             "lock": {
-               "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
-               "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
-               "hash_type": "type"
-             },
-             "type": {
-               "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b",
-               "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
-               "hash_type": "type"
-             }
-           },
-           "output_data": "0x0040d20853d746000000000000000000",
-           "tx_index": "0x1"
-         }
-       ]
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf870000000100000001",
+      "objects": [
+        {
+          "block_number": "0x2adf87",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x04ecbc2df39e3682326a3b23c1bd2465e07eae2379ac0cc713834a1f79753779"
+          },
+          "output": {
+            "capacity": "0x436d81500",
+            "lock": {
+              "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
+              "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+              "hash_type": "type"
+            },
+            "type": {
+              "args": "0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b",
+              "code_hash": "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
+              "hash_type": "type"
+            }
+          },
+          "output_data": "0x0040d20853d746000000000000000000",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
 
- * get cells by lock script and filter empty type script by setting script_len_range to
- [0, 1), script_len is caculated by (code_hash + hash_type + args).len
+* get cells by lock script and filter empty type script by setting script_len_range to
+[0, 1), script_len is caculated by (code_hash + hash_type + args).len
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_cells",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
-                 "hash_type": "type",
-                 "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
-             },
-             "script_type": "lock",
-             "filter": {
-                 "script_len_range": ["0x0", "0x1"]
-             }
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+                "hash_type": "type",
+                "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707"
+            },
+            "script_type": "lock",
+            "filter": {
+                "script_len_range": ["0x0", "0x1"]
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf830000000200000001",
-       "objects": [
-         {
-           "block_number": "0x2adf83",
-           "out_point": {
-             "index": "0x1",
-             "tx_hash": "0x23ec897027c1d2a2b39e2446162bac182f18581be048cb3896ad695559b6839e"
-           },
-           "output": {
-             "capacity": "0x54b42b70b4",
-             "lock": {
-               "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
-               "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x2"
-         }
-       ]
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf830000000200000001",
+      "objects": [
+        {
+          "block_number": "0x2adf83",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x23ec897027c1d2a2b39e2446162bac182f18581be048cb3896ad695559b6839e"
+          },
+          "output": {
+            "capacity": "0x54b42b70b4",
+            "lock": {
+              "args": "0x2a49720e721553d0614dff29454ee4e1f07d0707",
+              "code_hash": "0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x2"
+        }
+      ]
+    },
+    "id": 2
+}
+```
 
- * get cells by lock script and filter capacity range
+* get cells by lock script and filter capacity range
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_cells",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-                 "hash_type": "type",
-                 "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
-             },
-             "script_type": "lock",
-             "filter": {
-                 "output_capacity_range": ["0x0", "0x174876e801"]
-             }
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock",
+            "filter": {
+                "output_capacity_range": ["0x0", "0x174876e801"]
+            }
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df0000000100000001",
-       "objects": [
-         {
-           "block_number": "0x5b59df",
-           "out_point": {
-             "index": "0x1",
-             "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194"
-           },
-           "output": {
-             "capacity": "0xe815b81c0",
-             "lock": {
-               "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
-               "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-               "hash_type": "type"
-             },
-             "type": null
-           },
-           "output_data": "0x",
-           "tx_index": "0x1"
-         }
-       ]
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df0000000100000001",
+      "objects": [
+        {
+          "block_number": "0x5b59df",
+          "out_point": {
+            "index": "0x1",
+            "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194"
+          },
+          "output": {
+            "capacity": "0xe815b81c0",
+            "lock": {
+              "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223",
+              "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+              "hash_type": "type"
+            },
+            "type": null
+          },
+          "output_data": "0x",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
 #### Method `get_transactions`
 * `get_transactions(search_key, order, limit, after)`
     * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
@@ -2439,471 +2438,471 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
 * result: [`IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
 
- Returns the transactions collection by the lock or type script.
+Returns the transactions collection by the lock or type script.
 
- * search_key:
-     - script - Script, supports prefix search when group_by_transaction is false
-     - scrip_type - enum, lock | type
-     - filter - filter cells by following conditions, all conditions are optional
-         - script: if search script type is lock, filter cells by type script, and vice versa
-         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
-     - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
- * order: enum, asc | desc
- * limit: result size limit
- * after_cursor: pagination parameter, optional
+* search_key:
+    - script - Script, supports prefix search when group_by_transaction is false
+    - scrip_type - enum, lock | type
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script, and vice versa
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+* order: enum, asc | desc
+* limit: result size limit
+* after_cursor: pagination parameter, optional
 
- ###### Returns
-  * objects - enum, ungrouped TxWithCell | grouped TxWithCells
-     - TxWithCell:
-         - tx_hash: transaction hash,
-         - block_number: the number of the transaction committed in the block
-         - tx_index: the position index of the transaction committed in the block
-         - io_type: enum, input | output
-         - io_index: the position index of the cell in the transaction inputs or outputs
-     - TxWithCells:
-         - tx_hash: transaction hash,
-         - block_number: the number of the transaction committed in the block
-         - tx_index: the position index of the transaction committed in the block
-         - cells: Array [[io_type, io_index]]
-  * last_cursor - pagination parameter
+###### Returns
+ * objects - enum, ungrouped TxWithCell | grouped TxWithCells
+    - TxWithCell:
+        - tx_hash: transaction hash,
+        - block_number: the number of the transaction committed in the block
+        - tx_index: the position index of the transaction committed in the block
+        - io_type: enum, input | output
+        - io_index: the position index of the cell in the transaction inputs or outputs
+    - TxWithCells:
+        - tx_hash: transaction hash,
+        - block_number: the number of the transaction committed in the block
+        - tx_index: the position index of the transaction committed in the block
+        - cells: Array [[io_type, io_index]]
+ * last_cursor - pagination parameter
 
- ###### Examples
+###### Examples
 
- * get transactions by lock script
+* get transactions by lock script
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_transactions",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-                 "hash_type": "type",
-                 "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
-             },
-             "script_type": "lock"
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transactions",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
-       "objects": [
-         {
-           "block_number": "0x5b033a",
-           "io_index": "0x0",
-           "io_type": "output",
-           "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
-           "tx_index": "0x4"
-         },
-         {
-           "block_number": "0x5b0671",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0671",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0e6d",
-           "io_index": "0x0",
-           "io_type": "output",
-           "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0e90",
-           "io_index": "0x0",
-           "io_type": "output",
-           "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0ead",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0ead",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0eeb",
-           "io_index": "0x0",
-           "io_type": "output",
-           "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0f8c",
-           "io_index": "0x0",
-           "io_type": "output",
-           "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b5638",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b5638",
-           "io_index": "0x1",
-           "io_type": "input",
-           "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b5638",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b5638",
-           "io_index": "0x2",
-           "io_type": "input",
-           "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59c2",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59c2",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59cc",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59cc",
-           "io_index": "0x1",
-           "io_type": "input",
-           "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59cc",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59df",
-           "io_index": "0x0",
-           "io_type": "input",
-           "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59df",
-           "io_index": "0x1",
-           "io_type": "output",
-           "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
-           "tx_index": "0x1"
-         }
-       ]
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
+      "objects": [
+        {
+          "block_number": "0x5b033a",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
+          "tx_index": "0x4"
+        },
+        {
+          "block_number": "0x5b0671",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0671",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e6d",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "io_index": "0x0",
+          "io_type": "output",
+          "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x1",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "io_index": "0x2",
+          "io_type": "input",
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x1",
+          "io_type": "input",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "io_index": "0x0",
+          "io_type": "input",
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "io_index": "0x1",
+          "io_type": "output",
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
 
- * get transactions by lock script and group by tx hash
+* get transactions by lock script and group by tx hash
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_transactions",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-                 "hash_type": "type",
-                 "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
-             },
-             "script_type": "lock",
-             "group_by_transaction": true
-         },
-         "asc",
-         "0x64"
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transactions",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock",
+            "group_by_transaction": true
+        },
+        "asc",
+        "0x64"
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
-       "objects": [
-         {
-           "block_number": "0x5b033a",
-           "cells": [
-             [
-               "output",
-               "0x0"
-             ]
-           ],
-           "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
-           "tx_index": "0x4"
-         },
-         {
-           "block_number": "0x5b0671",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "output",
-               "0x1"
-             ]
-           ],
-           "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0e6d",
-           "cells": [
-             [
-               "output",
-               "0x0"
-             ]
-           ],
-           "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0e90",
-           "cells": [
-             [
-               "output",
-               "0x0"
-             ]
-           ],
-           "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0ead",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "output",
-               "0x1"
-             ]
-           ],
-           "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0eeb",
-           "cells": [
-             [
-               "output",
-               "0x0"
-             ]
-           ],
-           "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b0f8c",
-           "cells": [
-             [
-               "output",
-               "0x0"
-             ]
-           ],
-           "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b5638",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "input",
-               "0x1"
-             ],
-             [
-               "output",
-               "0x1"
-             ],
-             [
-               "input",
-               "0x2"
-             ]
-           ],
-           "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59c2",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "output",
-               "0x1"
-             ]
-           ],
-           "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59cc",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "input",
-               "0x1"
-             ],
-             [
-               "output",
-               "0x1"
-             ]
-           ],
-           "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
-           "tx_index": "0x1"
-         },
-         {
-           "block_number": "0x5b59df",
-           "cells": [
-             [
-               "input",
-               "0x0"
-             ],
-             [
-               "output",
-               "0x1"
-             ]
-           ],
-           "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
-           "tx_index": "0x1"
-         }
-       ]
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "last_cursor": "0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101",
+      "objects": [
+        {
+          "block_number": "0x5b033a",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1",
+          "tx_index": "0x4"
+        },
+        {
+          "block_number": "0x5b0671",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e6d",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0e90",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0ead",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0eeb",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b0f8c",
+          "cells": [
+            [
+              "output",
+              "0x0"
+            ]
+          ],
+          "tx_hash": "0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b5638",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "input",
+              "0x1"
+            ],
+            [
+              "output",
+              "0x1"
+            ],
+            [
+              "input",
+              "0x2"
+            ]
+          ],
+          "tx_hash": "0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59c2",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59cc",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "input",
+              "0x1"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26",
+          "tx_index": "0x1"
+        },
+        {
+          "block_number": "0x5b59df",
+          "cells": [
+            [
+              "input",
+              "0x0"
+            ],
+            [
+              "output",
+              "0x1"
+            ]
+          ],
+          "tx_hash": "0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194",
+          "tx_index": "0x1"
+        }
+      ]
+    },
+    "id": 2
+}
+```
 #### Method `get_cells_capacity`
 * `get_cells_capacity(search_key)`
     * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
 * result: [`IndexerCellsCapacity`](#type-indexercellscapacity) `|` `null`
 
- Returns the live cells capacity by the lock or type script.
+Returns the live cells capacity by the lock or type script.
 
- ###### Parameters
+###### Parameters
 
- * search_key:
-     - script - Script
-     - scrip_type - enum, lock | type
-     - filter - filter cells by following conditions, all conditions are optional
-         - script: if search script type is lock, filter cells by type script prefix, and vice versa
-         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
-         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
-         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+* search_key:
+    - script - Script
+    - scrip_type - enum, lock | type
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script prefix, and vice versa
+        - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+        - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
 
- ###### Returns
+###### Returns
 
-  * capacity - total capacity
-  * block_hash - indexed tip block hash
-  * block_number - indexed tip block number
+ * capacity - total capacity
+ * block_hash - indexed tip block hash
+ * block_number - indexed tip block number
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-     "id": 2,
-     "jsonrpc": "2.0",
-     "method": "get_cells_capacity",
-     "params": [
-         {
-             "script": {
-                 "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
-                 "hash_type": "type",
-                 "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
-             },
-             "script_type": "lock"
-         }
-     ]
- }
- ```
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells_capacity",
+    "params": [
+        {
+            "script": {
+                "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+                "hash_type": "type",
+                "args": "0x5989ae415bb667931a99896e5fbbfad9ba53a223"
+            },
+            "script_type": "lock"
+        }
+    ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-     "jsonrpc": "2.0",
-     "result": {
-       "block_hash": "0xbc52444952dc5eb01a7826aaf6bb1b660db01797414e259e7a6e6d636de8fc7c",
-       "block_number": "0x5b727a",
-       "capacity": "0xf0e8e4b4a0"
-     },
-     "id": 2
- }
- ```
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+      "block_hash": "0xbc52444952dc5eb01a7826aaf6bb1b660db01797414e259e7a6e6d636de8fc7c",
+      "block_number": "0x5b727a",
+      "capacity": "0xf0e8e4b4a0"
+    },
+    "id": 2
+}
+```
 
 ### Module Integration_test
- RPC for Integration Test.
+RPC for Integration Test.
 
 #### Method `process_block_without_verify`
 * `process_block_without_verify(data, broadcast)`
@@ -2911,494 +2910,494 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `broadcast`: `boolean`
 * result: [`H256`](#type-h256) `|` `null`
 
- process block without any block verification.
+process block without any block verification.
 
- ###### Params
+###### Params
 
- * `data` - block data(in binary).
+* `data` - block data(in binary).
 
- * `broadcast` - true to enable broadcast(relay) the block to other peers.
+* `broadcast` - true to enable broadcast(relay) the block to other peers.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "process_block_without_verify",
-   "params": [
-    {
- 	"header": {
- 		"compact_target": "0x1e083126",
- 		"dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
- 		"epoch": "0x7080018000001",
- 		"extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
- 		"nonce": "0x0",
- 		"number": "0x400",
- 		"parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
- 		"proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
- 		"timestamp": "0x5cd2b117",
- 		"transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
- 		"version": "0x0"
- 	},
- 	"proposals": [],
- 	"transactions": [{
- 		"cell_deps": [],
- 		"header_deps": [],
- 		"inputs": [{
- 			"previous_output": {
- 				"index": "0xffffffff",
- 				"tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
- 			},
- 			"since": "0x400"
- 		}],
- 		"outputs": [{
- 			"capacity": "0x18e64b61cf",
- 			"lock": {
- 				"code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
- 				"hash_type": "data",
- 				"args": "0x"
- 			},
- 			"type": null
- 		}],
- 		"outputs_data": [
- 			"0x"
- 		],
- 		"version": "0x0",
- 		"witnesses": [
- 			"0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
- 		]
- 	}],
- 	"uncles": []
-     },
-     true
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "process_block_without_verify",
+  "params": [
+   {
+	"header": {
+		"compact_target": "0x1e083126",
+		"dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+		"epoch": "0x7080018000001",
+		"extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce": "0x0",
+		"number": "0x400",
+		"parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+		"proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"timestamp": "0x5cd2b117",
+		"transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+		"version": "0x0"
+	},
+	"proposals": [],
+	"transactions": [{
+		"cell_deps": [],
+		"header_deps": [],
+		"inputs": [{
+			"previous_output": {
+				"index": "0xffffffff",
+				"tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+			},
+			"since": "0x400"
+		}],
+		"outputs": [{
+			"capacity": "0x18e64b61cf",
+			"lock": {
+				"code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+				"hash_type": "data",
+				"args": "0x"
+			},
+			"type": null
+		}],
+		"outputs_data": [
+			"0x"
+		],
+		"version": "0x0",
+		"witnesses": [
+			"0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+		]
+	}],
+	"uncles": []
+    },
+    true
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+  "error": null
+}
+```
 #### Method `truncate`
 * `truncate(target_tip_hash)`
     * `target_tip_hash`: [`H256`](#type-h256)
 * result: `null`
 
- Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
+Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.
 
- ###### Params
+###### Params
 
- * `target_tip_hash` - specified header hash
+* `target_tip_hash` - specified header hash
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "truncate",
-   "params": [
-     "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "truncate",
+  "params": [
+    "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `generate_block`
 * `generate_block()`
 
 * result: [`H256`](#type-h256)
 
- Generate block(with verification) and broadcast the block.
+Generate block(with verification) and broadcast the block.
 
- Note that if called concurrently, it may return the hash of the same block.
+Note that if called concurrently, it may return the hash of the same block.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "generate_block",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_block",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
+  "error": null
+}
+```
 #### Method `generate_epochs`
 * `generate_epochs(num_epochs)`
     * `num_epochs`: [`Uint64`](#type-uint64)
 * result: [`Uint64`](#type-uint64)
 
- Generate epochs during development, can be useful for scenarios
- like testing DAO-related functionalities.
+Generate epochs during development, can be useful for scenarios
+like testing DAO-related functionalities.
 
- Returns the updated epoch number after generating the specified number of epochs.
+Returns the updated epoch number after generating the specified number of epochs.
 
- ###### Params
+###### Params
 
- * `num_epochs` - The number of epochs to generate.
+* `num_epochs` - The number of epochs to generate.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- Generating 2 epochs:
+Generating 2 epochs:
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "generate_epochs",
-   "params": ["0x2"]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x2"]
+}
+```
 
- The input parameter "0x2" will be normalized to "0x10000000002"(the correct
- [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method.
- Therefore, if you want to generate epochs as integers, you can simply pass an integer
- as long as it does not exceed 16777215 (24 bits).
+The input parameter "0x2" will be normalized to "0x10000000002"(the correct
+[`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method.
+Therefore, if you want to generate epochs as integers, you can simply pass an integer
+as long as it does not exceed 16777215 (24 bits).
 
- Generating 1/2 epoch:
+Generating 1/2 epoch:
 
- ```text
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "generate_epochs",
-   "params": ["0x20001000000"]
- }
- ```
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x20001000000"]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa0001000003",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0001000003",
+  "error": null
+}
+```
 #### Method `notify_transaction`
 * `notify_transaction(transaction)`
     * `transaction`: [`Transaction`](#type-transaction)
 * result: [`H256`](#type-h256)
 
- Add transaction to tx-pool.
+Add transaction to tx-pool.
 
- ###### Params
+###### Params
 
- * `transaction` - specified transaction to add
+* `transaction` - specified transaction to add
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
- 	"id": 42,
- 	"jsonrpc": "2.0",
- 	"method": "notify_transaction",
- 	"params":
-     [
-          {
- 			"cell_deps": [{
- 				"dep_type": "code",
- 				"out_point": {
- 					"index": "0x0",
- 					"tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
- 				}
- 			}],
- 			"header_deps": [
- 				"0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
- 			],
- 			"inputs": [{
- 				"previous_output": {
- 					"index": "0x0",
- 					"tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
- 				},
- 				"since": "0x0"
- 			}],
- 			"outputs": [{
- 				"capacity": "0x2540be400",
- 				"lock": {
- 					"code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
- 					"hash_type": "data",
- 					"args": "0x"
- 				},
- 				"type": null
- 			}],
- 			"outputs_data": [
- 				"0x"
- 			],
- 			"version": "0x0",
- 			"witnesses": []
- 		}
- 	]
- }
- ```
+```json
+{
+	"id": 42,
+	"jsonrpc": "2.0",
+	"method": "notify_transaction",
+	"params":
+    [
+         {
+			"cell_deps": [{
+				"dep_type": "code",
+				"out_point": {
+					"index": "0x0",
+					"tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+				}
+			}],
+			"header_deps": [
+				"0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+			],
+			"inputs": [{
+				"previous_output": {
+					"index": "0x0",
+					"tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+				},
+				"since": "0x0"
+			}],
+			"outputs": [{
+				"capacity": "0x2540be400",
+				"lock": {
+					"code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+					"hash_type": "data",
+					"args": "0x"
+				},
+				"type": null
+			}],
+			"outputs_data": [
+				"0x"
+			],
+			"version": "0x0",
+			"witnesses": []
+		}
+	]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
+  "error": null
+}
+```
 #### Method `generate_block_with_template`
 * `generate_block_with_template(block_template)`
     * `block_template`: [`BlockTemplate`](#type-blocktemplate)
 * result: [`H256`](#type-h256)
 
- Generate block with block template, attach calculated dao field to build new block,
+Generate block with block template, attach calculated dao field to build new block,
 
- then process block and broadcast the block.
+then process block and broadcast the block.
 
- ###### Params
+###### Params
 
- * `block_template` - specified transaction to add
+* `block_template` - specified transaction to add
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "generate_block_with_template",
-   "params": [
-    {
-     "bytes_limit": "0x91c08",
-     "cellbase": {
-       "cycles": null,
-       "data": {
-         "cell_deps": [],
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x401"
-           }
-         ],
-        "outputs": [
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_block_with_template",
+  "params": [
+   {
+    "bytes_limit": "0x91c08",
+    "cellbase": {
+      "cycles": null,
+      "data": {
+        "cell_deps": [],
+        "header_deps": [],
+        "inputs": [
           {
-            "capacity": "0x18e64efc04",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
-         ]
-       },
-       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
-     },
-     "compact_target": "0x1e083126",
-     "current_time": "0x174c45e17a3",
-     "cycles_limit": "0xd09dc300",
-     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-     "epoch": "0x7080019000001",
-     "extension": null,
-     "number": "0x401",
-     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
-     "transactions": [],
-     "uncles": [
-       {
-         "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
-         "header": {
-           "compact_target": "0x1e083126",
-           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-           "epoch": "0x7080018000001",
-           "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "nonce": "0x0",
-           "number": "0x400",
-           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "timestamp": "0x5cd2b118",
-           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-           "version":"0x0"
-         },
-         "proposals": [],
-         "required": false
-       }
-     ],
-     "uncles_count_limit": "0x2",
-     "version": "0x0",
-     "work_id": "0x0"
-    }
-  ]
- }
- ```
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x401"
+          }
+        ],
+       "outputs": [
+         {
+           "capacity": "0x18e64efc04",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+        ]
+      },
+      "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
+    },
+    "compact_target": "0x1e083126",
+    "current_time": "0x174c45e17a3",
+    "cycles_limit": "0xd09dc300",
+    "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
+    "epoch": "0x7080019000001",
+    "extension": null,
+    "number": "0x401",
+    "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
+    "transactions": [],
+    "uncles": [
+      {
+        "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+        "header": {
+          "compact_target": "0x1e083126",
+          "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+          "epoch": "0x7080018000001",
+          "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "nonce": "0x0",
+          "number": "0x400",
+          "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+          "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "timestamp": "0x5cd2b118",
+          "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+          "version":"0x0"
+        },
+        "proposals": [],
+        "required": false
+      }
+    ],
+    "uncles_count_limit": "0x2",
+    "version": "0x0",
+    "work_id": "0x0"
+   }
+ ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
+  "error": null
+}
+```
 #### Method `calculate_dao_field`
 * `calculate_dao_field(block_template)`
     * `block_template`: [`BlockTemplate`](#type-blocktemplate)
 * result: [`Byte32`](#type-byte32)
 
- Return calculated dao field according to specified block template.
+Return calculated dao field according to specified block template.
 
- ###### Params
+###### Params
 
- * `block_template` - specified block template
+* `block_template` - specified block template
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "calculate_dao_field",
-   "params": [
-    {
-     "bytes_limit": "0x91c08",
-     "cellbase": {
-       "cycles": null,
-       "data": {
-         "cell_deps": [],
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x401"
-           }
-         ],
-        "outputs": [
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "calculate_dao_field",
+  "params": [
+   {
+    "bytes_limit": "0x91c08",
+    "cellbase": {
+      "cycles": null,
+      "data": {
+        "cell_deps": [],
+        "header_deps": [],
+        "inputs": [
           {
-            "capacity": "0x18e64efc04",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
-         ]
-       },
-       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
-     },
-     "compact_target": "0x1e083126",
-     "current_time": "0x174c45e17a3",
-     "cycles_limit": "0xd09dc300",
-     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-     "epoch": "0x7080019000001",
-     "extension": null,
-     "number": "0x401",
-     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
-     "transactions": [],
-     "uncles": [
-       {
-         "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
-         "header": {
-           "compact_target": "0x1e083126",
-           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-           "epoch": "0x7080018000001",
-           "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "nonce": "0x0",
-           "number": "0x400",
-           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "timestamp": "0x5cd2b118",
-           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-           "version":"0x0"
-         },
-         "proposals": [],
-         "required": false
-       }
-     ],
-     "uncles_count_limit": "0x2",
-     "version": "0x0",
-     "work_id": "0x0"
-    }
-   ]
- }
- ```
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x401"
+          }
+        ],
+       "outputs": [
+         {
+           "capacity": "0x18e64efc04",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765"
+        ]
+      },
+      "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
+    },
+    "compact_target": "0x1e083126",
+    "current_time": "0x174c45e17a3",
+    "cycles_limit": "0xd09dc300",
+    "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
+    "epoch": "0x7080019000001",
+    "extension": null,
+    "number": "0x401",
+    "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
+    "transactions": [],
+    "uncles": [
+      {
+        "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+        "header": {
+          "compact_target": "0x1e083126",
+          "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+          "epoch": "0x7080018000001",
+          "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "nonce": "0x0",
+          "number": "0x400",
+          "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+          "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "timestamp": "0x5cd2b118",
+          "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+          "version":"0x0"
+        },
+        "proposals": [],
+        "required": false
+      }
+    ],
+    "uncles_count_limit": "0x2",
+    "version": "0x0",
+    "work_id": "0x0"
+   }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-   "error": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
+  "error": null
+}
+```
 
 ### Module Miner
- RPC Module Miner for miners.
+RPC Module Miner for miners.
 
- A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and
- submits the found new block.
+A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and
+submits the found new block.
 
 #### Method `get_block_template`
 * `get_block_template(bytes_limit, proposals_limit, max_version)`
@@ -3407,480 +3406,480 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `max_version`: [`AlertId`](#type-alertid) `|` `null`
 * result: [`BlockTemplate`](#type-blocktemplate)
 
- Returns block template for miners.
+Returns block template for miners.
 
- Miners can assemble the new block from the template. The RPC is designed to allow miners
- to remove transactions and adding new transactions to the block.
+Miners can assemble the new block from the template. The RPC is designed to allow miners
+to remove transactions and adding new transactions to the block.
 
- ###### Params
+###### Params
 
- * `bytes_limit` - the max serialization size in bytes of the block.
-     (**Optional:** the default is the consensus limit.)
- * `proposals_limit` - the max count of proposals.
-     (**Optional:** the default is the consensus limit.)
- * `max_version` - the max block version.
-     (**Optional:** the default is one configured in the current client version.)
+* `bytes_limit` - the max serialization size in bytes of the block.
+    (**Optional:** the default is the consensus limit.)
+* `proposals_limit` - the max count of proposals.
+    (**Optional:** the default is the consensus limit.)
+* `max_version` - the max block version.
+    (**Optional:** the default is one configured in the current client version.)
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_block_template",
-   "params": [
-     null,
-     null,
-     null
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_block_template",
+  "params": [
+    null,
+    null,
+    null
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "bytes_limit": "0x91c08",
-     "cellbase": {
-       "cycles": null,
-       "data": {
-         "cell_deps": [],
-         "header_deps": [],
-         "inputs": [
-           {
-             "previous_output": {
-               "index": "0xffffffff",
-               "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-             },
-             "since": "0x401"
-           }
-         ],
-         "outputs": [
-           {
-             "capacity": "0x18e64efc04",
-             "lock": {
-               "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-               "hash_type": "data",
-               "args": "0x"
-             },
-             "type": null
-           }
-         ],
-         "outputs_data": [
-           "0x"
-         ],
-         "version": "0x0",
-         "witnesses": [
-           "0x6a0000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac311000000000000002054455354206d657373616765"
-         ]
-       },
-       "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
-     },
-     "compact_target": "0x1e083126",
-     "current_time": "0x174c45e17a3",
-     "cycles_limit": "0xd09dc300",
-     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-     "epoch": "0x7080019000001",
-     "extension": null,
-     "number": "0x401",
-     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
-     "transactions": [],
-     "uncles": [
-       {
-         "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
-         "header": {
-           "compact_target": "0x1e083126",
-           "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-           "epoch": "0x7080018000001",
-           "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "nonce": "0x0",
-           "number": "0x400",
-           "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-           "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-           "timestamp": "0x5cd2b118",
-           "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-           "version":"0x0"
-         },
-         "proposals": [],
-         "required": false
-       }
-     ],
-     "uncles_count_limit": "0x2",
-     "version": "0x0",
-     "work_id": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "bytes_limit": "0x91c08",
+    "cellbase": {
+      "cycles": null,
+      "data": {
+        "cell_deps": [],
+        "header_deps": [],
+        "inputs": [
+          {
+            "previous_output": {
+              "index": "0xffffffff",
+              "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "since": "0x401"
+          }
+        ],
+        "outputs": [
+          {
+            "capacity": "0x18e64efc04",
+            "lock": {
+              "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+              "hash_type": "data",
+              "args": "0x"
+            },
+            "type": null
+          }
+        ],
+        "outputs_data": [
+          "0x"
+        ],
+        "version": "0x0",
+        "witnesses": [
+          "0x6a0000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac311000000000000002054455354206d657373616765"
+        ]
+      },
+      "hash": "0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab"
+    },
+    "compact_target": "0x1e083126",
+    "current_time": "0x174c45e17a3",
+    "cycles_limit": "0xd09dc300",
+    "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
+    "epoch": "0x7080019000001",
+    "extension": null,
+    "number": "0x401",
+    "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
+    "transactions": [],
+    "uncles": [
+      {
+        "hash": "0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94",
+        "header": {
+          "compact_target": "0x1e083126",
+          "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+          "epoch": "0x7080018000001",
+          "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "nonce": "0x0",
+          "number": "0x400",
+          "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+          "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "timestamp": "0x5cd2b118",
+          "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+          "version":"0x0"
+        },
+        "proposals": [],
+        "required": false
+      }
+    ],
+    "uncles_count_limit": "0x2",
+    "version": "0x0",
+    "work_id": "0x0"
+  }
+}
+```
 #### Method `submit_block`
 * `submit_block(work_id, block)`
     * `work_id`: `string`
     * `block`: [`Block`](#type-block)
 * result: [`H256`](#type-h256)
 
- Submit new block to the network.
+Submit new block to the network.
 
- ###### Params
+###### Params
 
- * `work_id` - The same work ID returned from [`get_block_template`](#tymethod.get_block_template).
- * `block` - The assembled block from the block template and which PoW puzzle has been resolved.
+* `work_id` - The same work ID returned from [`get_block_template`](#tymethod.get_block_template).
+* `block` - The assembled block from the block template and which PoW puzzle has been resolved.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "submit_block",
-   "params": [
-     "example",
-     {
-       "header": {
-         "compact_target": "0x1e083126",
-         "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-         "epoch": "0x7080018000001",
-         "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-         "nonce": "0x0",
-         "number": "0x400",
-         "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-         "timestamp": "0x5cd2b117",
-         "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-         "version": "0x0"
-       },
-       "proposals": [],
-       "transactions": [
-         {
-           "cell_deps": [],
-           "header_deps": [],
-           "inputs": [
-             {
-               "previous_output": {
-                 "index": "0xffffffff",
-                 "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-               },
-               "since": "0x400"
-             }
-           ],
-           "outputs": [
-             {
-               "capacity": "0x18e64b61cf",
-               "lock": {
-                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                 "hash_type": "data",
-                 "args": "0x"
-               },
-               "type": null
-             }
-           ],
-           "outputs_data": [
-             "0x"
-           ],
-           "version": "0x0",
-           "witnesses": [
-             "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
-           ]
-         }
-       ],
-       "uncles": []
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "submit_block",
+  "params": [
+    "example",
+    {
+      "header": {
+        "compact_target": "0x1e083126",
+        "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+        "epoch": "0x7080018000001",
+        "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "nonce": "0x0",
+        "number": "0x400",
+        "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": "0x5cd2b117",
+        "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+        "version": "0x0"
+      },
+      "proposals": [],
+      "transactions": [
+        {
+          "cell_deps": [],
+          "header_deps": [],
+          "inputs": [
+            {
+              "previous_output": {
+                "index": "0xffffffff",
+                "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+              },
+              "since": "0x400"
+            }
+          ],
+          "outputs": [
+            {
+              "capacity": "0x18e64b61cf",
+              "lock": {
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                "hash_type": "data",
+                "args": "0x"
+              },
+              "type": null
+            }
+          ],
+          "outputs_data": [
+            "0x"
+          ],
+          "version": "0x0",
+          "witnesses": [
+            "0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000"
+          ]
+        }
+      ],
+      "uncles": []
+    }
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
+}
+```
 
 ### Module Net
- RPC Module Net for P2P network.
+RPC Module Net for P2P network.
 
 #### Method `local_node_info`
 * `local_node_info()`
 
 * result: [`LocalNode`](#type-localnode)
 
- Returns the local node information.
+Returns the local node information.
 
- The local node means the node itself which is serving the RPC.
+The local node means the node itself which is serving the RPC.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "local_node_info",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "local_node_info",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "active": true,
-     "addresses": [
-       {
-         "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-         "score": "0xff"
-       },
-       {
-         "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-         "score": "0x1"
-       }
-     ],
-     "connections": "0xb",
-     "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-     "protocols": [
-       {
-         "id": "0x0",
-         "name": "/ckb/ping",
-         "support_versions": [
-           "0.0.1"
-         ]
-       },
-       {
-         "id": "0x1",
-         "name": "/ckb/discovery",
-         "support_versions": [
-           "0.0.1"
-         ]
-       }
-     ],
-     "version": "0.34.0 (f37f598 2020-07-17)"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "active": true,
+    "addresses": [
+      {
+        "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+        "score": "0xff"
+      },
+      {
+        "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+        "score": "0x1"
+      }
+    ],
+    "connections": "0xb",
+    "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+    "protocols": [
+      {
+        "id": "0x0",
+        "name": "/ckb/ping",
+        "support_versions": [
+          "0.0.1"
+        ]
+      },
+      {
+        "id": "0x1",
+        "name": "/ckb/discovery",
+        "support_versions": [
+          "0.0.1"
+        ]
+      }
+    ],
+    "version": "0.34.0 (f37f598 2020-07-17)"
+  }
+}
+```
 #### Method `get_peers`
 * `get_peers()`
 
 * result: `Array<` [`RemoteNode`](#type-remotenode) `>`
 
- Returns the connected peers' information.
+Returns the connected peers' information.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_peers",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_peers",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": [
-     {
-       "addresses": [
-         {
-           "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-           "score": "0x64"
-         },
-         {
-           "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-           "score": "0x64"
-         }
-       ],
-       "connected_duration": "0x2f",
-       "is_outbound": true,
-       "last_ping_duration": "0x1a",
-       "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-       "protocols": [
-         {
-           "id": "0x4",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x2",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x1",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x64",
-           "version": "1"
-         },
-         {
-           "id": "0x6e",
-           "version": "1"
-         },
-         {
-           "id": "0x66",
-           "version": "1"
-         },
-         {
-           "id": "0x65",
-           "version": "1"
-         },
-         {
-           "id": "0x0",
-           "version": "0.0.1"
-         }
-       ],
-       "sync_state": {
-         "best_known_header_hash": null,
-         "best_known_header_number": null,
-         "can_fetch_count": "0x80",
-         "inflight_count": "0xa",
-         "last_common_header_hash": null,
-         "last_common_header_number": null,
-         "unknown_header_list_size": "0x20"
-       },
-       "version": "0.34.0 (f37f598 2020-07-17)"
-     },
-     {
-       "addresses": [
-         {
-           "address": "/ip4/174.80.182.60/tcp/52965/p2p/QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
-           "score": "0x1"
-         }
-       ],
-       "connected_duration": "0x95",
-       "is_outbound": true,
-       "last_ping_duration": "0x41",
-       "node_id": "QmSrkzhdBMmfCGx8tQGwgXxzBg8kLtX8qMcqECMuKWsxDV",
-       "protocols": [
-         {
-           "id": "0x0",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x2",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x6e",
-           "version": "1"
-         },
-         {
-           "id": "0x66",
-           "version": "1"
-         },
-         {
-           "id": "0x1",
-           "version": "0.0.1"
-         },
-         {
-           "id": "0x65",
-           "version": "1"
-         },
-         {
-           "id": "0x64",
-           "version": "1"
-         },
-         {
-           "id": "0x4",
-           "version": "0.0.1"
-         }
-       ],
-       "sync_state": {
-         "best_known_header_hash": "0x2157c72b3eddd41a7a14c361173cd22ef27d7e0a29eda2e511ee0b3598c0b895",
-         "best_known_header_number": "0xdb835",
-         "can_fetch_count": "0x80",
-         "inflight_count": "0xa",
-         "last_common_header_hash": "0xc63026bd881d880bb142c855dc8153187543245f0a94391c831c75df31f263c4",
-         "last_common_header_number": "0x4dc08",
-         "unknown_header_list_size": "0x1f"
-       },
-       "version": "0.30.1 (5cc1b75 2020-03-23)"
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "addresses": [
+        {
+          "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+          "score": "0x64"
+        },
+        {
+          "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+          "score": "0x64"
+        }
+      ],
+      "connected_duration": "0x2f",
+      "is_outbound": true,
+      "last_ping_duration": "0x1a",
+      "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+      "protocols": [
+        {
+          "id": "0x4",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x2",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x1",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x64",
+          "version": "1"
+        },
+        {
+          "id": "0x6e",
+          "version": "1"
+        },
+        {
+          "id": "0x66",
+          "version": "1"
+        },
+        {
+          "id": "0x65",
+          "version": "1"
+        },
+        {
+          "id": "0x0",
+          "version": "0.0.1"
+        }
+      ],
+      "sync_state": {
+        "best_known_header_hash": null,
+        "best_known_header_number": null,
+        "can_fetch_count": "0x80",
+        "inflight_count": "0xa",
+        "last_common_header_hash": null,
+        "last_common_header_number": null,
+        "unknown_header_list_size": "0x20"
+      },
+      "version": "0.34.0 (f37f598 2020-07-17)"
+    },
+    {
+      "addresses": [
+        {
+          "address": "/ip4/174.80.182.60/tcp/52965/p2p/QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2",
+          "score": "0x1"
+        }
+      ],
+      "connected_duration": "0x95",
+      "is_outbound": true,
+      "last_ping_duration": "0x41",
+      "node_id": "QmSrkzhdBMmfCGx8tQGwgXxzBg8kLtX8qMcqECMuKWsxDV",
+      "protocols": [
+        {
+          "id": "0x0",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x2",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x6e",
+          "version": "1"
+        },
+        {
+          "id": "0x66",
+          "version": "1"
+        },
+        {
+          "id": "0x1",
+          "version": "0.0.1"
+        },
+        {
+          "id": "0x65",
+          "version": "1"
+        },
+        {
+          "id": "0x64",
+          "version": "1"
+        },
+        {
+          "id": "0x4",
+          "version": "0.0.1"
+        }
+      ],
+      "sync_state": {
+        "best_known_header_hash": "0x2157c72b3eddd41a7a14c361173cd22ef27d7e0a29eda2e511ee0b3598c0b895",
+        "best_known_header_number": "0xdb835",
+        "can_fetch_count": "0x80",
+        "inflight_count": "0xa",
+        "last_common_header_hash": "0xc63026bd881d880bb142c855dc8153187543245f0a94391c831c75df31f263c4",
+        "last_common_header_number": "0x4dc08",
+        "unknown_header_list_size": "0x1f"
+      },
+      "version": "0.30.1 (5cc1b75 2020-03-23)"
+    }
+  ]
+}
+```
 #### Method `get_banned_addresses`
 * `get_banned_addresses()`
 
 * result: `Array<` [`BannedAddr`](#type-bannedaddr) `>`
 
- Returns all banned IPs/Subnets.
+Returns all banned IPs/Subnets.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_banned_addresses",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_banned_addresses",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": [
-     {
-       "address": "192.168.0.2/32",
-       "ban_reason": "",
-       "ban_until": "0x1ac89236180",
-       "created_at": "0x16bde533338"
-     }
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "address": "192.168.0.2/32",
+      "ban_reason": "",
+      "ban_until": "0x1ac89236180",
+      "created_at": "0x16bde533338"
+    }
+  ]
+}
+```
 #### Method `clear_banned_addresses`
 * `clear_banned_addresses()`
 
 * result: `null`
 
- Clears all banned IPs/Subnets.
+Clears all banned IPs/Subnets.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "clear_banned_addresses",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "clear_banned_addresses",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `set_ban`
 * `set_ban(address, command, ban_time, absolute, reason)`
     * `address`: `string`
@@ -3890,259 +3889,259 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `reason`: `string` `|` `null`
 * result: `null`
 
- Inserts or deletes an IP/Subnet from the banned list
+Inserts or deletes an IP/Subnet from the banned list
 
- ###### Params
+###### Params
 
- * `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:
-     * "192.168.0.2" bans a single IP
-     * "192.168.0.0/24" bans IP from "192.168.0.0" to "192.168.0.255".
- * `command` - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list.
- * `ban_time` - Time in milliseconds how long (or until when if \[absolute\] is set) the IP is banned, optional parameter, null means using the default time of 24h
- * `absolute` - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter.
- * `reason` - Ban reason, optional parameter.
+* `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:
+    * "192.168.0.2" bans a single IP
+    * "192.168.0.0/24" bans IP from "192.168.0.0" to "192.168.0.255".
+* `command` - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list.
+* `ban_time` - Time in milliseconds how long (or until when if \[absolute\] is set) the IP is banned, optional parameter, null means using the default time of 24h
+* `absolute` - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter.
+* `reason` - Ban reason, optional parameter.
 
- ###### Errors
+###### Errors
 
- * [`InvalidParams (-32602)`](../enum.RPCError.html#variant.InvalidParams)
-     * Expected `address` to be a valid IP address with an optional netmask.
-     * Expected `command` to be in the list [insert, delete].
+* [`InvalidParams (-32602)`](../enum.RPCError.html#variant.InvalidParams)
+    * Expected `address` to be a valid IP address with an optional netmask.
+    * Expected `command` to be in the list [insert, delete].
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "set_ban",
-   "params": [
-     "192.168.0.2",
-     "insert",
-     "0x1ac89236180",
-     true,
-     "set_ban example"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "set_ban",
+  "params": [
+    "192.168.0.2",
+    "insert",
+    "0x1ac89236180",
+    true,
+    "set_ban example"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `sync_state`
 * `sync_state()`
 
 * result: [`SyncState`](#type-syncstate)
 
- Returns chain synchronization state of this node.
+Returns chain synchronization state of this node.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "sync_state",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "sync_state",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "best_known_block_number": "0x400",
-     "best_known_block_timestamp": "0x5cd2b117",
-     "fast_time": "0x3e8",
-     "ibd": true,
-     "inflight_blocks_count": "0x0",
-     "low_time": "0x5dc",
-     "normal_time": "0x4e2",
-     "orphan_blocks_count": "0x0"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "best_known_block_number": "0x400",
+    "best_known_block_timestamp": "0x5cd2b117",
+    "fast_time": "0x3e8",
+    "ibd": true,
+    "inflight_blocks_count": "0x0",
+    "low_time": "0x5dc",
+    "normal_time": "0x4e2",
+    "orphan_blocks_count": "0x0"
+  }
+}
+```
 #### Method `set_network_active`
 * `set_network_active(state)`
     * `state`: `boolean`
 * result: `null`
 
- Disable/enable all p2p network activity
+Disable/enable all p2p network activity
 
- ###### Params
+###### Params
 
- * `state` - true to enable networking, false to disable
+* `state` - true to enable networking, false to disable
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "set_network_active",
-   "params": [
-     false
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "set_network_active",
+  "params": [
+    false
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `add_node`
 * `add_node(peer_id, address)`
     * `peer_id`: `string`
     * `address`: `string`
 * result: `null`
 
- Attempts to add a node to the peers list and try connecting to it.
+Attempts to add a node to the peers list and try connecting to it.
 
- ###### Params
+###### Params
 
- * `peer_id` - The node id of the node.
- * `address` - The address of the node.
+* `peer_id` - The node id of the node.
+* `address` - The address of the node.
 
- The full P2P address is usually displayed as `address/peer_id`, for example in the log
+The full P2P address is usually displayed as `address/peer_id`, for example in the log
 
- ```text
- 2020-09-16 15:31:35.191 +08:00 NetworkRuntime INFO ckb_network::network
-   Listen on address: /ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS
- ```
+```text
+2020-09-16 15:31:35.191 +08:00 NetworkRuntime INFO ckb_network::network
+  Listen on address: /ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS
+```
 
- And in RPC `local_node_info`:
+And in RPC `local_node_info`:
 
- ```json
- {
-   "addresses": [
-     {
-       "address": "/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
-       "score": "0xff"
-     }
-   ]
- }
- ```
+```json
+{
+  "addresses": [
+    {
+      "address": "/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
+      "score": "0xff"
+    }
+  ]
+}
+```
 
- In both of these examples,
+In both of these examples,
 
- * `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`,
- * and `address` is `/ip4/192.168.2.100/tcp/8114`
+* `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`,
+* and `address` is `/ip4/192.168.2.100/tcp/8114`
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "add_node",
-   "params": [
-     "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
-     "/ip4/192.168.2.100/tcp/8114"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "add_node",
+  "params": [
+    "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS",
+    "/ip4/192.168.2.100/tcp/8114"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `remove_node`
 * `remove_node(peer_id)`
     * `peer_id`: `string`
 * result: `null`
 
- Attempts to remove a node from the peers list and try disconnecting from it.
+Attempts to remove a node from the peers list and try disconnecting from it.
 
- ###### Params
+###### Params
 
- * `peer_id` - The peer id of the node.
+* `peer_id` - The peer id of the node.
 
- This is the last part of a full P2P address. For example, in address
- "/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS", the `peer_id`
- is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
+This is the last part of a full P2P address. For example, in address
+"/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS", the `peer_id`
+is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "remove_node",
-   "params": [
-     "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "remove_node",
+  "params": [
+    "QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `ping_peers`
 * `ping_peers()`
 
 * result: `null`
 
- Requests that a ping is sent to all connected peers, to measure ping time.
+Requests that a ping is sent to all connected peers, to measure ping time.
 
- ###### Examples
+###### Examples
 
- Requests
+Requests
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "ping_peers",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "ping_peers",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 
 ### Module Pool
- RPC Module Pool for transaction memory pool.
+RPC Module Pool for transaction memory pool.
 
 #### Method `send_transaction`
 * `send_transaction(tx, outputs_validator)`
@@ -4150,370 +4149,370 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
- Submits a new transaction into the transaction pool. If the transaction is already in the
- pool, rebroadcast it to peers.
+Submits a new transaction into the transaction pool. If the transaction is already in the
+pool, rebroadcast it to peers.
 
- Please note that `send_transaction` is an asynchronous process.
- The return of `send_transaction` does NOT indicate that the transaction have been fully verified.
- If you want to track the status of the transaction, please use the `get_transaction`rpc.
+Please note that `send_transaction` is an asynchronous process.
+The return of `send_transaction` does NOT indicate that the transaction have been fully verified.
+If you want to track the status of the transaction, please use the `get_transaction`rpc.
 
- ###### Params
+###### Params
 
- * `transaction` - The transaction.
- * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
+* `transaction` - The transaction.
+* `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
 
- ###### Errors
+###### Errors
 
- * [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
- * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
- * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
- * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
- * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
- * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
- * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+* [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+* [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+* [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+* [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "send_transaction",
-   "params": [
-     {
-       "cell_deps": [
-         {
-           "dep_type": "code",
-           "out_point": {
-             "index": "0x0",
-             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-           }
-         }
-       ],
-       "header_deps": [
-         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-       ],
-       "inputs": [
-         {
-           "previous_output": {
-             "index": "0x0",
-             "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-           },
-           "since": "0x0"
-         }
-       ],
-       "outputs": [
-         {
-           "capacity": "0x2540be400",
-           "lock": {
-             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-             "hash_type": "data",
-             "args": "0x"
-           },
-           "type": null
-         }
-       ],
-       "outputs_data": [
-         "0x"
-       ],
-       "version": "0x0",
-       "witnesses": []
-     },
-     "passthrough"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "send_transaction",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    },
+    "passthrough"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
 #### Method `remove_transaction`
 * `remove_transaction(tx_hash)`
     * `tx_hash`: [`H256`](#type-h256)
 * result: `boolean`
 
- Removes a transaction and all transactions which depends on it from tx pool if it exists.
+Removes a transaction and all transactions which depends on it from tx pool if it exists.
 
- ###### Params
+###### Params
 
- * `tx_hash` - Hash of a transaction.
+* `tx_hash` - Hash of a transaction.
 
- ###### Returns
+###### Returns
 
- If the transaction exists, return true; otherwise, return false.
+If the transaction exists, return true; otherwise, return false.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "remove_transaction",
-   "params": [
-     "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
-   ]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "remove_transaction",
+  "params": [
+    "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+  ]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": true
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
+}
+```
 #### Method `tx_pool_info`
 * `tx_pool_info()`
 
 * result: [`TxPoolInfo`](#type-txpoolinfo)
 
- Returns the transaction pool information.
+Returns the transaction pool information.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "tx_pool_info",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "tx_pool_info",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "last_txs_updated_at": "0x0",
-     "min_fee_rate": "0x3e8",
-     "min_rbf_rate": "0x5dc",
-     "max_tx_pool_size": "0xaba9500",
-     "orphan": "0x0",
-     "pending": "0x1",
-     "proposed": "0x0",
-     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-     "tip_number": "0x400",
-     "total_tx_cycles": "0x219",
-     "total_tx_size": "0x112",
-     "tx_size_limit": "0x7d000"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "last_txs_updated_at": "0x0",
+    "min_fee_rate": "0x3e8",
+    "min_rbf_rate": "0x5dc",
+    "max_tx_pool_size": "0xaba9500",
+    "orphan": "0x0",
+    "pending": "0x1",
+    "proposed": "0x0",
+    "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "tip_number": "0x400",
+    "total_tx_cycles": "0x219",
+    "total_tx_size": "0x112",
+    "tx_size_limit": "0x7d000"
+  }
+}
+```
 #### Method `clear_tx_pool`
 * `clear_tx_pool()`
 
 * result: `null`
 
- Removes all transactions from the transaction pool.
+Removes all transactions from the transaction pool.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "clear_tx_pool",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "clear_tx_pool",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": null
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
 #### Method `get_raw_tx_pool`
 * `get_raw_tx_pool(verbose)`
     * `verbose`: `boolean` `|` `null`
 * result: [`RawTxPool`](#type-rawtxpool)
 
- Returns all transaction ids in tx pool as a json array of string transaction ids.
- ###### Params
+Returns all transaction ids in tx pool as a json array of string transaction ids.
+###### Params
 
- * `verbose` - True for a json object, false for array of transaction ids, default=false
+* `verbose` - True for a json object, false for array of transaction ids, default=false
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_raw_tx_pool",
-   "params": [true]
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_raw_tx_pool",
+  "params": [true]
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result":
-    {
-        "pending": {
-            "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3": {
-                "cycles": "0x219",
-                "size": "0x112",
-                "fee": "0x16923f7dcf",
-                "ancestors_size": "0x112",
-                "ancestors_cycles": "0x219",
-                "ancestors_count": "0x1",
-                "timestamp": "0x17c983e6e44"
-            }
-        },
-        "proposed": {}
-    }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result":
+   {
+       "pending": {
+           "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3": {
+               "cycles": "0x219",
+               "size": "0x112",
+               "fee": "0x16923f7dcf",
+               "ancestors_size": "0x112",
+               "ancestors_cycles": "0x219",
+               "ancestors_count": "0x1",
+               "timestamp": "0x17c983e6e44"
+           }
+       },
+       "proposed": {}
+   }
+}
+```
 #### Method `tx_pool_ready`
 * `tx_pool_ready()`
 
 * result: `boolean`
 
- Returns whether tx-pool service is started, ready for request.
+Returns whether tx-pool service is started, ready for request.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "tx_pool_ready",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "tx_pool_ready",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": true
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": true
+}
+```
 
 ### Module Stats
- RPC Module Stats for getting various statistic data.
+RPC Module Stats for getting various statistic data.
 
 #### Method `get_blockchain_info`
 * `get_blockchain_info()`
 
 * result: [`ChainInfo`](#type-chaininfo)
 
- Returns statistics about the chain.
+Returns statistics about the chain.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_blockchain_info",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_blockchain_info",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "alerts": [
-       {
-         "id": "0x2a",
-         "message": "An example alert message!",
-         "notice_until": "0x24bcca57c00",
-         "priority": "0x1"
-       }
-     ],
-     "chain": "ckb",
-     "difficulty": "0x1f4003",
-     "epoch": "0x7080018000001",
-     "is_initial_block_download": true,
-     "median_time": "0x5cd2b105"
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "alerts": [
+      {
+        "id": "0x2a",
+        "message": "An example alert message!",
+        "notice_until": "0x24bcca57c00",
+        "priority": "0x1"
+      }
+    ],
+    "chain": "ckb",
+    "difficulty": "0x1f4003",
+    "epoch": "0x7080018000001",
+    "is_initial_block_download": true,
+    "median_time": "0x5cd2b105"
+  }
+}
+```
 #### Method `get_deployments_info`
 * `get_deployments_info()`
 
 * result: [`DeploymentsInfo`](#type-deploymentsinfo)
 
- Returns statistics about the chain.
+Returns statistics about the chain.
 
- ###### Examples
+###### Examples
 
- Request
+Request
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "method": "get_deployments_info",
-   "params": []
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_deployments_info",
+  "params": []
+}
+```
 
- Response
+Response
 
- ```json
- {
-   "id": 42,
-   "jsonrpc": "2.0",
-   "result": {
-     "epoch": "0x1",
-     "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-        "deployments": {
-            "testdummy": {
-                "bit": 1,
-                "min_activation_epoch": "0x0",
-                "period": "0xa",
-                "since": "0x0",
-                "start": "0x0",
-                "state": "failed",
-                "timeout": "0x0",
-                "threshold": {
-                     "numer": "0x3",
-                     "denom": "0x4"
-                 }
-            }
-        }
-   }
- }
- ```
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "epoch": "0x1",
+    "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+       "deployments": {
+           "testdummy": {
+               "bit": 1,
+               "min_activation_epoch": "0x0",
+               "period": "0xa",
+               "since": "0x0",
+               "start": "0x0",
+               "state": "failed",
+               "timeout": "0x0",
+               "threshold": {
+                    "numer": "0x3",
+                    "denom": "0x4"
+                }
+           }
+       }
+  }
+}
+```
 
 ### Module Subscription
  RPC Module Subscription that CKB node will push new messages to subscribers.
@@ -4737,6 +4736,7 @@ An alert is a message about critical problems to be broadcast to all nodes via t
    ]
  }
  ```
+
 #### Fields:
 * `cancel`: [`AlertId`](#type-alertid) - Cancel a previous sent alert.
 
@@ -4757,6 +4757,7 @@ An alert is a message about critical problems to be broadcast to all nodes via t
 
 ### Type `AlertMessage`
 An alert sent by RPC `send_alert`.
+
 #### Fields:
 * `id`: [`AlertId`](#type-alertid) - The unique alert ID.
 
@@ -4769,6 +4770,7 @@ An alert sent by RPC `send_alert`.
 
 ### Type `BannedAddr`
 A banned P2P address.
+
 #### Fields:
 * `address`: `string` - The P2P address.
 
@@ -4783,6 +4785,7 @@ A banned P2P address.
 
 ### Type `Block`
 The JSON view of a Block used as a parameter in the RPC.
+
 #### Fields:
 * `header`: [`Header`](#type-header) - The block header.
 
@@ -4797,6 +4800,7 @@ The JSON view of a Block used as a parameter in the RPC.
 Block Economic State.
 
 It includes the rewards details and when it is finalized.
+
 #### Fields:
 * `finalized_at`: [`H256`](#type-h256) - The block hash of the block which creates the rewards as cells in its cellbase transaction.
 
@@ -4809,6 +4813,7 @@ It includes the rewards details and when it is finalized.
 
 ### Type `BlockFilter`
 Block filter data and hash.
+
 #### Fields:
 * `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
 
@@ -4817,6 +4822,7 @@ Block filter data and hash.
 
 ### Type `BlockIssuance`
 Block base rewards.
+
 #### Fields:
 * `primary`: [`Uint64`](#type-uint64) - The primary base rewards.
 
@@ -4831,12 +4837,13 @@ The wrapper represent response of `get_block` | `get_block_by_number`, return a 
 A block template for miners.
 
 Miners optional pick transactions and then assemble the final block.
+
 #### Fields:
 * `bytes_limit`: [`Uint64`](#type-uint64) - The block serialized size limit.
 
     Miners must keep the block size below this limit, otherwise, the CKB node will reject the block
     submission.
-    
+
     It is guaranteed that the block does not exceed the limit if miners do not add new
     transaction commitments.
 
@@ -4851,14 +4858,14 @@ Miners optional pick transactions and then assemble the final block.
 * `current_time`: [`Uint64`](#type-uint64) - The timestamp for the new block.
 
     CKB node guarantees that this timestamp is larger than the median of the previous 37 blocks.
-    
+
     Miners can increase it to the current time. It is not recommended to decrease it, since it may violate the median block timestamp consensus rule.
 
 * `cycles_limit`: [`Uint64`](#type-uint64) - The cycles limit.
 
     Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block
     submission.
-    
+
     It is guaranteed that the block does not exceed the limit if miners do not add new
     transactions to the block.
 
@@ -4866,10 +4873,10 @@ Miners optional pick transactions and then assemble the final block.
 
     This field is only valid when miners use all and only use the provided transactions in the
     template. Two fields must be updated when miners want to select transactions:
-    
+
     * `S_i`, bytes 16 to 23
     * `U_i`, bytes 24 to 31
-    
+
     See RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation).
 
 * `epoch`: [`Uint64`](#type-uint64) - The epoch progress information for the new block.
@@ -4908,6 +4915,7 @@ Miners optional pick transactions and then assemble the final block.
 
 ### Type `BlockView`
 The JSON view of a Block including header and body.
+
 #### Fields:
 * `header`: [`HeaderView`](#type-headerview) - The block header.
 
@@ -4920,6 +4928,7 @@ The JSON view of a Block including header and body.
 
 ### Type `BlockWithCyclesResponse`
 BlockResponse with cycles format wrapper
+
 #### Fields:
 * `block`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The block structure
 
@@ -4927,6 +4936,7 @@ BlockResponse with cycles format wrapper
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is
 hard-coded into the client implementation
+
 #### Fields:
 * `active`: `boolean` - Whether the rules are active
 
@@ -4950,6 +4960,7 @@ The cell data content and hash.
    "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
  }
  ```
+
 #### Fields:
 * `content`: [`JsonBytes`](#type-jsonbytes) - Cell content.
 
@@ -4970,6 +4981,7 @@ The cell dependency of a transaction.
    }
  }
  ```
+
 #### Fields:
 * `dep_type`: [`DepType`](#type-deptype) - Dependency type.
 
@@ -4998,6 +5010,7 @@ The JSON view of a cell combining the fields in cell output and cell data.
    }
  }
  ```
+
 #### Fields:
 * `output`: [`CellOutput`](#type-celloutput) - Cell fields appears in the transaction `outputs` array.
 
@@ -5016,6 +5029,7 @@ The input cell of a transaction.
    "since": "0x0"
  }
  ```
+
 #### Fields:
 * `previous_output`: [`OutPoint`](#type-outpoint) - Reference to the input cell.
 
@@ -5040,6 +5054,7 @@ The fields of an output cell except the cell data.
    "type": null
  }
  ```
+
 #### Fields:
 * `capacity`: [`Uint64`](#type-uint64) - The cell capacity.
 
@@ -5081,11 +5096,12 @@ The JSON view of a cell with its status information.
    "status": "unknown"
  }
  ```
+
 #### Fields:
 * `status`: `string` - Status of the cell.
 
     Allowed values: "live", "dead", "unknown".
-    
+
     * `live` - The transaction creating this cell is in the chain, and there are no
     transactions found in the chain that uses this cell as an input.
     * `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not
@@ -5098,6 +5114,7 @@ The JSON view of a cell with its status information.
 
 ### Type `CellbaseTemplate`
 The cellbase transaction template of the new block for miners.
+
 #### Fields:
 * `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
 
@@ -5106,13 +5123,14 @@ The cellbase transaction template of the new block for miners.
 
 ### Type `ChainInfo`
 Chain information.
+
 #### Fields:
 * `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Active alerts stored in the local node.
 
 * `chain`: `string` - The network name.
 
     Examples:
-    
+
     * "ckb" - Mirana the mainnet.
     * "ckb_testnet" - Pudge the testnet.
 
@@ -5126,7 +5144,7 @@ Chain information.
 
     When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     the IBD until it catches up the synchronization.
-    
+
     During IBD, the local node only synchronizes the chain with one selected remote node and
     stops responding the most P2P requests.
 
@@ -5135,6 +5153,7 @@ Chain information.
 
 ### Type `Consensus`
 Consensus defines various parameters that influence chain consensus
+
 #### Fields:
 * `block_version`: [`AlertId`](#type-alertid) - The block version number supported
 
@@ -5193,6 +5212,7 @@ The dep cell type. Allowed values: "code" and "dep_group".
 
 ### Type `Deployment`
 RFC0043 deployment params
+
 #### Fields:
 * `bit`: `integer` - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
 It is chosen from the set {0,1,2,...,28}.
@@ -5213,6 +5233,7 @@ the deployment is considered failed on all descendants of the block.
 
 ### Type `DeploymentInfo`
 An object containing various state info regarding deployments of consensus changes
+
 #### Fields:
 * `bit`: `integer` - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
 It is chosen from the set {0,1,2,...,28}.
@@ -5247,6 +5268,7 @@ The possible softfork deployment state
 
 ### Type `DeploymentsInfo`
 Chain information.
+
 #### Fields:
 * `deployments`: `object` - deployments info
 
@@ -5285,6 +5307,7 @@ JSON view of an epoch.
    "start_number": "0x3e8"
  }
  ```
+
 #### Fields:
 * `compact_target`: [`AlertId`](#type-alertid) - The difficulty target for any block in this epoch.
 
@@ -5300,25 +5323,27 @@ JSON view of an epoch.
 
 ### Type `EstimateCycles`
 Response result of the RPC method `estimate_cycles`.
+
 #### Fields:
 * `cycles`: [`Uint64`](#type-uint64) - The count of cycles that the VM has consumed to verify this transaction.
 
 
 ### Type `ExtraLoggerConfig`
 Runtime logger config for extra loggers.
+
 #### Fields:
 * `filter`: `string` - Sets log levels for different modules.
 
     **Examples**
-    
+
     Set the log level to info for all modules
-    
+
     ```text
     info
     ```
-    
+
     Set the log level to debug for listed modules and info for other modules.
-    
+
     ```text
     info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
     ```
@@ -5326,6 +5351,7 @@ Runtime logger config for extra loggers.
 
 ### Type `FeeRateStatistics`
 The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
+
 #### Fields:
 * `mean`: [`Uint64`](#type-uint64) - mean
 
@@ -5342,6 +5368,7 @@ In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
 ### Type `HardForkFeature`
 The information about one hardfork feature.
+
 #### Fields:
 * `rfc`: `string` - The related RFC ID.
 
@@ -5350,6 +5377,7 @@ The information about one hardfork feature.
 The block header.
 
 Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
+
 #### Fields:
 * `compact_target`: [`AlertId`](#type-alertid) - The block difficulty target.
 
@@ -5369,12 +5397,12 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
     The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
     The extension hash is the hash of the extension.
     The extra hash is the hash on uncles hash and extension hash concatenated together.
-    
+
     **Notice**
-    
+
     This field is renamed from `uncles_hash` since 0.100.0.
     More details can be found in [CKB RFC 0031].
-    
+
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
 * `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
@@ -5391,14 +5419,14 @@ within the target encoded from `compact_target`.
 * `timestamp`: [`Uint64`](#type-uint64) - The block timestamp.
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
-    
+
     Miners should put the time when the block is created in the header, however, the precision
     is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
 * `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
     It is a hash on two Merkle Tree roots:
-    
+
     * The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
     * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
 
@@ -5431,6 +5459,7 @@ The JSON view of a Header.
    "version": "0x0"
  }
  ```
+
 #### Fields:
 * `compact_target`: [`AlertId`](#type-alertid) - The block difficulty target.
 
@@ -5450,12 +5479,12 @@ The JSON view of a Header.
     The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
     The extension hash is the hash of the extension.
     The extra hash is the hash on uncles hash and extension hash concatenated together.
-    
+
     **Notice**
-    
+
     This field is renamed from `uncles_hash` since 0.100.0.
     More details can be found in [CKB RFC 0031].
-    
+
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
 * `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
@@ -5474,14 +5503,14 @@ within the target encoded from `compact_target`.
 * `timestamp`: [`Uint64`](#type-uint64) - The block timestamp.
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
-    
+
     Miners should put the time when the block is created in the header, however, the precision
     is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
 * `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
     It is a hash on two Merkle Tree roots:
-    
+
     * The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.
     * The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block.
 
@@ -5492,6 +5521,7 @@ within the target encoded from `compact_target`.
 
 ### Type `IndexerCell`
 Live cell
+
 #### Fields:
 * `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
@@ -5508,6 +5538,7 @@ Cell type
 
 ### Type `IndexerCellsCapacity`
 Cells capacity
+
 #### Fields:
 * `block_hash`: [`H256`](#type-h256) - indexed tip block hash
 
@@ -5522,6 +5553,7 @@ Order Desc | Asc
 
 ### Type `IndexerPagination_for_IndexerCell`
 IndexerPagination wraps objects array and last_cursor to provide paging
+
 #### Fields:
 * `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
@@ -5530,6 +5562,7 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 ### Type `IndexerPagination_for_IndexerTx`
 IndexerPagination wraps objects array and last_cursor to provide paging
+
 #### Fields:
 * `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
@@ -5546,6 +5579,7 @@ ScriptType `Lock` | `Type`
 
 ### Type `IndexerSearchKey`
 SearchKey represent indexer support params
+
 #### Fields:
 * `script`: [`Script`](#type-script) - Script
 
@@ -5558,6 +5592,7 @@ IndexerSearchKeyFilter represent indexer params `filter`
 
 ### Type `IndexerTip`
 Indexer tip information
+
 #### Fields:
 * `block_hash`: [`H256`](#type-h256) - indexed tip block hash
 
@@ -5570,6 +5605,7 @@ Indexer Transaction Object
 
 ### Type `IndexerTxWithCell`
 Ungrouped Tx inner type
+
 #### Fields:
 * `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
@@ -5584,6 +5620,7 @@ Ungrouped Tx inner type
 
 ### Type `IndexerTxWithCells`
 Grouped Tx inner type
+
 #### Fields:
 * `block_number`: [`Uint64`](#type-uint64) - the number of the transaction committed in the block
 
@@ -5637,6 +5674,7 @@ The information of the node itself.
    "version": "0.34.0 (f37f598 2020-07-17)"
  }
  ```
+
 #### Fields:
 * `active`: `boolean` - Whether this node is active.
 
@@ -5661,6 +5699,7 @@ The information of the node itself.
 
 ### Type `LocalNodeProtocol`
 The information of a P2P protocol that is supported by the local node.
+
 #### Fields:
 * `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
@@ -5679,6 +5718,7 @@ Runtime logger config.
 Proof of CKB Merkle Tree.
 
 CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
+
 #### Fields:
 * `indices`: `Array<` [`AlertId`](#type-alertid) `>` - Leaves indices in the CBMT that are proved present in the block.
 
@@ -5689,6 +5729,7 @@ CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rf
 
 ### Type `MinerReward`
 Block rewards for miners.
+
 #### Fields:
 * `committed`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is committed in the block.
 
@@ -5707,11 +5748,12 @@ its uncles.
 
 ### Type `NodeAddress`
 Node P2P address and score.
+
 #### Fields:
 * `address`: `string` - P2P address.
 
     This is the same address used in the whitelist in ckb.toml.
-    
+
     Example: "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS"
 
 * `score`: [`Uint64`](#type-uint64) - Address score.
@@ -5730,6 +5772,7 @@ Reference to a cell via transaction hash and output index.
    "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
  }
  ```
+
 #### Fields:
 * `index`: [`AlertId`](#type-alertid) - The output index of the cell in the transaction specified by `tx_hash`.
 
@@ -5742,6 +5785,7 @@ Transaction output validators that prevent common mistakes.
 
 ### Type `PeerSyncState`
 The chain synchronization state between the local node and a remote node.
+
 #### Fields:
 * `can_fetch_count`: [`Uint64`](#type-uint64) - The count of blocks are available for concurrency download.
 
@@ -5781,6 +5825,7 @@ Two protocol parameters `closest` and `farthest` define the closest
                                \
                              commit
  ```
+
 #### Fields:
 * `closest`: [`Uint64`](#type-uint64) - The closest distance between the proposal and the commitment.
 
@@ -5790,6 +5835,7 @@ Two protocol parameters `closest` and `farthest` define the closest
 ### Type `Ratio`
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
 unsigned 64-bit integers.
+
 #### Fields:
 * `denom`: [`Uint64`](#type-uint64) - Denominator.
 
@@ -5874,6 +5920,7 @@ Information of a remote node.
    "version": "0.34.0 (f37f598 2020-07-17)"
  }
  ```
+
 #### Fields:
 * `addresses`: `Array<` [`NodeAddress`](#type-nodeaddress) `>` - The remote node addresses.
 
@@ -5895,6 +5942,7 @@ Information of a remote node.
 
 ### Type `RemoteNodeProtocol`
 The information about an active running protocol.
+
 #### Fields:
 * `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
@@ -5904,6 +5952,7 @@ The information about an active running protocol.
 ### Type `Rfc0043`
 Represent soft fork deployments
 where activation is controlled by rfc0043 signaling
+
 #### Fields:
 * `rfc0043`: [`Deployment`](#type-deployment) - RFC0043 deployment params
 
@@ -5922,6 +5971,7 @@ Describes the lock script and type script for a cell.
    "args": "0x"
  }
  ```
+
 #### Fields:
 * `args`: [`JsonBytes`](#type-jsonbytes) - Arguments for script.
 
@@ -5962,12 +6012,13 @@ Status for transaction
 
 ### Type `SyncState`
 The overall chain synchronization state of this local node.
+
 #### Fields:
 * `best_known_block_number`: [`Uint64`](#type-uint64) - This is the best known block number observed by the local node from the P2P network.
 
     The best here means that the block leads a chain which has the best known accumulated
     difficulty.
-    
+
     This can be used to estimate the synchronization progress. If this RPC returns B, and the
     RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks.
 
@@ -5979,7 +6030,7 @@ The overall chain synchronization state of this local node.
 
     When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
     the IBD until it catches up the synchronization.
-    
+
     During IBD, the local node only synchronizes the chain with one selected remote node and
     stops responding to most P2P requests.
 
@@ -5994,7 +6045,7 @@ The overall chain synchronization state of this local node.
     The local node downloads multiple blocks simultaneously but blocks must be connected
     consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan
     block.
-    
+
     If this number is too high, it indicates that block download has stuck at some block.
 
 
@@ -6002,18 +6053,19 @@ The overall chain synchronization state of this local node.
 The transaction.
 
 Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
+
 #### Fields:
 * `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
     CKB locates lock script and type script code via cell deps. The script also can use syscalls
     to read the cells here.
-    
+
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
 * `header_deps`: `Array<` [`H256`](#type-h256) `>` - An array of header deps.
 
     The block must already be in the canonical chain.
-    
+
     Lock script and type script can read the header information of blocks listed here.
 
 * `inputs`: `Array<` [`CellInput`](#type-cellinput) `>` - An array of input cells.
@@ -6032,13 +6084,14 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 * `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
-    
+
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
 
 ### Type `TransactionAndWitnessProof`
 Merkle proof for transactions' witnesses in a block.
+
 #### Fields:
 * `block_hash`: [`H256`](#type-h256) - Block hash
 
@@ -6049,6 +6102,7 @@ Merkle proof for transactions' witnesses in a block.
 
 ### Type `TransactionProof`
 Merkle proof for transactions in a block.
+
 #### Fields:
 * `block_hash`: [`H256`](#type-h256) - Block hash
 
@@ -6059,6 +6113,7 @@ Merkle proof for transactions in a block.
 
 ### Type `TransactionTemplate`
 Transaction template which is ready to be committed in the new block.
+
 #### Fields:
 * `data`: [`Transaction`](#type-transaction) - The transaction.
 
@@ -6119,12 +6174,13 @@ The JSON view of a Transaction.
    "witnesses": []
  }
  ```
+
 #### Fields:
 * `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
     CKB locates lock script and type script code via cell deps. The script also can use syscalls
     to read the cells here.
-    
+
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
 * `hash`: [`H256`](#type-h256) - The transaction hash.
@@ -6132,7 +6188,7 @@ The JSON view of a Transaction.
 * `header_deps`: `Array<` [`H256`](#type-h256) `>` - An array of header deps.
 
     The block must already be in the canonical chain.
-    
+
     Lock script and type script can read the header information of blocks listed here.
 
 * `inputs`: `Array<` [`CellInput`](#type-cellinput) `>` - An array of input cells.
@@ -6151,19 +6207,21 @@ The JSON view of a Transaction.
 * `witnesses`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - An array of variable-length binaries.
 
     Lock script and type script can read data here to verify the transaction.
-    
+
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
 
 ### Type `TransactionWithStatusResponse`
 The JSON view of a transaction as well as its status.
+
 #### Fields:
 * `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
 
 ### Type `TxPoolEntries`
 Tx-pool entries object
+
 #### Fields:
 * `pending`: `object` - Pending tx verbose info
 
@@ -6172,6 +6230,7 @@ Tx-pool entries object
 
 ### Type `TxPoolEntry`
 Transaction entry info
+
 #### Fields:
 * `ancestors_count`: [`Uint64`](#type-uint64) - Number of in-tx-pool ancestor transactions
 
@@ -6190,6 +6249,7 @@ Transaction entry info
 
 ### Type `TxPoolIds`
 Array of transaction ids
+
 #### Fields:
 * `pending`: `Array<` [`H256`](#type-h256) `>` - Pending transaction ids
 
@@ -6198,6 +6258,7 @@ Array of transaction ids
 
 ### Type `TxPoolInfo`
 Transaction pool information.
+
 #### Fields:
 * `last_txs_updated_at`: [`Uint64`](#type-uint64) - Last updated time. This is the Unix timestamp in milliseconds.
 
@@ -6211,7 +6272,7 @@ Transaction pool information.
 
     The pool reject to replace for transactions which fee rate is below this threshold.
     if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
-    
+
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
@@ -6248,6 +6309,7 @@ Transaction pool information.
 
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
+
 #### Fields:
 * `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
@@ -6273,6 +6335,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 2. B2 block number is larger than B1;
 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
 4. B2 is the first block in its chain to refer to B1.
+
 #### Fields:
 * `header`: [`Header`](#type-header) - The uncle block header.
 
@@ -6292,6 +6355,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 2. B2 block number is larger than B1;
 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
 4. B2 is the first block in its chain to refer to B1.
+
 #### Fields:
 * `header`: [`HeaderView`](#type-headerview) - The uncle block header.
 
@@ -6300,6 +6364,7 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 ### Type `UncleTemplate`
 The uncle block template of the new block for miners.
+
 #### Fields:
 * `hash`: [`H256`](#type-h256) - The uncle block hash.
 

@@ -12,10 +12,11 @@ struct RpcModule {
 impl RpcModule {
     pub fn gen_module_menu(&self) -> String {
         let mut res = String::new();
-        let capitlized = capitlize(self.module_title.as_str());
+        let capitlized = self.module_title.to_string();
         res.push_str(&format!(
             "    * [Module {}](#module-{})\n",
-            capitlized, self.module_title
+            capitlized,
+            self.module_title.to_lowercase()
         ));
         let mut method_names = self
             .module_methods
@@ -37,7 +38,7 @@ impl RpcModule {
 
     pub fn gen_module_content(&self) -> String {
         let mut res = String::new();
-        let capitlized = capitlize(self.module_title.as_str());
+        let capitlized = self.module_title.to_string();
         let description = self.module_description.replace("##", "#####");
 
         res.push_str(&format!("### Module {}\n", capitlized));
@@ -66,10 +67,11 @@ impl RpcModule {
                 "".to_string()
             };
             let signatures = format!("* `{}({})`\n{}\n{}", name, args, arg_lines, ret_ty);
-            let desc = method["description"]
+            let mut desc = method["description"]
                 .as_str()
                 .unwrap()
                 .replace("##", "######");
+            desc = strip_prefix_space(&desc);
             res.push_str(&format!(
                 "#### Method `{}`\n{}\n\n{}\n",
                 name, signatures, desc,
@@ -91,15 +93,13 @@ impl RpcDocGenerator {
         let mut all_types: Vec<&Map<String, Value>> = vec![];
         for rpc in all_rpc {
             if let serde_json::Value::Object(map) = rpc {
-                let module_title = map["info"]["title"]
-                    .as_str()
-                    .unwrap()
-                    .trim_end_matches("_rpc")
-                    .to_string();
-                let module_description = map["info"]["description"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
+                let module_title = capitlize(
+                    map["info"]["title"]
+                        .as_str()
+                        .unwrap()
+                        .trim_end_matches("_rpc"),
+                );
+                let module_description = get_description(&map["info"]["description"]);
                 let module_methods = map["methods"].as_array().unwrap();
                 let types = map["components"]["schemas"].as_object().unwrap();
                 all_types.push(types);
@@ -208,10 +208,43 @@ impl RpcDocGenerator {
 }
 
 fn capitlize(s: &str) -> String {
-    let mut res = String::new();
-    res.push_str(&s[0..1].to_uppercase());
-    res.push_str(&s[1..]);
-    res
+    if s.is_empty() {
+        return s.to_owned();
+    }
+    s[0..1].to_uppercase().to_string() + &s[1..]
+}
+
+fn strip_prefix_space(content: &str) -> String {
+    let minimal_strip_count = content
+        .lines()
+        .map(|l| {
+            if l.trim().is_empty() {
+                usize::MAX
+            } else {
+                l.chars().take_while(|c| c.is_whitespace()).count()
+            }
+        })
+        .min()
+        .unwrap_or(0);
+    if minimal_strip_count > 0 {
+        content
+            .lines()
+            .map(|l| {
+                if l.len() > minimal_strip_count {
+                    l[minimal_strip_count..].to_string()
+                } else {
+                    "".to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        content.to_string()
+    }
+}
+
+fn get_description(value: &Value) -> String {
+    strip_prefix_space(value.as_str().unwrap())
 }
 
 fn gen_type_desc(desc: &str) -> String {
@@ -234,7 +267,11 @@ fn gen_type_desc(desc: &str) -> String {
             } else {
                 l.to_string()
             };
-            format!("    {}", l)
+            if l.is_empty() {
+                l
+            } else {
+                format!("    {}", l)
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -262,7 +299,8 @@ fn gen_type_fields(ty: &Value) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        format!("#### Fields:\n{}", res)
+        let res = strip_prefix_space(&res);
+        format!("\n#### Fields:\n{}", res)
     } else {
         "".to_string()
     }
@@ -318,12 +356,12 @@ fn gen_type(ty: &Value) -> String {
 fn gen_errors_content(res: &mut String) {
     let schema = schema_for!(RPCError);
     let value = serde_json::to_value(schema).unwrap();
-    let summary = value["description"].as_str().unwrap();
+    let summary = get_description(&value["description"]);
     res.push_str("## RPC Errors\n");
-    res.push_str(summary);
+    res.push_str(&summary);
 
     for error in value["oneOf"].as_array().unwrap().iter() {
-        let desc = error["description"].as_str().unwrap();
+        let desc = get_description(&error["description"]);
         let enum_ty = error["enum"].as_array().unwrap()[0].as_str().unwrap();
         let doc = format!("\n### ERROR `{}`\n{}\n", enum_ty, desc);
         res.push_str(&doc);
@@ -346,6 +384,7 @@ fn gen_subscription_rpc_doc(res: &mut String) {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let summary = strip_prefix_space(&summary);
 
     // read the continues comments between `S: Stream` and `fn subscribe`
     let sub_desc = pubsub_module_source
@@ -359,7 +398,26 @@ fn gen_subscription_rpc_doc(res: &mut String) {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let sub_desc = strip_prefix_space(&sub_desc);
 
     res.push_str(format!("{}\n\n", summary).as_str());
     res.push_str(format!("{}\n", sub_desc).as_str());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_prefix_space() {
+        assert_eq!(strip_prefix_space("   "), "".to_string());
+        assert_eq!(
+            strip_prefix_space("   \n   abc\n   cdf"),
+            "\nabc\ncdf".to_string()
+        );
+        assert_eq!(
+            strip_prefix_space("abc\n   cde\n  cdf"),
+            "abc\n   cde\n  cdf".to_string()
+        );
+    }
 }
