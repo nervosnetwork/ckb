@@ -12,3 +12,4 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-rpc ={ path = "../../../rpc", version = "= 0.112.0-pre" }
 schemars = { git = "https://github.com/chenyukang/schemars", branch = "fix-derive" }
 serde_json = "~1.0"
+tera = "1"
