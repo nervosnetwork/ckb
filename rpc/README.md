@@ -1654,7 +1654,7 @@ Response
   "result": {
         "block_version": "0x0",
         "cellbase_maturity": "0x10000000000",
-        "dao_type_hash": null,
+        "dao_type_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
         "hardfork_features": [
@@ -5703,7 +5703,7 @@ Consensus defines various parameters that influence chain consensus
 
 *   `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
 
-*   `dao_type_hash`: [`H256`](#type-h256) `|` `null` - The dao type hash
+*   `dao_type_hash`: [`H256`](#type-h256) - The dao type hash
 
 *   `secp256k1_blake160_sighash_all_type_hash`: [`H256`](#type-h256) `|` `null` - The secp256k1_blake160_sighash_all_type_hash
 

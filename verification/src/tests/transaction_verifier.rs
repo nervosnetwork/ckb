@@ -104,7 +104,7 @@ pub fn test_capacity_outofbound() {
         resolved_dep_groups: vec![],
     });
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
-    let verifier = CapacityVerifier::new(rtx, Some(dao_type_hash));
+    let verifier = CapacityVerifier::new(rtx, dao_type_hash);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
@@ -136,7 +136,7 @@ pub fn test_skip_dao_capacity_check() {
         resolved_inputs: vec![],
         resolved_dep_groups: vec![],
     });
-    let verifier = CapacityVerifier::new(rtx, Some(dao_type_script.calc_script_hash()));
+    let verifier = CapacityVerifier::new(rtx, dao_type_script.calc_script_hash());
 
     assert!(verifier.verify().is_ok());
 }
@@ -329,7 +329,7 @@ pub fn test_capacity_invalid() {
         resolved_dep_groups: vec![],
     });
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
-    let verifier = CapacityVerifier::new(rtx, Some(dao_type_hash));
+    let verifier = CapacityVerifier::new(rtx, dao_type_hash);
 
     assert_error_eq!(
         verifier.verify().unwrap_err(),
@@ -808,7 +808,7 @@ fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>
     // the dao script. For simplicity, we are hacking consensus here with
     // a dao_type_hash value, a proper way should be creating a proper genesis
     // block here, but we will leave it till we really need it.
-    consensus.dao_type_hash = Some(dao_script.calc_script_hash());
+    consensus.dao_type_hash = dao_script.calc_script_hash();
 
     let dao_type_script = Script::new_builder()
         .code_hash(dao_script.calc_script_hash())

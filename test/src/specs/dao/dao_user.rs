@@ -187,7 +187,7 @@ impl<'a> DAOUser<'a> {
 
     pub fn dao_type_script(&self) -> Script {
         Script::new_builder()
-            .code_hash(self.node.consensus().dao_type_hash().unwrap())
+            .code_hash(self.node.consensus().dao_type_hash())
             .hash_type(ScriptHashType::Type.into())
             .build()
     }
