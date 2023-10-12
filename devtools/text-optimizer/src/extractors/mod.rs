@@ -13,7 +13,7 @@ use cargo_metadata::MetadataCommand;
 use syn::visit::visit_file;
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -22,7 +22,7 @@ macro_rules! define_extractor {
     ($struct_name:ident) => {
         #[derive(Default)]
         pub struct $struct_name {
-            list: Vec<TextInfo>,
+            map: HashMap<(String, PathBuf), TextInfo>,
             file_path: PathBuf,
         }
 
@@ -36,11 +36,18 @@ macro_rules! define_extractor {
             }
 
             pub fn add_text_info(&mut self, text_info: TextInfo) {
-                self.list.push(text_info)
+                let key = text_info.original().to_owned();
+                let file = text_info.metadata().file().clone();
+
+                if let Some(existing) = self.map.get_mut(&(key.to_owned(), file.clone())) {
+                    existing.append_new_line(text_info.metadata().start_lines()[0]);
+                } else {
+                    self.map.insert((key, file), text_info);
+                }
             }
 
-            pub fn text_list(&self) -> &[TextInfo] {
-                &self.list
+            pub fn text_list(&self) -> Vec<TextInfo> {
+                self.map.values().cloned().collect()
             }
 
             #[allow(dead_code)]
@@ -158,13 +165,17 @@ fn save_as_file(
 
     println!();
 
-    save_yaml(&output_dir.join(LOG_TEXT_FILE), log_extractor.text_list()).expect("save yaml");
+    save_yaml(&output_dir.join(LOG_TEXT_FILE), &log_extractor.text_list()).expect("save yaml");
     println!(
         "Extract LOG category text: {:?}",
         log_extractor.text_list().len()
     );
 
-    save_yaml(&output_dir.join(CLAP_TEXT_FILE), clap_extractor.text_list()).expect("save yaml");
+    save_yaml(
+        &output_dir.join(CLAP_TEXT_FILE),
+        &clap_extractor.text_list(),
+    )
+    .expect("save yaml");
     println!(
         "Extract CLAP category text: {:?}",
         clap_extractor.text_list().len()
@@ -172,7 +183,7 @@ fn save_as_file(
 
     save_yaml(
         &output_dir.join(STD_OUTPUT_TEXT_FILE),
-        std_output_extractor.text_list(),
+        &std_output_extractor.text_list(),
     )
     .expect("save yaml");
     println!(
@@ -182,20 +193,11 @@ fn save_as_file(
 
     save_yaml(
         &output_dir.join(THISERROR_TEXT_FILE),
-        thiserror_extractor.text_list(),
+        &thiserror_extractor.text_list(),
     )
     .expect("save yaml");
     println!(
         "Extract THISERROR category text: {:?}",
         thiserror_extractor.text_list().len()
     );
-}
-
-fn _check_dup(text_list: &[TextInfo]) {
-    let mut set = HashSet::new();
-    for text_info in text_list {
-        if !set.insert(text_info.original()) {
-            log::warn!("dup: {:?}", text_info.original())
-        }
-    }
 }

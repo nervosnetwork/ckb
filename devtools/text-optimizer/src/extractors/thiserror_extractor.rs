@@ -29,13 +29,8 @@ impl syn::visit::Visit<'_> for ThiserrorExtractor {
 
                         let span = lit_str.span();
                         let start_line = span.start().line;
-                        let end_line = span.end().line;
-                        let meta = Meta::new(
-                            Category::ThisError,
-                            self.file_path.to_owned(),
-                            start_line,
-                            end_line,
-                        );
+                        let meta =
+                            Meta::new(Category::ThisError, self.file_path.to_owned(), start_line);
                         self.add_text_info(TextInfo::new(text, meta));
                     }
                 }

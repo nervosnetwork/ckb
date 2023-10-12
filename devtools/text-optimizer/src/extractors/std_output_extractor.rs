@@ -13,10 +13,8 @@ impl syn::visit::Visit<'_> for StdOutputExtractor {
 
                         let span = lit.span();
                         let start_line = span.start().line;
-                        let end_line = span.end().line;
                         let category = Category::from_str(ident.to_string().as_str()).unwrap();
-                        let meta =
-                            Meta::new(category, self.file_path.to_owned(), start_line, end_line);
+                        let meta = Meta::new(category, self.file_path.to_owned(), start_line);
                         self.add_text_info(TextInfo::new(text, meta));
                     }
                 }

@@ -2,7 +2,6 @@
 pub enum MyError {
     Io(std::io::Error),
     Serde(serde_yaml::Error),
-    TextInfoFormat,
 }
 
 impl From<std::io::Error> for MyError {

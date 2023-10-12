@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::vec;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct TextInfo {
     original: String,
     editable: String,
@@ -32,23 +33,25 @@ impl TextInfo {
     pub fn metadata(&self) -> &Meta {
         &self.metadata
     }
+
+    pub fn append_new_line(&mut self, new: usize) {
+        self.metadata.append_new_line(new)
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct Meta {
     category: Category,
     file: PathBuf,
-    start_line: usize,
-    end_line: usize,
+    code_lines: Vec<usize>,
 }
 
 impl Meta {
-    pub fn new(category: Category, file: PathBuf, start_line: usize, end_line: usize) -> Self {
+    pub fn new(category: Category, file: PathBuf, start_line: usize) -> Self {
         Meta {
             category,
             file,
-            start_line,
-            end_line,
+            code_lines: vec![start_line],
         }
     }
 
@@ -63,17 +66,16 @@ impl Meta {
     }
 
     #[allow(dead_code)]
-    pub fn start_line(&self) -> usize {
-        self.start_line
+    pub fn start_lines(&self) -> &[usize] {
+        &self.code_lines
     }
 
-    #[allow(dead_code)]
-    pub fn end_line(&self) -> usize {
-        self.end_line
+    pub fn append_new_line(&mut self, new: usize) {
+        self.code_lines.push(new)
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum Category {
     ClapHelp,
     ClapAbout,
