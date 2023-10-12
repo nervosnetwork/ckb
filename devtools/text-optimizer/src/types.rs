@@ -28,6 +28,7 @@ impl TextInfo {
         &self.editable
     }
 
+    #[allow(dead_code)]
     pub fn metadata(&self) -> &Meta {
         &self.metadata
     }
@@ -56,10 +57,12 @@ impl Meta {
         &self.category
     }
 
+    #[allow(dead_code)]
     pub fn file(&self) -> &PathBuf {
         &self.file
     }
 
+    #[allow(dead_code)]
     pub fn start_line(&self) -> usize {
         self.start_line
     }
