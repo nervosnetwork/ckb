@@ -1,4 +1,5 @@
 mod backfill;
+mod error;
 mod extractors;
 mod types;
 mod yaml_processor;

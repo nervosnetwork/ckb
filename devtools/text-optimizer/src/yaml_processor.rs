@@ -1,25 +1,7 @@
-use super::types::TextInfo;
+use super::{error::MyError, types::TextInfo};
 use std::io::Read;
 use std::io::Write;
 use std::{fs::File, path::PathBuf};
-
-#[derive(Debug)]
-pub enum MyError {
-    IoError(std::io::Error),
-    SerdeError(serde_yaml::Error),
-}
-
-impl From<std::io::Error> for MyError {
-    fn from(error: std::io::Error) -> Self {
-        MyError::IoError(error)
-    }
-}
-
-impl From<serde_yaml::Error> for MyError {
-    fn from(error: serde_yaml::Error) -> Self {
-        MyError::SerdeError(error)
-    }
-}
 
 pub fn save_yaml(file: &PathBuf, data: &[TextInfo]) -> Result<(), MyError> {
     let mut file = File::create(file)?;
