@@ -13,6 +13,7 @@ use cargo_metadata::MetadataCommand;
 use syn::visit::visit_file;
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -188,4 +189,13 @@ fn save_as_file(
         "Extract THISERROR category text: {:?}",
         thiserror_extractor.text_list().len()
     );
+}
+
+fn _check_dup(text_list: &[TextInfo]) {
+    let mut set = HashSet::new();
+    for text_info in text_list {
+        if !set.insert(text_info.original()) {
+            log::warn!("dup: {:?}", text_info.original())
+        }
+    }
 }
