@@ -1,0 +1,260 @@
+name: openssl_static_link_test
+
+on:
+  pull_request:
+    branches:
+      - develop
+  push:
+    branches:
+      - develop
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  CKB_CLI_VERSION: v1.5.0
+
+jobs:
+#  create-release:
+#    name: Create release
+#    runs-on: ubuntu-20.04
+#    outputs:
+#      upload_url: ${{ steps.create-release.outputs.upload_url }}
+#    steps:
+#      - uses: actions/checkout@v3
+#      - name: Set tag
+#        run: |
+#          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+#          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+#      - name: Create release
+#        id: create-release
+#        uses: actions/create-release@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          tag_name: ${{ env.GIT_TAG_NAME}}
+#          release_name: ${{ env.GIT_TAG_NAME}}
+#          draft: true
+#          prerelease: true
+
+  package-for-linux:
+    name: package-for-linux
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-unknown-linux-gnu.tar.gz"
+            build_target: "prod"
+          - rel_pkg: "x86_64-unknown-linux-gnu-portable.tar.gz"
+            build_target: "prod_portable"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set Env
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Build CKB and Package CKB
+        env:
+          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
+          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --import devtools/ci/signer.asc
+          devtools/ci/package.sh target/prod/ckb
+          
+          ldd ./target/prod/ckb
+          ./target/prod/ckb --version
+          ./target/prod/ckb init -C ./target/prod/ckb_data_test
+          
+    env:
+      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.71.1-openssl-3.1.3
+      REL_PKG: ${{ matrix.rel_pkg }}
+
+  package-for-linux-aarch64:
+    name: package-for-linux-aarch64
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set Env
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Add rust target
+        run: rustup target add aarch64-unknown-linux-gnu
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+      - name: Build CKB and Package CKB
+        env:
+          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          SKIP_CKB_CLI: true
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          export TOP_DIR=$(pwd)
+          curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+          tar -xzf openssl-3.1.3.tar.gz
+          cd openssl-3.1.3
+          CC=aarch64-linux-gnu-gcc ./Configure linux-aarch64 shared
+          CC=aarch64-linux-gnu-gcc make
+          cd ..
+          export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-3.1.3
+          export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/include
+          export OPENSSL_STATIC=1
+          PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
+          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --import devtools/ci/signer.asc
+          devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
+          
+    env:
+      REL_PKG: aarch64-unknown-linux-gnu.tar.gz
+
+  package-for-centos:
+    name: package-for-centos
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-unknown-centos-gnu.tar.gz"
+            build_target: "prod"
+          - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
+            build_target: "prod_portable"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set Env
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Build CKB and Package CKB
+        env:
+          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
+          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --import devtools/ci/signer.asc
+          devtools/ci/package.sh target/prod/ckb
+          ldd ./target/prod/ckb
+          ./target/prod/ckb --version
+          ./target/prod/ckb init -C ./target/prod/ckb_data_test
+    env:
+      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.71.1-openssl-3.1.3
+      REL_PKG: ${{ matrix.rel_pkg }}
+
+  package-for-mac:
+    name: package-for-mac
+    runs-on: macos-11
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "x86_64-apple-darwin.zip"
+            build_target: "prod"
+          - rel_pkg: "x86_64-apple-darwin-portable.zip"
+            build_target: "prod_portable"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set Env
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Install Dependencies
+        run: |
+          if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
+            brew install "openssl@3.1"
+          fi
+      - name: Build CKB and Package CKB
+        env:
+          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
+          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --import devtools/ci/signer.asc
+          devtools/ci/package.sh target/prod/ckb
+          ldd ./target/prod/ckb
+          ./target/prod/ckb --version
+          ./target/prod/ckb init -C ./target/prod/ckb_data_test
+          
+    env:
+      REL_PKG: ${{ matrix.rel_pkg }}
+
+  package-for-mac-aarch64:
+    name: package-for-mac-aarch64
+    runs-on: [self-hosted, macOS, ARM64]
+    strategy:
+      matrix:
+        include:
+          - rel_pkg: "aarch64-apple-darwin.zip"
+            build_target: "prod"
+          - rel_pkg: "aarch64-apple-darwin-portable.zip"
+            build_target: "prod_portable"
+    steps:
+      - name: Setup PATH
+        run: |
+          echo /opt/homebrew/bin >> $GITHUB_PATH
+          echo /opt/homebrew/sbin >> $GITHUB_PATH
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install Depedencies
+        run: |
+          if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
+            brew install "openssl@3.1"
+          fi
+          if ! type -f gpg &> /dev/null; then
+            brew install gnupg
+          fi
+          if ! [ -f "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          fi
+
+      - uses: actions/checkout@v3
+      - name: Set Env
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Build CKB and Package CKB
+        env:
+          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+        run: |
+          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
+          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --import devtools/ci/signer.asc
+          devtools/ci/package.sh target/prod/ckb
+          
+          ldd ./target/prod/ckb
+          ./target/prod/ckb --version
+          ./target/prod/ckb init -C ./target/prod/ckb_data_test
+
+    env:
+      REL_PKG: ${{ matrix.rel_pkg }}
+
+  package-for-windows:
+    name: package-for-windows
+    runs-on: windows-2019
+    steps:
+      - name: Install Dependencies
+        run: |
+          Set-ExecutionPolicy RemoteSigned -scope CurrentUser
+          iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
+          .\install-scoop.ps1 -RunAsAdmin
+          scoop install llvm yasm main/openssl
+          echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
+          echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v3
+      - name: Build
+        run: |
+          devtools/windows/make prod
+          ./target/prod/ckb.exe --version
+          ./target/prod/ckb.exe init -C ./target/prod/ckb_data_test
+    env:
+      REL_PKG: x86_64-pc-windows-msvc.zip
