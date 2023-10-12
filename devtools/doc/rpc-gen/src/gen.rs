@@ -14,9 +14,10 @@ impl RpcModule {
         let mut res = String::new();
         let capitlized = self.module_title.to_string();
         res.push_str(&format!(
-            "    * [Module {}](#module-{})\n",
+            "    * [Module {}](#module-{}) {}\n",
             capitlized,
-            self.module_title.to_lowercase()
+            self.module_title.to_lowercase(),
+            gen_module_openrpc_playground(&capitlized)
         ));
         let mut method_names = self
             .module_methods
@@ -42,6 +43,10 @@ impl RpcModule {
         let description = self.module_description.replace("##", "#####");
 
         res.push_str(&format!("### Module {}\n", capitlized));
+        res.push_str(&format!(
+            "- {}\n\n",
+            gen_module_openrpc_playground(&capitlized)
+        ));
         res.push_str(&format!("{}\n\n", description));
 
         for method in &self.module_methods {
@@ -77,7 +82,7 @@ impl RpcModule {
                 name, signatures, desc,
             ));
         }
-        res
+        res + "\n"
     }
 }
 
@@ -165,12 +170,12 @@ impl RpcDocGenerator {
 
         // generate module methods content
         for rpc_module in self.rpc_module_methods.iter() {
-            let content = format!("{}\n", rpc_module.gen_module_content());
-            res.push_str(&content);
+            if rpc_module.module_title == "Subscription" {
+                gen_subscription_rpc_doc(&mut res);
+            } else {
+                res.push_str(&rpc_module.gen_module_content());
+            }
         }
-
-        // generate subscription module
-        gen_subscription_rpc_doc(&mut res);
 
         // generate type content
         res.push_str("## RPC Types\n");
@@ -402,6 +407,19 @@ fn gen_subscription_rpc_doc(res: &mut String) {
 
     res.push_str(format!("{}\n\n", summary).as_str());
     res.push_str(format!("{}\n", sub_desc).as_str());
+}
+
+/// generate openrpc playground urls
+fn gen_module_openrpc_playground(module: &str) -> String {
+    let logo = "https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg";
+    let title = format!("CKB-{}", capitlize(module));
+    let json_url = format!(
+        "https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/{}_rpc_doc.json",
+        module.to_lowercase()
+    );
+
+    format!("[👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]={}&uiSchema[appBar][ui:splitView]=false", title) +
+    format!("&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]={}&schemaUrl={})", logo, json_url).as_str()
 }
 
 #[cfg(test)]
