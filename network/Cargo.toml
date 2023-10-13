@@ -44,7 +44,7 @@ with_dns_seeding = ["lazy_static", "bs58", "faster-hex", "trust-dns-resolver", "
 
 [dev-dependencies]
 tempfile.workspace = true
-criterion = "0.4"
+criterion = "0.5"
 proptest = "1.0"
 num_cpus = "1.10"
 once_cell = "1.8.0"

@@ -12,7 +12,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 
 [dev-dependencies]
-criterion = "0.4"
+criterion = "0.5"
 ckb-chain = { path = "../chain", version = "= 0.113.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.113.0-pre" }
 ckb-shared = { path = "../shared", version = "= 0.113.0-pre" }
