@@ -152,7 +152,7 @@ checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.12",
+ "syn 2.0.38",
 ]
 
 [[package]]
@@ -1319,6 +1319,7 @@ dependencies = [
  "futures-util",
  "itertools 0.11.0",
  "jsonrpc-core",
+ "jsonrpc-utils",
  "pretty_assertions",
  "reqwest",
  "serde",
