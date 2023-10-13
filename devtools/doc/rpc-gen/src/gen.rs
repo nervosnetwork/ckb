@@ -75,7 +75,7 @@ impl RpcModule {
             .collect::<Vec<_>>();
 
         render_tera(
-            include_str!("../templates/module"),
+            include_str!("../templates/module.tera"),
             &[
                 ("name", capitlized.clone().into()),
                 ("link", gen_module_openrpc_playground(&capitlized).into()),
@@ -170,7 +170,7 @@ impl RpcDocGenerator {
 
         let types = self.gen_type_contents();
         render_tera(
-            include_str!("../templates/markdown"),
+            include_str!("../templates/markdown.tera"),
             &[
                 ("summary", summary),
                 ("module_menus", module_menus.into()),
@@ -424,7 +424,7 @@ fn gen_value(pairs: &[(&str, Value)]) -> Value {
 fn gen_module_openrpc_playground(module: &str) -> String {
     let title = format!("CKB-{}", capitlize(module));
     render_tera(
-        include_str!("../templates/link"),
+        include_str!("../templates/link.tera"),
         &[
             ("title", title.into()),
             ("module", module.to_lowercase().into()),

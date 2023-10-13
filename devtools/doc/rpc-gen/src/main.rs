@@ -4,25 +4,45 @@ use crate::gen::RpcDocGenerator;
 use ckb_rpc::module::*;
 use std::fs;
 
+/// Get git tag from command line
+fn get_tag() -> Option<String> {
+    std::process::Command::new("git")
+        .args(["describe", "--tags", "--abbrev=0"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|r| {
+            String::from_utf8(r.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        })
+}
+
 fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     let dir = "./target/doc/ckb_rpc_openrpc/";
     fs::create_dir_all(dir)?;
-    let dump = |name: &str, doc: serde_json::Value| -> Result<(), Box<dyn std::error::Error>> {
-        fs::write(dir.to_owned() + name, doc.to_string())?;
-        Ok(())
-    };
-    dump("alert_rpc_doc.json", alert_rpc_doc())?;
-    dump("net_rpc_doc.json", net_rpc_doc())?;
-    dump("subscription_rpc_doc.json", subscription_rpc_doc())?;
-    dump("debug_rpc_doc.json", debug_rpc_doc())?;
-    dump("chain_rpc_doc.json", chain_rpc_doc())?;
-    dump("miner_rpc_doc.json", miner_rpc_doc())?;
-    dump("pool_rpc_doc.json", pool_rpc_doc())?;
-    dump("stats_rpc_doc.json", stats_rpc_doc())?;
-    dump("integration_test_rpc_doc.json", integration_test_rpc_doc())?;
-    dump("indexer_rpc_doc.json", indexer_rpc_doc())?;
-    dump("experiment_rpc_doc.json", experiment_rpc_doc())?;
-    eprintln!("finished dump openrpc json...");
+    let tag = get_tag().unwrap();
+    let dump =
+        |name: &str, doc: &mut serde_json::Value| -> Result<(), Box<dyn std::error::Error>> {
+            doc["info"]["version"] = serde_json::Value::String(tag.clone());
+            fs::write(dir.to_owned() + name, doc.to_string())?;
+            Ok(())
+        };
+    dump("alert_rpc_doc.json", &mut alert_rpc_doc())?;
+    dump("net_rpc_doc.json", &mut net_rpc_doc())?;
+    dump("subscription_rpc_doc.json", &mut subscription_rpc_doc())?;
+    dump("debug_rpc_doc.json", &mut debug_rpc_doc())?;
+    dump("chain_rpc_doc.json", &mut chain_rpc_doc())?;
+    dump("miner_rpc_doc.json", &mut miner_rpc_doc())?;
+    dump("pool_rpc_doc.json", &mut pool_rpc_doc())?;
+    dump("stats_rpc_doc.json", &mut stats_rpc_doc())?;
+    dump(
+        "integration_test_rpc_doc.json",
+        &mut integration_test_rpc_doc(),
+    )?;
+    dump("indexer_rpc_doc.json", &mut indexer_rpc_doc())?;
+    dump("experiment_rpc_doc.json", &mut experiment_rpc_doc())?;
+    eprintln!("finished dump openrpc json for tag: {:?}...", tag);
     Ok(())
 }
 

@@ -4266,7 +4266,7 @@ dependencies = [
 [[package]]
 name = "schemars"
 version = "0.8.15"
-source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#7418b9f4d2948c565202e2477c859dcd11200609"
+source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#53b7712bf606625c564a6033b8a42ae817a7784c"
 dependencies = [
  "dyn-clone",
  "schemars_derive",
@@ -4277,7 +4277,7 @@ dependencies = [
 [[package]]
 name = "schemars_derive"
 version = "0.8.15"
-source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#7418b9f4d2948c565202e2477c859dcd11200609"
+source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#53b7712bf606625c564a6033b8a42ae817a7784c"
 dependencies = [
  "proc-macro2",
  "quote",
