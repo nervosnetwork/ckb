@@ -31,12 +31,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
 * [RPC Methods](#rpc-methods)
 
-
-    * [Module Alert](#module-alert) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/alert_rpc_doc.json)
+    * [Module Alert](#module-alert) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/alert_rpc_doc.json)
         * [Method `send_alert`](#method-send_alert)
-
-
-    * [Module Chain](#module-chain) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/chain_rpc_doc.json)
+    * [Module Chain](#module-chain) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/chain_rpc_doc.json)
         * [Method `get_block`](#method-get_block)
         * [Method `get_block_by_number`](#method-get_block_by_number)
         * [Method `get_header`](#method-get_header)
@@ -60,27 +57,19 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `estimate_cycles`](#method-estimate_cycles)
         * [Method `get_fee_rate_statics`](#method-get_fee_rate_statics)
         * [Method `get_fee_rate_statistics`](#method-get_fee_rate_statistics)
-
-
-    * [Module Debug](#module-debug) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Debug&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/debug_rpc_doc.json)
+    * [Module Debug](#module-debug) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Debug&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/debug_rpc_doc.json)
         * [Method `jemalloc_profiling_dump`](#method-jemalloc_profiling_dump)
         * [Method `update_main_logger`](#method-update_main_logger)
         * [Method `set_extra_logger`](#method-set_extra_logger)
-
-
-    * [Module Experiment](#module-experiment) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Experiment&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/experiment_rpc_doc.json)
+    * [Module Experiment](#module-experiment) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Experiment&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/experiment_rpc_doc.json)
         * [Method `dry_run_transaction`](#method-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#method-calculate_dao_maximum_withdraw)
-
-
-    * [Module Indexer](#module-indexer) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/indexer_rpc_doc.json)
+    * [Module Indexer](#module-indexer) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/indexer_rpc_doc.json)
         * [Method `get_indexer_tip`](#method-get_indexer_tip)
         * [Method `get_cells`](#method-get_cells)
         * [Method `get_transactions`](#method-get_transactions)
         * [Method `get_cells_capacity`](#method-get_cells_capacity)
-
-
-    * [Module Integration_test](#module-integration_test) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Integration_test&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/integration_test_rpc_doc.json)
+    * [Module Integration_test](#module-integration_test) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Integration_test&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/integration_test_rpc_doc.json)
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
         * [Method `generate_block`](#method-generate_block)
@@ -88,14 +77,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `notify_transaction`](#method-notify_transaction)
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
-
-
-    * [Module Miner](#module-miner) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/miner_rpc_doc.json)
+    * [Module Miner](#module-miner) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/miner_rpc_doc.json)
         * [Method `get_block_template`](#method-get_block_template)
         * [Method `submit_block`](#method-submit_block)
-
-
-    * [Module Net](#module-net) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Net&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/net_rpc_doc.json)
+    * [Module Net](#module-net) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Net&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/net_rpc_doc.json)
         * [Method `local_node_info`](#method-local_node_info)
         * [Method `get_peers`](#method-get_peers)
         * [Method `get_banned_addresses`](#method-get_banned_addresses)
@@ -106,26 +91,19 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `add_node`](#method-add_node)
         * [Method `remove_node`](#method-remove_node)
         * [Method `ping_peers`](#method-ping_peers)
-
-
-    * [Module Pool](#module-pool) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/pool_rpc_doc.json)
+    * [Module Pool](#module-pool) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/pool_rpc_doc.json)
         * [Method `send_transaction`](#method-send_transaction)
         * [Method `remove_transaction`](#method-remove_transaction)
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
-
-
-    * [Module Stats](#module-stats) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/stats_rpc_doc.json)
+    * [Module Stats](#module-stats) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/stats_rpc_doc.json)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
         * [Method `get_deployments_info`](#method-get_deployments_info)
-
-
-    * [Module Subscription](#module-subscription) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Subscription&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/subscription_rpc_doc.json)
+    * [Module Subscription](#module-subscription) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Subscription&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/subscription_rpc_doc.json)
         * [Method `subscribe`](#method-subscribe)
         * [Method `unsubscribe`](#method-unsubscribe)
-
 * [RPC Types](#rpc-types)
 
     * [Type `Alert`](#type-alert)
@@ -226,7 +204,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 ## RPC Modules
 
 ### Module `Alert`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/alert_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/alert_rpc_doc.json)
 
 RPC Module Alert for network alerts.
 
@@ -291,7 +269,7 @@ Response
 ```
 
 ### Module `Chain`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/chain_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/chain_rpc_doc.json)
 
 RPC Module Chain for methods related to the canonical chain.
 
@@ -1906,7 +1884,7 @@ Response
 ```
 
 ### Module `Debug`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Debug&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/debug_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Debug&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/debug_rpc_doc.json)
 
 RPC Module Debug for internal RPC methods.
 
@@ -1949,7 +1927,7 @@ they only append logs to their log files.
 Removes the logger when this is null.
 
 ### Module `Experiment`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Experiment&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/experiment_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Experiment&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/experiment_rpc_doc.json)
 
 RPC Module Experiment for experimenting methods.
 
@@ -2101,7 +2079,7 @@ Response
 ```
 
 ### Module `Indexer`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/indexer_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/indexer_rpc_doc.json)
 
 RPC Module Indexer.
 
@@ -2966,7 +2944,7 @@ Response
 ```
 
 ### Module `Integration_test`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Integration_test&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/integration_test_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Integration_test&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/integration_test_rpc_doc.json)
 
 RPC for Integration Test.
 
@@ -3466,7 +3444,7 @@ Response
 ```
 
 ### Module `Miner`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/miner_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/miner_rpc_doc.json)
 
 RPC Module Miner for miners.
 
@@ -3680,7 +3658,7 @@ Response
 ```
 
 ### Module `Net`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Net&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/net_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Net&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/net_rpc_doc.json)
 
 RPC Module Net for P2P network.
 
@@ -4227,7 +4205,7 @@ Response
 ```
 
 ### Module `Pool`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/pool_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/pool_rpc_doc.json)
 
 RPC Module Pool for transaction memory pool.
 
@@ -4514,7 +4492,7 @@ Response
 ```
 
 ### Module `Stats`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/chenyukang/ckb-rpc-resources/main/json/stats_rpc_doc.json)
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/json/stats_rpc_doc.json)
 
 RPC Module Stats for getting various statistic data.
 
@@ -4810,10 +4788,8 @@ An alert is a message about critical problems to be broadcast to all nodes via t
 
 * `signatures`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - The list of required signatures.
 
-
 ### Type `AlertId`
 `AlertId` is `uint32`
-
 
 ### Type `AlertMessage`
 An alert sent by RPC `send_alert`.
@@ -4826,7 +4802,6 @@ An alert sent by RPC `send_alert`.
 * `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
 
 * `priority`: [`AlertId`](#type-alertid) - Alerts are sorted by priority, highest first.
-
 
 ### Type `BannedAddr`
 A banned P2P address.
@@ -4842,7 +4817,6 @@ A banned P2P address.
 
 * `created_at`: [`Uint64`](#type-uint64) - When this address is banned.
 
-
 ### Type `Block`
 The JSON view of a Block used as a parameter in the RPC.
 
@@ -4854,7 +4828,6 @@ The JSON view of a Block used as a parameter in the RPC.
 * `transactions`: `Array<` [`Transaction`](#type-transaction) `>` - The transactions in the block body.
 
 * `uncles`: `Array<` [`UncleBlock`](#type-uncleblock) `>` - The uncles blocks in the block body.
-
 
 ### Type `BlockEconomicState`
 Block Economic State.
@@ -4870,7 +4843,6 @@ It includes the rewards details and when it is finalized.
 
 * `txs_fee`: [`Uint64`](#type-uint64) - The total fees of all transactions committed in the block.
 
-
 ### Type `BlockFilter`
 Block filter data and hash.
 
@@ -4878,7 +4850,6 @@ Block filter data and hash.
 * `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
 
 * `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
-
 
 ### Type `BlockIssuance`
 Block base rewards.
@@ -4888,10 +4859,8 @@ Block base rewards.
 
 * `secondary`: [`Uint64`](#type-uint64) - The secondary base rewards.
 
-
 ### Type `BlockResponse`
 The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
-
 
 ### Type `BlockTemplate`
 A block template for miners.
@@ -4972,7 +4941,6 @@ Miners optional pick transactions and then assemble the final block.
 
 * `work_id`: [`Uint64`](#type-uint64) - Work ID. The miner must submit the new assembled and resolved block using the same work ID.
 
-
 ### Type `BlockView`
 The JSON view of a Block including header and body.
 
@@ -4985,13 +4953,11 @@ The JSON view of a Block including header and body.
 
 * `uncles`: `Array<` [`UncleBlockView`](#type-uncleblockview) `>` - The uncles blocks in the block body.
 
-
 ### Type `BlockWithCyclesResponse`
 BlockResponse with cycles format wrapper
 
 #### Fields:
 * `block`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The block structure
-
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is
@@ -5004,9 +4970,7 @@ hard-coded into the client implementation
 
 * `status`: [`SoftForkStatus`](#type-softforkstatus) - SoftFork status
 
-
 ### Type `Byte32`
-
 
 
 ### Type `CellData`
@@ -5025,7 +4989,6 @@ The cell data content and hash.
 * `content`: [`JsonBytes`](#type-jsonbytes) - Cell content.
 
 * `hash`: [`H256`](#type-h256) - Cell content hash.
-
 
 ### Type `CellDep`
 The cell dependency of a transaction.
@@ -5046,7 +5009,6 @@ The cell dependency of a transaction.
 * `dep_type`: [`DepType`](#type-deptype) - Dependency type.
 
 * `out_point`: [`OutPoint`](#type-outpoint) - Reference to the cell.
-
 
 ### Type `CellInfo`
 The JSON view of a cell combining the fields in cell output and cell data.
@@ -5074,7 +5036,6 @@ The JSON view of a cell combining the fields in cell output and cell data.
 #### Fields:
 * `output`: [`CellOutput`](#type-celloutput) - Cell fields appears in the transaction `outputs` array.
 
-
 ### Type `CellInput`
 The input cell of a transaction.
 
@@ -5096,7 +5057,6 @@ The input cell of a transaction.
 * `since`: [`Uint64`](#type-uint64) - Restrict when the transaction can be committed into the chain.
 
     See the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
-
 
 ### Type `CellOutput`
 The fields of an output cell except the cell data.
@@ -5122,7 +5082,6 @@ The fields of an output cell except the cell data.
     the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
 
 * `lock`: [`Script`](#type-script) - The lock script.
-
 
 ### Type `CellWithStatus`
 The JSON view of a cell with its status information.
@@ -5171,7 +5130,6 @@ The JSON view of a cell with its status information.
     * `unknown` - CKB does not know the status of the cell. Either the transaction creating
     this cell is not in the chain yet, or it is no longer live.
 
-
 ### Type `CellbaseTemplate`
 The cellbase transaction template of the new block for miners.
 
@@ -5179,7 +5137,6 @@ The cellbase transaction template of the new block for miners.
 * `data`: [`Transaction`](#type-transaction) - The cellbase transaction.
 
 * `hash`: [`H256`](#type-h256) - The cellbase transaction hash.
-
 
 ### Type `ChainInfo`
 Chain information.
@@ -5209,7 +5166,6 @@ Chain information.
     stops responding the most P2P requests.
 
 * `median_time`: [`Uint64`](#type-uint64) - The median time of the last 37 blocks, including the tip block.
-
 
 ### Type `Consensus`
 Consensus defines various parameters that influence chain consensus
@@ -5257,7 +5213,6 @@ Consensus defines various parameters that influence chain consensus
 
 * `type_id_code_hash`: [`H256`](#type-h256) - The "TYPE_ID" in hex
 
-
 ### Type `DaoWithdrawingCalculationKind`
 An enum to represent the two kinds of dao withdrawal amount calculation option.
 `DaoWithdrawingCalculationKind` is equivalent to [`H256`] `|` [`OutPoint`].
@@ -5265,10 +5220,8 @@ An enum to represent the two kinds of dao withdrawal amount calculation option.
 [`H256`]: struct.H256.html
 [`OutPoint`]: struct.OutPoint.html
 
-
 ### Type `DepType`
 The dep cell type. Allowed values: "code" and "dep_group".
-
 
 ### Type `Deployment`
 RFC0043 deployment params
@@ -5289,7 +5242,6 @@ which indicate the locked_in of the softfork during the `period`.
 * `timeout`: [`Uint64`](#type-uint64) - Specifies an epoch at which the miner signaling ends.
 Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
 the deployment is considered failed on all descendants of the block.
-
 
 ### Type `DeploymentInfo`
 An object containing various state info regarding deployments of consensus changes
@@ -5321,10 +5273,8 @@ Once this epoch has been reached,
 if the softfork has not yet locked_in (excluding this epoch block's bit state),
 the deployment is considered failed on all descendants of the block.
 
-
 ### Type `DeploymentState`
 The possible softfork deployment state
-
 
 ### Type `DeploymentsInfo`
 Chain information.
@@ -5336,21 +5286,17 @@ Chain information.
 
 * `hash`: [`H256`](#type-h256) - requested block hash
 
-
 ### Type `Either_for_BlockView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
 sum type with two cases.
-
 
 ### Type `Either_for_HeaderView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
 sum type with two cases.
 
-
 ### Type `Either_for_TransactionView_and_JsonBytes`
 The enum `Either` with variants `Left` and `Right` is a general purpose
 sum type with two cases.
-
 
 ### Type `EpochView`
 JSON view of an epoch.
@@ -5380,13 +5326,11 @@ JSON view of an epoch.
     It also equals the total count of blocks in all the epochs which epoch number is
     less than this epoch.
 
-
 ### Type `EstimateCycles`
 Response result of the RPC method `estimate_cycles`.
 
 #### Fields:
 * `cycles`: [`Uint64`](#type-uint64) - The count of cycles that the VM has consumed to verify this transaction.
-
 
 ### Type `ExtraLoggerConfig`
 Runtime logger config for extra loggers.
@@ -5408,7 +5352,6 @@ Runtime logger config for extra loggers.
     info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug
     ```
 
-
 ### Type `FeeRateStatistics`
 The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
 
@@ -5417,7 +5360,6 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 
 * `median`: [`Uint64`](#type-uint64) - median
 
-
 ### Type `H256`
 The 32-byte fixed-length binary data.
 
@@ -5425,13 +5367,11 @@ The name comes from the number of bits in the data.
 
 In JSONRPC, it is encoded as a 0x-prefixed hex string.
 
-
 ### Type `HardForkFeature`
 The information about one hardfork feature.
 
 #### Fields:
 * `rfc`: `string` - The related RFC ID.
-
 
 ### Type `Header`
 The block header.
@@ -5493,7 +5433,6 @@ within the target encoded from `compact_target`.
 * `version`: [`AlertId`](#type-alertid) - The block version.
 
     It must equal to 0 now and is reserved for future upgrades.
-
 
 ### Type `HeaderView`
 The JSON view of a Header.
@@ -5578,7 +5517,6 @@ within the target encoded from `compact_target`.
 
     It must equal to 0 now and is reserved for future upgrades.
 
-
 ### Type `IndexerCell`
 Live cell
 
@@ -5591,10 +5529,8 @@ Live cell
 
 * `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
-
 ### Type `IndexerCellType`
 Cell type
-
 
 ### Type `IndexerCellsCapacity`
 Cells capacity
@@ -5606,10 +5542,8 @@ Cells capacity
 
 * `capacity`: [`Uint64`](#type-uint64) - total capacity
 
-
 ### Type `IndexerOrder`
 Order Desc | Asc
-
 
 ### Type `IndexerPagination_for_IndexerCell`
 IndexerPagination wraps objects array and last_cursor to provide paging
@@ -5619,7 +5553,6 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 * `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
-
 ### Type `IndexerPagination_for_IndexerTx`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
@@ -5628,14 +5561,11 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 * `objects`: `Array<` [`IndexerTx`](#type-indexertx) `>` - objects collection
 
-
 ### Type `IndexerScriptSearchMode`
 IndexerScriptSearchMode represent script search mode, default is prefix search
 
-
 ### Type `IndexerScriptType`
 ScriptType `Lock` | `Type`
-
 
 ### Type `IndexerSearchKey`
 SearchKey represent indexer support params
@@ -5645,10 +5575,8 @@ SearchKey represent indexer support params
 
 * `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
 
-
 ### Type `IndexerSearchKeyFilter`
 IndexerSearchKeyFilter represent indexer params `filter`
-
 
 ### Type `IndexerTip`
 Indexer tip information
@@ -5658,10 +5586,8 @@ Indexer tip information
 
 * `block_number`: [`Uint64`](#type-uint64) - indexed tip block number
 
-
 ### Type `IndexerTx`
 Indexer Transaction Object
-
 
 ### Type `IndexerTxWithCell`
 Ungrouped Tx inner type
@@ -5677,7 +5603,6 @@ Ungrouped Tx inner type
 
 * `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
-
 ### Type `IndexerTxWithCells`
 Grouped Tx inner type
 
@@ -5690,9 +5615,7 @@ Grouped Tx inner type
 
 * `tx_index`: [`AlertId`](#type-alertid) - the position index of the transaction committed in the block
 
-
 ### Type `JsonBytes`
-
 
 
 ### Type `LocalNode`
@@ -5756,7 +5679,6 @@ The information of the node itself.
 
     Example: "version": "0.34.0 (f37f598 2020-07-17)"
 
-
 ### Type `LocalNodeProtocol`
 The information of a P2P protocol that is supported by the local node.
 
@@ -5769,10 +5691,8 @@ The information of a P2P protocol that is supported by the local node.
 
     See [Semantic Version](https://semver.org/) about how to specify a version.
 
-
 ### Type `MainLoggerConfig`
 Runtime logger config.
-
 
 ### Type `MerkleProof`
 Proof of CKB Merkle Tree.
@@ -5785,7 +5705,6 @@ CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rf
     These are indices in the CBMT tree not the transaction indices in the block.
 
 * `lemmas`: `Array<` [`H256`](#type-h256) `>` - Hashes of all siblings along the paths to root.
-
 
 ### Type `MinerReward`
 Block rewards for miners.
@@ -5805,7 +5724,6 @@ its uncles.
 
 * `secondary`: [`Uint64`](#type-uint64) - The secondary base block reward allocated to miners.
 
-
 ### Type `NodeAddress`
 Node P2P address and score.
 
@@ -5819,7 +5737,6 @@ Node P2P address and score.
 * `score`: [`Uint64`](#type-uint64) - Address score.
 
     A higher score means a higher probability of a successful connection.
-
 
 ### Type `OutPoint`
 Reference to a cell via transaction hash and output index.
@@ -5838,10 +5755,8 @@ Reference to a cell via transaction hash and output index.
 
 * `tx_hash`: [`H256`](#type-h256) - Transaction hash in which the cell is an output.
 
-
 ### Type `OutputsValidator`
 Transaction output validators that prevent common mistakes.
-
 
 ### Type `PeerSyncState`
 The chain synchronization state between the local node and a remote node.
@@ -5855,7 +5770,6 @@ The chain synchronization state between the local node and a remote node.
 
     **Deprecated**: this is an internal state and will be removed in a future release.
 
-
 ### Type `ProposalShortId`
 The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 
@@ -5864,7 +5778,6 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
  ```text
  0xa0ef4eb5f4ceeb08a4c8
  ```
-
 
 ### Type `ProposalWindow`
 Two protocol parameters `closest` and `farthest` define the closest
@@ -5891,7 +5804,6 @@ Two protocol parameters `closest` and `farthest` define the closest
 
 * `farthest`: [`Uint64`](#type-uint64) - The farthest distance between the proposal and the commitment.
 
-
 ### Type `Ratio`
 Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
 unsigned 64-bit integers.
@@ -5901,7 +5813,6 @@ unsigned 64-bit integers.
 
 * `numer`: [`Uint64`](#type-uint64) - Numerator.
 
-
 ### Type `RawTxPool`
 All transactions in tx-pool.
 
@@ -5909,7 +5820,6 @@ All transactions in tx-pool.
 
 [`TxPoolIds`]: struct.TxPoolIds.html
 [`TxPoolEntries`]: struct.TxPoolEntries.html
-
 
 ### Type `RemoteNode`
 Information of a remote node.
@@ -5999,7 +5909,6 @@ Information of a remote node.
 
 * `version`: `string` - The remote node version.
 
-
 ### Type `RemoteNodeProtocol`
 The information about an active running protocol.
 
@@ -6007,7 +5916,6 @@ The information about an active running protocol.
 * `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
 * `version`: `string` - Active protocol version.
-
 
 ### Type `Rfc0043`
 Represent soft fork deployments
@@ -6017,7 +5925,6 @@ where activation is controlled by rfc0043 signaling
 * `rfc0043`: [`Deployment`](#type-deployment) - RFC0043 deployment params
 
 * `status`: [`SoftForkStatus`](#type-softforkstatus) - SoftFork status
-
 
 ### Type `Script`
 Describes the lock script and type script for a cell.
@@ -6039,7 +5946,6 @@ Describes the lock script and type script for a cell.
 
 * `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
 
-
 ### Type `ScriptHashType`
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
 
@@ -6055,20 +5961,16 @@ when the low 1 bit is 0, it indicates the data,
 and then it relies on the high 7 bits to indicate
 that the data actually corresponds to the version.
 
-
 ### Type `SoftFork`
 SoftFork information
-
 
 ### Type `SoftForkStatus`
 SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is
 hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
 where activation is controlled by rfc0043 signaling).
 
-
 ### Type `Status`
 Status for transaction
-
 
 ### Type `SyncState`
 The overall chain synchronization state of this local node.
@@ -6107,7 +6009,6 @@ The overall chain synchronization state of this local node.
     block.
 
     If this number is too high, it indicates that block download has stuck at some block.
-
 
 ### Type `Transaction`
 The transaction.
@@ -6148,7 +6049,6 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
-
 ### Type `TransactionAndWitnessProof`
 Merkle proof for transactions' witnesses in a block.
 
@@ -6159,7 +6059,6 @@ Merkle proof for transactions' witnesses in a block.
 
 * `witnesses_proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of transactions' witnesses
 
-
 ### Type `TransactionProof`
 Merkle proof for transactions in a block.
 
@@ -6169,7 +6068,6 @@ Merkle proof for transactions in a block.
 * `proof`: [`MerkleProof`](#type-merkleproof) - Merkle proof of all transactions' hash
 
 * `witnesses_root`: [`H256`](#type-h256) - Merkle root of all transactions' witness hash
-
 
 ### Type `TransactionTemplate`
 Transaction template which is ready to be committed in the new block.
@@ -6182,7 +6080,6 @@ Transaction template which is ready to be committed in the new block.
 * `hash`: [`H256`](#type-h256) - Transaction hash.
 
 * `required`: `boolean` - Whether miner must include this transaction in the new block.
-
 
 ### Type `TransactionView`
 The JSON view of a Transaction.
@@ -6271,13 +6168,11 @@ The JSON view of a Transaction.
     For example, the bundled secp256k1 lock script requires storing the signature in
     `witnesses`.
 
-
 ### Type `TransactionWithStatusResponse`
 The JSON view of a transaction as well as its status.
 
 #### Fields:
 * `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
-
 
 ### Type `TxPoolEntries`
 Tx-pool entries object
@@ -6286,7 +6181,6 @@ Tx-pool entries object
 * `pending`: `object` - Pending tx verbose info
 
 * `proposed`: `object` - Proposed tx verbose info
-
 
 ### Type `TxPoolEntry`
 Transaction entry info
@@ -6306,7 +6200,6 @@ Transaction entry info
 
 * `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
 
-
 ### Type `TxPoolIds`
 Array of transaction ids
 
@@ -6314,7 +6207,6 @@ Array of transaction ids
 * `pending`: `Array<` [`H256`](#type-h256) `>` - Pending transaction ids
 
 * `proposed`: `Array<` [`H256`](#type-h256) `>` - Proposed transaction ids
-
 
 ### Type `TxPoolInfo`
 Transaction pool information.
@@ -6366,21 +6258,17 @@ Transaction pool information.
     because the block header and cellbase are occupied,
     so the tx-pool is limited to accepting transaction up to tx_size_limit.
 
-
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
 
 #### Fields:
 * `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
-
 ### Type `Uint128`
 `Uint128` is `uint128`
 
-
 ### Type `Uint64`
 `Uint64` is `uint64`
-
 
 ### Type `UncleBlock`
 The uncle block used as a parameter in the RPC.
@@ -6401,7 +6289,6 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 * `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
-
 ### Type `UncleBlockView`
 The uncle block.
 
@@ -6421,7 +6308,6 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 
 * `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - Proposal IDs in the uncle block body.
 
-
 ### Type `UncleTemplate`
 The uncle block template of the new block for miners.
 
@@ -6437,7 +6323,6 @@ The uncle block template of the new block for miners.
     Miners must keep this unchanged when including this uncle in the new block.
 
 * `required`: `boolean` - Whether miners must include this uncle in the submit block.
-
 
 
 ## RPC Errors
@@ -6470,45 +6355,36 @@ object `data` field.
 ### ERROR `CKBInternalError`
 (-1): CKB internal errors are considered to never happen or only happen when the system
 resources are exhausted.
-
 ### ERROR `Deprecated`
 (-2): The CKB method has been deprecated and disabled.
 
 Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated
 methods.
-
 ### ERROR `Invalid`
 (-3): Error code -3 is no longer used.
 
 Before v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longer uses
 -3 since v0.35.0.
-
 ### ERROR `RPCModuleIsDisabled`
 (-4): The RPC method is not enabled.
 
 CKB groups RPC methods into modules, and a method is enabled only when the module is
 explicitly enabled in the config file.
-
 ### ERROR `DaoError`
 (-5): DAO related errors.
-
 ### ERROR `IntegerOverflow`
 (-6): Integer operation overflow.
-
 ### ERROR `ConfigError`
 (-7): The error is caused by a config file option.
 
 Users have to edit the config file to fix the error.
-
 ### ERROR `P2PFailedToBroadcast`
 (-101): The CKB local node failed to broadcast a message to its peers.
-
 ### ERROR `DatabaseError`
 (-200): Internal database error.
 
 The CKB node persists data to the database. This is the error from the underlying database
 module.
-
 ### ERROR `ChainIndexIsInconsistent`
 (-201): The chain index is inconsistent.
 
@@ -6517,30 +6393,23 @@ but the block cannot be read from the database.
 
 This is a fatal error usually due to a serious bug. Please back up the data directory and
 re-sync the chain from scratch.
-
 ### ERROR `DatabaseIsCorrupt`
 (-202): The underlying database is corrupt.
 
 This is a fatal error usually caused by the underlying database used by CKB. Please back up
 the data directory and re-sync the chain from scratch.
-
 ### ERROR `TransactionFailedToResolve`
 (-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or
 dependencies.
-
 ### ERROR `TransactionFailedToVerify`
 (-302): Failed to verify the transaction.
-
 ### ERROR `AlertFailedToVerifySignatures`
 (-1000): Some signatures in the submit alert are invalid.
-
 ### ERROR `PoolRejectedTransactionByOutputsValidator`
 (-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
-
 ### ERROR `PoolRejectedTransactionByIllTransactionChecker`
 (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue
 link in the error message for details.
-
 ### ERROR `PoolRejectedTransactionByMinFeeRate`
 (-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
 
@@ -6549,31 +6418,23 @@ link in the error message for details.
  ```text
  fee / (1000 * tx_serialization_size_in_block_in_bytes)
  ```
-
 ### ERROR `PoolRejectedTransactionByMaxAncestorsCountLimit`
 (-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
 
 Pool rejects a large package of chained transactions to avoid certain kinds of DoS attacks.
-
 ### ERROR `PoolIsFull`
 (-1106): The transaction is rejected because the pool has reached its limit.
-
 ### ERROR `PoolRejectedDuplicatedTransaction`
 (-1107): The transaction is already in the pool.
-
 ### ERROR `PoolRejectedMalformedTransaction`
 (-1108): The transaction is rejected because it does not make sense in the context.
 
 For example, a cellbase transaction is not allowed in `send_transaction` RPC.
-
 ### ERROR `TransactionExpired`
 (-1109): The transaction is expired from tx-pool after `expiry_hours`.
-
 ### ERROR `PoolRejectedTransactionBySizeLimit`
 (-1110): The transaction exceeded maximum size limit.
-
 ### ERROR `PoolRejectedRBF`
 (-1111): The transaction is rejected for RBF checking.
-
 ### ERROR `Indexer`
 (-1200): The indexer error.

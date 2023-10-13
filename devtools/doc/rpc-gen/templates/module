@@ -3,4 +3,5 @@
 
 {{desc}}
 {% for method in methods %}
-{{method}}{% endfor %}
+{{method}}
+{%- endfor %}
