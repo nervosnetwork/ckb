@@ -716,7 +716,7 @@ impl CKBProtocolHandler for Synchronizer {
             Ok(msg) => {
                 let item = msg.to_enum();
                 if let packed::SyncMessageUnionReader::SendBlock(ref reader) = item {
-                    if reader.count_extra_fields() > 1 {
+                    if reader.has_extra_fields() || reader.block().count_extra_fields() > 1 {
                         info!(
                             "Peer {} sends us a malformed message: \
                              too many fields in SendBlock",
