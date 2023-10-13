@@ -276,7 +276,7 @@ impl ConsensusBuilder {
                 median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
                 max_block_cycles: MAX_BLOCK_CYCLES,
                 max_block_bytes: MAX_BLOCK_BYTES,
-                dao_type_hash: None,
+                dao_type_hash: Byte32::default(),
                 secp256k1_blake160_sighash_all_type_hash: None,
                 secp256k1_blake160_multisig_all_type_hash: None,
                 genesis_epoch_ext,
@@ -347,7 +347,7 @@ impl ConsensusBuilder {
             "genesis block must contain the witness for cellbase"
         );
 
-        self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
+        self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO).unwrap_or_default();
         self.inner.secp256k1_blake160_sighash_all_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
         self.inner.secp256k1_blake160_multisig_all_type_hash =
@@ -514,7 +514,7 @@ pub struct Consensus {
     /// The dao type hash
     ///
     /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
-    pub dao_type_hash: Option<Byte32>,
+    pub dao_type_hash: Byte32,
     /// The secp256k1_blake160_sighash_all_type_hash
     ///
     /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1blake160)
@@ -626,7 +626,7 @@ impl Consensus {
     /// The dao type hash
     ///
     /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
-    pub fn dao_type_hash(&self) -> Option<Byte32> {
+    pub fn dao_type_hash(&self) -> Byte32 {
         self.dao_type_hash.clone()
     }
 
@@ -1111,7 +1111,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
-            dao_type_hash: consensus.dao_type_hash.map(|h| h.unpack()),
+            dao_type_hash: consensus.dao_type_hash.unpack(),
             secp256k1_blake160_sighash_all_type_hash: consensus
                 .secp256k1_blake160_sighash_all_type_hash
                 .map(|h| h.unpack()),

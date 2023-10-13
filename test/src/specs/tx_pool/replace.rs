@@ -1,4 +1,4 @@
-use crate::{Node, Spec};
+use crate::{utils::wait_until, Node, Spec};
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
@@ -465,18 +465,21 @@ impl Spec for RbfRejectReplaceProposed {
             assert!(ret.is_ok());
         }
 
-        node0.mine_with_blocking(|template| template.proposals.len() != max_count);
+        let proposed = node0.mine_with_blocking(|template| template.proposals.len() != max_count);
         let ret = node0.rpc_client().get_transaction(txs[2].hash());
         assert!(
             matches!(ret.tx_status.status, Status::Pending),
             "tx1 should be pending"
         );
-        node0.mine(1);
-        let ret = node0.rpc_client().get_transaction(txs[2].hash());
-        assert!(
-            matches!(ret.tx_status.status, Status::Proposed),
-            "tx1 should be proposed"
-        );
+
+        node0.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+
+        let rpc_client0 = node0.rpc_client();
+        let ret = wait_until(20, || {
+            let res = rpc_client0.get_transaction(txs[2].hash());
+            res.tx_status.status == Status::Proposed
+        });
+        assert!(ret, "tx1 should be proposed");
 
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
@@ -498,6 +501,26 @@ impl Spec for RbfRejectReplaceProposed {
             .unwrap()
             .to_string()
             .contains("all conflict Txs should be in Pending status"));
+
+        // when tx1 was confirmed, tx2 should be rejected
+        let window_count = node0.consensus().tx_proposal_window().closest();
+        node0.mine(window_count);
+        let ret = wait_until(20, || {
+            let res = rpc_client0.get_transaction(txs[2].hash());
+            res.tx_status.status == Status::Committed
+        });
+        assert!(ret, "tx1 should be committed");
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+
+        // resolve tx2 failed with `unknown` when resolve inputs used by tx1
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("TransactionFailedToResolve: Resolve failed Unknown"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

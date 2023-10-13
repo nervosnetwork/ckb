@@ -616,9 +616,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
             Some(script) => {
                 if !script.is_hash_type_type() {
                     Err(DefaultOutputsValidatorError::HashType)
-                } else if script.code_hash()
-                    != self.consensus.dao_type_hash().expect("No dao system cell")
-                {
+                } else if script.code_hash() != self.consensus.dao_type_hash() {
                     Err(DefaultOutputsValidatorError::CodeHash)
                 } else if output.lock().args().len() == BLAKE160_LEN + SINCE_LEN {
                     // https://github.com/nervosnetwork/ckb/wiki/Common-Gotchas#nervos-dao
