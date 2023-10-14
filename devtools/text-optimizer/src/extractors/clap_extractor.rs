@@ -41,7 +41,16 @@ impl Extractor for ClapExtractor {
     }
 
     fn text_list(&self) -> Vec<TextInfo> {
-        self.map.values().cloned().collect()
+        let mut text_list: Vec<TextInfo> = self.map.values().cloned().collect();
+        text_list.sort_by(|a, b| {
+            let cmp = a.metadata().file().cmp(b.metadata().file());
+            if cmp == std::cmp::Ordering::Equal {
+                a.metadata().start_lines()[0].cmp(&b.metadata().start_lines()[0])
+            } else {
+                cmp
+            }
+        });
+        text_list
     }
 
     fn scanning_file_path(&self) -> &PathBuf {
