@@ -101,7 +101,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "process_block_without_verify")]
@@ -164,7 +163,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "generate_block")]
@@ -217,7 +215,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0xa0001000003",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "generate_epochs")]
@@ -287,7 +284,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "notify_transaction")]
@@ -393,7 +389,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "generate_block_with_template")]
@@ -497,7 +492,6 @@ pub trait IntegrationTestRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-    ///   "error": null
     /// }
     /// ```
     #[rpc(name = "calculate_dao_field")]
