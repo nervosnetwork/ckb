@@ -2179,7 +2179,7 @@ Returns the live cells collection by the lock or type script.
 
 *   limit: result size limit
 
-*   after_cursor: pagination parameter, optional
+*   after: pagination parameter, optional
 
 ###### Returns
 
@@ -2556,7 +2556,7 @@ Returns the transactions collection by the lock or type script.
 
 *   limit: result size limit
 
-*   after_cursor: pagination parameter, optional
+*   after: pagination parameter, optional
 
 ###### Returns
 
