@@ -184,7 +184,7 @@ impl ChainController {
 
         let lonely_block_with_callback =
             lonely_block.with_callback(Some(Box::new(verify_callback)));
-        self.internal_process_lonely_block_with_callback(lonely_block_with_callback);
+        self.asynchronous_process_lonely_block_with_callback(lonely_block_with_callback);
         verify_result_rx.recv().unwrap_or_else(|err| {
             Err(InternalErrorKind::System
                 .other(format!("blocking recv verify_result failed: {}", err))
