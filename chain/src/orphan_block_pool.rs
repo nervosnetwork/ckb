@@ -1,4 +1,4 @@
-use crate::chain::LonelyBlock;
+use crate::chain::LonelyBlockWithCallback;
 use ckb_logger::debug;
 use ckb_types::core::{BlockView, EpochNumber};
 use ckb_types::{core, packed};
@@ -14,7 +14,7 @@ const EXPIRED_EPOCH: u64 = 6;
 #[derive(Default)]
 struct InnerPool {
     // Group by blocks in the pool by the parent hash.
-    blocks: HashMap<ParentHash, HashMap<packed::Byte32, LonelyBlock>>,
+    blocks: HashMap<ParentHash, HashMap<packed::Byte32, LonelyBlockWithCallback>>,
     // The map tells the parent hash when given the hash of a block in the pool.
     //
     // The block is in the orphan pool if and only if the block hash exists as a key in this map.
@@ -32,7 +32,7 @@ impl InnerPool {
         }
     }
 
-    fn insert(&mut self, lonely_block: LonelyBlock) {
+    fn insert(&mut self, lonely_block: LonelyBlockWithCallback) {
         let hash = lonely_block.block.header().hash();
         let parent_hash = lonely_block.block.data().header().raw().parent_hash();
         self.blocks
@@ -52,7 +52,10 @@ impl InnerPool {
         self.parents.insert(hash, parent_hash);
     }
 
-    pub fn remove_blocks_by_parent(&mut self, parent_hash: &ParentHash) -> Vec<LonelyBlock> {
+    pub fn remove_blocks_by_parent(
+        &mut self,
+        parent_hash: &ParentHash,
+    ) -> Vec<LonelyBlockWithCallback> {
         // try remove leaders first
         if !self.leaders.remove(parent_hash) {
             return Vec::new();
@@ -61,7 +64,7 @@ impl InnerPool {
         let mut queue: VecDeque<packed::Byte32> = VecDeque::new();
         queue.push_back(parent_hash.to_owned());
 
-        let mut removed: Vec<LonelyBlock> = Vec::new();
+        let mut removed: Vec<LonelyBlockWithCallback> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
             if let Some(orphaned) = self.blocks.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
@@ -143,11 +146,14 @@ impl OrphanBlockPool {
     }
 
     /// Insert orphaned block, for which we have already requested its parent block
-    pub fn insert(&self, lonely_block: LonelyBlock) {
+    pub fn insert(&self, lonely_block: LonelyBlockWithCallback) {
         self.inner.write().insert(lonely_block);
     }
 
-    pub fn remove_blocks_by_parent(&self, parent_hash: &ParentHash) -> Vec<LonelyBlock> {
+    pub fn remove_blocks_by_parent(
+        &self,
+        parent_hash: &ParentHash,
+    ) -> Vec<LonelyBlockWithCallback> {
         self.inner.write().remove_blocks_by_parent(parent_hash)
     }
 
