@@ -173,6 +173,8 @@ jobs:
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+          ls -ahl /opt/homebrew/opt/openssl*
+          find / openssl 
           make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
           devtools/ci/package.sh target/prod/ckb
           otool -L ./target/prod/ckb
@@ -185,59 +187,59 @@ jobs:
     env:
       REL_PKG: ${{ matrix.rel_pkg }}
 
-  package-for-mac-aarch64:
-    name: package-for-mac-aarch64
-    runs-on: [self-hosted, macOS, ARM64]
-    strategy:
-      matrix:
-        include:
-          - rel_pkg: "aarch64-apple-darwin.zip"
-            build_target: "prod"
-          - rel_pkg: "aarch64-apple-darwin-portable.zip"
-            build_target: "prod_portable"
-    steps:
-      - name: Setup PATH
-        run: |
-          echo /opt/homebrew/bin >> $GITHUB_PATH
-          echo /opt/homebrew/sbin >> $GITHUB_PATH
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Install Depedencies
-        run: |
-          if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
-            brew install "openssl@3.1"
-          fi
-          if ! type -f gpg &> /dev/null; then
-            brew install gnupg
-          fi
-          if ! [ -f "$HOME/.cargo/bin/rustup" ]; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          fi
-
-      - uses: actions/checkout@v3
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-      - name: Build CKB and Package CKB
-        env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
-          devtools/ci/package.sh target/prod/ckb
-          
-          ldd ./target/prod/ckb
-          ./target/prod/ckb --version 
-          ls -ahl ./target/prod/ckb
-          CKB_TEMP_TEST_DIR=$(mktemp -d)
-          ./target/prod/ckb init -C ${CKB_TEMP_TEST_DIR}
-          rm -rfv ${CKB_TEMP_TEST_DIR}
-
-
-    env:
-      REL_PKG: ${{ matrix.rel_pkg }}
+  # package-for-mac-aarch64:
+  #   name: package-for-mac-aarch64
+  #   runs-on: [self-hosted, macOS, ARM64]
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - rel_pkg: "aarch64-apple-darwin.zip"
+  #           build_target: "prod"
+  #         - rel_pkg: "aarch64-apple-darwin-portable.zip"
+  #           build_target: "prod_portable"
+  #   steps:
+  #     - name: Setup PATH
+  #       run: |
+  #         echo /opt/homebrew/bin >> $GITHUB_PATH
+  #         echo /opt/homebrew/sbin >> $GITHUB_PATH
+  #         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+  #
+  #     - name: Install Depedencies
+  #       run: |
+  #         if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
+  #           brew install "openssl@3.1"
+  #         fi
+  #         if ! type -f gpg &> /dev/null; then
+  #           brew install gnupg
+  #         fi
+  #         if ! [ -f "$HOME/.cargo/bin/rustup" ]; then
+  #           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  #         fi
+  #
+  #     - uses: actions/checkout@v3
+  #     - name: Set Env
+  #       run: |
+  #         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+  #         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+  #     - name: Build CKB and Package CKB
+  #       env:
+  #         LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
+  #         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+  #       run: |
+  #         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+  #         make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
+  #         devtools/ci/package.sh target/prod/ckb
+  #         
+  #         ldd ./target/prod/ckb
+  #         ./target/prod/ckb --version 
+  #         ls -ahl ./target/prod/ckb
+  #         CKB_TEMP_TEST_DIR=$(mktemp -d)
+  #         ./target/prod/ckb init -C ${CKB_TEMP_TEST_DIR}
+  #         rm -rfv ${CKB_TEMP_TEST_DIR}
+  #
+  #
+  #   env:
+  #     REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-windows:
     name: package-for-windows
