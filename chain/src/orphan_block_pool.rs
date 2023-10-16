@@ -33,8 +33,8 @@ impl InnerPool {
     }
 
     fn insert(&mut self, lonely_block: LonelyBlockWithCallback) {
-        let hash = lonely_block.block.header().hash();
-        let parent_hash = lonely_block.block.data().header().raw().parent_hash();
+        let hash = lonely_block.block().header().hash();
+        let parent_hash = lonely_block.block().data().header().raw().parent_hash();
         self.blocks
             .entry(parent_hash.clone())
             .or_insert_with(HashMap::default)
@@ -94,7 +94,7 @@ impl InnerPool {
             self.blocks.get(parent_hash).and_then(|blocks| {
                 blocks
                     .get(hash)
-                    .map(|lonely_block| lonely_block.block.clone())
+                    .map(|lonely_block| lonely_block.block().clone())
             })
         })
     }
@@ -110,7 +110,7 @@ impl InnerPool {
                 result.extend(
                     descendants
                         .iter()
-                        .map(|lonely_block| lonely_block.block.hash()),
+                        .map(|lonely_block| lonely_block.block().hash()),
                 );
             }
         }
@@ -123,7 +123,7 @@ impl InnerPool {
             .get(parent_hash)
             .and_then(|map| {
                 map.iter().next().map(|(_, lonely_block)| {
-                    lonely_block.block.header().epoch().number() + EXPIRED_EPOCH < tip_epoch
+                    lonely_block.block().header().epoch().number() + EXPIRED_EPOCH < tip_epoch
                 })
             })
             .unwrap_or_default()
