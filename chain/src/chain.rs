@@ -111,30 +111,36 @@ impl ChainController {
         block: Arc<BlockView>,
         verify_callback: Box<VerifyCallback>,
     ) {
-        self.internal_process_lonely_block(LonelyBlockWithCallback {
-            block,
-            peer_id: None,
-            switch: None,
-            verify_callback: Some(verify_callback),
-        })
+        self.internal_process_lonely_block(
+            LonelyBlock {
+                block,
+                peer_id: None,
+                switch: None,
+            }
+            .with_callback(Some(verify_callback)),
+        )
     }
 
     pub fn process_block(&self, block: Arc<BlockView>) {
-        self.internal_process_lonely_block(LonelyBlockWithCallback {
-            block,
-            peer_id: None,
-            switch: None,
-            verify_callback: None,
-        })
+        self.internal_process_lonely_block(
+            LonelyBlock {
+                block,
+                peer_id: None,
+                switch: None,
+            }
+            .with_callback(None),
+        )
     }
 
     pub fn internal_process_block(&self, block: Arc<BlockView>, switch: Switch) {
-        self.internal_process_lonely_block(LonelyBlockWithCallback {
-            block,
-            peer_id: None,
-            switch: Some(switch),
-            verify_callback: None,
-        })
+        self.internal_process_lonely_block(
+            LonelyBlock {
+                block,
+                peer_id: None,
+                switch: Some(switch),
+            }
+            .with_callback(None),
+        )
     }
 
     /// Internal method insert block for test
@@ -206,7 +212,7 @@ pub struct LonelyBlock {
 }
 
 impl LonelyBlock {
-    fn with_callback(
+    pub fn with_callback(
         self,
         verify_callback: Option<Box<VerifyCallback>>,
     ) -> LonelyBlockWithCallback {
@@ -220,6 +226,18 @@ impl LonelyBlock {
 pub struct LonelyBlockWithCallback {
     pub lonely_block: LonelyBlock,
     pub verify_callback: Option<Box<VerifyCallback>>,
+}
+
+impl LonelyBlockWithCallback {
+    pub fn block(&self) -> &Arc<BlockView> {
+        &self.lonely_block.block
+    }
+    pub fn peer_id(&self) -> Option<PeerIndex> {
+        self.lonely_block.peer_id
+    }
+    pub fn switch(&self) -> Option<Switch> {
+        self.lonely_block.switch
+    }
 }
 
 impl LonelyBlockWithCallback {
@@ -508,23 +526,23 @@ impl ChainService {
                 descendants
                     .first()
                     .expect("descdant not empty")
-                    .block
+                    .block()
                     .number(),
                 descendants
                     .last()
                     .expect("descdant not empty")
-                    .block
+                    .block()
                     .number(),
             );
 
             let mut accept_error_occurred = false;
             for descendant_block in descendants {
-                match self.accept_block(descendant_block.block.to_owned()) {
+                match self.accept_block(descendant_block.block().to_owned()) {
                     Err(err) => {
                         accept_error_occurred = true;
                         error!(
                             "accept block {} failed: {}",
-                            descendant_block.block.hash(),
+                            descendant_block.block().hash(),
                             err
                         );
                         continue;
@@ -567,7 +585,7 @@ impl ChainService {
                         None => {
                             info!(
                                 "doesn't accept block {}, because it has been stored",
-                                descendant_block.block.hash()
+                                descendant_block.block().hash()
                             );
                         }
                     },
@@ -685,14 +703,14 @@ impl ChainService {
         lonely_block: LonelyBlockWithCallback,
         lonely_block_tx: Sender<LonelyBlockWithCallback>,
     ) {
-        let block_number = lonely_block.block.number();
-        let block_hash = lonely_block.block.hash();
+        let block_number = lonely_block.block().number();
+        let block_hash = lonely_block.block().hash();
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
-        if let Some(switch) = lonely_block.switch {
+        if let Some(switch) = lonely_block.switch() {
             if !switch.disable_non_contextual() {
-                let result = self.non_contextual_verify(&lonely_block.block);
+                let result = self.non_contextual_verify(&lonely_block.block());
                 match result {
                     Err(err) => match lonely_block.verify_callback {
                         Some(verify_callback) => {

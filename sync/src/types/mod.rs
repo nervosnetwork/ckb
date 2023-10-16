@@ -3,7 +3,8 @@ use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::{
-    ChainController, LonelyBlockWithCallback, VerifiedBlockStatus, VerifyCallback, VerifyResult,
+    ChainController, LonelyBlock, LonelyBlockWithCallback, VerifiedBlockStatus, VerifyCallback,
+    VerifyResult,
 };
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
@@ -1209,12 +1210,12 @@ impl SyncShared {
         // };
 
         // TODO move switch logic to ckb-chain
-        let lonely_block = LonelyBlockWithCallback {
+        let lonely_block = LonelyBlock {
             block,
             peer_id: Some(peer_id),
             switch: Some(Switch::NONE),
-            verify_callback,
-        };
+        }
+        .with_callback(verify_callback);
 
         chain.process_lonely_block(lonely_block);
 
