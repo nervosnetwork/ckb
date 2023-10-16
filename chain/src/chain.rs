@@ -199,7 +199,7 @@ pub struct ChainService {
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 }
 
-pub struct LonelyBlock {
+pub struct LonelyBlockWithCallback {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Option<Switch>,
