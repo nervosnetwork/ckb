@@ -63,7 +63,9 @@ impl Import {
             let block: JsonBlock = serde_json::from_str(&s)?;
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
-                self.chain.process_block(block);
+                self.chain
+                    .blocking_process_block(block)
+                    .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);
         }
