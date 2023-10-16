@@ -1210,14 +1210,14 @@ impl SyncShared {
         // };
 
         // TODO move switch logic to ckb-chain
-        let lonely_block = LonelyBlock {
+        let lonely_block_with_callback = LonelyBlock {
             block,
             peer_id: Some(peer_id),
             switch: Some(Switch::NONE),
         }
         .with_callback(verify_callback);
 
-        chain.process_lonely_block(lonely_block);
+        chain.asynchronous_process_lonely_block_with_callback(lonely_block_with_callback);
 
         // if let Err(ref error) = ret {
         //     if !is_internal_db_error(error) {
