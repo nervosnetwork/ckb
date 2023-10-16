@@ -275,39 +275,10 @@ impl MinerRpc for MinerRpcImpl {
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
-        let verify_callback = move |verify_result: std::result::Result<
-            VerifiedBlockStatus,
-            ckb_error::Error,
-        >| match verify_result_tx.send(verify_result) {
-            Err(_) => {
-                error!("send verify result failed, the Receiver in MinerRpc is disconnected")
-            }
-            _ => {}
-        };
+        let verify_result = self.chain.blocking_process_block(Arc::clone(&block));
 
-        self.chain
-            .process_block_with_callback(Arc::clone(&block), Box::new(verify_callback));
-
-        let is_new = true;
-        todo!("got a block is new or not via callback");
-
-        // let is_new = verify_result_rx
-        //     .recv()
-        //     .map_err(|recv_err| {
-        //         RPCError::ckb_internal_error(format!(
-        //             "failed to receive verify result, error: {}",
-        //             recv_err
-        //         ))
-        //     })?
-        //     .map_err(|verify_err| handle_submit_error(&work_id, &verify_err))?;
-        // info!(
-        //     "end to submit block, work_id = {}, is_new = {}, block = #{}({})",
-        //     work_id,
-        //     is_new,
-        //     block.number(),
-        //     block.hash()
-        // );
+        // TODO: need to consider every enum item of verify_result
+        let is_new = verify_result.is_ok();
 
         // Announce only new block
         if is_new {
