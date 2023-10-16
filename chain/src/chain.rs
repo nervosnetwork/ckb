@@ -149,6 +149,49 @@ impl ChainController {
         }
     }
 
+    pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
+        self.blocking_process_lonely_block(LonelyBlock {
+            block,
+            peer_id: None,
+            switch: None,
+        })
+    }
+
+    pub fn blocking_process_block_with_switch(
+        &self,
+        block: Arc<BlockView>,
+        switch: Switch,
+    ) -> VerifyResult {
+        self.blocking_process_lonely_block(LonelyBlock {
+            block,
+            peer_id: None,
+            switch: Some(switch),
+        })
+    }
+
+    pub fn blocking_process_lonely_block(&self, lonely_block: LonelyBlock) -> VerifyResult {
+        let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
+
+        let verify_callback = {
+            move |result: VerifyResult| match verify_result_tx.send(result) {
+                Err(err) => error!(
+                    "blocking send verify_result failed: {}, this shouldn't happen",
+                    err
+                ),
+                _ => {}
+            }
+        };
+
+        let lonely_block_with_callback =
+            lonely_block.with_callback(Some(Box::new(verify_callback)));
+        self.internal_process_lonely_block_with_callback(lonely_block_with_callback);
+        verify_result_rx.recv().unwrap_or_else(|err| {
+            Err(InternalErrorKind::System
+                .other(format!("blocking recv verify_result failed: {}", err))
+                .into())
+        })
+    }
+
     /// Truncate chain to specified target
     ///
     /// Should use for testing only
