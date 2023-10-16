@@ -52,7 +52,7 @@ use std::{cmp, thread};
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 
-type ProcessBlockRequest = Request<LonelyBlock, ()>;
+type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
@@ -102,7 +102,7 @@ impl ChainController {
     /// If the block already exists, does nothing and false is returned.
     ///
     /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_lonely_block(&self, lonely_block: LonelyBlock) {
+    pub fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
         self.internal_process_lonely_block(lonely_block)
     }
 
@@ -111,7 +111,7 @@ impl ChainController {
         block: Arc<BlockView>,
         verify_callback: Box<VerifyCallback>,
     ) {
-        self.internal_process_lonely_block(LonelyBlock {
+        self.internal_process_lonely_block(LonelyBlockWithCallback {
             block,
             peer_id: None,
             switch: None,
@@ -120,7 +120,7 @@ impl ChainController {
     }
 
     pub fn process_block(&self, block: Arc<BlockView>) {
-        self.internal_process_lonely_block(LonelyBlock {
+        self.internal_process_lonely_block(LonelyBlockWithCallback {
             block,
             peer_id: None,
             switch: None,
@@ -129,7 +129,7 @@ impl ChainController {
     }
 
     pub fn internal_process_block(&self, block: Arc<BlockView>, switch: Switch) {
-        self.internal_process_lonely_block(LonelyBlock {
+        self.internal_process_lonely_block(LonelyBlockWithCallback {
             block,
             peer_id: None,
             switch: Some(switch),
@@ -140,7 +140,7 @@ impl ChainController {
     /// Internal method insert block for test
     ///
     /// switch bit flags for particular verify, make easier to generating test data
-    pub fn internal_process_lonely_block(&self, lonely_block: LonelyBlock) {
+    pub fn internal_process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
         if Request::call(&self.process_block_sender, lonely_block).is_none() {
             error!("Chain service has gone")
         }
@@ -207,7 +207,7 @@ pub struct LonelyBlockWithCallback {
     pub verify_callback: Option<Box<VerifyCallback>>,
 }
 
-impl LonelyBlock {
+impl LonelyBlockWithCallback {
     fn combine_parent_header(self, parent_header: HeaderView, switch: Switch) -> UnverifiedBlock {
         UnverifiedBlock {
             block: self.block,
@@ -234,7 +234,7 @@ impl ChainService {
             channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
         let (new_block_tx, new_block_rx) =
-            channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
+            channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
 
         ChainService {
             shared,
@@ -278,7 +278,7 @@ impl ChainService {
             .expect("start unverified_queue consumer thread should ok");
 
         let (lonely_block_tx, lonely_block_rx) =
-            channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
+            channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
 
         let search_orphan_pool_thread = thread::Builder::new()
             .name("search_orphan".into())
@@ -446,7 +446,7 @@ impl ChainService {
     fn start_search_orphan_pool(
         &self,
         search_orphan_pool_stop_rx: Receiver<()>,
-        lonely_block_rx: Receiver<LonelyBlock>,
+        lonely_block_rx: Receiver<LonelyBlockWithCallback>,
         unverified_block_tx: Sender<UnverifiedBlock>,
     ) {
         loop {
@@ -478,7 +478,7 @@ impl ChainService {
                 continue;
             }
 
-            let descendants: Vec<LonelyBlock> = self
+            let descendants: Vec<LonelyBlockWithCallback> = self
                 .orphan_blocks_broker
                 .remove_blocks_by_parent(&leader_hash);
             if descendants.is_empty() {
@@ -667,8 +667,8 @@ impl ChainService {
     #[doc(hidden)]
     pub fn process_block_v2(
         &self,
-        lonely_block: LonelyBlock,
-        lonely_block_tx: Sender<LonelyBlock>,
+        lonely_block: LonelyBlockWithCallback,
+        lonely_block_tx: Sender<LonelyBlockWithCallback>,
     ) {
         let block_number = lonely_block.block.number();
         let block_hash = lonely_block.block.hash();
