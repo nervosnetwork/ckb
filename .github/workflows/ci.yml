@@ -61,8 +61,6 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
           devtools/ci/package.sh target/prod/ckb
           
           ldd ./target/prod/ckb
@@ -106,8 +104,6 @@ jobs:
           export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/include
           export OPENSSL_STATIC=1
           PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
           devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
           
     env:
@@ -136,8 +132,6 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
           devtools/ci/package.sh target/prod/ckb
           ldd ./target/prod/ckb
           ./target/prod/ckb --version
@@ -174,8 +168,6 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
           devtools/ci/package.sh target/prod/ckb
           ldd ./target/prod/ckb
           ./target/prod/ckb --version
@@ -225,8 +217,6 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
           devtools/ci/package.sh target/prod/ckb
           
           ldd ./target/prod/ckb
