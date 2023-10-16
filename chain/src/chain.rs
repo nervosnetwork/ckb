@@ -199,19 +199,34 @@ pub struct ChainService {
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 }
 
-pub struct LonelyBlockWithCallback {
+pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
     pub switch: Option<Switch>,
+}
 
+impl LonelyBlock {
+    fn with_callback(
+        self,
+        verify_callback: Option<Box<VerifyCallback>>,
+    ) -> LonelyBlockWithCallback {
+        LonelyBlockWithCallback {
+            lonely_block: self,
+            verify_callback,
+        }
+    }
+}
+
+pub struct LonelyBlockWithCallback {
+    pub lonely_block: LonelyBlock,
     pub verify_callback: Option<Box<VerifyCallback>>,
 }
 
 impl LonelyBlockWithCallback {
     fn combine_parent_header(self, parent_header: HeaderView, switch: Switch) -> UnverifiedBlock {
         UnverifiedBlock {
-            block: self.block,
-            peer_id: self.peer_id,
+            block: self.lonely_block.block,
+            peer_id: self.lonely_block.peer_id,
             switch,
             verify_callback: self.verify_callback,
             parent_header,
