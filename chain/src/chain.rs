@@ -95,23 +95,32 @@ impl ChainController {
             orphan_block_broker,
         }
     }
-    /// Inserts the block into database.
-    ///
-    /// Expects the block's header to be valid and already verified.
-    ///
-    /// If the block already exists, does nothing and false is returned.
-    ///
-    /// [BlockVerifier] [NonContextualBlockTxsVerifier] [ContextualBlockVerifier] will performed
-    pub fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
-        self.internal_process_lonely_block(lonely_block)
+
+    pub fn asynchronous_process_block_with_switch(&self, block: Arc<BlockView>, switch: Switch) {
+        self.asynchronous_process_lonely_block(LonelyBlock {
+            block,
+            peer_id: None,
+            switch: Some(switch),
+        })
     }
 
-    pub fn process_block_with_callback(
+    pub fn asynchronous_process_block(&self, block: Arc<BlockView>) {
+        self.asynchronous_process_lonely_block_with_callback(
+            LonelyBlock {
+                block,
+                peer_id: None,
+                switch: None,
+            }
+            .without_callback(),
+        )
+    }
+
+    pub fn asynchronous_process_block_with_callback(
         &self,
         block: Arc<BlockView>,
         verify_callback: Box<VerifyCallback>,
     ) {
-        self.internal_process_lonely_block(
+        self.asynchronous_process_lonely_block_with_callback(
             LonelyBlock {
                 block,
                 peer_id: None,
@@ -121,33 +130,21 @@ impl ChainController {
         )
     }
 
-    pub fn process_block(&self, block: Arc<BlockView>) {
-        self.internal_process_lonely_block(
-            LonelyBlock {
-                block,
-                peer_id: None,
-                switch: None,
-            }
-            .with_callback(None),
-        )
-    }
+    pub fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
+        let lonely_block_without_callback: LonelyBlockWithCallback =
+            lonely_block.without_callback();
 
-    pub fn internal_process_block(&self, block: Arc<BlockView>, switch: Switch) {
-        self.internal_process_lonely_block(
-            LonelyBlock {
-                block,
-                peer_id: None,
-                switch: Some(switch),
-            }
-            .with_callback(None),
-        )
+        self.asynchronous_process_lonely_block_with_callback(lonely_block_without_callback);
     }
 
     /// Internal method insert block for test
     ///
     /// switch bit flags for particular verify, make easier to generating test data
-    pub fn internal_process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
-        if Request::call(&self.process_block_sender, lonely_block).is_none() {
+    pub fn asynchronous_process_lonely_block_with_callback(
+        &self,
+        lonely_block_with_callback: LonelyBlockWithCallback,
+    ) {
+        if Request::call(&self.process_block_sender, lonely_block_with_callback).is_none() {
             error!("Chain service has gone")
         }
     }
@@ -220,6 +217,10 @@ impl LonelyBlock {
             lonely_block: self,
             verify_callback,
         }
+    }
+
+    pub fn without_callback(self) -> LonelyBlockWithCallback {
+        self.with_callback(None)
     }
 }
 
