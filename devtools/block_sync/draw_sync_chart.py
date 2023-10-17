@@ -98,7 +98,7 @@ for ckb_log_file, label in tasks:
     plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right')
 
 plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
-plt.title('CKB Sync progress Chart')
+plt.title('CKB Block Sync progress Chart')
 plt.xlabel('Timecost (hours)')
 plt.ylabel('Block Height')
 plt.savefig(result_path)
