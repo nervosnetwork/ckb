@@ -4,7 +4,7 @@ pub mod std_output_extractor;
 pub mod thiserror_extractor;
 
 use crate::{
-    types::TextInfo, yaml_processor::save_yaml, CLAP_TEXT_FILE, LOG_TEXT_FILE,
+    error::MyError, types::TextInfo, yaml_processor::save_yaml, CLAP_TEXT_FILE, LOG_TEXT_FILE,
     STD_OUTPUT_TEXT_FILE, THISERROR_TEXT_FILE,
 };
 
@@ -27,14 +27,11 @@ pub trait Extractor {
     fn text_list(&self) -> Vec<TextInfo>;
     fn scanning_file_path(&self) -> &PathBuf;
     fn save_file_path(&self) -> &PathBuf;
-    fn save_as_file(&self) {
-        save_yaml(self.save_file_path(), &self.text_list()).expect("save yaml");
-    }
     fn visit_file(&mut self, node: &File);
 }
 
-pub fn extract(project_root: PathBuf, output_dir: &PathBuf) {
-    // extractors
+pub fn extract(root_cargo_config_path: PathBuf, commit_id: &str, output_dir: &PathBuf) {
+    // init all extractors
     let mut clap_extractor = ClapExtractor::new(output_dir.join(CLAP_TEXT_FILE));
     let mut log_extractor = LogExtractor::new(output_dir.join(LOG_TEXT_FILE));
     let mut std_output_extractor = StdOutputExtractor::new(output_dir.join(STD_OUTPUT_TEXT_FILE));
@@ -48,21 +45,24 @@ pub fn extract(project_root: PathBuf, output_dir: &PathBuf) {
     ];
 
     let project_metadata = MetadataCommand::new()
-        .manifest_path(project_root)
+        .manifest_path(&root_cargo_config_path)
         .exec()
         .expect("Failed to get current directory");
 
     for package in project_metadata.workspace_packages() {
         log::info!("Scanning Crate: {}", package.name);
 
-        let crate_src_path = Path::new(&package.manifest_path)
+        let crate_src_path = PathBuf::from(&package.manifest_path)
             .parent()
             .expect("workspace member crate path")
             .join("src");
+        let crate_src_path =
+            to_relative_path(&crate_src_path, &root_cargo_config_path).expect("to_relative_path");
+
         process_rs_files_in_src(&crate_src_path, &mut extractors);
     }
 
-    save_extractors(output_dir, &extractors);
+    save_text_info_files(output_dir, &extractors, commit_id);
 }
 
 pub fn process_rs_files_in_src(dir_path: &Path, extractors: &mut [&mut dyn Extractor]) {
@@ -103,14 +103,34 @@ pub fn extract_contents_in_brackets(lit: String) -> Option<String> {
     None
 }
 
-fn save_extractors(output_dir: &PathBuf, extractors: &[&mut dyn Extractor]) {
+fn save_text_info_files(output_dir: &PathBuf, extractors: &[&mut dyn Extractor], commit_id: &str) {
     fs::create_dir_all(output_dir).expect("create dir all");
     println!();
 
     for extractor in extractors {
-        extractor.save_as_file();
+        save_yaml(
+            extractor.save_file_path(),
+            &extractor.text_list(),
+            commit_id,
+        )
+        .expect("save yaml");
+
         let file_name = extractor.save_file_path().file_name().unwrap();
         let text_len = extractor.text_list().len();
         println!("{:?}: {:?}", file_name, text_len);
     }
+}
+
+fn to_relative_path(
+    absolut_path: &Path,
+    root_cargo_config_path: &Path,
+) -> Result<PathBuf, MyError> {
+    let cargo_config_path_abs = root_cargo_config_path.canonicalize()?;
+    let project_root_path = cargo_config_path_abs.parent().ok_or(MyError::PathError)?;
+    let relative_path = absolut_path
+        .strip_prefix(project_root_path)
+        .map_err(|_| MyError::PathError)?
+        .to_str()
+        .ok_or(MyError::PathError)?;
+    Ok(Path::new("../..").join(relative_path))
 }

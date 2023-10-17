@@ -1,7 +1,9 @@
 #[derive(Debug)]
 pub enum MyError {
+    CommitId,
     Io(std::io::Error),
     Serde(serde_yaml::Error),
+    PathError,
 }
 
 impl From<std::io::Error> for MyError {
