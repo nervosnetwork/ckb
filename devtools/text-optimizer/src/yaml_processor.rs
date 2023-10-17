@@ -4,9 +4,9 @@ use super::{
     GITHUB_REPO,
 };
 use serde::{Deserialize, Serialize};
-use std::io::Read;
 use std::io::Write;
 use std::{fs::File, path::PathBuf};
+use std::{io::Read, path::Path};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct TextInfoSave {
@@ -17,10 +17,13 @@ pub struct TextInfoSave {
 
 impl TextInfoSave {
     pub fn from_text_info(text_info: TextInfo, git_repo: &str, commit_id: &str) -> Self {
-        // 使用 Metadata 的 from_meta 方法进行 Meta 到 Metadata 的转换
-        let metadata = Metadata::from_meta(text_info.metadata(), git_repo, commit_id);
+        let metadata = Metadata::from_meta(
+            text_info.metadata(),
+            git_repo,
+            commit_id,
+            text_info.metadata().file(),
+        );
 
-        // 创建 TextInfoSave 结构体并返回
         TextInfoSave {
             original: text_info.original().to_owned(),
             editable: text_info.editable().to_owned(),
@@ -37,12 +40,9 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    // 定义从 Meta 到 Metadata 的转换方法
-    pub fn from_meta(meta: &Meta, github_repo: &str, commit_id: &str) -> Self {
-        // 创建 GitHub 代码行链接的前缀
-        let github_link_prefix = format!("{}/{}/", github_repo, commit_id);
-
-        // 为每个代码行生成 GitHub 链接
+    pub fn from_meta(meta: &Meta, github_repo: &str, commit_id: &str, file: &Path) -> Self {
+        let file = file.strip_prefix("../..").expect("strip prefix");
+        let github_link_prefix = format!("{}/{}/{}", github_repo, commit_id, file.display());
         let code_line_link: Vec<String> = meta
             .start_lines()
             .iter()
