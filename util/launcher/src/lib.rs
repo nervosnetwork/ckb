@@ -203,6 +203,7 @@ impl Launcher {
             .tx_pool_config(self.args.config.tx_pool.clone())
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
+            .sync_config(self.args.config.network.sync.clone())
             .block_assembler_config(block_assembler_config)
             .build()?;
 
