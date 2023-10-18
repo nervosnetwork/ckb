@@ -6,7 +6,7 @@ use crate::orphan_block_pool::OrphanBlockPool;
 use ckb_chain_spec::versionbits::VersionbitsIndexer;
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
-use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
+use ckb_error::{is_internal_db_error, Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
@@ -244,6 +244,8 @@ pub struct ChainService {
     proposal_table: Arc<Mutex<ProposalTable>>,
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
+
+    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 pub struct LonelyBlock {
@@ -274,6 +276,15 @@ pub struct LonelyBlockWithCallback {
 }
 
 impl LonelyBlockWithCallback {
+    fn execute_callback(&self, verify_result: VerifyResult) {
+        match &self.verify_callback {
+            Some(verify_callback) => {
+                verify_callback(verify_result);
+            }
+            None => {}
+        }
+    }
+
     pub fn block(&self) -> &Arc<BlockView> {
         &self.lonely_block.block
     }
@@ -303,6 +314,23 @@ struct UnverifiedBlock {
     pub switch: Switch,
     pub verify_callback: Option<Box<VerifyCallback>>,
     pub parent_header: HeaderView,
+}
+
+impl UnverifiedBlock {
+    fn execute_callback(&self, verify_result: VerifyResult) {
+        match &self.verify_callback {
+            Some(verify_callback) => {
+                debug!(
+                    "executing block {}-{} verify_callback",
+                    self.block.number(),
+                    self.block.hash()
+                );
+
+                verify_callback(verify_result);
+            }
+            None => {}
+        }
+    }
 }
 
 impl ChainService {
@@ -445,14 +473,7 @@ impl ChainService {
                         let verify_result = self.consume_unverified_blocks(&unverified_task);
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
 
-                        match unverified_task.verify_callback {
-                            Some(callback) => {
-                                debug!("executing block {}-{} verify_callback", unverified_task.block.number(), unverified_task.block.hash());
-                                callback(verify_result);
-                            },
-                            None => {
-                            }
-                        }
+                        unverified_task.execute_callback(verify_result);
                     },
                     Err(err) => {
                         error!("unverified_block_rx err: {}", err);
@@ -584,6 +605,10 @@ impl ChainService {
             for descendant_block in descendants {
                 match self.accept_block(descendant_block.block().to_owned()) {
                     Err(err) => {
+                        self.tell_synchronizer_to_punish_the_bad_peer(&descendant_block, &err);
+
+                        descendant_block.execute_callback(Err(err));
+
                         accept_error_occurred = true;
                         error!(
                             "accept block {} failed: {}",
@@ -757,13 +782,12 @@ impl ChainService {
             if !switch.disable_non_contextual() {
                 let result = self.non_contextual_verify(&lonely_block.block());
                 match result {
-                    Err(err) => match lonely_block.verify_callback {
-                        Some(verify_callback) => {
-                            verify_callback(Err(err));
-                            return;
-                        }
-                        None => {}
-                    },
+                    Err(err) => {
+                        self.tell_synchronizer_to_punish_the_bad_peer(&lonely_block, &err);
+
+                        lonely_block.execute_callback(Err(err));
+                        return;
+                    }
                     _ => {}
                 }
             }
@@ -773,11 +797,9 @@ impl ChainService {
             Ok(_) => {}
             Err(SendError(lonely_block)) => {
                 error!("failed to notify new block to orphan pool");
-                if let Some(verify_callback) = lonely_block.verify_callback {
-                    verify_callback(Err(InternalErrorKind::System
-                        .other("OrphanBlock broker disconnected")
-                        .into()));
-                }
+                lonely_block.execute_callback(Err(InternalErrorKind::System
+                    .other("OrphanBlock broker disconnected")
+                    .into()));
             }
         }
         debug!(
@@ -788,6 +810,34 @@ impl ChainService {
             self.shared.snapshot().tip_number(),
             self.shared.get_unverified_tip().number(),
         );
+    }
+
+    fn tell_synchronizer_to_punish_the_bad_peer(
+        &self,
+        lonely_block: &LonelyBlockWithCallback,
+        err: &Error,
+    ) {
+        let is_internal_db_error = is_internal_db_error(&err);
+        if let Some(peer_id) = lonely_block.peer_id() {
+            let verify_failed_block_info = VerifyFailedBlockInfo {
+                block_hash: lonely_block.lonely_block.block.hash(),
+                peer_id,
+                message_bytes: 0,
+                reason: err.to_string(),
+                is_internal_db_error,
+            };
+            match self.verify_failed_blocks_tx.send(verify_failed_block_info) {
+                Err(_err) => {
+                    error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
+                }
+                _ => {
+                    debug!(
+                        "ChainService has sent verify failed block info to Synchronizer: {:?}",
+                        verify_failed_block_info
+                    )
+                }
+            }
+        }
     }
 
     fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {

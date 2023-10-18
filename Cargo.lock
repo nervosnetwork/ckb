@@ -716,6 +716,7 @@ dependencies = [
  "faux",
  "lazy_static",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

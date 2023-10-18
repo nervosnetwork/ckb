@@ -31,6 +31,7 @@ ckb-constant = { path = "../util/constant", version = "= 0.113.0-pre" }
 ckb-util = { path = "../util", version = "= 0.113.0-pre" }
 crossbeam = "0.8.2"
 ckb-network = { path = "../network", version = "= 0.113.0-pre" }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.114.0-pre" }
