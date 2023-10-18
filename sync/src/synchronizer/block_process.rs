@@ -1,4 +1,4 @@
-use crate::{synchronizer::Synchronizer, utils::is_internal_db_error, Status, StatusCode};
+use crate::{synchronizer::Synchronizer, Status, StatusCode};
 use ckb_logger::{debug, error};
 use ckb_network::PeerIndex;
 use ckb_shared::types::VerifyFailedBlockInfo;

@@ -15,7 +15,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     )?;
     let (shared, mut pack) = builder.build()?;
 
-    let chain_service = ChainService::new(shared, pack.take_proposal_table());
+    let chain_service = ChainService::new(shared, pack.take_proposal_table(), None);
     let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));
 
     // manual drop tx_pool_builder and relay_tx_receiver
