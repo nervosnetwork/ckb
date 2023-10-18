@@ -22,7 +22,6 @@ use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::packed::UncleBlockVecReaderIterator;
 use ckb_types::{
     core::{
         cell::{
@@ -60,7 +59,7 @@ pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
 pub type VerifyCallback = dyn FnOnce(VerifyResult) + Send + Sync;
 
 /// VerifiedBlockStatus is
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VerifiedBlockStatus {
     // The block is being seen for the first time.
     FirstSeenAndVerified,
@@ -276,8 +275,8 @@ pub struct LonelyBlockWithCallback {
 }
 
 impl LonelyBlockWithCallback {
-    fn execute_callback(&self, verify_result: VerifyResult) {
-        match &self.verify_callback {
+    fn execute_callback(self, verify_result: VerifyResult) {
+        match self.verify_callback {
             Some(verify_callback) => {
                 verify_callback(verify_result);
             }
@@ -297,39 +296,33 @@ impl LonelyBlockWithCallback {
 }
 
 impl LonelyBlockWithCallback {
-    fn combine_parent_header(self, parent_header: HeaderView, switch: Switch) -> UnverifiedBlock {
+    fn combine_parent_header(self, parent_header: HeaderView) -> UnverifiedBlock {
         UnverifiedBlock {
-            block: self.lonely_block.block,
-            peer_id: self.lonely_block.peer_id,
-            switch,
-            verify_callback: self.verify_callback,
+            unverified_block: self,
             parent_header,
         }
     }
 }
 
 struct UnverifiedBlock {
-    pub block: Arc<BlockView>,
-    pub peer_id: Option<PeerIndex>,
-    pub switch: Switch,
-    pub verify_callback: Option<Box<VerifyCallback>>,
+    pub unverified_block: LonelyBlockWithCallback,
     pub parent_header: HeaderView,
 }
 
 impl UnverifiedBlock {
-    fn execute_callback(&self, verify_result: VerifyResult) {
-        match &self.verify_callback {
-            Some(verify_callback) => {
-                debug!(
-                    "executing block {}-{} verify_callback",
-                    self.block.number(),
-                    self.block.hash()
-                );
+    fn block(&self) -> &Arc<BlockView> {
+        self.unverified_block.block()
+    }
 
-                verify_callback(verify_result);
-            }
-            None => {}
-        }
+    pub fn peer_id(&self) -> Option<PeerIndex> {
+        self.unverified_block.peer_id()
+    }
+    pub fn switch(&self) -> Option<Switch> {
+        self.unverified_block.switch()
+    }
+
+    fn execute_callback(self, verify_result: VerifyResult) {
+        self.unverified_block.execute_callback(verify_result)
     }
 }
 
@@ -338,7 +331,7 @@ impl ChainService {
     pub fn new(
         shared: Shared,
         proposal_table: ProposalTable,
-        verify_failed_block_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
+        verify_failed_blocks_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
     ) -> ChainService {
         ChainService {
             shared,
@@ -469,7 +462,7 @@ impl ChainService {
                     Ok(unverified_task) => {
                         // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
-                        self.consume_unverified_blocks(&unverified_task);
+                        self.consume_unverified_blocks(unverified_task);
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
@@ -482,20 +475,20 @@ impl ChainService {
         }
     }
 
-    fn consume_unverified_blocks(&self, unverified_block: &UnverifiedBlock) {
+    fn consume_unverified_blocks(&self, unverified_block: UnverifiedBlock) {
         // process this unverified block
-        let verify_result = self.verify_block(unverified_block);
+        let verify_result = self.verify_block(&unverified_block);
         match &verify_result {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
                 self.shared
-                    .remove_block_status(&unverified_block.block.hash());
+                    .remove_block_status(&unverified_block.block().hash());
                 let log_elapsed_remove_block_status = log_now.elapsed();
                 self.shared
-                    .remove_header_view(&unverified_block.block.hash());
+                    .remove_header_view(&unverified_block.block().hash());
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    unverified_block.block.hash(),
+                    unverified_block.block().hash(),
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
@@ -503,8 +496,8 @@ impl ChainService {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.peer_id,
-                    unverified_block.block.hash(),
+                    unverified_block.peer_id(),
+                    unverified_block.block().hash(),
                     err
                 );
 
@@ -525,17 +518,22 @@ impl ChainService {
                     tip_ext.total_difficulty,
                 ));
 
-                self.shared
-                    .insert_block_status(unverified_block.block.hash(), BlockStatus::BLOCK_INVALID);
+                self.shared.insert_block_status(
+                    unverified_block.block().hash(),
+                    BlockStatus::BLOCK_INVALID,
+                );
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    unverified_block.block.hash(),
+                    unverified_block.block().hash(),
                     err
                 );
 
-                self.tell_synchronizer_to_punish_the_bad_peer(unverified_block, err);
+                self.tell_synchronizer_to_punish_the_bad_peer(
+                    &unverified_block.unverified_block,
+                    err,
+                );
             }
         }
 
@@ -607,36 +605,37 @@ impl ChainService {
                     Err(err) => {
                         self.tell_synchronizer_to_punish_the_bad_peer(&descendant_block, &err);
 
-                        descendant_block.execute_callback(Err(err));
-
                         accept_error_occurred = true;
                         error!(
                             "accept block {} failed: {}",
                             descendant_block.block().hash(),
                             err
                         );
+
+                        descendant_block.execute_callback(Err(err));
                         continue;
                     }
                     Ok(accepted_opt) => match accepted_opt {
                         Some((parent_header, total_difficulty)) => {
                             let unverified_block: UnverifiedBlock =
-                                descendant_block.combine_parent_header(parent_header, Switch::NONE);
-                            let block_number = unverified_block.block.number();
-                            let block_hash = unverified_block.block.hash();
+                                descendant_block.combine_parent_header(parent_header);
+                            let block_number = unverified_block.block().number();
+                            let block_hash = unverified_block.block().hash();
 
                             match unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
-                                Err(err) => {
-                                    error!("send unverified_block_tx failed: {}, the receiver has been closed", err);
-                                    let err = Err(InternalErrorKind::System
-                                        .other(format!("send unverified_block_tx failed, the receiver have been close")).into());
+                                Err(SendError(unverified_block)) => {
+                                    error!("send unverified_block_tx failed, the receiver has been closed");
+                                    let err: Error = InternalErrorKind::System
+                                        .other(format!("send unverified_block_tx failed, the receiver have been close")).into();
 
                                     self.tell_synchronizer_to_punish_the_bad_peer(
-                                        &unverified_block,
+                                        &unverified_block.unverified_block,
                                         &err,
                                     );
 
-                                    unverified_block.execute_callback(err);
+                                    let verify_result: VerifyResult = Err(err);
+                                    unverified_block.execute_callback(verify_result);
                                     continue;
                                 }
                             };
@@ -808,11 +807,13 @@ impl ChainService {
             Err(SendError(lonely_block)) => {
                 error!("failed to notify new block to orphan pool");
 
-                let verify_result = Err(InternalErrorKind::System
+                let err: Error = InternalErrorKind::System
                     .other("OrphanBlock broker disconnected")
-                    .into());
+                    .into();
 
-                self.tell_synchronizer_to_punish_the_bad_peer(&lonely_block, &verify_result);
+                self.tell_synchronizer_to_punish_the_bad_peer(&lonely_block, &err);
+
+                let verify_result = Err(err);
                 lonely_block.execute_callback(verify_result);
                 return;
             }
@@ -846,12 +847,7 @@ impl ChainService {
                     Err(_err) => {
                         error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
                     }
-                    _ => {
-                        debug!(
-                            "ChainService has sent verify failed block info to Synchronizer: {:?}",
-                            verify_failed_block_info
-                        )
-                    }
+                    _ => {}
                 }
             }
             _ => {
@@ -947,12 +943,21 @@ impl ChainService {
         let log_now = std::time::Instant::now();
 
         let UnverifiedBlock {
-            block,
-            peer_id,
-            switch,
-            verify_callback,
+            unverified_block:
+                LonelyBlockWithCallback {
+                    lonely_block:
+                        LonelyBlock {
+                            block,
+                            peer_id: _peer_id,
+                            switch,
+                        },
+                    verify_callback: _verify_callback,
+                },
             parent_header,
         } = unverified_block;
+
+        // TODO: calculate the value of switch if we specified assume-valid-target
+        let switch = Switch::NONE;
 
         let parent_ext = self
             .shared
@@ -1036,7 +1041,7 @@ impl ChainService {
             // update and verify chain root
             // MUST update index before reconcile_main_chain
             let begin_reconcile_main_chain = std::time::Instant::now();
-            self.reconcile_main_chain(Arc::clone(&db_txn), &mut fork, switch.to_owned())?;
+            self.reconcile_main_chain(Arc::clone(&db_txn), &mut fork, switch)?;
             trace!(
                 "reconcile_main_chain cost {:?}",
                 begin_reconcile_main_chain.elapsed()
