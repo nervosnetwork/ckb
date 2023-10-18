@@ -1,5 +1,4 @@
 use crate::orphan_block_pool::OrphanBlockPool;
-use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::{
