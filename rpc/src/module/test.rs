@@ -676,11 +676,10 @@ impl IntegrationTestRpcImpl {
         let content = packed::CompactBlock::build_from_block(&block_view, &HashSet::new());
         let message = packed::RelayMessage::new_builder().set(content).build();
 
-        todo!("retrive verify block result by callback");
         // insert block to chain
-        // self.chain
-        //     .process_block(Arc::clone(&block_view))
-        //     .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+        self.chain
+            .blocking_process_block(Arc::clone(&block_view))
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         // announce new block
         if let Err(err) = self
