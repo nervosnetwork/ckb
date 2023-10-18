@@ -245,7 +245,7 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    verify_failed_blocks_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
 }
 
 pub struct LonelyBlock {
@@ -335,17 +335,16 @@ impl UnverifiedBlock {
 
 impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
-    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
-        let (unverified_tx, unverified_rx) =
-            channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
-
-        let (new_block_tx, new_block_rx) =
-            channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
-
+    pub fn new(
+        shared: Shared,
+        proposal_table: ProposalTable,
+        verify_failed_block_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
+    ) -> ChainService {
         ChainService {
             shared,
             proposal_table: Arc::new(Mutex::new(proposal_table)),
             orphan_blocks_broker: Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE)),
+            verify_failed_blocks_tx,
         }
     }
 
@@ -468,12 +467,10 @@ impl ChainService {
                 },
                 recv(unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
-                    // process this unverified block
+                        // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
-                        let verify_result = self.consume_unverified_blocks(&unverified_task);
+                        self.consume_unverified_blocks(&unverified_task);
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
-
-                        unverified_task.execute_callback(verify_result);
                     },
                     Err(err) => {
                         error!("unverified_block_rx err: {}", err);
@@ -485,7 +482,7 @@ impl ChainService {
         }
     }
 
-    fn consume_unverified_blocks(&self, unverified_block: &UnverifiedBlock) -> VerifyResult {
+    fn consume_unverified_blocks(&self, unverified_block: &UnverifiedBlock) {
         // process this unverified block
         let verify_result = self.verify_block(unverified_block);
         match &verify_result {
@@ -537,9 +534,12 @@ impl ChainService {
                     unverified_block.block.hash(),
                     err
                 );
+
+                self.tell_synchronizer_to_punish_the_bad_peer(unverified_block, err);
             }
         }
-        verify_result
+
+        unverified_block.execute_callback(verify_result);
     }
 
     fn start_search_orphan_pool(
@@ -627,7 +627,17 @@ impl ChainService {
                             match unverified_block_tx.send(unverified_block) {
                                 Ok(_) => {}
                                 Err(err) => {
-                                    error!("send unverified_block_tx failed: {}", err)
+                                    error!("send unverified_block_tx failed: {}, the receiver has been closed", err);
+                                    let err = Err(InternalErrorKind::System
+                                        .other(format!("send unverified_block_tx failed, the receiver have been close")).into());
+
+                                    self.tell_synchronizer_to_punish_the_bad_peer(
+                                        &unverified_block,
+                                        &err,
+                                    );
+
+                                    unverified_block.execute_callback(err);
+                                    continue;
                                 }
                             };
 
@@ -797,9 +807,14 @@ impl ChainService {
             Ok(_) => {}
             Err(SendError(lonely_block)) => {
                 error!("failed to notify new block to orphan pool");
-                lonely_block.execute_callback(Err(InternalErrorKind::System
+
+                let verify_result = Err(InternalErrorKind::System
                     .other("OrphanBlock broker disconnected")
-                    .into()));
+                    .into());
+
+                self.tell_synchronizer_to_punish_the_bad_peer(&lonely_block, &verify_result);
+                lonely_block.execute_callback(verify_result);
+                return;
             }
         }
         debug!(
@@ -818,24 +833,29 @@ impl ChainService {
         err: &Error,
     ) {
         let is_internal_db_error = is_internal_db_error(&err);
-        if let Some(peer_id) = lonely_block.peer_id() {
-            let verify_failed_block_info = VerifyFailedBlockInfo {
-                block_hash: lonely_block.lonely_block.block.hash(),
-                peer_id,
-                message_bytes: 0,
-                reason: err.to_string(),
-                is_internal_db_error,
-            };
-            match self.verify_failed_blocks_tx.send(verify_failed_block_info) {
-                Err(_err) => {
-                    error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
+        match (lonely_block.peer_id(), &self.verify_failed_blocks_tx) {
+            (Some(peer_id), Some(verify_failed_blocks_tx)) => {
+                let verify_failed_block_info = VerifyFailedBlockInfo {
+                    block_hash: lonely_block.lonely_block.block.hash(),
+                    peer_id,
+                    message_bytes: 0,
+                    reason: err.to_string(),
+                    is_internal_db_error,
+                };
+                match verify_failed_blocks_tx.send(verify_failed_block_info) {
+                    Err(_err) => {
+                        error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
+                    }
+                    _ => {
+                        debug!(
+                            "ChainService has sent verify failed block info to Synchronizer: {:?}",
+                            verify_failed_block_info
+                        )
+                    }
                 }
-                _ => {
-                    debug!(
-                        "ChainService has sent verify failed block info to Synchronizer: {:?}",
-                        verify_failed_block_info
-                    )
-                }
+            }
+            _ => {
+                debug!("Don't know which peer to punish, or don't have a channel Sender to Synchronizer, skip it")
             }
         }
     }
