@@ -312,4 +312,5 @@ pub struct VerifyFailedBlockInfo {
     pub peer_id: PeerIndex,
     pub message_bytes: u64,
     pub reason: String,
+    pub is_internal_db_error: bool,
 }
