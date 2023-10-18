@@ -6,7 +6,9 @@ use ckb_tx_pool::{TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
 use std::cmp::Ordering;
 
 use crate::migrate::Migrate;
-use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
+use ckb_app_config::{
+    BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, SyncConfig, TxPoolConfig,
+};
 use ckb_app_config::{ExitCode, HeaderMapConfig};
 use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
@@ -41,6 +43,7 @@ use ckb_tx_pool::{
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::core::tx_pool::Reject;
+use ckb_util::Mutex;
 
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
@@ -60,6 +63,7 @@ pub struct SharedBuilder {
     consensus: Consensus,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
+    sync_config: Option<SyncConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
@@ -167,6 +171,7 @@ impl SharedBuilder {
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
+            sync_config: None,
             block_assembler_config: None,
             async_handle,
             header_map_memory_limit: None,
@@ -214,6 +219,7 @@ impl SharedBuilder {
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
+            sync_config: None,
             block_assembler_config: None,
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
 
@@ -245,6 +251,12 @@ impl SharedBuilder {
     /// TODO(doc): @quake
     pub fn store_config(mut self, config: StoreConfig) -> Self {
         self.store_config = Some(config);
+        self
+    }
+
+    /// TODO(doc): @eval-exec
+    pub fn sync_config(mut self, config: SyncConfig) -> Self {
+        self.sync_config = Some(config);
         self
     }
 
@@ -351,6 +363,7 @@ impl SharedBuilder {
             consensus,
             tx_pool_config,
             store_config,
+            sync_config,
             block_assembler_config,
             notify_config,
             async_handle,
@@ -370,6 +383,7 @@ impl SharedBuilder {
         let tx_pool_config = tx_pool_config.unwrap_or_default();
         let notify_config = notify_config.unwrap_or_default();
         let store_config = store_config.unwrap_or_default();
+        let sync_config = sync_config.unwrap_or_default();
         let consensus = Arc::new(consensus);
 
         let notify_controller = start_notify_service(notify_config, async_handle.clone());
@@ -404,6 +418,7 @@ impl SharedBuilder {
 
         let block_status_map = Arc::new(DashMap::new());
 
+        let assume_valid_target = Arc::new(Mutex::new(sync_config.assume_valid_target));
         let ibd_finished = Arc::new(AtomicBool::new(false));
         let shared = Shared::new(
             store,
@@ -414,6 +429,7 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
+            assume_valid_target,
             header_map,
             block_status_map,
         );
