@@ -114,9 +114,10 @@ impl BlockFetchCMD {
             }
             CanStart::AssumeValidNotFound => {
                 let state = self.sync_shared.state();
+                let shared = self.sync_shared.shared();
                 let best_known = state.shared_best_header_ref();
                 let number = best_known.number();
-                let assume_valid_target: Byte32 = state
+                let assume_valid_target: Byte32 = shared
                     .assume_valid_target()
                     .as_ref()
                     .map(Pack::pack)
@@ -168,7 +169,7 @@ impl BlockFetchCMD {
         };
 
         let assume_valid_target_find = |flag: &mut CanStart| {
-            let mut assume_valid_target = state.assume_valid_target();
+            let mut assume_valid_target = shared.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
                 match shared.header_map().get(&target.pack()) {
                     Some(header) => {
