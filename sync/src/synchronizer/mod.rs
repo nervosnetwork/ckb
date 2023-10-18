@@ -886,7 +886,12 @@ impl CKBProtocolHandler for Synchronizer {
         let mut have_malformed_peers = false;
         while let Some(malformed_peer_info) = self.verify_failed_blocks_rx.recv().await {
             have_malformed_peers = true;
-            let x = Self::post_sync_process(
+            if malformed_peer_info.is_internal_db_error {
+                // we shouldn't ban that peer if it's an internal db error
+                continue;
+            }
+
+            Self::post_sync_process(
                 nc.as_ref(),
                 malformed_peer_info.peer_id,
                 "SendBlock",
