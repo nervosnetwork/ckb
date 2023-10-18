@@ -398,7 +398,7 @@ impl ChainService {
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: lonely_block }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.process_block_v2(lonely_block, lonely_block_tx.clone()));
+                            let _ = responder.send(self.asynchronous_process_block(lonely_block, lonely_block_tx.clone()));
                             let _ = tx_control.continue_chunk_process();
 
                             if let Some(metrics) = ckb_metrics::handle() {
@@ -739,23 +739,6 @@ impl ChainService {
         Ok(())
     }
 
-    // visible pub just for test
-    #[doc(hidden)]
-    pub fn process_block(&mut self, block: Arc<BlockView>, switch: Switch) -> Result<bool, Error> {
-        let block_number = block.number();
-        let block_hash = block.hash();
-
-        debug!("Begin processing block: {}-{}", block_number, block_hash);
-        if block_number < 1 {
-            warn!("Receive 0 number block: 0-{}", block_hash);
-        }
-
-        self.insert_block(block, switch).map(|ret| {
-            debug!("Finish processing block");
-            ret
-        })
-    }
-
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
         let consensus = self.shared.consensus();
         BlockVerifier::new(consensus).verify(block).map_err(|e| {
@@ -776,8 +759,7 @@ impl ChainService {
     }
 
     // make block IO and verify asynchronize
-    #[doc(hidden)]
-    pub fn process_block_v2(
+    fn asynchronous_process_block(
         &self,
         lonely_block: LonelyBlockWithCallback,
         lonely_block_tx: Sender<LonelyBlockWithCallback>,
