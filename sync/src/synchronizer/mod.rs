@@ -68,15 +68,9 @@ enum CanStart {
     AssumeValidNotFound,
 }
 
-// TODO: Consider converting this enum to a struct since it only has one item
-//
-// struct FetchCMD {
-//    peers: Vec<PeerIndex>,
-//    ibd_state: IBDState,
-// }
-//
-enum FetchCMD {
-    Fetch((Vec<PeerIndex>, IBDState)),
+struct FetchCMD {
+    peers: Vec<PeerIndex>,
+    ibd_state: IBDState,
 }
 
 struct BlockFetchCMD {
