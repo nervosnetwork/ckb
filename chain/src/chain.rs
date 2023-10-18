@@ -60,6 +60,7 @@ pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
 pub type VerifyCallback = dyn FnOnce(VerifyResult) + Send + Sync;
 
 /// VerifiedBlockStatus is
+#[derive(Debug)]
 pub enum VerifiedBlockStatus {
     // The block is being seen for the first time.
     FirstSeenAndVerified,
