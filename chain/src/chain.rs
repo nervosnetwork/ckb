@@ -956,8 +956,23 @@ impl ChainService {
             parent_header,
         } = unverified_block;
 
-        // TODO: calculate the value of switch if we specified assume-valid-target
-        let switch = Switch::NONE;
+        let switch: Switch = switch.unwrap_or_else(|| {
+            let mut assume_valid_target = self.shared.assume_valid_target();
+            match *assume_valid_target {
+                Some(ref target) => {
+                    // if the target has been reached, delete it
+                    if target
+                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(&block))
+                    {
+                        assume_valid_target.take();
+                        Switch::NONE
+                    } else {
+                        Switch::DISABLE_SCRIPT
+                    }
+                }
+                None => Switch::NONE,
+            }
+        });
 
         let parent_ext = self
             .shared
