@@ -21,9 +21,9 @@ use ckb_types::{
     core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    H256, U256,
 };
-use ckb_util::shrink_to_fit;
+use ckb_util::{shrink_to_fit, Mutex, MutexGuard};
 use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
@@ -63,6 +63,8 @@ pub struct Shared {
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
 
+    pub assume_valid_target: Arc<Mutex<Option<H256>>>,
+
     pub header_map: Arc<HeaderMap>,
     pub(crate) block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
     pub(crate) unverified_tip: Arc<ArcSwap<crate::HeaderIndex>>,
@@ -80,6 +82,8 @@ impl Shared {
         snapshot_mgr: Arc<SnapshotMgr>,
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
+
+        assume_valid_target: Arc<Mutex<Option<H256>>>,
         header_map: Arc<HeaderMap>,
         block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
     ) -> Shared {
@@ -101,6 +105,7 @@ impl Shared {
             snapshot_mgr,
             async_handle,
             ibd_finished,
+            assume_valid_target,
             header_map,
             block_status_map,
             unverified_tip,
@@ -458,5 +463,9 @@ impl Shared {
     }
     pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
         self.get_block_status(block_hash).contains(status)
+    }
+
+    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
+        self.assume_valid_target.lock()
     }
 }
