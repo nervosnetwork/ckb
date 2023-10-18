@@ -234,22 +234,25 @@ pub struct Synchronizer {
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 
-    pub(crate) verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    pub(crate) verify_failed_blocks_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
+    pub(crate) verify_failed_blocks_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
 }
 
 impl Synchronizer {
     /// Init sync protocol handle
     ///
     /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
-    pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
-        let (verify_failed_blocks_tx, verify_failed_blocks_rx) =
-            tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
+    pub fn new(
+        chain: ChainController,
+        shared: Arc<SyncShared>,
+        verify_failed_blocks_rx: Option<
+            tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
+        >,
+    ) -> Synchronizer {
         Synchronizer {
             chain,
             shared,
             fetch_channel: None,
-            verify_failed_blocks_tx,
             verify_failed_blocks_rx,
         }
     }
@@ -883,27 +886,29 @@ impl CKBProtocolHandler for Synchronizer {
     }
 
     async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
-        let mut have_malformed_peers = false;
-        while let Some(malformed_peer_info) = self.verify_failed_blocks_rx.recv().await {
-            have_malformed_peers = true;
-            if malformed_peer_info.is_internal_db_error {
-                // we shouldn't ban that peer if it's an internal db error
-                continue;
-            }
+        if let Some(verify_failed_blocks_rx) = &mut self.verify_failed_blocks_rx {
+            let mut have_malformed_peers = false;
+            while let Some(malformed_peer_info) = verify_failed_blocks_rx.recv().await {
+                have_malformed_peers = true;
+                if malformed_peer_info.is_internal_db_error {
+                    // we shouldn't ban that peer if it's an internal db error
+                    continue;
+                }
 
-            Self::post_sync_process(
-                nc.as_ref(),
-                malformed_peer_info.peer_id,
-                "SendBlock",
-                malformed_peer_info.message_bytes,
-                StatusCode::BlockIsInvalid.with_context(format!(
-                    "block {} is invalid, reason: {}",
-                    malformed_peer_info.block_hash, malformed_peer_info.reason
-                )),
-            );
-        }
-        if have_malformed_peers {
-            return Some(());
+                Self::post_sync_process(
+                    nc.as_ref(),
+                    malformed_peer_info.peer_id,
+                    "SendBlock",
+                    malformed_peer_info.message_bytes,
+                    StatusCode::BlockIsInvalid.with_context(format!(
+                        "block {} is invalid, reason: {}",
+                        malformed_peer_info.block_hash, malformed_peer_info.reason
+                    )),
+                );
+            }
+            if have_malformed_peers {
+                return Some(());
+            }
         }
         None
     }

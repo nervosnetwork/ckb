@@ -4,6 +4,7 @@ use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_stop_handler::{broadcast_exit_signals, wait_all_ckb_services_exit};
 
 use ckb_types::core::cell::setup_system_cell_cache;
@@ -39,8 +40,10 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     );
 
     launcher.check_assume_valid_target(&shared);
-
-    let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
+    let (verify_failed_block_tx, verify_failed_block_rx) =
+        tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
+    let chain_controller =
+        launcher.start_chain_service(&shared, pack.take_proposal_table(), verify_failed_block_tx);
 
     launcher.start_block_filter(&shared);
 
@@ -49,6 +52,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         chain_controller.clone(),
         miner_enable,
         pack.take_relay_tx_receiver(),
+        verify_failed_block_rx,
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();

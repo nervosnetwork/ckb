@@ -25,6 +25,7 @@ use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -225,8 +226,13 @@ impl Launcher {
     }
 
     /// Start chain service, return ChainController
-    pub fn start_chain_service(&self, shared: &Shared, table: ProposalTable) -> ChainController {
-        let chain_service = ChainService::new(shared.clone(), table);
+    pub fn start_chain_service(
+        &self,
+        shared: &Shared,
+        table: ProposalTable,
+        verify_failed_block_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    ) -> ChainController {
+        let chain_service = ChainService::new(shared.clone(), table, verify_failed_block_tx);
         let chain_controller = chain_service.start(Some("ChainService"));
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller
@@ -260,6 +266,7 @@ impl Launcher {
         chain_controller: ChainController,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
+        verify_failed_block_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
     ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
@@ -282,7 +289,11 @@ impl Launcher {
         );
 
         // Sync is a core protocol, user cannot disable it via config
-        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+        let synchronizer = Synchronizer::new(
+            chain_controller.clone(),
+            Arc::clone(&sync_shared),
+            Some(verify_failed_block_rx),
+        );
         let mut protocols = vec![CKBProtocol::new_with_support_protocol(
             SupportProtocols::Sync,
             Box::new(synchronizer),
