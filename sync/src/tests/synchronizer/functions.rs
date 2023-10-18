@@ -1198,7 +1198,7 @@ fn get_blocks_process() {
 
 #[test]
 fn test_internal_db_error() {
-    use crate::utils::is_internal_db_error;
+    use ckb_error::is_internal_db_error;
 
     let consensus = Consensus::default();
     let mut builder = SharedBuilder::with_temp_db();
