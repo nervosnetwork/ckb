@@ -4,7 +4,7 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::chain::{ChainController, ChainService, VerifiedBlockStatus};
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -87,8 +87,10 @@ impl MockChain {
         let network = dummy_network(&shared);
         pack.take_tx_pool_builder().start(network);
 
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-        let chain_controller = chain_service.start::<&str>(None);
+        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+        let chain_controller = chain_service.start::<&str>(Some(
+            "ckb-light-client-protocol-server::tests::ChainService",
+        ));
 
         Self {
             chain_controller,
@@ -142,11 +144,17 @@ impl MockChain {
         let block: packed::Block = block_template.into();
         let block = build(block);
         let block_number = block.number();
-        let is_ok = self
+        let verified_block_status = self
             .controller()
-            .process_block(Arc::new(block))
+            .blocking_process_block(Arc::new(block))
             .expect("process block");
-        assert!(is_ok, "failed to process block {block_number}");
+        assert!(
+            matches!(
+                verified_block_status,
+                VerifiedBlockStatus::FirstSeenAndVerified
+            ),
+            "failed to process block {block_number}"
+        );
         while self
             .tx_pool()
             .get_tx_pool_info()
