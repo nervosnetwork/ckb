@@ -3,10 +3,9 @@
 
 use crate::forkchanges::ForkChanges;
 use crate::orphan_block_pool::OrphanBlockPool;
-use ckb_chain_spec::versionbits::VersionbitsIndexer;
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
-use ckb_error::{is_internal_db_error, Error, ErrorKind, InternalError, InternalErrorKind};
+use ckb_error::{is_internal_db_error, Error, InternalErrorKind};
 use ckb_logger::Level::Trace;
 use ckb_logger::{
     self, debug, error, info, log_enabled, log_enabled_target, trace, trace_target, warn,
@@ -28,7 +27,7 @@ use ckb_types::{
             resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider,
             ResolvedTransaction,
         },
-        service::{Request, DEFAULT_CHANNEL_SIZE},
+        service::Request,
         BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
     },
     packed::Byte32,
@@ -40,13 +39,8 @@ use ckb_verification::cache::Completed;
 use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
-use crossbeam::channel::SendTimeoutError;
-use std::collections::{HashSet, VecDeque};
-use std::iter::Cloned;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
 use std::{cmp, thread};
 
 const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
@@ -317,6 +311,7 @@ impl UnverifiedBlock {
     pub fn peer_id(&self) -> Option<PeerIndex> {
         self.unverified_block.peer_id()
     }
+
     pub fn switch(&self) -> Option<Switch> {
         self.unverified_block.switch()
     }
@@ -922,8 +917,6 @@ impl ChainService {
     }
 
     fn verify_block(&self, unverified_block: &UnverifiedBlock) -> VerifyResult {
-        let log_now = std::time::Instant::now();
-
         let UnverifiedBlock {
             unverified_block:
                 LonelyBlockWithCallback {

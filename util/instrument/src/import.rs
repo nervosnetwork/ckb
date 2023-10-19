@@ -1,4 +1,4 @@
-use ckb_chain::chain::{ChainController, LonelyBlockWithCallback};
+use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
 #[cfg(feature = "progress_bar")]

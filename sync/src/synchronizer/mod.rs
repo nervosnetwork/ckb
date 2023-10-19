@@ -20,7 +20,7 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared, SyncState};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
@@ -29,10 +29,9 @@ use ckb_chain::chain::ChainController;
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
-    BAD_MESSAGE_BAN_TIME, BLOCK_DOWNLOAD_WINDOW, CHAIN_SYNC_TIMEOUT,
-    EVICTION_HEADERS_RESPONSE_TIME, INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
+    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
-use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
@@ -662,7 +661,6 @@ impl Synchronizer {
                 }
                 None => {
                     let p2p_control = raw.clone();
-                    let sync_shared = Arc::clone(self.shared());
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender

@@ -1,7 +1,6 @@
-use crate::{synchronizer::Synchronizer, Status, StatusCode};
-use ckb_logger::{debug, error};
+use crate::synchronizer::Synchronizer;
+use ckb_logger::debug;
 use ckb_network::PeerIndex;
-use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_types::{packed, prelude::*};
 
 pub struct BlockProcess<'a> {
