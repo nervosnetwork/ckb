@@ -1,4 +1,4 @@
-use crate::chain::ChainController;
+use crate::chain::{ChainController, VerifiedBlockStatus};
 use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
@@ -33,9 +33,12 @@ fn repeat_process_block() {
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
-    assert!(chain_controller
-        .process_block(Arc::clone(&block))
-        .expect("process block ok"));
+    assert_eq!(
+        chain_controller
+            .blocking_process_block(Arc::clone(&block))
+            .expect("process block ok"),
+        VerifiedBlockStatus::FirstSeenAndVerified
+    );
     assert_eq!(
         shared
             .store()
@@ -45,9 +48,12 @@ fn repeat_process_block() {
         Some(true)
     );
 
-    assert!(!chain_controller
-        .process_block(Arc::clone(&block))
-        .expect("process block ok"));
+    assert_ne!(
+        chain_controller
+            .blocking_process_block(Arc::clone(&block))
+            .expect("process block ok"),
+        VerifiedBlockStatus::FirstSeenAndVerified
+    );
     assert_eq!(
         shared
             .store()
@@ -108,7 +114,7 @@ fn test_genesis_transaction_spend() {
 
     for block in &chain.blocks()[0..10] {
         assert!(chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .is_ok());
     }
 
@@ -165,7 +171,7 @@ fn test_transaction_spend_in_same_block() {
 
     for block in chain.blocks() {
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
             .expect("process block ok");
     }
 
@@ -205,7 +211,7 @@ fn test_transaction_spend_in_same_block() {
                 parent_number4,
                 epoch.number_with_fraction(parent_number4),
                 parent_hash4,
-                2
+                2,
             )),
             mem_cell_data: None,
             mem_cell_data_hash: None,
@@ -236,13 +242,13 @@ fn test_transaction_conflict_in_same_block() {
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .blocking_process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()))
+            .blocking_process_block(Arc::new(chain.blocks()[3].clone()))
             .unwrap_err(),
     );
 }
@@ -273,13 +279,13 @@ fn test_transaction_conflict_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .blocking_process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()))
+            .blocking_process_block(Arc::new(chain.blocks()[4].clone()))
             .unwrap_err(),
     );
 }
@@ -307,13 +313,13 @@ fn test_invalid_out_point_index_in_same_block() {
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .blocking_process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()))
+            .blocking_process_block(Arc::new(chain.blocks()[3].clone()))
             .unwrap_err(),
     );
 }
@@ -342,14 +348,14 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .blocking_process_block(Arc::new(block.clone()))
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()))
+            .blocking_process_block(Arc::new(chain.blocks()[4].clone()))
             .unwrap_err(),
     );
 }
@@ -411,13 +417,13 @@ fn test_chain_fork_by_total_difficulty() {
 
     for block in chain1.blocks() {
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
 
     for block in chain2.blocks() {
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
     assert_eq!(
@@ -454,7 +460,7 @@ fn test_chain_fork_by_first_received() {
     for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
         for block in chain.blocks() {
             chain_controller
-                .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+                .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
                 .expect("process block ok");
         }
     }
@@ -515,7 +521,7 @@ fn prepare_context_chain(
             .build();
 
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
         mock_store.insert_block(&new_block, &epoch);
@@ -555,7 +561,7 @@ fn prepare_context_chain(
             .build();
 
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
         mock_store.insert_block(&new_block, &epoch);
