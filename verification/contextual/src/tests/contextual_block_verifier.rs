@@ -83,7 +83,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
@@ -230,7 +230,7 @@ fn test_proposal() {
         .collect();
     let block = gen_block(&parent, vec![], proposal_ids, vec![]);
     chain_controller
-        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     parent = block.header();
 
@@ -249,7 +249,7 @@ fn test_proposal() {
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -263,7 +263,7 @@ fn test_proposal() {
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -311,7 +311,7 @@ fn test_uncle_proposal() {
     let uncle = gen_block(&parent, vec![], proposal_ids, vec![]);
     let block = gen_block(&parent, vec![], vec![], vec![uncle.as_uncle()]);
     chain_controller
-        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
     parent = block.header();
 
@@ -326,7 +326,7 @@ fn test_uncle_proposal() {
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -340,7 +340,7 @@ fn test_uncle_proposal() {
         //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .unwrap();
         parent = new_block.header().to_owned();
     }
