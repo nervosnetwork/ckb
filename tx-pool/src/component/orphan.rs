@@ -135,9 +135,10 @@ impl OrphanPool {
         self.limit_size();
     }
 
-    pub fn find_by_previous(&self, tx: &TransactionView) -> Option<ProposalShortId> {
+    pub fn find_by_previous(&self, tx: &TransactionView) -> Vec<ProposalShortId> {
         tx.output_pts()
             .iter()
-            .find_map(|out_point| self.by_out_point.get(out_point).cloned())
+            .filter_map(|out_point| self.by_out_point.get(out_point).cloned())
+            .collect::<Vec<_>>()
     }
 }

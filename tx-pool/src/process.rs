@@ -277,7 +277,12 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+        if self.chunk_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        if self.orphan_contains(&tx).await {
+            debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -466,15 +471,12 @@ impl TxPoolService {
             .add_orphan_tx(tx, peer, declared_cycle)
     }
 
-    pub(crate) async fn find_orphan_by_previous(
-        &self,
-        tx: &TransactionView,
-    ) -> Option<OrphanEntry> {
+    pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
         let orphan = self.orphan.read().await;
-        if let Some(id) = orphan.find_by_previous(tx) {
-            return orphan.get(&id).cloned();
-        }
-        None
+        let ids = orphan.find_by_previous(tx);
+        ids.iter()
+            .map(|id| orphan.get(id).cloned().unwrap())
+            .collect::<Vec<_>>()
     }
 
     pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
@@ -486,12 +488,13 @@ impl TxPoolService {
         orphan_queue.push_back(tx.clone());
 
         while let Some(previous) = orphan_queue.pop_front() {
-            if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
+            let orphans = self.find_orphan_by_previous(&previous).await;
+            for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} add to chunk,  find previous from {}",
+                        "process_orphan {} add to chunk, find previous from {}",
+                        orphan.tx.hash(),
                         tx.hash(),
-                        orphan.tx.hash()
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                     self.chunk
@@ -522,8 +525,8 @@ impl TxPoolService {
                             });
                             debug!(
                                 "process_orphan {} success, find previous from {}",
-                                tx.hash(),
-                                orphan.tx.hash()
+                                orphan.tx.hash(),
+                                tx.hash()
                             );
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             orphan_queue.push_back(orphan.tx);
@@ -531,10 +534,11 @@ impl TxPoolService {
                         Err(reject) => {
                             debug!(
                                 "process_orphan {} reject {}, find previous from {}",
-                                tx.hash(),
+                                orphan.tx.hash(),
                                 reject,
-                                orphan.tx.hash()
+                                tx.hash(),
                             );
+
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                                 if reject.is_malformed_tx() {
@@ -554,7 +558,6 @@ impl TxPoolService {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
-                            break;
                         }
                     }
                 }
@@ -914,15 +917,24 @@ impl TxPoolService {
             }
         }
 
-        {
-            let mut orphan = self.orphan.write().await;
-            orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
-        }
-
+        self.remove_orphan_txs_by_attach(attached.iter()).await;
         {
             let mut chunk = self.chunk.write().await;
             chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+    }
+
+    async fn remove_orphan_txs_by_attach<'a>(
+        &self,
+        txs: impl Iterator<Item = &'a TransactionView>,
+    ) {
+        let mut ids = vec![];
+        for tx in txs {
+            ids.push(tx.proposal_short_id());
+            self.process_orphan_tx(tx).await;
+        }
+        let mut orphan = self.orphan.write().await;
+        orphan.remove_orphan_txs(ids.into_iter());
     }
 
     fn readd_detached_tx(
