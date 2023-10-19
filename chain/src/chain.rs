@@ -50,7 +50,7 @@ type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
 
-pub type VerifyCallback = dyn FnOnce(VerifyResult) + Send + Sync;
+pub type VerifyCallback = Box<dyn FnOnce(VerifyResult) + Send + Sync>;
 
 /// VerifiedBlockStatus is
 #[derive(Debug, Clone, PartialEq)]
@@ -112,7 +112,7 @@ impl ChainController {
     pub fn asynchronous_process_block_with_callback(
         &self,
         block: Arc<BlockView>,
-        verify_callback: Box<VerifyCallback>,
+        verify_callback: VerifyCallback,
     ) {
         self.asynchronous_process_lonely_block_with_callback(
             LonelyBlock {
@@ -249,10 +249,7 @@ pub struct LonelyBlock {
 }
 
 impl LonelyBlock {
-    pub fn with_callback(
-        self,
-        verify_callback: Option<Box<VerifyCallback>>,
-    ) -> LonelyBlockWithCallback {
+    pub fn with_callback(self, verify_callback: Option<VerifyCallback>) -> LonelyBlockWithCallback {
         LonelyBlockWithCallback {
             lonely_block: self,
             verify_callback,
@@ -266,7 +263,7 @@ impl LonelyBlock {
 
 pub struct LonelyBlockWithCallback {
     pub lonely_block: LonelyBlock,
-    pub verify_callback: Option<Box<VerifyCallback>>,
+    pub verify_callback: Option<VerifyCallback>,
 }
 
 impl LonelyBlockWithCallback {

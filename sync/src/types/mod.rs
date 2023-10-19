@@ -1062,13 +1062,13 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_success_callback: impl FnOnce(VerifyResult) + Send + Sync + 'static,
+        verify_success_callback: VerifyCallback,
     ) {
         self.accept_block(
             chain,
             Arc::clone(&block),
             peer_id,
-            Some(Box::new(verify_success_callback)),
+            Some(verify_success_callback),
         )
     }
 
@@ -1092,12 +1092,7 @@ impl SyncShared {
         // }
 
         // Attempt to accept the given block if its parent already exist in database
-        self.accept_block(
-            chain,
-            Arc::clone(&block),
-            peer_id,
-            None::<Box<VerifyCallback>>,
-        );
+        self.accept_block(chain, Arc::clone(&block), peer_id, None::<VerifyCallback>);
         // if ret.is_err() {
         //     debug!("accept block {:?} {:?}", block, ret);
         //     return ret;
@@ -1166,7 +1161,7 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        verify_callback: Option<Box<VerifyCallback>>,
+        verify_callback: Option<VerifyCallback>,
     ) {
         // let ret = {
         //     let mut assume_valid_target = self.state.assume_valid_target();
