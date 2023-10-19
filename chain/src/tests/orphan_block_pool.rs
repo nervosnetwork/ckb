@@ -1,3 +1,4 @@
+use crate::chain::LonelyBlockWithCallback;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
@@ -8,15 +9,23 @@ use std::thread;
 
 use crate::orphan_block_pool::OrphanBlockPool;
 
-fn gen_block(parent_header: &HeaderView) -> BlockView {
+fn gen_lonely_block_with_callback(parent_header: &HeaderView) -> LonelyBlockWithCallback {
     let number = parent_header.number() + 1;
-    BlockBuilder::default()
+    let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())
         .timestamp(unix_time_as_millis().pack())
         .number(number.pack())
         .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack())
         .nonce((parent_header.nonce() + 1).pack())
-        .build()
+        .build();
+    LonelyBlockWithCallback {
+        lonely_block: LonelyBlock {
+            block: Arc::new(block),
+            peer_id: None,
+            switch: None,
+        },
+        verify_callback: None,
+    }
 }
 
 #[test]
@@ -27,7 +36,7 @@ fn test_remove_blocks_by_parent() {
     let mut parent = consensus.genesis_block().header();
     let pool = OrphanBlockPool::with_capacity(200);
     for _ in 1..block_number {
-        let new_block = gen_block(&parent);
+        let new_block = gen_lonely_block_with_callback(&parent);
         blocks.push(new_block.clone());
         pool.insert(new_block.clone());
         parent = new_block.header();
@@ -46,7 +55,7 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
     let mut header = consensus.genesis_block().header();
     let mut hashes = Vec::new();
     for _ in 1..1024 {
-        let new_block = gen_block(&header);
+        let new_block = gen_lonely_block_with_callback(&header);
         pool.insert(new_block.clone());
         header = new_block.header();
         hashes.push(header.hash());
@@ -74,7 +83,7 @@ fn test_leaders() {
     let mut parent = consensus.genesis_block().header();
     let pool = OrphanBlockPool::with_capacity(20);
     for i in 0..block_number - 1 {
-        let new_block = gen_block(&parent);
+        let new_block = gen_lonely_block_with_callback(&parent);
         blocks.push(new_block.clone());
         parent = new_block.header();
         if i % 5 != 0 {
@@ -137,8 +146,17 @@ fn test_remove_expired_blocks() {
             .epoch(deprecated.clone().pack())
             .nonce((parent.nonce() + 1).pack())
             .build();
-        pool.insert(new_block.clone());
+
         parent = new_block.header();
+        let lonely_block_with_callback = LonelyBlockWithCallback {
+            lonely_block: LonelyBlock {
+                block: Arc::new(new_block),
+                peer_id: None,
+                switch: None,
+            },
+            verify_callback: None,
+        };
+        pool.insert(lonely_block_with_callback);
     }
     assert_eq!(pool.leaders_len(), 1);
 
