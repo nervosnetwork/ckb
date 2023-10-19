@@ -1,5 +1,4 @@
 use crate::{Status, StatusCode};
-use ckb_error::{Error as CKBError, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex, ProtocolId, SupportProtocols};
 use ckb_types::packed::{RelayMessageReader, SyncMessageReader};
