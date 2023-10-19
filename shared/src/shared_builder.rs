@@ -260,6 +260,12 @@ impl SharedBuilder {
         self
     }
 
+    /// TODO(doc): @eval-exec
+    pub fn header_map_tmp_dir(mut self, header_map_tmp_dir: Option<PathBuf>) -> Self {
+        self.header_map_tmp_dir = header_map_tmp_dir;
+        self
+    }
+
     /// TODO(doc): @quake
     pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
         self.block_assembler_config = config;
