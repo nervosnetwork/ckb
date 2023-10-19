@@ -24,6 +24,7 @@ fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
     let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case1::ChainService"));
     let genesis = shared
         .store()
@@ -74,7 +75,7 @@ fn test_find_fork_case1() {
 
     let mut fork = ForkChanges::default();
 
-    _chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    _chain_service_clone.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -97,6 +98,7 @@ fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
     let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case2::ChainService"));
 
     let genesis = shared
@@ -147,7 +149,7 @@ fn test_find_fork_case2() {
 
     let mut fork = ForkChanges::default();
 
-    _chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    _chain_service_clone.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks()[1..].iter().cloned().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -170,6 +172,7 @@ fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
     let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case3::ChainService"));
 
     let genesis = shared
@@ -220,7 +223,7 @@ fn test_find_fork_case3() {
     };
     let mut fork = ForkChanges::default();
 
-    _chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    _chain_service_clone.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -243,6 +246,7 @@ fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
     let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case4::ChainService"));
 
     let genesis = shared
@@ -294,7 +298,7 @@ fn test_find_fork_case4() {
 
     let mut fork = ForkChanges::default();
 
-    _chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    _chain_service_clone.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
