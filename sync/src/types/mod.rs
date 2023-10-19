@@ -1,4 +1,3 @@
-use crate::orphan_block_pool::OrphanBlockPool;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::{
@@ -14,15 +13,13 @@ use ckb_constant::sync::{
     MAX_UNKNOWN_TX_HASHES_SIZE, MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER, POW_INTERVAL,
     RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
-use ckb_error::Error as CKBError;
-use ckb_logger::{debug, error, trace};
-use ckb_network::{CKBProtocolContext, PeerId, PeerIndex, SupportProtocols};
-use ckb_shared::types::VerifyFailedBlockInfo;
+use ckb_logger::{debug, trace};
+use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{
     block_status::BlockStatus,
     shared::Shared,
     types::{BlockNumberAndHash, HeaderIndex, HeaderIndexView, SHRINK_THRESHOLD},
-    HeaderMap, Snapshot,
+    Snapshot,
 };
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
@@ -32,10 +29,9 @@ use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use ckb_verification_traits::Switch;
 use dashmap::{self, DashMap};
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
@@ -48,14 +44,11 @@ use std::time::{Duration, Instant};
 use std::{cmp, fmt, iter};
 
 use crate::utils::send_message;
-use ckb_types::core::EpochNumber;
-use ckb_types::error::Error;
 
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const FILTER_SIZE: usize = 50000;
-const ORPHAN_BLOCK_SIZE: usize = 1024;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
 pub(crate) const FILTER_TTL: u64 = 4 * 60 * 60;
@@ -998,25 +991,11 @@ pub struct SyncShared {
 }
 
 impl SyncShared {
-    /// only use on test
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
         tx_relay_receiver: Receiver<TxVerificationResult>,
     ) -> SyncShared {
-        Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
-    }
-
-    /// Generate a global sync state through configuration
-    pub fn with_tmpdir<P>(
-        shared: Shared,
-        sync_config: SyncConfig,
-        tmpdir: Option<P>,
-        tx_relay_receiver: Receiver<TxVerificationResult>,
-    ) -> SyncShared
-    where
-        P: AsRef<Path>,
-    {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
             (
@@ -1037,7 +1016,6 @@ impl SyncShared {
             peers: Peers::default(),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: Mutex::new(HashMap::default()),
-            // orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
             inflight_proposals: DashMap::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
