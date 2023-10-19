@@ -10,7 +10,9 @@ use std::sync::Arc;
 fn test_get_block_body_after_inserting() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let chain_controller =
+        _chain_service.start(Some("test_get_block_body_after_inserting::ChainService"));
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -26,15 +28,15 @@ fn test_get_block_body_after_inserting() {
     }
 
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
         let len = shared.snapshot().get_block_body(&blk.hash()).len();
         assert_eq!(len, 1, "[fork1] snapshot.get_block_body({})", blk.hash(),);
     }
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
         let snapshot = shared.snapshot();
         assert!(snapshot.get_block_header(&blk.hash()).is_some());
