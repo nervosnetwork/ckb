@@ -204,6 +204,7 @@ impl Launcher {
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
             .sync_config(self.args.config.network.sync.clone())
+            .header_map_tmp_dir(self.args.config.tmp_dir.clone())
             .block_assembler_config(block_assembler_config)
             .build()?;
 
@@ -269,10 +270,9 @@ impl Launcher {
         relay_tx_receiver: Receiver<TxVerificationResult>,
         verify_failed_block_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
     ) -> NetworkController {
-        let sync_shared = Arc::new(SyncShared::with_tmpdir(
+        let sync_shared = Arc::new(SyncShared::new(
             shared.clone(),
             self.args.config.network.sync.clone(),
-            self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
         let fork_enable = {
