@@ -173,7 +173,6 @@ jobs:
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          find / -name openssl
           ls -ahl /opt/homebrew/opt/openssl*
           ls -hal /usr/local/opt/openssl
           openssl version
