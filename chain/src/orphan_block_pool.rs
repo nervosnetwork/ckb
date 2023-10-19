@@ -1,7 +1,7 @@
 use crate::chain::LonelyBlockWithCallback;
 use ckb_logger::debug;
 use ckb_types::core::{BlockView, EpochNumber};
-use ckb_types::{core, packed};
+use ckb_types::packed;
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;

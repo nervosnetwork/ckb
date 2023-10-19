@@ -17,8 +17,7 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
-    core,
-    core::{service, BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
+    core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
     H256, U256,
