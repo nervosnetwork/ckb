@@ -43,8 +43,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let chain_controller =
+        chain_service.start::<&str>(Some("ckb-verification::tests::ChainService"));
     (chain_controller, shared)
 }
 
@@ -88,7 +89,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             .epoch();
         let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
         parent = new_block.header();
@@ -110,7 +111,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             chain1[(i - 1) as usize].clone()
         };
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
         parent = new_block.header();
@@ -493,7 +494,7 @@ fn test_uncle_with_uncle_descendant() {
 
     for block in &chain2 {
         controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
     }
 
@@ -506,7 +507,7 @@ fn test_uncle_with_uncle_descendant() {
         .build();
 
     controller
-        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .expect("process block ok");
 
     {
