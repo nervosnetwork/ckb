@@ -53,7 +53,7 @@ pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
 pub type VerifyCallback = dyn FnOnce(VerifyResult) + Send + Sync;
 
 /// VerifiedBlockStatus is
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum VerifiedBlockStatus {
     // The block is being seen for the first time.
     FirstSeenAndVerified,
@@ -241,6 +241,7 @@ pub struct ChainService {
     verify_failed_blocks_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
 }
 
+#[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
     pub peer_id: Option<PeerIndex>,
