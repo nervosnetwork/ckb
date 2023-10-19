@@ -11,7 +11,8 @@ fn test_truncate() {
     let builder = SharedBuilder::with_temp_db();
 
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let chain_controller = _chain_service.start(Some("test_truncate::ChainService"));
 
     let genesis = shared
         .store()
@@ -26,8 +27,8 @@ fn test_truncate() {
     }
 
     for blk in mock.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -38,12 +39,12 @@ fn test_truncate() {
     }
 
     for blk in mock.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
-    chain_service.truncate(&target.hash()).unwrap();
+    chain_controller.truncate(target.hash()).unwrap();
 
     assert_eq!(shared.snapshot().tip_header(), &target);
 }
