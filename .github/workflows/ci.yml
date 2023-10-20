@@ -173,8 +173,8 @@ jobs:
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          ls -ahl /opt/homebrew/opt/openssl*
-          ls -hal /usr/local/opt/openssl
+          ls -ahl /opt/homebrew/opt/openssl* || true
+          ls -hal /usr/local/opt/openssl || true
           openssl version
           openssl version -a
           make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
@@ -261,7 +261,7 @@ jobs:
       - name: Build
         run: |
           devtools/windows/make prod
-          .\target\prod\ckb.exe --version
-          .\target\prod\ckb.exe init -C .\target\prod\ckb_data_test
+          target\prod\ckb.exe --version
+          target\prod\ckb.exe init -C .\target\prod\ckb_data_test
     env:
       REL_PKG: x86_64-pc-windows-msvc.zip
