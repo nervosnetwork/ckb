@@ -175,12 +175,10 @@ jobs:
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          ls -hal /usr/local/opt/openssl
           ls -hal /usr/local/opt/openssl/*
           openssl version
           openssl version -a
           make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl/include ${{ matrix.build_target }}
-          devtools/ci/package.sh target/prod/ckb
           otool -L ./target/prod/ckb
           ./target/prod/ckb --version
           ls -ahl ./target/prod/ckb
