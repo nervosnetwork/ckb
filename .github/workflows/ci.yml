@@ -164,6 +164,8 @@ jobs:
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Dependencies
         run: |
+          brew update
+          brew install "openssl@3.1"
           if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
             brew install "openssl@3.1"
           fi
