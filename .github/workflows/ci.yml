@@ -164,21 +164,24 @@ jobs:
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Dependencies
         run: |
-          brew update
-          brew install "openssl@3.1"
-          if ! [ -d /opt/homebrew/opt/openssl@3.1 ]; then
-            brew install "openssl@3.1"
-          fi
+          curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+          tar -xzf openssl-3.1.3.tar.gz
+          cd openssl-3.1.3
+          ./Configure
+          make
+          cd ..
+
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          ls -hal /usr/local/opt/openssl/*
-          openssl version
-          openssl version -a
-          make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl/include ${{ matrix.build_target }}
+          export TOP_DIR=$(pwd)
+          export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-3.1.3
+          export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/include
+          export OPENSSL_STATIC=1
+          make ${{ matrix.build_target }}
           otool -L ./target/prod/ckb
           ./target/prod/ckb --version
           ls -ahl ./target/prod/ckb
@@ -261,7 +264,7 @@ jobs:
       - name: Build
         run: |
           devtools/windows/make prod
-          target\prod\ckb.exe --version
-          target\prod\ckb.exe init -C .\target\prod\ckb_data_test
+          .\target\prod\ckb.exe --version
+          .\target\prod\ckb.exe init -C .\target\prod\ckb_data_test
     env:
       REL_PKG: x86_64-pc-windows-msvc.zip
