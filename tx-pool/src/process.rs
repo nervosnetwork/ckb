@@ -473,9 +473,10 @@ impl TxPoolService {
 
     pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
         let orphan = self.orphan.read().await;
-        let ids = orphan.find_by_previous(tx);
-        ids.iter()
-            .map(|id| orphan.get(id).cloned().unwrap())
+        orphan
+            .find_by_previous(tx)
+            .iter()
+            .filter_map(|id| orphan.get(id).cloned())
             .collect::<Vec<_>>()
     }
 
@@ -483,6 +484,9 @@ impl TxPoolService {
         self.orphan.write().await.remove_orphan_tx(id);
     }
 
+    /// Remove all orphans which are resolved by the given transaction
+    /// the process is like a breath first search, if there is a cycle in `orphan_queue`,
+    /// `_process_tx` will return `Reject` since we have checked duplicated tx
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
@@ -917,24 +921,19 @@ impl TxPoolService {
             }
         }
 
-        self.remove_orphan_txs_by_attach(attached.iter()).await;
+        self.remove_orphan_txs_by_attach(&attached).await;
         {
             let mut chunk = self.chunk.write().await;
             chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
     }
 
-    async fn remove_orphan_txs_by_attach<'a>(
-        &self,
-        txs: impl Iterator<Item = &'a TransactionView>,
-    ) {
-        let mut ids = vec![];
-        for tx in txs {
-            ids.push(tx.proposal_short_id());
+    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+        for tx in txs.iter() {
             self.process_orphan_tx(tx).await;
         }
         let mut orphan = self.orphan.write().await;
-        orphan.remove_orphan_txs(ids.into_iter());
+        orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
     }
 
     fn readd_detached_tx(

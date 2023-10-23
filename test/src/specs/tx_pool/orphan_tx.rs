@@ -205,23 +205,23 @@ impl Spec for TxPoolOrphanNormal {
         );
         assert!(
             run_replay_tx(&net, node0, tx1, 0, 2),
-            "tx1 is send expect nothing in orphan pool"
+            "tx1 is sent expect nothing in orphan pool"
         );
         assert!(
             run_replay_tx(&net, node0, tx11, 0, 3),
-            "tx11 is send expect nothing in orphan pool"
+            "tx11 is sent expect nothing in orphan pool"
         );
         assert!(
             run_replay_tx(&net, node0, tx12, 0, 4),
-            "tx12 is send expect nothing in orphan pool"
+            "tx12 is sent expect nothing in orphan pool"
         );
         assert!(
             run_replay_tx(&net, node0, tx13, 0, 5),
-            "tx13 is send expect nothing in orphan pool"
+            "tx13 is sent expect nothing in orphan pool"
         );
         assert!(
             run_replay_tx(&net, node0, final_tx, 0, 6),
-            "final_tx is send expect nothing in orphan pool"
+            "final_tx is sent expect nothing in orphan pool"
         );
     }
 }
@@ -293,12 +293,58 @@ impl Spec for TxPoolOrphanUnordered {
         );
         assert!(
             run_replay_tx(&net, node0, tx1, 1, 4),
-            "tx1 is send, orphan pool only contains final_tx"
+            "tx1 is sent, orphan pool only contains final_tx"
         );
 
         assert!(
             run_replay_tx(&net, node0, tx13, 0, 6),
-            "tx13 is send, orphan pool is empty"
+            "tx13 is sent, orphan pool is empty"
+        );
+    }
+}
+
+pub struct TxPoolOrphanDoubleSpend;
+impl Spec for TxPoolOrphanDoubleSpend {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        node0.mine_until_out_bootstrap_period();
+        let parent = node0.new_transaction_with_capacity(capacity_bytes!(800));
+
+        let script = node0.always_success_script();
+        let new_output1 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(200).pack())
+            .lock(script.clone())
+            .build();
+        let new_output2 = new_output1.clone();
+        let new_output3 = new_output1.clone();
+
+        let tx1 = parent
+            .as_advanced_builder()
+            .set_inputs(vec![CellInput::new(OutPoint::new(parent.hash(), 0), 0)])
+            .set_outputs(vec![new_output1, new_output2, new_output3])
+            .set_outputs_data(vec![Default::default(); 3])
+            .build();
+
+        let tx11 =
+            node0.new_transaction_with_capacity_and_index(tx1.hash(), capacity_bytes!(100), 0, 0);
+        let tx12 =
+            node0.new_transaction_with_capacity_and_index(tx1.hash(), capacity_bytes!(120), 0, 0);
+
+        let mut net = Net::new(
+            "orphan_tx_test",
+            node0.consensus(),
+            vec![SupportProtocols::RelayV3],
+        );
+        net.connect(node0);
+
+        assert!(
+            run_replay_tx(&net, node0, tx11, 1, 0),
+            "tx11 in orphan pool"
+        );
+
+        assert!(
+            run_replay_tx(&net, node0, tx12, 1, 0),
+            "tx12 is not in orphan pool"
         );
     }
 }

@@ -69,6 +69,7 @@ impl OrphanPool {
 
     pub fn remove_orphan_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.entries.remove(id).map(|entry| {
+            debug!("remove orphan tx {}", entry.tx.hash());
             for out_point in entry.tx.input_pts_iter() {
                 self.by_out_point.remove(&out_point);
             }
@@ -83,7 +84,7 @@ impl OrphanPool {
         self.shrink_to_fit();
     }
 
-    pub fn limit_size(&mut self) -> usize {
+    fn limit_size(&mut self) -> usize {
         let now = ckb_systemtime::unix_time().as_secs();
         let expires: Vec<_> = self
             .entries
@@ -122,6 +123,15 @@ impl OrphanPool {
         if self.entries.contains_key(&tx.proposal_short_id()) {
             return;
         }
+
+        // double spend checking
+        if tx
+            .input_pts_iter()
+            .any(|out_point| self.by_out_point.contains_key(&out_point))
+        {
+            return;
+        }
+
         debug!("add_orphan_tx {}", tx.hash());
 
         self.entries.insert(
