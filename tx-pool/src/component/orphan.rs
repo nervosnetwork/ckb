@@ -1,5 +1,6 @@
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
+use ckb_types::packed::Byte32;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
@@ -84,7 +85,7 @@ impl OrphanPool {
         self.shrink_to_fit();
     }
 
-    fn limit_size(&mut self) -> usize {
+    fn limit_size(&mut self) -> Vec<Byte32> {
         let now = ckb_systemtime::unix_time().as_secs();
         let expires: Vec<_> = self
             .entries
@@ -99,29 +100,37 @@ impl OrphanPool {
             .cloned()
             .collect();
 
-        let mut evicted = expires.len();
+        let mut evicted_txs = vec![];
 
         for id in expires {
-            self.remove_orphan_tx(&id);
+            if let Some(entry) = self.remove_orphan_tx(&id) {
+                evicted_txs.push(entry.tx.hash());
+            }
         }
 
         while self.len() > DEFAULT_MAX_ORPHAN_TRANSACTIONS {
-            evicted += 1;
             // Evict a random orphan:
             let id = self.entries.keys().next().cloned().expect("bound checked");
-            self.remove_orphan_tx(&id);
+            if let Some(entry) = self.remove_orphan_tx(&id) {
+                evicted_txs.push(entry.tx.hash());
+            }
         }
 
-        if evicted > 0 {
-            trace!("OrphanTxPool full, evicted {} tx", evicted);
+        if !evicted_txs.is_empty() {
+            trace!("OrphanTxPool full, evicted {} tx", evicted_txs.len());
             self.shrink_to_fit();
         }
-        evicted
+        evicted_txs
     }
 
-    pub fn add_orphan_tx(&mut self, tx: TransactionView, peer: PeerIndex, declared_cycle: Cycle) {
+    pub fn add_orphan_tx(
+        &mut self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        declared_cycle: Cycle,
+    ) -> Vec<Byte32> {
         if self.entries.contains_key(&tx.proposal_short_id()) {
-            return;
+            return vec![];
         }
 
         // double spend checking
@@ -129,7 +138,7 @@ impl OrphanPool {
             .input_pts_iter()
             .any(|out_point| self.by_out_point.contains_key(&out_point))
         {
-            return;
+            return vec![];
         }
 
         debug!("add_orphan_tx {}", tx.hash());
@@ -142,7 +151,8 @@ impl OrphanPool {
         for out_point in tx.input_pts_iter() {
             self.by_out_point.insert(out_point, tx.proposal_short_id());
         }
-        self.limit_size();
+
+        self.limit_size()
     }
 
     pub fn find_by_previous(&self, tx: &TransactionView) -> Vec<ProposalShortId> {

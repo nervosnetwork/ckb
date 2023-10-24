@@ -465,10 +465,16 @@ impl TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
     ) {
-        self.orphan
+        let evited_txs = self
+            .orphan
             .write()
             .await
-            .add_orphan_tx(tx, peer, declared_cycle)
+            .add_orphan_tx(tx, peer, declared_cycle);
+        // for any evicted orphan tx, we should send reject to relayer
+        // so that we mark it as `unknown` in filter
+        for tx_hash in evited_txs {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
     }
 
     pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
