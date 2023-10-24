@@ -2,12 +2,15 @@
 mod gen;
 use crate::gen::RpcDocGenerator;
 use ckb_rpc::module::*;
+use serde_json::json;
 use std::fs;
 
-/// Get git tag from command line
-fn get_tag() -> Option<String> {
-    std::process::Command::new("git")
-        .args(["describe", "--tags", "--abbrev=0"])
+const OPENRPC_DIR: &str = "./docs/ckb_rpc_openrpc/";
+
+fn run_command(prog: &str, args: &[&str], dir: Option<&str>) -> Option<String> {
+    std::process::Command::new(prog)
+        .args(args)
+        .current_dir(dir.unwrap_or("."))
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -18,14 +21,35 @@ fn get_tag() -> Option<String> {
         })
 }
 
+fn get_tag() -> String {
+    run_command("git", &["describe", "--tags", "--abbrev=0"], None).unwrap_or("main".to_owned())
+}
+
+/// Get git tag from command line
+fn get_commit_sha() -> String {
+    run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap_or("main".to_string())
+}
+
+fn checkout_tag_branch(tag: &str) {
+    let dir = Some(OPENRPC_DIR);
+    let res = run_command("git", &["checkout", tag], dir);
+    if res.is_none() {
+        run_command("git", &["checkout", "-b", tag], dir);
+    }
+}
+
 fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = "./target/doc/ckb_rpc_openrpc/";
+    let dir = "./docs/ckb_rpc_openrpc/json/";
+    let tag = get_tag();
+    checkout_tag_branch(&tag);
+
     fs::create_dir_all(dir)?;
-    let tag = get_tag().unwrap();
     let dump =
         |name: &str, doc: &mut serde_json::Value| -> Result<(), Box<dyn std::error::Error>> {
             doc["info"]["version"] = serde_json::Value::String(tag.clone());
-            fs::write(dir.to_owned() + name, doc.to_string())?;
+            let obj = json!(doc);
+            let res = serde_json::to_string_pretty(&obj)?;
+            fs::write(dir.to_owned() + name, res)?;
             Ok(())
         };
     dump("alert_rpc_doc.json", &mut alert_rpc_doc())?;
@@ -42,7 +66,10 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     dump("indexer_rpc_doc.json", &mut indexer_rpc_doc())?;
     dump("experiment_rpc_doc.json", &mut experiment_rpc_doc())?;
-    eprintln!("finished dump openrpc json for tag: {:?}...", tag);
+    eprintln!(
+        "finished dump openrpc json for tag: {:?} at dir: {:?}",
+        tag, dir
+    );
     Ok(())
 }
 
@@ -62,7 +89,8 @@ pub fn gen_rpc_readme(readme_path: &str) -> Result<(), Box<dyn std::error::Error
         experiment_rpc_doc(),
     ];
 
-    let generator = RpcDocGenerator::new(&all_rpc, readme_path.to_owned());
+    let tag = get_commit_sha();
+    let generator = RpcDocGenerator::new(&all_rpc, readme_path.to_owned(), tag);
     fs::write(readme_path, generator.gen_markdown())?;
 
     Ok(())

@@ -106,9 +106,11 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 	cargo doc --workspace
 
 .PHONY: gen-rpc-doc
-gen-rpc-doc:  ## Generate rpc documentation
+gen-rpc-doc:  submodule-init ## Generate rpc documentation
 	cd devtools/doc/rpc-gen && cargo build
+	cd docs/ckb_rpc_openrpc/ && git stash
 	./target/debug/ckb-rpc-gen rpc/README.md
+	./target/debug/ckb-rpc-gen --json
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
