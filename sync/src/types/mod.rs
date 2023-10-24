@@ -4,7 +4,7 @@ use crate::utils::is_internal_db_error;
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 use ckb_chain::chain::ChainController;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
@@ -103,8 +103,8 @@ impl ChainSyncState {
 
     fn tip_synced(&mut self) {
         let now = unix_time_as_millis();
-        // use avg block interval: (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2 = 28
-        self.headers_sync_state = HeadersSyncState::TipSynced(now + 28000);
+        let avg_interval = (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2;
+        self.headers_sync_state = HeadersSyncState::TipSynced(now + avg_interval * 1000);
     }
 
     fn started(&self) -> bool {

@@ -1,3 +1,4 @@
+use ckb_chain_spec::consensus::MAX_BLOCK_INTERVAL;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
@@ -9,7 +10,7 @@ use ckb_util::shrink_to_fit;
 use std::collections::HashMap;
 
 const SHRINK_THRESHOLD: usize = 100;
-pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 2 * 48; // double block interval
+pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 2 * MAX_BLOCK_INTERVAL; // double block interval
 pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]
