@@ -47,7 +47,11 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let chain_controller = _chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
