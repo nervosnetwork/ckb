@@ -78,7 +78,11 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+        let chain_service = ChainService::new(
+            shared.clone(),
+            pack.take_proposal_table(),
+            pack.take_verify_failed_block_tx(),
+        );
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -296,7 +300,11 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+        let chain_service = ChainService::new(
+            shared.clone(),
+            pack.take_proposal_table(),
+            pack.take_verify_failed_block_tx(),
+        );
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
