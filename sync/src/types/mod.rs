@@ -1174,7 +1174,7 @@ impl SyncShared {
         //             Switch::DISABLE_SCRIPT
         //         };
         //
-        //         chain.internal_process_block(Arc::clone(&block), switch)
+        //         chain.blocking_process_block_with_switch(Arc::clone(&block), switch)
         //     } else {
         //         chain.process_block(Arc::clone(&block))
         //     }
