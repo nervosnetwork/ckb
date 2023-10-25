@@ -83,7 +83,11 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
