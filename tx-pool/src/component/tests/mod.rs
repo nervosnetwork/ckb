@@ -1,5 +1,6 @@
 mod chunk;
 mod entry;
+mod orphan;
 mod pending;
 mod proposed;
 mod recent_reject;

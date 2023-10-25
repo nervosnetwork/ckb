@@ -465,14 +465,14 @@ impl TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
     ) {
-        let evited_txs = self
+        let evicted_txs = self
             .orphan
             .write()
             .await
             .add_orphan_tx(tx, peer, declared_cycle);
         // for any evicted orphan tx, we should send reject to relayer
         // so that we mark it as `unknown` in filter
-        for tx_hash in evited_txs {
+        for tx_hash in evicted_txs {
             self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
         }
     }

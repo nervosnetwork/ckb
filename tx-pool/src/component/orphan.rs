@@ -7,10 +7,12 @@ use ckb_types::{
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_util::shrink_to_fit;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const SHRINK_THRESHOLD: usize = 100;
-pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 2 * MAX_BLOCK_INTERVAL; // double block interval
+
+/// 100 max block interval
+pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 100 * MAX_BLOCK_INTERVAL;
 pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]
@@ -39,7 +41,7 @@ impl Entry {
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
     pub(crate) entries: HashMap<ProposalShortId, Entry>,
-    pub(crate) by_out_point: HashMap<OutPoint, ProposalShortId>,
+    pub(crate) by_out_point: HashMap<OutPoint, HashSet<ProposalShortId>>,
 }
 
 impl OrphanPool {
@@ -60,7 +62,7 @@ impl OrphanPool {
         self.entries.contains_key(id)
     }
 
-    pub fn shrink_to_fit(&mut self) {
+    fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.entries, SHRINK_THRESHOLD);
         shrink_to_fit!(self.by_out_point, SHRINK_THRESHOLD);
     }
@@ -73,7 +75,9 @@ impl OrphanPool {
         self.entries.remove(id).map(|entry| {
             debug!("remove orphan tx {}", entry.tx.hash());
             for out_point in entry.tx.input_pts_iter() {
-                self.by_out_point.remove(&out_point);
+                self.by_out_point
+                    .get_mut(&out_point)
+                    .map(|set| set.remove(id));
             }
             entry
         })
@@ -134,23 +138,17 @@ impl OrphanPool {
             return vec![];
         }
 
-        // double spend checking
-        if tx
-            .input_pts_iter()
-            .any(|out_point| self.by_out_point.contains_key(&out_point))
-        {
-            return vec![];
-        }
-
         debug!("add_orphan_tx {}", tx.hash());
-
         self.entries.insert(
             tx.proposal_short_id(),
             Entry::new(tx.clone(), peer, declared_cycle),
         );
 
         for out_point in tx.input_pts_iter() {
-            self.by_out_point.insert(out_point, tx.proposal_short_id());
+            self.by_out_point
+                .entry(out_point)
+                .or_insert_with(HashSet::default)
+                .insert(tx.proposal_short_id());
         }
 
         self.limit_size()
@@ -160,6 +158,7 @@ impl OrphanPool {
         tx.output_pts()
             .iter()
             .filter_map(|out_point| self.by_out_point.get(out_point).cloned())
+            .flatten()
             .collect::<Vec<_>>()
     }
 }
