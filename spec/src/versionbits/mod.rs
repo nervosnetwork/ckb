@@ -4,15 +4,16 @@
 mod convert;
 
 use crate::consensus::Consensus;
+use ckb_logger::error;
+use ckb_types::global::DATA_DIR;
 use ckb_types::{
-    core::{EpochExt, EpochNumber, HeaderView, Ratio, TransactionView, Version, DATA_DIR},
+    core::{EpochExt, EpochNumber, HeaderView, Ratio, TransactionView, Version},
     packed::{Byte32, CellbaseWitnessReader},
     prelude::*,
 };
 use std::fmt;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
-use ckb_logger::error;
 
 /// What bits to set in version for versionbits blocks
 pub const VERSIONBITS_TOP_BITS: Version = 0x00000000;
@@ -137,12 +138,17 @@ pub struct Deployment {
     pub threshold: Ratio,
 }
 
+/// Signal state cache
+///
+/// Persistent signal state cache, mmap-based cacache
 #[derive(Clone, Debug)]
 pub struct Cache {
     path: PathBuf,
 }
 
 impl Cache {
+    /// Reads the entire contents of a cache file synchronously into a bytes vector,
+    /// looking the data up by key.
     pub fn get(&self, key: &Byte32) -> Option<ThresholdState> {
         match cacache::read_sync(&self.path, Self::encode_key(key)) {
             Ok(bytes) => Some(Self::decode_value(bytes)),
@@ -154,8 +160,11 @@ impl Cache {
         }
     }
 
+    /// Writes data to the cache synchronously
     pub fn insert(&self, key: &Byte32, value: ThresholdState) {
-        if let Err(e)  = cacache::write_sync(&self.path, Self::encode_key(&key), Self::encode_value(value)) {
+        if let Err(e) =
+            cacache::write_sync(&self.path, Self::encode_key(key), Self::encode_value(value))
+        {
             error!("cacache write_sync failed {:?}", e);
         }
     }
@@ -184,7 +193,7 @@ impl VersionbitsCache {
     /// Construct new VersionbitsCache instance from deployments
     pub fn new<'a>(deployments: impl Iterator<Item = &'a DeploymentPos>) -> Self {
         let default_dir = PathBuf::new();
-        let data_dir = DATA_DIR.get().unwrap_or_else(|| &default_dir);
+        let data_dir = DATA_DIR.get().unwrap_or(&default_dir);
         let caches: HashMap<_, _> = deployments
             .map(|pos| {
                 (

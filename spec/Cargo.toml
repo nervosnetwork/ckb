@@ -23,5 +23,8 @@ ckb-crypto = { path = "../util/crypto", version = "= 0.113.0-pre"}
 ckb-hash = { path = "../util/hash", version = "= 0.113.0-pre"}
 ckb-error = { path = "../error", version = "= 0.113.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.113.0-pre" }
-ckb-util = { path = "../util", version = "= 0.113.0-pre" }
 ckb-logger = {path = "../util/logger", version = "= 0.113.0-pre"}
+
+
+[dev-dependencies]
+tempfile.workspace = true

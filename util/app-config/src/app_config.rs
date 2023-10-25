@@ -4,7 +4,7 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details <https://docs.rs/toml/0.5.0/toml/ser/index.html>
 
-use ckb_types::core::DATA_DIR;
+use ckb_types::global::DATA_DIR;
 use path_clean::PathClean;
 use std::fs;
 use std::path::{Path, PathBuf};

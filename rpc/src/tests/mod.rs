@@ -15,6 +15,7 @@ use ckb_types::{
         cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
         TransactionView,
     },
+    global::DATA_DIR,
     h256,
     packed::{CellInput, OutPoint},
     prelude::*,
@@ -225,13 +226,15 @@ fn setup(consensus: Consensus) -> RpcTestSuite {
     let chain_controller =
         ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
 
-    // Start network services
-    let tmp_dir = tempfile::tempdir().expect("create tempdir failed");
+    let tmp_dir = tempfile::tempdir().expect("create tmp_dir failed");
+    DATA_DIR
+        .set(tmp_dir.path().join("data"))
+        .expect("DATA_DIR set only once");
 
-    let tmp_path = tmp_dir.path().to_path_buf();
+    // Start network services
     let network_controller = {
         let network_config = NetworkConfig {
-            path: tmp_path,
+            path: tmp_dir.path().join("network").to_path_buf(),
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,

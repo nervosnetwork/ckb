@@ -32,9 +32,7 @@ pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 pub use blockchain::DepType;
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
-use once_cell::sync::OnceCell;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
-use std::path::PathBuf;
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use tx_pool::TransactionWithStatus;
 pub use views::{
@@ -61,5 +59,3 @@ pub type Cycle = u64;
 
 /// Version number.
 pub type Version = u32;
-
-pub static DATA_DIR: OnceCell<PathBuf> = OnceCell::new();
