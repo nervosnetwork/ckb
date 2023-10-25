@@ -56,7 +56,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -76,7 +76,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
@@ -96,7 +96,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
     }
 
