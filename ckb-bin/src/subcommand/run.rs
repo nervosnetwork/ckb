@@ -40,10 +40,12 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     );
 
     launcher.check_assume_valid_target(&shared);
-    let (verify_failed_block_tx, verify_failed_block_rx) =
-        tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let chain_controller =
-        launcher.start_chain_service(&shared, pack.take_proposal_table(), verify_failed_block_tx);
+
+    let chain_controller = launcher.start_chain_service(
+        &shared,
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
 
     launcher.start_block_filter(&shared);
 
@@ -52,7 +54,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         chain_controller.clone(),
         miner_enable,
         pack.take_relay_tx_receiver(),
-        verify_failed_block_rx,
+        pack.take_verify_failed_block_rx(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
