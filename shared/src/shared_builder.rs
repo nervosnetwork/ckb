@@ -33,6 +33,9 @@ use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_shared::{HeaderMap, Shared};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
+use ckb_util::Mutex;
+
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
 use ckb_store::{ChainDB, ChainStore, Freezer};
@@ -440,10 +443,15 @@ impl SharedBuilder {
             block_status_map,
         );
 
+        let (verify_failed_block_tx, verify_failed_block_rx) =
+            tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
+
         let pack = SharedPackage {
             table: Some(table),
             tx_pool_builder: Some(tx_pool_builder),
             relay_tx_receiver: Some(receiver),
+            verify_failed_block_tx: Some(verify_failed_block_tx),
+            verify_failed_block_rx: Some(verify_failed_block_rx),
         };
 
         Ok((shared, pack))
