@@ -234,7 +234,7 @@ impl Launcher {
         table: ProposalTable,
         verify_failed_block_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
     ) -> ChainController {
-        let chain_service = ChainService::new(shared.clone(), table, Some(verify_failed_block_tx));
+        let chain_service = ChainService::new(shared.clone(), table, verify_failed_block_tx);
         let chain_controller = chain_service.start(Some("ChainService"));
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller

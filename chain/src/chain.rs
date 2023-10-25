@@ -238,7 +238,7 @@ pub struct ChainService {
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
-    verify_failed_blocks_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
+    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 #[derive(Clone)]
@@ -324,7 +324,7 @@ impl ChainService {
     pub fn new(
         shared: Shared,
         proposal_table: ProposalTable,
-        verify_failed_blocks_tx: Option<tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>>,
+        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
     ) -> ChainService {
         ChainService {
             shared,
@@ -809,8 +809,8 @@ impl ChainService {
         err: &Error,
     ) {
         let is_internal_db_error = is_internal_db_error(&err);
-        match (lonely_block.peer_id(), &self.verify_failed_blocks_tx) {
-            (Some(peer_id), Some(verify_failed_blocks_tx)) => {
+        match lonely_block.peer_id() {
+            Some(peer_id) => {
                 let verify_failed_block_info = VerifyFailedBlockInfo {
                     block_hash: lonely_block.lonely_block.block.hash(),
                     peer_id,
@@ -818,7 +818,7 @@ impl ChainService {
                     reason: err.to_string(),
                     is_internal_db_error,
                 };
-                match verify_failed_blocks_tx.send(verify_failed_block_info) {
+                match self.verify_failed_blocks_tx.send(verify_failed_block_info) {
                     Err(_err) => {
                         error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
                     }
