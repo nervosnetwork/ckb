@@ -202,7 +202,10 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(8).for_each(|block| {
                             chain
-                                .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+                                .blocking_process_block_with_switch(
+                                    Arc::new(block),
+                                    Switch::DISABLE_EXTENSION,
+                                )
                                 .expect("process block OK");
                         });
                     },
