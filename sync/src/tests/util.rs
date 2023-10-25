@@ -40,7 +40,7 @@ pub fn generate_blocks(
         let block = inherit_block(shared, &parent_hash).build();
         parent_hash = block.header().hash();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 }
