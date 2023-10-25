@@ -23,7 +23,11 @@ use std::sync::Arc;
 fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case1::ChainService"));
     let genesis = shared
@@ -97,7 +101,11 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case2::ChainService"));
 
@@ -171,7 +179,11 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case3::ChainService"));
 
@@ -245,7 +257,11 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let _chain_service_clone = _chain_service.clone();
     let chain_controller = _chain_service.start(Some("test_find_fork_case4::ChainService"));
 
@@ -331,7 +347,11 @@ fn repeatedly_switch_fork() {
         .consensus(Consensus::default())
         .build()
         .unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let chain_controller = _chain_service.start(Some("repeatedly_switch_fork::ChainService"));
 
     for _ in 0..2 {
@@ -458,7 +478,11 @@ fn test_fork_proposal_table() {
     };
 
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
-    let mut _chain_service = ChainService::new(shared.clone(), pack.take_proposal_table(), None);
+    let mut _chain_service = ChainService::new(
+        shared.clone(),
+        pack.take_proposal_table(),
+        pack.take_verify_failed_block_tx(),
+    );
     let chain_controller = _chain_service.start(Some("test_fork_proposal_table::ChainService"));
 
     let genesis = shared
