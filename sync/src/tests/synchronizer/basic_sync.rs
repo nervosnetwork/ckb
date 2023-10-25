@@ -160,7 +160,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .build();
 
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block should be OK");
     }
 
