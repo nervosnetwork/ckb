@@ -240,10 +240,10 @@ fn test_locate_latest_common_block2() {
         blocks.push(new_block.clone());
 
         chain_controller1
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain_controller2
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
@@ -260,7 +260,7 @@ fn test_locate_latest_common_block2() {
         let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
         chain_controller2
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
@@ -348,7 +348,7 @@ fn test_process_new_block() {
         let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
         chain_controller1
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
         blocks.push(new_block);
@@ -385,7 +385,7 @@ fn test_get_locator_response() {
         blocks.push(new_block.clone());
 
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
