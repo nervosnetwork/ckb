@@ -212,7 +212,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .transaction(cellbase)
             .build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 
