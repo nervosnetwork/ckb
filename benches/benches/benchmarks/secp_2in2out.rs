@@ -162,7 +162,10 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                             if i < 2 {
                                 chain3
-                                    .blocking_process_block_with_switch(arc_block, Switch::DISABLE_ALL)
+                                    .blocking_process_block_with_switch(
+                                        arc_block,
+                                        Switch::DISABLE_ALL,
+                                    )
                                     .expect("process block OK");
                             }
                             parent = block;
@@ -185,7 +188,10 @@ fn bench(c: &mut Criterion) {
                             .take(7)
                             .for_each(|block| {
                                 chain1
-                                    .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
+                                    .blocking_process_block_with_switch(
+                                        Arc::new(block),
+                                        Switch::DISABLE_ALL,
+                                    )
                                     .expect("process block OK");
                             });
                         (chain1.clone(), blocks)
@@ -193,7 +199,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(8).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .blocking_process_block(Arc::new(block))
                                 .expect("process block OK");
                         });
                     },
