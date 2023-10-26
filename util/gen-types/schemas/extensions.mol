@@ -416,6 +416,26 @@ table SendTransactionsProof {
     missing_tx_hashes:          Byte32Vec,
 }
 
+table SendTransactionsProofV1 {
+    // Refer to `SendLastStateProof.last_header`.
+    last_header:                VerifiableHeader,
+    // Refer to `SendLastStateProof.proof`.
+    proof:                      HeaderDigestVec,
+
+    // A collection of filtered blocks, which include all requested
+    // transactions, and be verified in the proof.
+    filtered_blocks:            FilteredBlockVec,
+
+    // Transaction hashes for the blocks which were not found.
+    missing_tx_hashes:          Byte32Vec,
+
+    // Uncle hashes for the blocks which require verifying.
+    blocks_uncles_hash:         Byte32Vec,
+
+    // Block extension for the blocks which require verifying.
+    blocks_extension:           BytesOptVec,
+}
+
 /* Types for Network/Others */
 
 table Time {

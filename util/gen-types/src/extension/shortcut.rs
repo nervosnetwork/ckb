@@ -303,3 +303,11 @@ impl From<packed::SendBlocksProofV1> for packed::LightClientMessageUnion {
         ))
     }
 }
+
+impl From<packed::SendTransactionsProofV1> for packed::LightClientMessageUnion {
+    fn from(item: packed::SendTransactionsProofV1) -> Self {
+        packed::LightClientMessageUnion::SendTransactionsProof(
+            packed::SendTransactionsProof::new_unchecked(item.as_bytes()),
+        )
+    }
+}
