@@ -167,7 +167,7 @@ jobs:
           curl -LO https://www.openssl.org/source/openssl-3.1.2.tar.gz
           tar -xzf openssl-3.1.2.tar.gz
           cd openssl-3.1.2
-          ./Configure
+          ./Configure -fPIC
           make
           cd ..
 
