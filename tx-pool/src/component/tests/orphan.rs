@@ -46,13 +46,13 @@ fn test_orphan_duplicated() {
 
     let txs = orphan.find_by_previous(&tx1);
     assert_eq!(txs.len(), 3);
-    assert!(txs.contains(&tx2.proposal_short_id()));
-    assert!(txs.contains(&tx4.proposal_short_id()));
-    assert!(txs.contains(&tx5.proposal_short_id()));
+    assert!(txs.contains(&&tx2.proposal_short_id()));
+    assert!(txs.contains(&&tx4.proposal_short_id()));
+    assert!(txs.contains(&&tx5.proposal_short_id()));
 
     orphan.remove_orphan_tx(&tx4.proposal_short_id());
     let txs = orphan.find_by_previous(&tx1);
     assert_eq!(txs.len(), 2);
-    assert!(txs.contains(&tx2.proposal_short_id()));
-    assert!(txs.contains(&tx5.proposal_short_id()));
+    assert!(txs.contains(&&tx2.proposal_short_id()));
+    assert!(txs.contains(&&tx5.proposal_short_id()));
 }
