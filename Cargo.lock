@@ -839,6 +839,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-indexer-sync"
+version = "0.113.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-db-schema",
+ "ckb-logger",
+ "ckb-notify",
+ "ckb-rocksdb",
+ "ckb-stop-handler",
+ "ckb-store",
+ "ckb-types",
+ "thiserror",
+]
+
+[[package]]
 name = "ckb-instrument"
 version = "0.113.0-pre"
 dependencies = [

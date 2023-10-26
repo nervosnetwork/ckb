@@ -76,3 +76,31 @@ fn _adjust(root_dir: &Path, indexer_dir: &Path, target: &mut PathBuf, sub: &str)
         *target = root_dir.to_path_buf().join(&target)
     }
 }
+
+/// Indexer config options.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerSyncConfig {
+    /// The secondary_db path, default `data_dir / indexer / secondary_path`
+    #[serde(default)]
+    pub secondary_path: PathBuf,
+    /// The poll interval by secs
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval: u64,
+    /// Maximum number of concurrent db background jobs (compactions and flushes)
+    #[serde(default)]
+    pub db_background_jobs: Option<NonZeroUsize>,
+    /// Maximal db info log files to be kept.
+    #[serde(default)]
+    pub db_keep_log_file_num: Option<NonZeroUsize>,
+}
+
+impl Default for IndexerSyncConfig {
+    fn default() -> Self {
+        IndexerSyncConfig {
+            secondary_path: PathBuf::new(),
+            poll_interval: 2,
+            db_background_jobs: None,
+            db_keep_log_file_num: None,
+        }
+    }
+}

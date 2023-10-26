@@ -10,7 +10,7 @@ mod store;
 mod tx_pool;
 
 pub use db::Config as DBConfig;
-pub use indexer::IndexerConfig;
+pub use indexer::{IndexerConfig, IndexerSyncConfig};
 pub use memory_tracker::Config as MemoryTrackerConfig;
 pub use miner::{
     ClientConfig as MinerClientConfig, Config as MinerConfig, DummyConfig, EaglesongSimpleConfig,
