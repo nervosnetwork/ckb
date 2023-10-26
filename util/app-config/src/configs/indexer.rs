@@ -86,6 +86,8 @@ pub struct IndexerSyncConfig {
     /// The poll interval by secs
     #[serde(default = "default_poll_interval")]
     pub poll_interval: u64,
+    /// Whether to index the pending txs in the ckb tx-pool
+    pub index_tx_pool: bool,
     /// Maximum number of concurrent db background jobs (compactions and flushes)
     #[serde(default)]
     pub db_background_jobs: Option<NonZeroUsize>,
@@ -99,6 +101,7 @@ impl Default for IndexerSyncConfig {
         IndexerSyncConfig {
             secondary_path: PathBuf::new(),
             poll_interval: 2,
+            index_tx_pool: false,
             db_background_jobs: None,
             db_keep_log_file_num: None,
         }

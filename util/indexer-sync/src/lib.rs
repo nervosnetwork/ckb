@@ -1,8 +1,10 @@
 //! The built-in synchronization service in CKB can provide block synchronization services for indexers.
 
 pub(crate) mod error;
+pub mod pool;
 pub(crate) mod store;
 
+pub use crate::pool::Pool;
 use crate::store::SecondaryDB;
 
 use ckb_app_config::{DBConfig, IndexerSyncConfig};
@@ -19,10 +21,11 @@ use ckb_types::{
     core::{self, BlockNumber, BlockView},
     packed::Byte32,
 };
-
 use rocksdb::prelude::*;
+
 use std::marker::Send;
 use std::num::NonZeroUsize;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
@@ -35,6 +38,8 @@ pub trait IndexerSync {
     fn append(&self, block: &BlockView) -> Result<(), Error>;
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error>;
+    /// Get the pool of the indexer
+    fn pool(&self) -> Option<&Arc<RwLock<Pool>>>;
 }
 
 /// Indexer sync service
@@ -73,7 +78,6 @@ where
             cf_names,
             config.secondary_path.to_string_lossy().to_string(),
         );
-
         Self {
             secondary_db,
             poll_interval: Duration::from_secs(config.poll_interval),
@@ -82,17 +86,41 @@ where
         }
     }
 
-    fn indexer_secondary_options(config: &IndexerSyncConfig) -> Options {
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        opts.set_keep_log_file_num(
-            config
-                .db_keep_log_file_num
-                .map(NonZeroUsize::get)
-                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
-        );
-        opts
+    /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
+    pub fn index_tx_pool(&self, notify_controller: NotifyController, subscriber_name: String) {
+        let indexer = self.indexer.clone();
+        let stop: CancellationToken = new_tokio_exit_rx();
+
+        self.async_handle.spawn(async move {
+            let mut new_transaction_receiver = notify_controller
+                .subscribe_new_transaction(subscriber_name.to_owned())
+                .await;
+            let mut reject_transaction_receiver = notify_controller
+                .subscribe_reject_transaction(subscriber_name.to_owned())
+                .await;
+
+            loop {
+                tokio::select! {
+                    Some(tx_entry) = new_transaction_receiver.recv() => {
+                        if let Some(pool) = indexer.pool() {
+                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
+                        }
+                    }
+                    Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
+                        if let Some(pool) = indexer.pool() {
+                            pool.write()
+                            .expect("acquire lock")
+                            .transaction_rejected(&tx_entry.transaction);
+                        }
+                    }
+                    _ = stop.cancelled() => {
+                        debug!("Indexer received exit signal, exit now");
+                        break
+                    },
+                    else => break,
+                }
+            }
+        });
     }
 
     fn try_loop_sync(&self) {
@@ -180,5 +208,18 @@ where
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
         let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
+    }
+
+    fn indexer_secondary_options(config: &IndexerSyncConfig) -> Options {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+        opts.set_keep_log_file_num(
+            config
+                .db_keep_log_file_num
+                .map(NonZeroUsize::get)
+                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
+        );
+        opts
     }
 }
