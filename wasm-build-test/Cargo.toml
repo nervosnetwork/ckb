@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.113.0-pre" }
+ckb-gen-types = { path = "../util/gen-types", version = "= 0.113.0-pre" }
 ckb-script = { path = "../script", version = "= 0.113.0-pre", default-features = false, features = [] }
 
 # Prevent this from interfering with workspaces
