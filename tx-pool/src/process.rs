@@ -277,7 +277,12 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+        if self.chunk_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        if self.orphan_contains(&tx).await {
+            debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -460,38 +465,46 @@ impl TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
     ) {
-        self.orphan
+        let evicted_txs = self
+            .orphan
             .write()
             .await
-            .add_orphan_tx(tx, peer, declared_cycle)
+            .add_orphan_tx(tx, peer, declared_cycle);
+        // for any evicted orphan tx, we should send reject to relayer
+        // so that we mark it as `unknown` in filter
+        for tx_hash in evicted_txs {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
     }
 
-    pub(crate) async fn find_orphan_by_previous(
-        &self,
-        tx: &TransactionView,
-    ) -> Option<OrphanEntry> {
+    pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
         let orphan = self.orphan.read().await;
-        if let Some(id) = orphan.find_by_previous(tx) {
-            return orphan.get(&id).cloned();
-        }
-        None
+        orphan
+            .find_by_previous(tx)
+            .iter()
+            .filter_map(|id| orphan.get(id).cloned())
+            .collect::<Vec<_>>()
     }
 
     pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
         self.orphan.write().await.remove_orphan_tx(id);
     }
 
+    /// Remove all orphans which are resolved by the given transaction
+    /// the process is like a breath first search, if there is a cycle in `orphan_queue`,
+    /// `_process_tx` will return `Reject` since we have checked duplicated tx
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
 
         while let Some(previous) = orphan_queue.pop_front() {
-            if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
+            let orphans = self.find_orphan_by_previous(&previous).await;
+            for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} add to chunk,  find previous from {}",
+                        "process_orphan {} add to chunk, find previous from {}",
+                        orphan.tx.hash(),
                         tx.hash(),
-                        orphan.tx.hash()
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                     self.chunk
@@ -522,8 +535,8 @@ impl TxPoolService {
                             });
                             debug!(
                                 "process_orphan {} success, find previous from {}",
-                                tx.hash(),
-                                orphan.tx.hash()
+                                orphan.tx.hash(),
+                                tx.hash()
                             );
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             orphan_queue.push_back(orphan.tx);
@@ -531,10 +544,11 @@ impl TxPoolService {
                         Err(reject) => {
                             debug!(
                                 "process_orphan {} reject {}, find previous from {}",
-                                tx.hash(),
+                                orphan.tx.hash(),
                                 reject,
-                                orphan.tx.hash()
+                                tx.hash(),
                             );
+
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                                 if reject.is_malformed_tx() {
@@ -554,7 +568,6 @@ impl TxPoolService {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
-                            break;
                         }
                     }
                 }
@@ -914,15 +927,19 @@ impl TxPoolService {
             }
         }
 
-        {
-            let mut orphan = self.orphan.write().await;
-            orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
-        }
-
+        self.remove_orphan_txs_by_attach(&attached).await;
         {
             let mut chunk = self.chunk.write().await;
             chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+    }
+
+    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+        for tx in txs.iter() {
+            self.process_orphan_tx(tx).await;
+        }
+        let mut orphan = self.orphan.write().await;
+        orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
     }
 
     fn readd_detached_tx(

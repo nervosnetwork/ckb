@@ -203,6 +203,7 @@ impl TxPool {
     ) {
         for tx in txs {
             let tx_hash = tx.hash();
+            debug!("try remove_committed_tx {}", tx_hash);
             self.remove_committed_tx(tx, callbacks);
 
             self.committed_txs_hash_cache
