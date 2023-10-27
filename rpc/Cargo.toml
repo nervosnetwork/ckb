@@ -42,6 +42,7 @@ ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.113
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.113.0-pre" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.113.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.113.0-pre" }
+ckb-indexer-sync = { path = "../util/indexer-sync", version = "= 0.113.0-pre" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.113.0-pre" }
 itertools.workspace = true
 tokio = "1"
