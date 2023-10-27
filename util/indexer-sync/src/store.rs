@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 // Notice: rust-rocksdb `OpenRaw` handle 'default' column automatically
 #[derive(Clone)]
-pub(crate) struct SecondaryDB {
+pub struct SecondaryDB {
     inner: Arc<SecondaryRocksDB>,
 }
 
