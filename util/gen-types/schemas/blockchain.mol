@@ -10,7 +10,7 @@ array Uint256 [byte; 32];
 
 vector Bytes <byte>;
 option BytesOpt (Bytes);
-
+vector BytesOptVec <BytesOpt>;
 vector BytesVec <Bytes>;
 vector Byte32Vec <Byte32>;
 

@@ -295,3 +295,19 @@ impl packed::HeaderDigest {
         self.as_slice() == default.as_slice()
     }
 }
+
+impl From<packed::SendBlocksProofV1> for packed::LightClientMessageUnion {
+    fn from(item: packed::SendBlocksProofV1) -> Self {
+        packed::LightClientMessageUnion::SendBlocksProof(packed::SendBlocksProof::new_unchecked(
+            item.as_bytes(),
+        ))
+    }
+}
+
+impl From<packed::SendTransactionsProofV1> for packed::LightClientMessageUnion {
+    fn from(item: packed::SendTransactionsProofV1) -> Self {
+        packed::LightClientMessageUnion::SendTransactionsProof(
+            packed::SendTransactionsProof::new_unchecked(item.as_bytes()),
+        )
+    }
+}
