@@ -122,6 +122,7 @@ pub fn basic_app() -> Command {
         .about("Nervos CKB - The Common Knowledge Base")
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .term_width(110)
         .arg(
             Arg::new(ARG_CONFIG_DIR)
                 .global(true)
@@ -186,13 +187,13 @@ fn run() -> Command {
             .help("This parameter specifies the hash of a block. \
             When the height does not reach this block's height, the execution of the script will be disabled, \
             that is, skip verifying the script content. \
-            \
-            It should be noted that when this option is enabled, the header is first synchronized to \
+            \n\nIt should be noted that when this option is enabled, the header is first synchronized to \
             the highest currently found. During this period, if the assume valid target is found, \
             the download of the block starts; If the assume valid target is not found or it's \
             timestamp within 24 hours of the current time, the target will automatically become invalid, \
             and the download of the block will be started with verify")
-        ).arg(
+        )
+        .arg(
             Arg::new(ARG_INDEXER)
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
