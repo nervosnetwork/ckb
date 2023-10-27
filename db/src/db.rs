@@ -72,14 +72,16 @@ impl RocksDB {
         for cf in cf_descriptors.iter_mut() {
             let mut block_opts = BlockBasedOptions::default();
             block_opts.set_ribbon_filter(10.0);
-            block_opts.set_cache_index_and_filter_blocks(true);
-            block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
             block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
             match cache {
-                Some(ref cache) => block_opts.set_block_cache(cache),
+                Some(ref cache) => {
+                    block_opts.set_block_cache(cache);
+                    block_opts.set_cache_index_and_filter_blocks(true);
+                    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+                }
                 None => block_opts.disable_cache(),
             }
             // only COLUMN_BLOCK_BODY column family use prefix seek
