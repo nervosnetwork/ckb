@@ -346,6 +346,13 @@ impl Node {
         self.submit_transaction(&self.new_transaction_spend_tip_cellbase())
     }
 
+    // generate a transaction which spend tip block's cellbase and capacity
+    pub fn new_transaction_with_capacity(&self, capacity: Capacity) -> TransactionView {
+        let block = self.get_tip_block();
+        let cellbase = &block.transactions()[0];
+        self.new_transaction_with_since_capacity(cellbase.hash(), 0, capacity)
+    }
+
     // generate a transaction which spend tip block's cellbase
     pub fn new_transaction_spend_tip_cellbase(&self) -> TransactionView {
         let block = self.get_tip_block();
@@ -539,11 +546,12 @@ impl Node {
         self.new_transaction_with_since_capacity(hash, since, capacity_bytes!(100))
     }
 
-    pub fn new_transaction_with_since_capacity(
+    pub fn new_transaction_with_capacity_and_index(
         &self,
         hash: Byte32,
-        since: u64,
         capacity: Capacity,
+        index: u32,
+        since: u64,
     ) -> TransactionView {
         let always_success_cell_dep = self.always_success_cell_dep();
         let always_success_script = self.always_success_script();
@@ -557,8 +565,17 @@ impl Node {
                     .build(),
             )
             .output_data(Default::default())
-            .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .input(CellInput::new(OutPoint::new(hash, index), since))
             .build()
+    }
+
+    pub fn new_transaction_with_since_capacity(
+        &self,
+        hash: Byte32,
+        since: u64,
+        capacity: Capacity,
+    ) -> TransactionView {
+        self.new_transaction_with_capacity_and_index(hash, capacity, 0, since)
     }
 
     pub fn new_always_failure_transaction(&self, hash: Byte32) -> TransactionView {

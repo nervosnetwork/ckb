@@ -60,8 +60,10 @@ pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 // o_ideal = 1/40 = 2.5%
 pub(crate) const DEFAULT_ORPHAN_RATE_TARGET: (u32, u32) = (1, 40);
 
-const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
-const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
+/// max block interval, 48 seconds
+pub const MAX_BLOCK_INTERVAL: u64 = 48;
+/// min block interval, 8 seconds
+pub const MIN_BLOCK_INTERVAL: u64 = 8;
 
 /// cycles of a typical two-in-two-out tx.
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_500_000;
