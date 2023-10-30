@@ -16,7 +16,3 @@ write_buffer_size=8388608
 min_write_buffer_number_to_merge=1
 max_write_buffer_number=2
 max_write_buffer_size_to_maintain=-1
-
-[TableOptions/BlockBasedTable "default"]
-cache_index_and_filter_blocks=true
-pin_l0_filter_and_index_blocks_in_cache=true
