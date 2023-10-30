@@ -1,4 +1,5 @@
 use crate::{BlockNumber, Byte32, Timestamp, Uint64};
+use ckb_types::H256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -278,6 +279,10 @@ pub struct SyncState {
     pub orphan_blocks_count: Uint64,
     /// Count of downloading blocks.
     pub inflight_blocks_count: Uint64,
+    /// The block number of current unverified tip block
+    pub unverified_tip_number: BlockNumber,
+    /// The block hash of current unverified tip block
+    pub unverified_tip_hash: H256,
     /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
     pub fast_time: Uint64,
     /// The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms

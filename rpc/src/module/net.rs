@@ -8,6 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::prelude::Unpack;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::sync::Arc;
@@ -717,9 +718,11 @@ impl NetRpc for NetRpcImpl {
 
     fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
+        let shared = chain.shared().shared();
         let state = chain.shared().state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
+        let unverified_tip = shared.get_unverified_tip();
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
             best_known_block_number: best_known.number().into(),
@@ -727,6 +730,8 @@ impl NetRpc for NetRpcImpl {
             orphan_blocks_count: (self.chain_controller.orphan_blocks_len() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
+            unverified_tip_number: unverified_tip.number().into(),
+            unverified_tip_hash: unverified_tip.hash().unpack(),
             fast_time: fast_time.into(),
             normal_time: normal_time.into(),
             low_time: low_time.into(),
