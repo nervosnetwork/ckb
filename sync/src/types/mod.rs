@@ -1728,7 +1728,6 @@ impl SyncState {
     pub fn disconnected(&self, pi: PeerIndex) {
         self.write_inflight_blocks().remove_by_peer(pi);
         self.peers().disconnected(pi);
-        debug!("peer {} disconnected", pi);
     }
 
     // pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
