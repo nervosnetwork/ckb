@@ -1,10 +1,11 @@
 //! The built-in synchronization service in CKB can provide block synchronization services for indexers.
 
 pub(crate) mod error;
-pub mod pool;
+pub(crate) mod pool;
 pub(crate) mod store;
 
-pub use crate::pool::Pool;
+pub use crate::error::Error;
+pub use crate::pool::{Pool, PoolService};
 pub use crate::store::SecondaryDB;
 
 use ckb_app_config::{DBConfig, IndexerSyncConfig};
@@ -38,8 +39,6 @@ pub trait IndexerSync {
     fn append(&self, block: &BlockView) -> Result<(), Error>;
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error>;
-    /// Get the pool of the indexer
-    fn pool(&self) -> Option<&Arc<RwLock<Pool>>>;
 }
 
 /// Construct new secondary db instance from DBConfig
@@ -63,6 +62,7 @@ pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) ->
 #[derive(Clone)]
 pub struct IndexerSyncService {
     secondary_db: SecondaryDB,
+    pool_service: PoolService,
     poll_interval: Duration,
     async_handle: Handle,
 }
@@ -71,58 +71,16 @@ impl IndexerSyncService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(
         secondary_db: SecondaryDB,
+        pool_service: PoolService,
         config: &IndexerSyncConfig,
         async_handle: Handle,
     ) -> Self {
         Self {
             secondary_db,
+            pool_service,
             poll_interval: Duration::from_secs(config.poll_interval),
             async_handle,
         }
-    }
-
-    /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub fn index_tx_pool<I>(
-        &self,
-        indexer: I,
-        notify_controller: NotifyController,
-        subscriber_name: String,
-    ) where
-        I: IndexerSync + Clone + Send + 'static,
-    {
-        let indexer = indexer.clone();
-        let stop: CancellationToken = new_tokio_exit_rx();
-
-        self.async_handle.spawn(async move {
-            let mut new_transaction_receiver = notify_controller
-                .subscribe_new_transaction(subscriber_name.to_owned())
-                .await;
-            let mut reject_transaction_receiver = notify_controller
-                .subscribe_reject_transaction(subscriber_name.to_owned())
-                .await;
-
-            loop {
-                tokio::select! {
-                    Some(tx_entry) = new_transaction_receiver.recv() => {
-                        if let Some(pool) = indexer.pool() {
-                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
-                        }
-                    }
-                    Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
-                        if let Some(pool) = indexer.pool() {
-                            pool.write()
-                            .expect("acquire lock")
-                            .transaction_rejected(&tx_entry.transaction);
-                        }
-                    }
-                    _ = stop.cancelled() => {
-                        debug!("Indexer received exit signal, exit now");
-                        break
-                    },
-                    else => break,
-                }
-            }
-        });
     }
 
     fn try_loop_sync<I: IndexerSync>(&self, indexer: I)
@@ -209,6 +167,10 @@ impl IndexerSyncService {
                 }
             }
         });
+    }
+
+    pub fn pool(&self) -> Option<Arc<RwLock<Pool>>> {
+        self.pool_service.pool()
     }
 
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {

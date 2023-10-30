@@ -6,17 +6,18 @@ use crate::pool::Pool;
 use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use ckb_app_config::{DBConfig, IndexerConfig};
+use ckb_async_runtime::Handle;
 use ckb_async_runtime::{
     tokio::{self, time},
     Handle,
 };
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
+use ckb_indexer_sync::{Error, IndexerSync, IndexerSyncService, Pool, PoolService, SecondaryDB};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip, IndexerTx,
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
-use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{has_received_stop_signal, new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
@@ -28,6 +29,7 @@ use ckb_types::{
 };
 use memchr::memmem;
 use rocksdb::{prelude::*, Direction, IteratorMode};
+
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
@@ -42,10 +44,7 @@ const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 #[derive(Clone)]
 pub struct IndexerService {
     store: RocksdbStore,
-    secondary_db: SecondaryDB,
-    pool: Option<Arc<RwLock<Pool>>>,
-    poll_interval: Duration,
-    async_handle: Handle,
+    sync: IndexerSyncService,
     block_filter: Option<String>,
     cell_filter: Option<String>,
     init_tip_hash: Option<H256>,
@@ -53,35 +52,20 @@ pub struct IndexerService {
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
-    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
+    pub fn new(
+        ckb_db: SecondaryDB,
+        pool_service: PoolService,
+        config: &IndexerConfig,
+        async_handle: Handle,
+    ) -> Self {
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
-        let pool = if config.index_tx_pool {
-            Some(Arc::new(RwLock::new(Pool::default())))
-        } else {
-            None
-        };
-
-        let cf_names = vec![
-            COLUMN_INDEX,
-            COLUMN_META,
-            COLUMN_BLOCK_HEADER,
-            COLUMN_BLOCK_BODY,
-        ];
-        let secondary_opts = Self::indexer_secondary_options(config);
-        let secondary_db = SecondaryDB::open_cf(
-            &secondary_opts,
-            &ckb_db_config.path,
-            cf_names,
-            config.secondary_path.to_string_lossy().to_string(),
-        );
+        let sync =
+            IndexerSyncService::new(ckb_db, pool_service, &config.into(), async_handle.clone());
 
         Self {
             store,
-            secondary_db,
-            pool,
-            async_handle,
-            poll_interval: Duration::from_secs(config.poll_interval),
+            sync,
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
             init_tip_hash: config.init_tip_hash.clone(),
@@ -301,17 +285,24 @@ impl IndexerService {
         opts
     }
 
-    fn indexer_secondary_options(config: &IndexerConfig) -> Options {
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        opts.set_keep_log_file_num(
-            config
-                .db_keep_log_file_num
-                .map(NonZeroUsize::get)
-                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
-        );
-        opts
+    fn get_indexer(&self) -> Indexer<RocksdbStore> {
+        // assume that long fork will not happen >= 100 blocks.
+        let keep_num = 100;
+        Indexer::new(
+            self.store.clone(),
+            keep_num,
+            1000,
+            self.sync.pool(),
+            CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
+        )
+    }
+
+    pub fn spawn_poll(&self, notify_controller: NotifyController) {
+        self.sync.spawn_poll(
+            notify_controller,
+            SUBSCRIBER_NAME.to_string(),
+            self.get_indexer(),
+        )
     }
 }
 

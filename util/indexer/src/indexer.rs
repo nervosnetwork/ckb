@@ -1,8 +1,5 @@
-use crate::error::Error;
-use crate::{
-    pool::Pool,
-    store::{Batch, IteratorDirection, Store},
-};
+use crate::store::{Batch, IteratorDirection, Store};
+use ckb_indexer_sync::{Error, IndexerSync, Pool};
 use ckb_types::{
     core::{BlockNumber, BlockView},
     packed::{Byte32, Bytes, CellOutput, OutPoint, Script},
@@ -272,6 +269,7 @@ pub struct DetailedLiveCell {
 }
 
 /// Indexer store wrapper
+#[derive(Clone)]
 pub(crate) struct Indexer<S> {
     /// storage
     store: S,
@@ -312,12 +310,12 @@ impl<S> Indexer<S> {
     }
 }
 
-impl<S> Indexer<S>
+impl<S> IndexerSync for Indexer<S>
 where
     S: Store,
 {
     /// Parse the block, store the Cell Transaction etc. contained in the block with the designed index
-    pub(crate) fn append(&self, block: &BlockView) -> Result<(), Error> {
+    fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
         if !self.custom_filters.is_block_filter_match(block) {
             batch.put_kv(Key::Header(block.number(), &block.hash(), true), vec![])?;
@@ -522,7 +520,7 @@ where
     }
 
     /// Rollback the current tip
-    pub(crate) fn rollback(&self) -> Result<(), Error> {
+    fn rollback(&self) -> Result<(), Error> {
         let mut iter = self
             .store
             .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
@@ -678,7 +676,7 @@ where
     }
 
     /// Return the current tip
-    pub(crate) fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
+    fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
         let mut iter = self
             .store
             .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
@@ -689,7 +687,12 @@ where
             )
         }))
     }
+}
 
+impl<S> Indexer<S>
+where
+    S: Store,
+{
     /// Return block hash by specified block_number
     #[cfg(test)]
     pub(crate) fn get_block_hash(
@@ -911,6 +914,16 @@ pub struct CustomFilters {
     engine: Engine,
     block_filter: Option<AST>,
     cell_filter: Option<AST>,
+}
+
+impl Clone for CustomFilters {
+    fn clone(&self) -> Self {
+        CustomFilters {
+            engine: Engine::new(),
+            block_filter: self.block_filter.clone(),
+            cell_filter: self.cell_filter.clone(),
+        }
+    }
 }
 
 fn to_uint(s: &str) -> Result<U256, Box<EvalAltResult>> {

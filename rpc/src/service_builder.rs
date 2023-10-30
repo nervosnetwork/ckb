@@ -11,6 +11,7 @@ use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
+use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
@@ -188,11 +189,23 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
-        let indexer = IndexerService::new(db_config, indexer_config, shared.async_handle().clone());
+        let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
+        let pool_service =
+            PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
+
+        let indexer = IndexerService::new(
+            ckb_secondary_db.clone(),
+            pool_service.clone(),
+            indexer_config,
+            shared.async_handle().clone(),
+        );
         let indexer_handle = indexer.handle();
         let methods = IndexerRpcImpl::new(indexer_handle);
         if self.config.indexer_enable() {
-            start_indexer(&shared, indexer, indexer_config.index_tx_pool);
+            start_indexer(&shared, indexer);
+            if indexer_config.index_tx_pool {
+                pool_service.index_tx_pool(shared.notify_controller().clone());
+            }
         }
         set_rpc_module_methods!(
             self,
@@ -263,11 +276,7 @@ impl<'a> ServiceBuilder<'a> {
     }
 }
 
-fn start_indexer(shared: &Shared, service: IndexerService, index_tx_pool: bool) {
+fn start_indexer(shared: &Shared, indexer_service: IndexerService) {
     let notify_controller = shared.notify_controller().clone();
-    service.spawn_poll(notify_controller.clone());
-
-    if index_tx_pool {
-        service.index_tx_pool(notify_controller);
-    }
+    indexer_service.spawn_poll(notify_controller.clone());
 }

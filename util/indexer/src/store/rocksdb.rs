@@ -1,5 +1,5 @@
 use super::{Batch, IteratorDirection, IteratorItem, Store};
-use crate::error::Error;
+use ckb_indexer_sync::Error;
 use rocksdb::{prelude::*, Direction, IteratorMode, WriteBatch, DB};
 use std::path::Path;
 use std::sync::Arc;
