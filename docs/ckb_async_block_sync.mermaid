@@ -1,0 +1,75 @@
+sequenceDiagram
+  autonumber
+
+  participant Sr as Synchronizer::received
+  participant BP as BlockProcess
+
+  participant Sp as Synchronizer::poll
+
+  participant C as main thread
+  participant CO as OrphanBlockPool thread
+  participant CV as ConsumeUnverifiedBlocks thread
+
+  box crate:ckb-sync
+    participant  Sr
+    participant  Sp
+    participant  BP
+  end
+
+  box crate:ckb-chain
+    participant C
+    participant CO
+    participant CV
+  end
+
+
+
+  Note left of Sr: synchronizer received <br>Block(122) from remote peer
+  Note over Sr: try_process SyncMessageUnionReader::SendBlock
+  Sr->>+BP: BlockProcess::execute(Block(122))
+  BP->>+C: asynchronous_process_block(Block(122))
+  Note over C: non_contextual_verify(Block(122))
+  C->>+CO: send Block(122) to OrphanBlockPool via channel
+  C->>-BP: return
+  BP->>-Sr: return
+
+  Note over CO: insert Block(122) to OrphanBlockPool
+
+  Note left of Sr: synchronizer received <br>Block(123) from remote peer
+  Note over Sr: try_process SyncMessageUnionReader::SendBlock
+  Sr->>+BP: BlockProcess::execute(Block(123))
+  BP->>+C: asynchronous_process_block(Block(123))
+  Note over C: non_contextual_verify(Block(123))
+  C->>+CO: send Block(123) to OrphanBlockPool via channel
+  C->>-BP: return
+  BP->>-Sr: return
+
+  Note over CO: insert Block(123) to OrphanBlockPool
+
+  loop Search Orphan Pool
+    Note over CO: if a leader block have descendants
+    Note over CO: load all descendants from OrphanBlockPool
+    Note over CO: assume these descendants are valid, let BlockExt.verified = None
+    Note over CO: insert them to RocksDB
+    Note over CO: Increase Unverified TIP
+    CO->>+CV: send the UnverifiedBlock to ConsumeUnverifiedBlocks via channel
+  end
+
+  loop Consume Unverified Blocks
+    Note over CV: start verify UnverifiedBlock if the channel is not empty
+
+    Note over CV: Verify Block in CKB VM
+
+
+    alt Block is Valid
+      Note over CV: remove Block block_status and HeaderMap
+    else Block is Invalid
+      Note over CV: Decrease Unverified TIP
+      CV->>Sp: I received a Invalid Block, please punish the malicious peer
+      Note over Sp: call nc.ban_peer() to punish the malicious peer
+    end
+    opt Execute Callback
+      Note over CV: callback: Box<dyn FnOnce(Result<VerifiedBlockStatus, Error>) + Send + Sync>
+
+    end
+  end
