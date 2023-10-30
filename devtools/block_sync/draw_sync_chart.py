@@ -26,17 +26,20 @@ def parse_sync_statics(log_file):
         pbar = tqdm.tqdm(total=total_lines)
         for line_idx, line in enumerate(f):
             pbar.update(1)
-            if line.find('INFO ckb_chain::chain  block: ') != -1:
+            if line_idx == 0:
                 timestamp_str = re.search(r'^(\S+ \S+)', line).group(1)  # Extract the timestamp string
                 timestamp = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f").timestamp()
-
-                if base_timestamp == 0:
-                    base_timestamp = timestamp
-                timestamp = int(timestamp - base_timestamp)
+                base_timestamp = timestamp
+                
+            
+            if line.find('INFO ckb_chain::chain  block: ') != -1:
 
                 block_number = int(re.search(r'block: (\d+)', line).group(1))  # Extract the block number using regex
 
-                if line_idx == 0 or block_number % 10000 == 0:
+                if line_idx == 0 or block_number % 10_000 == 0:
+                    timestamp_str = re.search(r'^(\S+ \S+)', line).group(1)  # Extract the timestamp string
+                    timestamp = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f").timestamp()
+                    timestamp = int(timestamp - base_timestamp)
                     duration.append(timestamp / 60 / 60)
                     height.append(block_number)
 
@@ -76,8 +79,14 @@ for ckb_log_file, label in tasks:
     lgs.append(lg)
 
     for i, h in enumerate(height):
-        if h % 2000000 == 0:
+        if h % 1_000_000 == 0:
             ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
+            ax.annotate(str(round(duration[i], 1)),
+                        xy=(duration[i], 0),
+                        xycoords='axes fraction',
+                        xytext=(duration[i], -0.05),
+                        arrowprops=dict(arrowstyle="->", color='b')
+                        )
 
     ax.get_yaxis().get_major_formatter().set_scientific(False)
     ax.get_yaxis().get_major_formatter().set_useOffset(False)
@@ -92,10 +101,14 @@ for ckb_log_file, label in tasks:
     ax.xaxis.grid(color='gray', linestyle='dashed', which='minor')
     ax.yaxis.grid(color='gray', linestyle='dashed', which='minor')
     
-    minorLocator = MultipleLocator(10)
-    ax.xaxis.set_minor_locator(minorLocator)
-    
-    plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right')
+    xminorLocator = MultipleLocator(1.0)
+    ax.xaxis.set_minor_locator(xminorLocator)
+
+    yminorLocator = MultipleLocator(1_000_000)
+    ax.yaxis.set_minor_locator(yminorLocator)
+
+    # plt.xticks(ax.get_xticks(), ax.get_xticklabels(which='both'))
+    # plt.setp(ax.get_xticklabels(which='both'), rotation=30, horizontalalignment='right')
 
 plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
 plt.title('CKB Block Sync progress Chart')
