@@ -61,11 +61,6 @@ case $GITHUB_WORKFLOW in
     make check-dirty-hashes-toml
     devtools/ci/check-cyclic-dependencies.py
     ;;
-  ci_wasm_build*)
-    echo "ci_WASM_build"
-    rustup target add wasm32-unknown-unknown
-    make wasm-build-test
-    ;;
   ci_aarch64_build*)
     echo "ci_aarch64_build"
     sudo apt-get install -y gcc-multilib
