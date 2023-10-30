@@ -1,3 +1,5 @@
+use super::indexer_sync::IndexerSyncConfig;
+
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -77,33 +79,14 @@ fn _adjust(root_dir: &Path, indexer_dir: &Path, target: &mut PathBuf, sub: &str)
     }
 }
 
-/// Indexer config options.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct IndexerSyncConfig {
-    /// The secondary_db path, default `data_dir / indexer / secondary_path`
-    #[serde(default)]
-    pub secondary_path: PathBuf,
-    /// The poll interval by secs
-    #[serde(default = "default_poll_interval")]
-    pub poll_interval: u64,
-    /// Whether to index the pending txs in the ckb tx-pool
-    pub index_tx_pool: bool,
-    /// Maximum number of concurrent db background jobs (compactions and flushes)
-    #[serde(default)]
-    pub db_background_jobs: Option<NonZeroUsize>,
-    /// Maximal db info log files to be kept.
-    #[serde(default)]
-    pub db_keep_log_file_num: Option<NonZeroUsize>,
-}
-
-impl Default for IndexerSyncConfig {
-    fn default() -> Self {
+impl From<&IndexerConfig> for IndexerSyncConfig {
+    fn from(config: &IndexerConfig) -> IndexerSyncConfig {
         IndexerSyncConfig {
-            secondary_path: PathBuf::new(),
-            poll_interval: 2,
-            index_tx_pool: false,
-            db_background_jobs: None,
-            db_keep_log_file_num: None,
+            secondary_path: config.secondary_path.clone(),
+            poll_interval: config.poll_interval,
+            index_tx_pool: config.index_tx_pool,
+            db_background_jobs: config.db_background_jobs,
+            db_keep_log_file_num: config.db_keep_log_file_num,
         }
     }
 }
