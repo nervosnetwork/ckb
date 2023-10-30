@@ -839,6 +839,7 @@ impl CKBProtocolHandler for Synchronizer {
     ) {
         let sync_state = self.shared().state();
         sync_state.disconnected(peer_index);
+        info!("SyncProtocol.disconnected peer={}", peer_index);
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
