@@ -732,6 +732,8 @@ impl NetRpc for NetRpcImpl {
                 .into(),
             unverified_tip_number: unverified_tip.number().into(),
             unverified_tip_hash: unverified_tip.hash().unpack(),
+            tip_number: chain.tip_number().into(),
+            tip_hash: chain.tip_hash().unpack(),
             fast_time: fast_time.into(),
             normal_time: normal_time.into(),
             low_time: low_time.into(),
