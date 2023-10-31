@@ -552,8 +552,10 @@ impl TxPool {
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
+        let mut outputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
+            outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
         if rtx
@@ -563,6 +565,16 @@ impl TxPool {
         {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
+            ));
+        }
+
+        if rtx
+            .transaction
+            .cell_deps_iter()
+            .any(|dep| outputs.contains(&dep.out_point()))
+        {
+            return Err(Reject::RBFRejected(
+                "new Tx contains cell deps from conflicts".to_string(),
             ));
         }
 
