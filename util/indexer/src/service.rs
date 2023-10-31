@@ -297,6 +297,7 @@ impl IndexerService {
         )
     }
 
+    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub fn spawn_poll(&self, notify_controller: NotifyController) {
         self.sync.spawn_poll(
             notify_controller,
@@ -1089,6 +1090,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
+    use ckb_indexer_sync::IndexerSync;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
     use ckb_types::{
         bytes::Bytes,

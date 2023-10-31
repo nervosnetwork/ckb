@@ -41,7 +41,7 @@ pub trait IndexerSync {
     fn rollback(&self) -> Result<(), Error>;
 }
 
-/// Construct new secondary db instance from DBConfig
+/// Construct new secondary db instance
 pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) -> SecondaryDB {
     let cf_names = vec![
         COLUMN_INDEX,
@@ -68,7 +68,7 @@ pub struct IndexerSyncService {
 }
 
 impl IndexerSyncService {
-    /// Construct new Indexer service instance from DBConfig and IndexerConfig
+    /// Construct new Indexer sync service instance
     pub fn new(
         secondary_db: SecondaryDB,
         pool_service: PoolService,
@@ -169,6 +169,7 @@ impl IndexerSyncService {
         });
     }
 
+    /// Get index data based on transaction pool synchronization
     pub fn pool(&self) -> Option<Arc<RwLock<Pool>>> {
         self.pool_service.pool()
     }
