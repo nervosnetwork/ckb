@@ -343,8 +343,8 @@ impl Spec for TxPoolOrphanDoubleSpend {
         );
 
         assert!(
-            run_replay_tx(&net, node0, tx12, 1, 0),
-            "tx12 is not in orphan pool"
+            run_replay_tx(&net, node0, tx12, 2, 0),
+            "tx12 in orphan pool"
         );
     }
 }
