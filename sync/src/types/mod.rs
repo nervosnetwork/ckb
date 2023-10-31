@@ -762,21 +762,23 @@ impl InflightBlocks {
         download_scheduler.hashes.insert(block)
     }
 
-    pub fn remove_by_peer(&mut self, peer: PeerIndex) -> bool {
+    pub fn remove_by_peer(&mut self, peer: PeerIndex) -> usize {
         let trace = &mut self.trace_number;
         let state = &mut self.inflight_states;
 
         self.download_schedulers
             .remove(&peer)
             .map(|blocks| {
+                let blocks_count = blocks.hashes.iter().len();
                 for block in blocks.hashes {
                     state.remove(&block);
                     if !trace.is_empty() {
                         trace.remove(&block);
                     }
                 }
+                blocks_count
             })
-            .is_some()
+            .unwrap_or_default()
     }
 
     pub fn remove_by_block(&mut self, block: BlockNumberAndHash) -> bool {
@@ -1726,7 +1728,13 @@ impl SyncState {
     // TODO: record peer's connection duration (disconnect time - connect established time)
     // and report peer's connection duration to ckb_metrics
     pub fn disconnected(&self, pi: PeerIndex) {
-        self.write_inflight_blocks().remove_by_peer(pi);
+        let removed_inflight_blocks_count = self.write_inflight_blocks().remove_by_peer(pi);
+        if removed_inflight_blocks_count > 0 {
+            debug!(
+                "disconnected {}, remove {} inflight blocks",
+                pi, removed_inflight_blocks_count
+            )
+        }
         self.peers().disconnected(pi);
     }
 
