@@ -228,6 +228,7 @@ impl TxPool {
     fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let short_id = tx.proposal_short_id();
         if let Some(entry) = self.pool_map.remove_entry(&short_id) {
+            debug!("remove_committed_tx for {}", tx.hash());
             callbacks.call_committed(self, &entry)
         }
         {
@@ -249,6 +250,8 @@ impl TxPool {
             .collect();
 
         for entry in removed {
+            let tx_hash = entry.transaction().hash();
+            debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
             self.pool_map.remove_entry(&entry.proposal_short_id());
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);

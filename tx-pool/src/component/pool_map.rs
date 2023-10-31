@@ -7,7 +7,7 @@ use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
 
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
@@ -190,6 +190,11 @@ impl PoolMap {
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove_by_id(id).map(|entry| {
+            debug!(
+                "remove entry {} from status: {:?}",
+                entry.inner.transaction().hash(),
+                entry.status
+            );
             self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
@@ -455,6 +460,7 @@ impl PoolMap {
             entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
+            debug!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
