@@ -1,5 +1,5 @@
 use ckb_async_runtime::Handle;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use std::sync::Arc;
