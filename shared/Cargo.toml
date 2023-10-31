@@ -44,3 +44,4 @@ ckb-systemtime = { path = "../util/systemtime", version = "= 0.114.0-pre", featu
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable", "ckb-migrate/portable"]
 march-native = ["ckb-db/march-native", "ckb-store/march-native", "ckb-tx-pool/march-native", "ckb-migrate/march-native"]
+stats = []
