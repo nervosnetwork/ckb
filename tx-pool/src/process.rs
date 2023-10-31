@@ -129,6 +129,11 @@ impl TxPoolService {
                 for id in conflicts.iter() {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
                     for old in removed {
+                        debug!(
+                            "remove conflict tx {} for RBF by new tx {}",
+                            old.transaction().hash(),
+                            entry.transaction().hash()
+                        );
                         let reject = Reject::RBFRejected(format!(
                             "replaced by {}",
                             entry.proposal_short_id()
