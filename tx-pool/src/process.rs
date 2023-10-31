@@ -135,8 +135,8 @@ impl TxPoolService {
                             entry.transaction().hash()
                         );
                         let reject = Reject::RBFRejected(format!(
-                            "replaced by {}",
-                            entry.proposal_short_id()
+                            "replaced by tx {}",
+                            entry.transaction().hash()
                         ));
                         // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
                         // here we call them manually
