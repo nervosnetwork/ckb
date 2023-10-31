@@ -1,7 +1,7 @@
 use std::path;
 
 #[cfg(feature = "stats")]
-use ckb_logger::trace;
+use ckb_logger::info;
 #[cfg(feature = "stats")]
 use ckb_util::{Mutex, MutexGuard};
 
@@ -153,7 +153,7 @@ where
         let progress = stats.trace_progress();
         let frequency = stats.frequency();
         if progress % frequency == 0 {
-            trace!(
+            info!(
                 "Header Map Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
