@@ -75,6 +75,7 @@ impl PoolService {
         Self { pool, async_handle }
     }
 
+    /// Get the inner pool
     pub fn pool(&self) -> Option<Arc<RwLock<Pool>>> {
         self.pool.clone()
     }

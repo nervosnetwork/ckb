@@ -5,7 +5,7 @@ use crate::store::{IteratorDirection, RocksdbStore, Store};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{Error, IndexerSync, IndexerSyncService, Pool, PoolService, SecondaryDB};
+use ckb_indexer_sync::{Error, IndexerSyncService, Pool, PoolService, SecondaryDB};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
@@ -94,6 +94,7 @@ impl IndexerService {
         )
     }
 
+    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub fn spawn_poll(&self, notify_controller: NotifyController) {
         self.sync.spawn_poll(
             notify_controller,
@@ -800,6 +801,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
+    use ckb_indexer_sync::IndexerSync;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
     use ckb_types::{
         bytes::Bytes,
