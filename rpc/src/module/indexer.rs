@@ -63,6 +63,8 @@ pub trait IndexerRpc {
     ///
     /// ## Returns
     ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
+    ///
     /// * objects:
     ///     - output: the fields of an output cell
     ///     - output_data: the cell data
@@ -409,6 +411,9 @@ pub trait IndexerRpc {
     /// * after: pagination parameter, optional
     ///
     /// ## Returns
+    ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.
+    ///
     ///  * objects - enum, ungrouped TxWithCell | grouped TxWithCells
     ///     - TxWithCell:
     ///         - tx_hash: transaction hash,
