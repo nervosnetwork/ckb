@@ -157,7 +157,7 @@ where
                 "Header Map Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
-            \n>\t| memory |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
+            \n>\t| memory  |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             \n>\t| backend |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             ",
                 self.memory.len(),
