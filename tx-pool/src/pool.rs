@@ -228,6 +228,7 @@ impl TxPool {
     fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let short_id = tx.proposal_short_id();
         if let Some(entry) = self.pool_map.remove_entry(&short_id) {
+            debug!("remove_committed_tx for {}", tx.hash());
             callbacks.call_committed(self, &entry)
         }
         {
@@ -249,6 +250,8 @@ impl TxPool {
             .collect();
 
         for entry in removed {
+            let tx_hash = entry.transaction().hash();
+            debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
             self.pool_map.remove_entry(&entry.proposal_short_id());
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
@@ -549,8 +552,10 @@ impl TxPool {
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
+        let mut outputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
+            outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
         if rtx
@@ -560,6 +565,16 @@ impl TxPool {
         {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
+            ));
+        }
+
+        if rtx
+            .transaction
+            .cell_deps_iter()
+            .any(|dep| outputs.contains(&dep.out_point()))
+        {
+            return Err(Reject::RBFRejected(
+                "new Tx contains cell deps from conflicts".to_string(),
             ));
         }
 

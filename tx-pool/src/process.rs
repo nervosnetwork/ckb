@@ -129,9 +129,14 @@ impl TxPoolService {
                 for id in conflicts.iter() {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
                     for old in removed {
+                        debug!(
+                            "remove conflict tx {} for RBF by new tx {}",
+                            old.transaction().hash(),
+                            entry.transaction().hash()
+                        );
                         let reject = Reject::RBFRejected(format!(
-                            "replaced by {}",
-                            entry.proposal_short_id()
+                            "replaced by tx {}",
+                            entry.transaction().hash()
                         ));
                         // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
                         // here we call them manually
@@ -403,6 +408,7 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
+                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
                     if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
@@ -445,6 +451,7 @@ impl TxPoolService {
                         });
                     }
                     Err(reject) => {
+                        debug!("after_process {} reject: {} ", tx_hash, reject);
                         if matches!(
                             reject,
                             Reject::Resolve(..)
@@ -1081,19 +1088,23 @@ fn _submit_entry(
     entry: TxEntry,
     callbacks: &Callbacks,
 ) -> Result<(), Reject> {
+    let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone())? {
+                debug!("submit_entry pending {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             }
         }
         TxStatus::Gap => {
             if tx_pool.add_gap(entry.clone())? {
+                debug!("submit_entry gap {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
             }
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
+                debug!("submit_entry proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
             }
         }
@@ -1147,6 +1158,11 @@ fn _update_tx_pool_for_reorg(
         for (id, entry) in proposals {
             debug!("begin to proposed: {:x}", id);
             if let Err(e) = tx_pool.proposed_rtx(&id) {
+                debug!(
+                    "Failed to add proposed tx {}, reason: {}",
+                    entry.transaction().hash(),
+                    e
+                );
                 callbacks.call_reject(tx_pool, &entry, e);
             } else {
                 callbacks.call_proposed(tx_pool, &entry, false)
