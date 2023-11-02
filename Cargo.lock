@@ -836,6 +836,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-indexer-r"
+version = "0.113.0-pre"
+dependencies = [
+ "ckb-indexer-sync",
+]
+
+[[package]]
 name = "ckb-indexer-sync"
 version = "0.113.0-pre"
 dependencies = [
