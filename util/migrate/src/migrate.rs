@@ -5,6 +5,7 @@ use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMNS, COLUMN_META};
 use ckb_error::Error;
+use ckb_types::core::hardfork::HardForks;
 use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ pub struct Migrate {
 
 impl Migrate {
     /// Construct new migrate
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+    pub fn new<P: Into<PathBuf>>(path: P, hardforks: HardForks) -> Self {
         let mut migrations = Migrations::default();
         migrations.add_migration(Arc::new(DefaultMigration::new(INIT_DB_VERSION)));
         migrations.add_migration(Arc::new(migrations::ChangeMoleculeTableToStruct)); // since v0.35.0

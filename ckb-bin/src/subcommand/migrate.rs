@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use crate::helper::prompt;
 
 pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
-    let migrate = Migrate::new(&args.config.db.path);
+    let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {

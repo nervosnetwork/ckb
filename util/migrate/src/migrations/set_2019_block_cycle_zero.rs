@@ -1,5 +1,8 @@
 use ckb_app_config::StoreConfig;
+<<<<<<< HEAD
 //use ckb_db_migration::SHUTDOWN_BACKGROUND_MIGRATION;
+=======
+>>>>>>> bd4c28d58 (fix: fix vm version select)
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::COLUMN_EPOCH;
 use ckb_store::{ChainDB, ChainStore};
@@ -38,9 +41,7 @@ impl Migration for BlockExt2019ToZero {
             return Ok(chain_db.into_inner());
         }
 
-        eprintln!("now limit epoch is {}", limit_epoch);
         let epoch_number: packed::Uint64 = limit_epoch.pack();
-
         if let Some(epoch_hash) = chain_db.get(COLUMN_EPOCH, epoch_number.as_slice()) {
             let epoch_ext = chain_db
                 .get_epoch_ext(

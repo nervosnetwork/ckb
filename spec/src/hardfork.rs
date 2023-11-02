@@ -20,11 +20,7 @@ impl HardForkConfig {
     /// sets all `None` to default values, otherwise, return an `Err`.
     pub fn complete_mainnet(&self) -> Result<HardForks, String> {
         let mut ckb2021 = CKB2021::new_builder();
-        ckb2021 = self.update_2021(
-            ckb2021,
-            mainnet::CKB2021_START_EPOCH,
-            mainnet::RFC0028_RFC0032_RFC0033_RFC0034_START_EPOCH,
-        )?;
+        ckb2021 = self.update_2021(ckb2021, mainnet::CKB2021_START_EPOCH)?;
 
         Ok(HardForks {
             ckb2021: ckb2021.build()?,

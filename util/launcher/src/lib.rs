@@ -195,10 +195,10 @@ impl Launcher {
             &self.args.config.db,
             Some(self.args.config.ancient.clone()),
             self.async_handle.clone(),
+            self.args.consensus.clone(),
         )?;
 
         let (shared, pack) = shared_builder
-            .consensus(self.args.consensus.clone())
             .tx_pool_config(self.args.config.tx_pool.clone())
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
