@@ -87,13 +87,13 @@ impl CKB2021 {
     pub fn new_mirana() -> Self {
         // Use a builder to ensure all features are set manually.
         Self::new_builder()
-            .rfc_0028(hardfork::mainnet::RFC0028_START_EPOCH)
-            .rfc_0029(0)
-            .rfc_0030(0)
-            .rfc_0031(0)
-            .rfc_0032(0)
-            .rfc_0036(0)
-            .rfc_0038(0)
+            .rfc_0028(hardfork::mainnet::RFC0028_RFC0032_RFC0033_RFC0034_START_EPOCH)
+            .rfc_0029(hardfork::mainnet::CKB2021_START_EPOCH)
+            .rfc_0030(hardfork::mainnet::CKB2021_START_EPOCH)
+            .rfc_0031(hardfork::mainnet::CKB2021_START_EPOCH)
+            .rfc_0032(hardfork::mainnet::RFC0028_RFC0032_RFC0033_RFC0034_START_EPOCH)
+            .rfc_0036(hardfork::mainnet::CKB2021_START_EPOCH)
+            .rfc_0038(hardfork::mainnet::CKB2021_START_EPOCH)
             .build()
             .unwrap()
     }

@@ -1662,7 +1662,7 @@ Response
             { "rfc": "0029", "epoch_number": "0x0" },
             { "rfc": "0030", "epoch_number": "0x0" },
             { "rfc": "0031", "epoch_number": "0x0" },
-            { "rfc": "0032", "epoch_number": "0x0" },
+            { "rfc": "0032", "epoch_number": "0x1526" },
             { "rfc": "0036", "epoch_number": "0x0" },
             { "rfc": "0038", "epoch_number": "0x0" },
             { "rfc": "0048", "epoch_number": null },

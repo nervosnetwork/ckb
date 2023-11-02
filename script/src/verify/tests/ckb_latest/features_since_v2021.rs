@@ -10,7 +10,7 @@ use ckb_vm::Error as VmError;
 use proptest::{prelude::*, prop_assert_eq, proptest};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, io::Read};
 
 use super::SCRIPT_VERSION;
 use crate::syscalls::SOURCE_GROUP_FLAG;
@@ -1693,4 +1693,98 @@ fn exec_slice() {
     let from = ExecFrom::Slice((10 << 32) | length);
     let res = Ok(2);
     test_exec(0b0000, 1, 2, 1, from, res);
+}
+
+#[test]
+fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
+    let script_version = SCRIPT_VERSION;
+    if script_version < ScriptVersion::V1 {
+        // This transaction is restricted by rfc_0029 and not supported in the 2019 version
+        return;
+    }
+
+    let mut file = open_cell_always_success();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).unwrap();
+    let data = Bytes::from(buffer);
+
+    let (privkey, pubkey) = random_keypair();
+    let mut args = b"foobar".to_vec();
+
+    let signature = sign_args(&args, &privkey);
+    args.extend(&to_hex_pubkey(&pubkey));
+    args.extend(&to_hex_signature(&signature));
+
+    let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
+    let cell_dep = CellDep::new_builder()
+        .out_point(dep_out_point.clone())
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(Capacity::bytes(data.len()).unwrap().pack())
+        .type_(
+            Some(
+                Script::new_builder()
+                    .code_hash(h256!("0x123456abcd90").pack())
+                    .hash_type(ScriptHashType::Data.into())
+                    .build(),
+            )
+            .pack(),
+        )
+        .build();
+    let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
+    let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
+        .transaction_info(default_transaction_info())
+        .out_point(dep_out_point)
+        .build();
+
+    let dep_out_point2 = OutPoint::new(h256!("0x1234").pack(), 8);
+    let cell_dep2 = CellDep::new_builder()
+        .out_point(dep_out_point2.clone())
+        .build();
+    let output2 = CellOutputBuilder::default()
+        .capacity(Capacity::bytes(data.len()).unwrap().pack())
+        .type_(
+            Some(
+                Script::new_builder()
+                    .code_hash(h256!("0x123456abcd90").pack())
+                    .hash_type(ScriptHashType::Data.into())
+                    .build(),
+            )
+            .pack(),
+        )
+        .build();
+    let dep_cell2 = CellMetaBuilder::from_cell_output(output2, data)
+        .transaction_info(default_transaction_info())
+        .out_point(dep_out_point2)
+        .build();
+
+    let script = Script::new_builder()
+        .args(Bytes::from(args).pack())
+        .code_hash(type_hash)
+        .hash_type(ScriptHashType::Type.into())
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default()
+        .input(input)
+        .cell_dep(cell_dep)
+        .cell_dep(cell_dep2)
+        .build();
+
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(script)
+        .build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![dep_cell, dep_cell2],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.unwrap(), 539);
 }
