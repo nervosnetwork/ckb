@@ -106,8 +106,7 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                // if snapshot changed by context switch
-                // we need redo time_relative verify
+                // if snapshot changed by context switch we need redo time_relative verify
                 let tip_hash = snapshot.tip_hash();
                 if pre_resolve_tip != tip_hash {
                     debug!(

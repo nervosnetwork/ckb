@@ -1,4 +1,8 @@
+use crate::specs::tx_pool::utils::prepare_tx_family;
+use crate::utils::blank;
+use crate::utils::propose;
 use crate::{Node, Spec};
+use ckb_jsonrpc_types::TxStatus;
 use ckb_logger::info;
 use ckb_types::core::FeeRate;
 use ckb_types::{
@@ -91,5 +95,43 @@ impl Spec for SendTxChain {
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
         config.tx_pool.max_ancestors_count = MAX_ANCESTORS_COUNT;
+    }
+}
+
+pub struct SendTxChainRevOrder;
+
+impl Spec for SendTxChainRevOrder {
+    crate::setup!(num_nodes: 1);
+
+    // Case: Check txpool will evict tx when tx check failed during block_assembler
+    //       avoid to stay for a long time in the pool
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node_a = &nodes[0];
+        let window = node_a.consensus().tx_proposal_window();
+
+        node_a.mine_until_out_bootstrap_period();
+        let family = prepare_tx_family(node_a);
+
+        node_a.submit_transaction(family.a());
+        node_a.submit_transaction(family.b());
+
+        let tx_pool_info = node_a.rpc_client().tx_pool_info();
+        assert_eq!(tx_pool_info.pending.value(), 2);
+
+        // send the child tx firstly
+        node_a.submit_block(&propose(node_a, &[family.b()]));
+
+        assert!(node_a.get_transaction(family.a().hash()) == TxStatus::pending());
+        assert!(node_a.get_transaction(family.b().hash()) == TxStatus::pending());
+        (0..window.closest()).for_each(|_| {
+            node_a.submit_block(&blank(node_a));
+        });
+
+        assert!(node_a.get_transaction(family.a().hash()) == TxStatus::pending());
+
+        // tx_b is removed by txpool, don't stay in the pool
+        assert!(node_a.get_transaction(family.b().hash()) == TxStatus::unknown());
+        let tx_pool_info = node_a.rpc_client().tx_pool_info();
+        assert_eq!(tx_pool_info.pending.value(), 1);
     }
 }
