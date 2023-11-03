@@ -7,6 +7,7 @@ use ckb_db_schema::{COLUMNS, COLUMN_META};
 use ckb_error::Error;
 use std::cmp::Ordering;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 const INIT_DB_VERSION: &str = "20191127135521";
 
@@ -20,15 +21,16 @@ impl Migrate {
     /// Construct new migrate
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new(INIT_DB_VERSION)));
-        migrations.add_migration(Box::new(migrations::ChangeMoleculeTableToStruct)); // since v0.35.0
-        migrations.add_migration(Box::new(migrations::CellMigration)); // since v0.37.0
-        migrations.add_migration(Box::new(migrations::AddNumberHashMapping)); // since v0.40.0
-        migrations.add_migration(Box::new(migrations::AddExtraDataHash)); // since v0.43.0
-        migrations.add_migration(Box::new(migrations::AddBlockExtensionColumnFamily)); // since v0.100.0
-        migrations.add_migration(Box::new(migrations::AddChainRootMMR)); // TODO(light-client) update the comment: which version?
-        migrations.add_migration(Box::new(migrations::AddBlockFilterColumnFamily)); // since v0.105.0
-        migrations.add_migration(Box::new(migrations::AddBlockFilterHash)); // since v0.108.0
+        migrations.add_migration(Arc::new(DefaultMigration::new(INIT_DB_VERSION)));
+        migrations.add_migration(Arc::new(migrations::ChangeMoleculeTableToStruct)); // since v0.35.0
+        migrations.add_migration(Arc::new(migrations::CellMigration)); // since v0.37.0
+        migrations.add_migration(Arc::new(migrations::AddNumberHashMapping)); // since v0.40.0
+        migrations.add_migration(Arc::new(migrations::AddExtraDataHash)); // since v0.43.0
+        migrations.add_migration(Arc::new(migrations::AddBlockExtensionColumnFamily)); // since v0.100.0
+        migrations.add_migration(Arc::new(migrations::AddChainRootMMR)); // TODO(light-client) update the comment: which version?
+        migrations.add_migration(Arc::new(migrations::AddBlockFilterColumnFamily)); // since v0.105.0
+        migrations.add_migration(Arc::new(migrations::AddBlockFilterHash)); // since v0.108.0
+        migrations.add_migration(Arc::new(migrations::BlockExt2019ToZero::new(hardforks))); // since v0.111.1
 
         Migrate {
             migrations,
@@ -59,6 +61,10 @@ impl Migrate {
         self.migrations.expensive(db)
     }
 
+    pub fn can_run_in_background(&self, db: &ReadOnlyDB) -> bool {
+        self.migrations.run_in_background(db)
+    }
+
     /// Open bulk load db.
     pub fn open_bulk_load_db(&self) -> Result<Option<RocksDB>, Error> {
         RocksDB::prepare_for_bulk_load_open(&self.path, COLUMNS)
@@ -67,6 +73,10 @@ impl Migrate {
     /// Perform migrate.
     pub fn migrate(self, db: RocksDB) -> Result<RocksDB, Error> {
         self.migrations.migrate(db)
+    }
+
+    pub fn migrate_async(self, db: RocksDB) -> Result<RocksDB, Error> {
+        self.migrations.migrate_async(db)
     }
 
     /// Perform init_db_version.

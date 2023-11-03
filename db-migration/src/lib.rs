@@ -1,13 +1,25 @@
 //! TODO(doc): @quake
+use ckb_channel::{unbounded, Receiver};
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
+use ckb_stop_handler::register_thread;
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
+use std::thread::JoinHandle;
+
+pub static SHUTDOWN_BACKGROUND_MIGRATION: once_cell::sync::Lazy<AtomicBool> =
+    once_cell::sync::Lazy::new(|| AtomicBool::new(false));
 
 #[cfg(test)]
 mod tests;
@@ -19,7 +31,59 @@ fn internal_error(reason: String) -> Error {
 /// TODO(doc): @quake
 #[derive(Default)]
 pub struct Migrations {
-    migrations: BTreeMap<String, Box<dyn Migration>>,
+    migrations: BTreeMap<String, Arc<dyn Migration>>,
+}
+
+/// Commands
+#[derive(PartialEq, Eq)]
+enum Command {
+    Start,
+    //Stop,
+}
+
+struct MigrationWorker {
+    tasks: Arc<Mutex<VecDeque<(String, Arc<dyn Migration>)>>>,
+    db: RocksDB,
+    inbox: Receiver<Command>,
+}
+
+impl MigrationWorker {
+    pub fn new(
+        tasks: Arc<Mutex<VecDeque<(String, Arc<dyn Migration>)>>>,
+        db: RocksDB,
+        inbox: Receiver<Command>,
+    ) -> Self {
+        Self { tasks, db, inbox }
+    }
+
+    pub fn start(self) -> JoinHandle<()> {
+        thread::spawn(move || {
+            let msg = match self.inbox.recv() {
+                Ok(msg) => Some(msg),
+                Err(_err) => return,
+            };
+
+            if let Some(Command::Start) = msg {
+                // Progress Bar is no need in background, but here we fake one to keep the trait API
+                // consistent with the foreground migration.
+                loop {
+                    let db = self.db.clone();
+                    let pb = move |_count: u64| -> ProgressBar { ProgressBar::new(0) };
+                    if let Some((name, task)) = self.tasks.lock().unwrap().pop_front() {
+                        eprintln!("start to run migrate: {}", name);
+                        let db = task.migrate(db, Arc::new(pb)).unwrap();
+                        db.put_default(MIGRATION_VERSION_KEY, task.version())
+                            .map_err(|err| {
+                                internal_error(format!("failed to migrate the database: {err}"))
+                            })
+                            .unwrap();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        })
+    }
 }
 
 impl Migrations {
@@ -31,7 +95,7 @@ impl Migrations {
     }
 
     /// TODO(doc): @quake
-    pub fn add_migration(&mut self, migration: Box<dyn Migration>) {
+    pub fn add_migration(&mut self, migration: Arc<dyn Migration>) {
         self.migrations
             .insert(migration.version().to_string(), migration);
     }
@@ -97,6 +161,27 @@ impl Migrations {
             .any(|m| m.expensive())
     }
 
+    pub fn run_in_background(&self, db: &ReadOnlyDB) -> bool {
+        let db_version = match db
+            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .expect("get the version of database")
+        {
+            Some(version_bytes) => {
+                String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
+            }
+            None => {
+                // if version is none, but db is not empty
+                // patch 220464f
+                return self.is_non_empty_rdb(db);
+            }
+        };
+
+        self.migrations
+            .values()
+            .skip_while(|m| m.version() <= db_version.as_str())
+            .all(|m| m.run_in_background())
+    }
+
     fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
         if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
             if v.is_some() {
@@ -137,6 +222,34 @@ impl Migrations {
         }
         mpb.join_and_clear().expect("MultiProgress join");
         Ok(db)
+    }
+
+    fn run_migrate_async(&self, db: RocksDB, v: &str) {
+        let migrations: VecDeque<(String, Arc<dyn Migration>)> = self
+            .migrations
+            .iter()
+            .filter(|(mv, _)| mv.as_str() > v)
+            .map(|(mv, m)| (mv.to_string(), Arc::clone(m)))
+            .collect::<VecDeque<_>>();
+
+        let all_can_resume = migrations.iter().all(|(_, m)| m.can_resume());
+        let tasks = Arc::new(Mutex::new(migrations));
+        let (tx, rx) = unbounded();
+        let worker = MigrationWorker::new(tasks, db.clone(), rx);
+
+        let exit_signal = ckb_stop_handler::new_crossbeam_exit_rx();
+        thread::spawn(move || {
+            let _ = exit_signal.recv();
+            SHUTDOWN_BACKGROUND_MIGRATION.store(true, std::sync::atomic::Ordering::SeqCst);
+            eprintln!("set shutdown flat to true");
+        });
+
+        let handler = worker.start();
+        tx.send(Command::Start).expect("send start command");
+        if all_can_resume {
+            eprintln!("register thread: migration ....");
+            register_thread("migration", handler);
+        }
     }
 
     fn get_migration_version(&self, db: &RocksDB) -> Result<Option<String>, Error> {
@@ -199,6 +312,38 @@ impl Migrations {
         }
     }
 
+    /// TODO(doc): @quake
+    pub fn migrate_async(&self, db: RocksDB) -> Result<RocksDB, Error> {
+        let db_version = self.get_migration_version(&db)?;
+        match db_version {
+            Some(ref v) => {
+                info!("Current database version {}", v);
+                if let Some(m) = self.migrations.values().last() {
+                    if m.version() < v.as_str() {
+                        error!(
+                            "Database downgrade detected. \
+                            The database schema version is newer than client schema version,\
+                            please upgrade to the newer version"
+                        );
+                        return Err(internal_error(
+                            "Database downgrade is not supported".to_string(),
+                        ));
+                    }
+                }
+                self.run_migrate_async(db.clone(), v.as_str());
+                Ok(db)
+            }
+            None => {
+                // if version is none, but db is not empty
+                // patch 220464f
+                if self.is_non_empty_db(&db) {
+                    return self.patch_220464f(db);
+                }
+                Ok(db)
+            }
+        }
+    }
+
     fn patch_220464f(&self, db: RocksDB) -> Result<RocksDB, Error> {
         const V: &str = "20210609195048"; // AddExtraDataHash - 1
         self.run_migrate(db, V)
@@ -206,7 +351,7 @@ impl Migrations {
 }
 
 /// TODO(doc): @quake
-pub trait Migration {
+pub trait Migration: Send + Sync {
     /// TODO(doc): @quake
     fn migrate(
         &self,
@@ -222,6 +367,29 @@ pub trait Migration {
     /// Override this function for `Migrations` which could be executed very fast.
     fn expensive(&self) -> bool {
         true
+    }
+
+    fn run_in_background(&self) -> bool {
+        false
+    }
+
+    /// Check if the background migration should be stopped.
+    /// If a migration need to implement the recovery logic, it should check this flag periodically,
+    /// store the migration progress when exiting and recover from the current progress when restarting.
+    fn stop_background(&self) -> bool {
+        SHUTDOWN_BACKGROUND_MIGRATION.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Check if the background migration can be resumed.
+    ///
+    /// If a migration can be resumed, it should implement the recovery logic in `migrate` function.
+    /// and the `MigirateWorker` will add the migration's handler with `register_thread`, so that then
+    /// main thread can wait for the background migration to store the progress and exit.
+    ///
+    /// Otherwise, the migration will be restarted from the beginning.
+    ///
+    fn can_resume(&self) -> bool {
+        false
     }
 }
 
@@ -255,4 +423,14 @@ impl Migration for DefaultMigration {
     fn expensive(&self) -> bool {
         false
     }
+}
+
+pub fn append_to_file(path: &str, data: &str) -> std::io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open(path)?;
+
+    writeln!(file, "{}", data)
 }
