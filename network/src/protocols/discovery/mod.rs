@@ -348,7 +348,7 @@ impl AddressManager for DiscoveryAddressManager {
             self.network_state.with_peer_store_mut(|peer_store| {
                 if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
                     debug!(
-                        "Failed to add discoved address to peer_store {:?} {:?}",
+                        "Failed to add discovered address to peer_store {:?} {:?}",
                         err, addr
                     );
                 }
