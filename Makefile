@@ -67,10 +67,6 @@ cov: cov-install-tools ## Run code coverage.
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 test --all
 	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
-.PHONY: wasm-build-test
-wasm-build-test: ## Build core packages for wasm target
-	cp -f Cargo.lock wasm-build-test/
-	cd wasm-build-test && cargo build --target=wasm32-unknown-unknown
 
 .PHONY: setup-ckb-test
 setup-ckb-test:

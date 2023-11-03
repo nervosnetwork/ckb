@@ -27,6 +27,7 @@ mod fee_rate;
 mod reward;
 mod transaction_meta;
 mod views;
+
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 pub use blockchain::DepType;
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};

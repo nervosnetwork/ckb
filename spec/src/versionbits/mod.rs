@@ -1,17 +1,19 @@
-//! Versionbits 9 defines a finite-state-machine to deploy a softfork in multiple stages.
+//! Versionbits defines a finite-state-machine to deploy a softfork in multiple stages.
 //!
 
 mod convert;
 
 use crate::consensus::Consensus;
+use ckb_logger::error;
+use ckb_types::global::DATA_DIR;
 use ckb_types::{
     core::{EpochExt, EpochNumber, HeaderView, Ratio, TransactionView, Version},
     packed::{Byte32, CellbaseWitnessReader},
     prelude::*,
 };
-use ckb_util::Mutex;
-use std::collections::{hash_map, HashMap};
+use std::fmt;
 use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
 
 /// What bits to set in version for versionbits blocks
 pub const VERSIONBITS_TOP_BITS: Version = 0x00000000;
@@ -20,24 +22,40 @@ pub const VERSIONBITS_TOP_MASK: Version = 0xE0000000;
 /// Total bits available for versionbits
 pub const VERSIONBITS_NUM_BITS: u32 = 29;
 
+const PATH_PREFIX: &str = "softfork";
+
 /// RFC0043 defines a finite-state-machine to deploy a soft fork in multiple stages.
 /// State transitions happen during epoch if conditions are met
 /// In case of reorg, transitions can go backward. Without transition, state is
 /// inherited between epochs. All blocks of a epoch share the same state.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum ThresholdState {
     /// First state that each softfork starts.
     /// The 0 epoch is by definition in this state for each deployment.
-    Defined,
+    Defined = 0,
     /// For epochs past the `start` epoch.
-    Started,
+    Started = 1,
     /// For one epoch after the first epoch period with STARTED epochs of
     /// which at least `threshold` has the associated bit set in `version`.
-    LockedIn,
+    LockedIn = 2,
     /// For all epochs after the LOCKED_IN epoch.
-    Active,
+    Active = 3,
     /// For one epoch period past the `timeout_epoch`, if LOCKED_IN was not reached.
-    Failed,
+    Failed = 4,
+}
+
+impl ThresholdState {
+    fn from_u8(value: u8) -> ThresholdState {
+        match value {
+            0 => ThresholdState::Defined,
+            1 => ThresholdState::Started,
+            2 => ThresholdState::LockedIn,
+            3 => ThresholdState::Active,
+            4 => ThresholdState::Failed,
+            _ => panic!("Unknown value: {}", value),
+        }
+    }
 }
 
 /// This is useful for testing, as it means tests don't need to deal with the activation
@@ -61,6 +79,12 @@ pub enum DeploymentPos {
     Testdummy,
     /// light client protocol
     LightClient,
+}
+
+impl fmt::Display for DeploymentPos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// VersionbitsIndexer
@@ -114,7 +138,49 @@ pub struct Deployment {
     pub threshold: Ratio,
 }
 
-type Cache = Mutex<HashMap<Byte32, ThresholdState>>;
+/// Signal state cache
+///
+/// Persistent signal state cache, mmap-based cacache
+#[derive(Clone, Debug)]
+pub struct Cache {
+    path: PathBuf,
+}
+
+impl Cache {
+    /// Reads the entire contents of a cache file synchronously into a bytes vector,
+    /// looking the data up by key.
+    pub fn get(&self, key: &Byte32) -> Option<ThresholdState> {
+        match cacache::read_sync(&self.path, Self::encode_key(key)) {
+            Ok(bytes) => Some(Self::decode_value(bytes)),
+            Err(cacache::Error::EntryNotFound(_path, _key)) => None,
+            Err(err) => {
+                error!("cacache read_sync failed {:?}", err);
+                None
+            }
+        }
+    }
+
+    /// Writes data to the cache synchronously
+    pub fn insert(&self, key: &Byte32, value: ThresholdState) {
+        if let Err(e) =
+            cacache::write_sync(&self.path, Self::encode_key(key), Self::encode_value(value))
+        {
+            error!("cacache write_sync failed {:?}", e);
+        }
+    }
+
+    fn decode_value(value: Vec<u8>) -> ThresholdState {
+        ThresholdState::from_u8(value[0])
+    }
+
+    fn encode_key(key: &Byte32) -> String {
+        format!("{}", key)
+    }
+
+    fn encode_value(value: ThresholdState) -> Vec<u8> {
+        vec![value as u8]
+    }
+}
 
 /// RFC0000 allows multiple soft forks to be deployed in parallel. We cache
 /// per-epoch state for every one of them. */
@@ -126,8 +192,17 @@ pub struct VersionbitsCache {
 impl VersionbitsCache {
     /// Construct new VersionbitsCache instance from deployments
     pub fn new<'a>(deployments: impl Iterator<Item = &'a DeploymentPos>) -> Self {
+        let default_dir = PathBuf::new();
+        let data_dir = DATA_DIR.get().unwrap_or(&default_dir);
         let caches: HashMap<_, _> = deployments
-            .map(|pos| (*pos, Mutex::new(HashMap::new())))
+            .map(|pos| {
+                (
+                    *pos,
+                    Cache {
+                        path: data_dir.join(PATH_PREFIX).join(pos.to_string()),
+                    },
+                )
+            })
             .collect();
         VersionbitsCache {
             caches: Arc::new(caches),
@@ -194,25 +269,20 @@ pub trait VersionbitsConditionChecker {
         let target = epoch_number.saturating_sub((epoch_number + 1) % period);
 
         let mut epoch_ext = indexer.ancestor_epoch(&start_index, target)?;
-        let mut g_cache = cache.lock();
         let mut to_compute = Vec::new();
         let mut state = loop {
             let epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
-            match g_cache.entry(epoch_index.clone()) {
-                hash_map::Entry::Occupied(entry) => {
-                    break *entry.get();
+            if let Some(value) = cache.get(&epoch_index) {
+                break value;
+            } else {
+                if epoch_ext.is_genesis() || epoch_ext.number() < start {
+                    cache.insert(&epoch_index, ThresholdState::Defined);
+                    break ThresholdState::Defined;
                 }
-                hash_map::Entry::Vacant(entry) => {
-                    // The genesis is by definition defined.
-                    if epoch_ext.is_genesis() || epoch_ext.number() < start {
-                        entry.insert(ThresholdState::Defined);
-                        break ThresholdState::Defined;
-                    }
-                    let next_epoch_ext = indexer
-                        .ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))?;
-                    to_compute.push(epoch_ext);
-                    epoch_ext = next_epoch_ext;
-                }
+                let next_epoch_ext = indexer
+                    .ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))?;
+                to_compute.push(epoch_ext);
+                epoch_ext = next_epoch_ext;
             }
         };
 
@@ -268,7 +338,7 @@ pub trait VersionbitsConditionChecker {
                 }
             }
             state = next_state;
-            g_cache.insert(epoch_ext.last_block_hash_in_previous_epoch(), state);
+            cache.insert(&epoch_ext.last_block_hash_in_previous_epoch(), state);
         }
 
         Some(state)
@@ -301,16 +371,14 @@ pub trait VersionbitsConditionChecker {
 
         let mut epoch_ext = indexer.ancestor_epoch(&index, period_start)?;
         let mut epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
-        let g_cache = cache.lock();
 
         while let Some(prev_epoch_ext) =
             indexer.ancestor_epoch(&epoch_index, epoch_ext.number().saturating_sub(period))
         {
             epoch_ext = prev_epoch_ext;
             epoch_index = epoch_ext.last_block_hash_in_previous_epoch();
-
-            if let Some(state) = g_cache.get(&epoch_index) {
-                if state != &init_state {
+            if let Some(state) = cache.get(&epoch_index) {
+                if state != init_state {
                     break;
                 }
             } else {

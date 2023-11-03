@@ -11,6 +11,7 @@ pub use molecule::{self, error};
 pub use numext_fixed_uint::{u256, U128, U256};
 
 pub mod core;
+pub mod global;
 
 pub mod constants;
 mod conversion;

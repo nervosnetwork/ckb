@@ -4,6 +4,7 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details <https://docs.rs/toml/0.5.0/toml/ser/index.html>
 
+use ckb_types::global::DATA_DIR;
 use path_clean::PathClean;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -273,6 +274,10 @@ impl CKBAppConfig {
         self.root_dir = root_dir.to_path_buf();
 
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir);
+
+        DATA_DIR
+            .set(self.data_dir.clone())
+            .expect("DATA_DIR is empty");
 
         self.db.adjust(root_dir, &self.data_dir, "db");
         self.ancient = mkdir(path_specified_or_else(&self.ancient, || {

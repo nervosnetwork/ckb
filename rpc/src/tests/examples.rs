@@ -20,6 +20,7 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, Ratio, TransactionBuilder,
         TransactionView,
     },
+    global::DATA_DIR,
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
@@ -130,11 +131,13 @@ fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
 
     // Start network services
     let temp_dir = tempfile::tempdir().expect("create tempdir failed");
+    DATA_DIR
+        .set(temp_dir.path().join("data"))
+        .expect("DATA_DIR set only once");
 
-    let temp_path = temp_dir.path().to_path_buf();
     let network_controller = {
         let network_config = NetworkConfig {
-            path: temp_path,
+            path: temp_dir.path().join("network").to_path_buf(),
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,
