@@ -234,7 +234,6 @@ impl GlobalIndex {
 #[derive(Clone)]
 pub struct ChainService {
     shared: Shared,
-    proposal_table: Arc<Mutex<ProposalTable>>,
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
 
@@ -323,19 +322,21 @@ impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
     pub fn new(
         shared: Shared,
-        proposal_table: ProposalTable,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
     ) -> ChainService {
         ChainService {
             shared,
-            proposal_table: Arc::new(Mutex::new(proposal_table)),
             orphan_blocks_broker: Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE)),
             verify_failed_blocks_tx,
         }
     }
 
     /// start background single-threaded service with specified thread_name.
-    pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
+    pub fn start<S: ToString>(
+        mut self,
+        proposal_table: ProposalTable,
+        thread_name: Option<S>,
+    ) -> ChainController {
         let orphan_blocks_broker_clone = Arc::clone(&self.orphan_blocks_broker);
 
         let signal_receiver = new_crossbeam_exit_rx();
