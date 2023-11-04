@@ -11,6 +11,7 @@ use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
+use ckb_indexer_r::IndexerRService;
 use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -189,10 +190,12 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
+        // Initialize instances of data sources that will be shared for use by indexer and indexer-r.
         let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
-        let pool_service =
+        let mut pool_service =
             PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
 
+        // Init indexer service.
         let indexer = IndexerService::new(
             ckb_secondary_db.clone(),
             pool_service.clone(),
@@ -202,7 +205,7 @@ impl<'a> ServiceBuilder<'a> {
         let indexer_handle = indexer.handle();
         let methods = IndexerRpcImpl::new(indexer_handle);
         if self.config.indexer_enable() {
-            start_indexer(&shared, indexer);
+            indexer.spawn_poll(shared.notify_controller().clone());
             if indexer_config.index_tx_pool {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
@@ -213,6 +216,24 @@ impl<'a> ServiceBuilder<'a> {
             indexer_enable,
             add_indexer_rpc_methods,
             methods
+        );
+
+        // Init indexer-r service
+        let indexer_r = IndexerRService::new();
+        let indexer_r_handle = indexer_r.handle();
+        let indexer_r_methods = IndexerRRpcImpl::new(indexer_r_handle);
+        if self.config.indexer_r_enable() {
+            indexer_r.spawn_poll(shared.notify_controller().clone());
+            if indexer_config.index_tx_pool {
+                pool_service.index_tx_pool(shared.notify_controller().clone());
+            }
+        }
+        set_rpc_module_methods!(
+            self,
+            "IndexerR",
+            indexer_r_enable,
+            add_indexer_r_rpc_methods,
+            indexer_r_methods
         )
     }
 
@@ -274,9 +295,4 @@ impl<'a> ServiceBuilder<'a> {
         io_handler.add_method("ping", |_| async { Ok("pong".into()) });
         io_handler
     }
-}
-
-fn start_indexer(shared: &Shared, indexer_service: IndexerService) {
-    let notify_controller = shared.notify_controller().clone();
-    indexer_service.spawn_poll(notify_controller.clone());
 }
