@@ -61,6 +61,7 @@ impl Pool {
 pub struct PoolService {
     pool: Option<Arc<RwLock<Pool>>>,
     async_handle: Handle,
+    is_index_tx_pool_called: bool,
 }
 
 impl PoolService {
@@ -72,7 +73,11 @@ impl PoolService {
             None
         };
 
-        Self { pool, async_handle }
+        Self {
+            pool,
+            async_handle,
+            is_index_tx_pool_called: false,
+        }
     }
 
     /// Get the inner pool
@@ -81,7 +86,12 @@ impl PoolService {
     }
 
     /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub fn index_tx_pool(&self, notify_controller: NotifyController) {
+    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
+        if self.is_index_tx_pool_called {
+            return;
+        }
+        self.is_index_tx_pool_called = true;
+
         let service = self.clone();
         let stop: CancellationToken = new_tokio_exit_rx();
 
