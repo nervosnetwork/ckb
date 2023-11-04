@@ -363,8 +363,11 @@ impl ChainService {
             .spawn({
                 let chain_service = self.clone();
                 move || {
-                    chain_service
-                        .start_consume_unverified_blocks(unverified_queue_stop_rx, unverified_rx)
+                    chain_service.start_consume_unverified_blocks(
+                        &mut proposal_table,
+                        unverified_queue_stop_rx,
+                        unverified_rx,
+                    )
                 }
             })
             .expect("start unverified_queue consumer thread should ok");
@@ -409,7 +412,9 @@ impl ChainService {
                     recv(truncate_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: target_tip_hash }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.truncate(&target_tip_hash));
+                            let _ = responder.send(self.truncate(
+                                &mut proposal_table,
+                                &target_tip_hash));
                             let _ = tx_control.continue_chunk_process();
                         },
                         _ => {
@@ -441,6 +446,7 @@ impl ChainService {
 
     fn start_consume_unverified_blocks(
         &self,
+        proposal_table: &mut ProposalTable,
         unverified_queue_stop_rx: Receiver<()>,
         unverified_block_rx: Receiver<UnverifiedBlock>,
     ) {
@@ -456,7 +462,7 @@ impl ChainService {
                     Ok(unverified_task) => {
                         // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
-                        self.consume_unverified_blocks(unverified_task);
+                        self.consume_unverified_blocks(proposal_table, unverified_task);
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
@@ -469,9 +475,13 @@ impl ChainService {
         }
     }
 
-    fn consume_unverified_blocks(&self, unverified_block: UnverifiedBlock) {
+    fn consume_unverified_blocks(
+        &self,
+        proposal_table: &mut ProposalTable,
+        unverified_block: UnverifiedBlock,
+    ) {
         // process this unverified block
-        let verify_result = self.verify_block(&unverified_block);
+        let verify_result = self.verify_block(proposal_table, &unverified_block);
         match &verify_result {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
@@ -688,7 +698,11 @@ impl ChainService {
 
     // Truncate the main chain
     // Use for testing only
-    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
+    pub(crate) fn truncate(
+        &mut self,
+        proposal_table: &mut ProposalTable,
+        target_tip_hash: &Byte32,
+    ) -> Result<(), Error> {
         let snapshot = Arc::clone(&self.shared.snapshot());
         assert!(snapshot.is_main_chain(target_tip_hash));
 
@@ -712,11 +726,9 @@ impl ChainService {
         }
         db_txn.commit()?;
 
-        self.update_proposal_table(&fork);
-        let (detached_proposal_id, new_proposals) = self
-            .proposal_table
-            .lock()
-            .finalize(origin_proposals, target_tip_header.number());
+        self.update_proposal_table(&fork, proposal_table);
+        let (detached_proposal_id, new_proposals) =
+            proposal_table.finalize(origin_proposals, target_tip_header.number());
         fork.detached_proposal_id = detached_proposal_id;
 
         let new_snapshot = self.shared.new_snapshot(
@@ -915,7 +927,11 @@ impl ChainService {
         Ok(Some((parent_header, cannon_total_difficulty)))
     }
 
-    fn verify_block(&self, unverified_block: &UnverifiedBlock) -> VerifyResult {
+    fn verify_block(
+        &self,
+        proposal_table: &mut ProposalTable,
+        unverified_block: &UnverifiedBlock,
+    ) -> VerifyResult {
         let UnverifiedBlock {
             unverified_block:
                 LonelyBlockWithCallback {
@@ -1056,11 +1072,9 @@ impl ChainService {
                 block.transactions().len()
             );
 
-            self.update_proposal_table(&fork);
-            let (detached_proposal_id, new_proposals) = self
-                .proposal_table
-                .lock()
-                .finalize(origin_proposals, tip_header.number());
+            self.update_proposal_table(&fork, proposal_table);
+            let (detached_proposal_id, new_proposals) =
+                proposal_table.finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
             let new_snapshot =
@@ -1115,20 +1129,26 @@ impl ChainService {
         }
     }
 
-    pub(crate) fn update_proposal_table(&self, fork: &ForkChanges) {
+    pub(crate) fn update_proposal_table(
+        &self,
+        fork: &ForkChanges,
+        proposal_table: &mut ProposalTable,
+    ) {
         for blk in fork.detached_blocks() {
-            self.proposal_table.lock().remove(blk.header().number());
+            proposal_table.remove(blk.header().number());
         }
         for blk in fork.attached_blocks() {
-            self.proposal_table
-                .lock()
-                .insert(blk.header().number(), blk.union_proposal_ids());
+            proposal_table.insert(blk.header().number(), blk.union_proposal_ids());
         }
-        self.reload_proposal_table(fork);
+        self.reload_proposal_table(fork, proposal_table);
     }
 
     // if rollback happen, go back check whether need reload proposal_table from block
-    pub(crate) fn reload_proposal_table(&self, fork: &ForkChanges) {
+    pub(crate) fn reload_proposal_table(
+        &self,
+        fork: &ForkChanges,
+        proposal_table: &mut ProposalTable,
+    ) {
         if fork.has_detached() {
             let proposal_window = self.shared.consensus().tx_proposal_window();
             let detached_front = fork
@@ -1158,9 +1178,7 @@ impl ChainService {
                     .and_then(|hash| self.shared.store().get_block(&hash))
                     .expect("block stored");
 
-                self.proposal_table
-                    .lock()
-                    .insert(bn, blk.union_proposal_ids());
+                proposal_table.insert(bn, blk.union_proposal_ids());
             }
         }
     }
