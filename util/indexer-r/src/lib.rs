@@ -1,4 +1,8 @@
-//! CKB's built-in indexer-r, which shares data with the ckb node by creating secondary db instances.
+//! CKB's built-in indexer-r, based on relational database,
+//! which shares data with the ckb node by creating secondary db instances.
 
-pub(crate) mod indexer;
-pub(crate) mod store;
+mod indexer;
+mod service;
+mod store;
+
+pub use service::{IndexerRHandle, IndexerRService};

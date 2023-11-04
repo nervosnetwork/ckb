@@ -3,13 +3,15 @@ use crate::error::RPCError;
 use crate::module::SubscriptionSession;
 use crate::module::{
     AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, DebugRpc, DebugRpcImpl, ExperimentRpc,
-    ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl,
-    MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ExperimentRpcImpl, IndexerRRpc, IndexerRRpcImpl, IndexerRpc, IndexerRpcImpl,
+    IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetRpc, NetRpcImpl,
+    PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::IoHandler;
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
+use ckb_indexer_r::IndexerRService;
 use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -202,10 +204,12 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
+        // Initialize instances of data sources that will be shared for use by indexer and indexer-r.
         let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
-        let pool_service =
+        let mut pool_service =
             PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
 
+        // Init indexer service.
         let indexer = IndexerService::new(
             ckb_secondary_db.clone(),
             pool_service.clone(),
@@ -213,16 +217,33 @@ impl<'a> ServiceBuilder<'a> {
             shared.async_handle().clone(),
         );
         let indexer_handle = indexer.handle();
-        let rpc_methods = IndexerRpcImpl::new(indexer_handle).to_delegate();
+        let indexer_rpc_methods = IndexerRpcImpl::new(indexer_handle).to_delegate();
+
         if self.config.indexer_enable() {
-            start_indexer(&shared, indexer);
+            indexer.spawn_poll(shared.notify_controller().clone());
             if indexer_config.index_tx_pool {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
-            self.add_methods(rpc_methods);
+            self.add_methods(indexer_rpc_methods);
         } else {
-            self.update_disabled_methods("Indexer", rpc_methods);
+            self.update_disabled_methods("Indexer", indexer_rpc_methods);
         }
+
+        // Init indexer-r service
+        let indexer_r = IndexerRService::new();
+        let indexer_r_handle = indexer_r.handle();
+        let indexer_r_rpc_methods = IndexerRRpcImpl::new(indexer_r_handle).to_delegate();
+
+        if self.config.indexer_r_enable() {
+            indexer_r.spawn_poll(shared.notify_controller().clone());
+            if indexer_config.index_tx_pool {
+                pool_service.index_tx_pool(shared.notify_controller().clone());
+            }
+            self.add_methods(indexer_r_rpc_methods);
+        } else {
+            self.update_disabled_methods("IndexerR", indexer_r_rpc_methods);
+        }
+
         self
     }
 
@@ -273,9 +294,4 @@ impl<'a> ServiceBuilder<'a> {
 
         io_handler
     }
-}
-
-fn start_indexer(shared: &Shared, indexer_service: IndexerService) {
-    let notify_controller = shared.notify_controller().clone();
-    indexer_service.spawn_poll(notify_controller.clone());
 }

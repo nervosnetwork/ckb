@@ -44,6 +44,7 @@ ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.113.0-pre
 ckb-pow = { path = "../pow", version = "= 0.113.0-pre" }
 ckb-indexer-sync = { path = "../util/indexer-sync", version = "= 0.113.0-pre" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.113.0-pre" }
+ckb-indexer-r = { path = "../util/indexer-r", version = "= 0.113.0-pre" }
 itertools.workspace = true
 tokio = "1"
 
