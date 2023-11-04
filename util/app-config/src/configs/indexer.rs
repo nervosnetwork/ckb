@@ -1,4 +1,5 @@
 use super::indexer_sync::IndexerSyncConfig;
+use super::indexer_r::{IndexerRConfig, IndexerRDbType};
 
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ pub struct IndexerConfig {
     #[serde(default = "default_poll_interval")]
     pub poll_interval: u64,
     /// Whether to index the pending txs in the ckb tx-pool
+    #[serde(default)]
     pub index_tx_pool: bool,
     /// Customize block filter
     #[serde(default)]
@@ -34,6 +36,9 @@ pub struct IndexerConfig {
     /// The init tip block hash
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
+    /// IndexerR config options
+    #[serde(default)]
+    pub indexer_r: IndexerRConfig,
 }
 
 const fn default_poll_interval() -> u64 {
@@ -52,6 +57,7 @@ impl Default for IndexerConfig {
             db_background_jobs: None,
             db_keep_log_file_num: None,
             init_tip_hash: None,
+            indexer_r: IndexerRConfig::default(),
         }
     }
 }
@@ -62,8 +68,11 @@ impl IndexerConfig {
     /// If `self.store` is not set, set it to `data_dir / indexer / store`.
     ///
     /// If `self.secondary_path` is not set, set it to `data_dir / indexer / secondary_path`.
-    ///.
-    /// If `self.path` is relative, convert them to absolute path using
+    ///
+    /// If `self.indexer_r` is `Sqlite`, and `self.indexer_r.sqlite.store` is not set,
+    /// set it to `data_dir / indexer / indexer_r / store`.
+    ///
+    /// If any of the above paths is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
     pub fn adjust<P: AsRef<Path>>(&mut self, root_dir: &Path, indexer_dir: P) {
         _adjust(root_dir, indexer_dir.as_ref(), &mut self.store, "store");
@@ -73,6 +82,14 @@ impl IndexerConfig {
             &mut self.secondary_path,
             "secondary_path",
         );
+        if let IndexerRDbType::Sqlite = &mut self.indexer_r.db_type {
+            _adjust(
+                root_dir,
+                indexer_dir.as_ref(),
+                &mut self.indexer_r.store,
+                "indexer_r",
+            );
+        }
     }
 }
 
@@ -84,13 +101,28 @@ fn _adjust(root_dir: &Path, indexer_dir: &Path, target: &mut PathBuf, sub: &str)
     }
 }
 
+/// Indexer sync config options.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerSyncConfig {
+    /// The secondary_db path, default `data_dir / indexer / secondary_path`
+    #[serde(default)]
+    pub secondary_path: PathBuf,
+    /// The poll interval by secs
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval: u64,
+    /// Whether to index the pending txs in the ckb tx-pool
+    pub index_tx_pool: bool,
+    /// Maximal db info log files to be kept.
+    #[serde(default)]
+    pub db_keep_log_file_num: Option<NonZeroUsize>,
+}
+
 impl From<&IndexerConfig> for IndexerSyncConfig {
     fn from(config: &IndexerConfig) -> IndexerSyncConfig {
         IndexerSyncConfig {
             secondary_path: config.secondary_path.clone(),
             poll_interval: config.poll_interval,
             index_tx_pool: config.index_tx_pool,
-            db_background_jobs: config.db_background_jobs,
             db_keep_log_file_num: config.db_keep_log_file_num,
         }
     }
