@@ -12,7 +12,7 @@ mod tx_pool;
 
 pub use db::Config as DBConfig;
 pub use indexer::{IndexerConfig, IndexerSyncConfig};
-pub use indexer_r::IndexerRConfig;
+pub use indexer_r::{DBDriver, IndexerRConfig};
 pub use memory_tracker::Config as MemoryTrackerConfig;
 pub use miner::{
     ClientConfig as MinerClientConfig, Config as MinerConfig, DummyConfig, EaglesongSimpleConfig,
