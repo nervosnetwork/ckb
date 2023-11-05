@@ -6,13 +6,12 @@ use crate::pool::Pool;
 use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use ckb_app_config::{DBConfig, IndexerConfig};
-use ckb_async_runtime::Handle;
 use ckb_async_runtime::{
     tokio::{self, time},
     Handle,
 };
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
-use ckb_indexer_sync::{Error, IndexerSync, IndexerSyncService, Pool, PoolService, SecondaryDB};
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, IndexerSyncService, Pool, PoolService, SecondaryDB};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip, IndexerTx,

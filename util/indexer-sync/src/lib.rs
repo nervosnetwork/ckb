@@ -1,9 +1,11 @@
 //! The built-in synchronization service in CKB can provide block synchronization services for indexers.
 
+pub(crate) mod custom_filters;
 pub(crate) mod error;
 pub(crate) mod pool;
 pub(crate) mod store;
 
+pub use crate::custom_filters::CustomFilters;
 pub use crate::error::Error;
 pub use crate::pool::{Pool, PoolService};
 pub use crate::store::SecondaryDB;
