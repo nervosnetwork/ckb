@@ -219,7 +219,12 @@ impl<'a> ServiceBuilder<'a> {
         );
 
         // Init indexer-r service
-        let indexer_r = IndexerRService::new();
+        let indexer_r = IndexerRService::new(
+            ckb_secondary_db,
+            pool_service.clone(),
+            indexer_config,
+            shared.async_handle().clone(),
+        );
         let indexer_r_handle = indexer_r.handle();
         let indexer_r_methods = IndexerRRpcImpl::new(indexer_r_handle);
         if self.config.indexer_r_enable() {

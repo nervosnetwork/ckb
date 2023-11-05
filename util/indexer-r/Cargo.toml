@@ -13,9 +13,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 anyhow = "1.0.34"
 ckb-app-config = { path = "../app-config", version = "= 0.113.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.113.0-pre" }
 ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.113.0-pre" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.113.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.113.0-pre" }
+ckb-types = { path = "../types", version = "= 0.113.0-pre" }
 futures = "0.3"
 log = "0.4"
 once_cell = "1.8.0"
