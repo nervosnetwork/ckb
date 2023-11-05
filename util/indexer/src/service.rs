@@ -1,11 +1,11 @@
 //！The indexer service.
 
-use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
+use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
 use crate::store::{IteratorDirection, RocksdbStore, Store};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{Error, IndexerSyncService, Pool, PoolService, SecondaryDB};
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSyncService, Pool, PoolService, SecondaryDB};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
