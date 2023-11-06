@@ -2,7 +2,9 @@
 //! which shares data with the ckb node by creating secondary db instances.
 
 mod indexer;
+mod indexer_handle;
 mod service;
 mod store;
 
-pub use service::{IndexerRHandle, IndexerRService};
+pub use indexer_handle::{AsyncIndexerRHandle, IndexerRHandle};
+pub use service::IndexerRService;
