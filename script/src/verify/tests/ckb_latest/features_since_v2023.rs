@@ -12,7 +12,7 @@ use crate::verify::{tests::utils::*, *};
 // check_spawn_strcat: a smoking test for spawn().
 // check_spawn_strcat_data_hash: position child script by data hash.
 // check_spawn_get_memory_limit: call get_memory_limit() in child script.
-// check_spawn_set_content: set_content() with content < lenght, = length and > length.
+// check_spawn_set_content: set_content() with content < length, = length and > length.
 // check_spawn_out_of_cycles: child script out-of-cycles.
 // check_spawn_exec: A exec B spawn C.
 // check_spawn_strcat_wrap: A spawn B spwan C.
