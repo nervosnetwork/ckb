@@ -2,11 +2,11 @@
 
 use crate::indexer::IndexerR;
 use crate::store::SQLXPool;
+use crate::{AsyncIndexerRHandle, IndexerRHandle};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{CustomFilters, Error, IndexerSyncService, PoolService, SecondaryDB};
-use ckb_jsonrpc_types::IndexerTip;
+use ckb_indexer_sync::{CustomFilters, IndexerSyncService, PoolService, SecondaryDB};
 use ckb_notify::NotifyController;
 
 const SUBSCRIBER_NAME: &str = "Indexer-R";
@@ -18,6 +18,7 @@ pub struct IndexerRService {
     sync: IndexerSyncService,
     block_filter: Option<String>,
     cell_filter: Option<String>,
+    async_handle: Handle,
 }
 
 impl IndexerRService {
@@ -27,7 +28,17 @@ impl IndexerRService {
         config: &IndexerConfig,
         async_handle: Handle,
     ) -> Self {
-        let store = SQLXPool::new(10, 0, 60, 1800, 30);
+        let mut store = SQLXPool::new(10, 0, 60, 1800, 30);
+        async_handle
+            .block_on(store.connect(
+                &config.indexer_r.db_type,
+                &config.indexer_r.db_name,
+                &config.indexer_r.db_host,
+                config.indexer_r.db_port,
+                &config.indexer_r.db_user,
+                &config.indexer_r.password,
+            ))
+            .expect("Failed to connect to indexer-r database");
         let sync =
             IndexerSyncService::new(ckb_db, pool_service, &config.into(), async_handle.clone());
         Self {
@@ -35,6 +46,7 @@ impl IndexerRService {
             sync,
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
+            async_handle,
         }
     }
 
@@ -63,19 +75,18 @@ impl IndexerRService {
     /// The returned handle can be used to get data from indexer-r,
     /// and can be cloned to allow moving the Handle to other threads.
     pub fn handle(&self) -> IndexerRHandle {
-        IndexerRHandle {}
+        IndexerRHandle::new(
+            self.store.clone(),
+            self.sync.pool(),
+            self.async_handle.clone(),
+        )
     }
-}
 
-/// Handle to the indexer-r.
-///
-/// The handle is internally reference-counted and can be freely cloned.
-/// A handle can be obtained using the IndexerRService::handle method.
-pub struct IndexerRHandle {}
-
-impl IndexerRHandle {
-    /// Get indexer current tip
-    pub fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
-        unimplemented!("get_indexer_tip")
+    /// Returns a handle to the indexer-r.
+    ///
+    /// The returned handle can be used to get data from indexer-r,
+    /// and can be cloned to allow moving the Handle to other threads.
+    pub fn async_handle(&self) -> AsyncIndexerRHandle {
+        AsyncIndexerRHandle::new(self.store.clone(), self.sync.pool())
     }
 }
