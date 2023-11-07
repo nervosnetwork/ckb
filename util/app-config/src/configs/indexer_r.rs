@@ -48,7 +48,7 @@ pub struct IndexerRConfig {
     pub db_user: String,
     /// The database password.
     #[serde(default = "default_db_password")]
-    pub password: String,
+    pub db_password: String,
 }
 
 impl Default for IndexerRConfig {
@@ -60,7 +60,7 @@ impl Default for IndexerRConfig {
             db_host: default_db_host(),
             db_port: default_db_port(),
             db_user: default_db_user(),
-            password: default_db_password(),
+            db_password: default_db_password(),
         }
     }
 }

@@ -19,7 +19,7 @@ pub struct PaginationResponse<T> {
     pub count: Option<u64>,
 }
 
-pub fn build_query_page_sql(
+pub(crate) fn _build_query_page_sql(
     mut query_builder: SqlBuilder,
     pagination: &PaginationRequest,
 ) -> Result<(String, String)> {
