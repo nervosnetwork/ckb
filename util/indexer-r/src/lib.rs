@@ -6,8 +6,11 @@ mod indexer_handle;
 mod service;
 mod store;
 
+pub use indexer_handle::{AsyncIndexerRHandle, IndexerRHandle};
+pub use service::IndexerRService;
+
 #[cfg(test)]
 mod tests;
 
-pub use indexer_handle::{AsyncIndexerRHandle, IndexerRHandle};
-pub use service::IndexerRService;
+#[cfg(test)]
+pub(crate) use indexer::AsyncIndexerR;

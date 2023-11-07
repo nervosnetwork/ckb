@@ -13,7 +13,8 @@ CREATE TABLE block(
     epoch_length SMALLINT NOT NULL,
     dao BLOB NOT NULL,
     proposals_hash BLOB,
-    uncles_hash BLOB
+    uncles_hash BLOB,
+    extra_hash BLOB
 );
 
 CREATE TABLE proposal(

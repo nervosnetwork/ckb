@@ -54,6 +54,7 @@ impl IndexerRService {
             1000,
             self.sync.pool(),
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
+            self.async_handle.clone(),
         )
     }
 
