@@ -11,7 +11,7 @@ impl AsyncIndexerRHandle {
     pub async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         let query = SQLXPool::new_query(
             r#"
-            SELECT block_number block_hash FROM block
+            SELECT block_hash, block_number FROM block
             ORDER BY block_number
             DESC LIMIT 1
             "#,
