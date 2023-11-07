@@ -67,6 +67,7 @@ impl CustomFilters {
         }
     }
 
+    /// Returns true if the block filter is match
     pub fn is_block_filter_match(&self, block: &BlockView) -> bool {
         self.block_filter
             .as_ref()
@@ -85,6 +86,7 @@ impl CustomFilters {
             .unwrap_or(true)
     }
 
+    /// Returns true if the cell filter is match
     pub fn is_cell_filter_match(&self, output: &CellOutput, output_data: &Bytes) -> bool {
         self.cell_filter
             .as_ref()

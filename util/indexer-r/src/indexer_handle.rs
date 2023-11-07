@@ -6,16 +6,19 @@ use ckb_jsonrpc_types::IndexerTip;
 
 use std::sync::{Arc, RwLock};
 
+/// Async handle to the indexer-r.
 pub struct AsyncIndexerRHandle {
     _store: SQLXPool,
     _pool: Option<Arc<RwLock<Pool>>>,
 }
 
 impl AsyncIndexerRHandle {
+    /// Construct new AsyncIndexerRHandle instance
     pub fn new(_store: SQLXPool, _pool: Option<Arc<RwLock<Pool>>>) -> Self {
         Self { _store, _pool }
     }
 
+    /// Get indexer current tip
     pub async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         unimplemented!()
     }

@@ -22,23 +22,18 @@ pub struct IndexerRService {
 }
 
 impl IndexerRService {
+    /// Construct new IndexerRService instance
     pub fn new(
         ckb_db: SecondaryDB,
         pool_service: PoolService,
         config: &IndexerConfig,
         async_handle: Handle,
     ) -> Self {
-        let mut store = SQLXPool::new(10, 0, 60, 1800, 30);
+        let mut store = SQLXPool::default();
         async_handle
-            .block_on(store.connect(
-                &config.indexer_r.db_type,
-                &config.indexer_r.db_name,
-                &config.indexer_r.db_host,
-                config.indexer_r.db_port,
-                &config.indexer_r.db_user,
-                &config.indexer_r.password,
-            ))
+            .block_on(store.connect(&config.indexer_r))
             .expect("Failed to connect to indexer-r database");
+
         let sync =
             IndexerSyncService::new(ckb_db, pool_service, &config.into(), async_handle.clone());
         Self {
@@ -62,6 +57,7 @@ impl IndexerRService {
         )
     }
 
+    /// Spawn a poller to sync data from ckb node.
     pub fn spawn_poll(&self, notify_controller: NotifyController) {
         self.sync.spawn_poll(
             notify_controller,

@@ -6,5 +6,8 @@ mod indexer_handle;
 mod service;
 mod store;
 
+#[cfg(test)]
+mod tests;
+
 pub use indexer_handle::{AsyncIndexerRHandle, IndexerRHandle};
 pub use service::IndexerRService;
