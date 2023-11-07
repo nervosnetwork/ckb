@@ -1,4 +1,5 @@
 use crate::store::SQLXPool;
+use crate::AsyncIndexerRHandle;
 
 use ckb_app_config::IndexerRConfig;
 
@@ -16,5 +17,8 @@ async fn connect_sqlite_db(store_path: &str) -> SQLXPool {
 
 #[tokio::test]
 async fn test_query_tip() {
-    let _pool = connect_sqlite_db(MEMORY_DB).await;
+    let pool = connect_sqlite_db(MEMORY_DB).await;
+    let indexer = AsyncIndexerRHandle::new(pool, None);
+    let res = indexer.get_indexer_tip().await.unwrap();
+    assert!(res.is_none());
 }
