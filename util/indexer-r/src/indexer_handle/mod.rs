@@ -1,3 +1,5 @@
+mod fetch;
+
 use crate::store::SQLXPool;
 
 use ckb_async_runtime::Handle;
@@ -8,19 +10,17 @@ use std::sync::{Arc, RwLock};
 
 /// Async handle to the indexer-r.
 pub struct AsyncIndexerRHandle {
-    _store: SQLXPool,
+    store: SQLXPool,
     _pool: Option<Arc<RwLock<Pool>>>,
 }
 
 impl AsyncIndexerRHandle {
     /// Construct new AsyncIndexerRHandle instance
     pub fn new(_store: SQLXPool, _pool: Option<Arc<RwLock<Pool>>>) -> Self {
-        Self { _store, _pool }
-    }
-
-    /// Get indexer current tip
-    pub async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
-        unimplemented!()
+        Self {
+            store: _store,
+            _pool,
+        }
     }
 }
 

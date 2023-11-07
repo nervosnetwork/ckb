@@ -252,6 +252,11 @@ fn build_url_for_posgres(db_config: &IndexerRConfig) -> String {
 }
 
 fn is_sqlite_require_init(db_config: &IndexerRConfig) -> bool {
+    // for test
+    if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
+        return true;
+    }
+
     if !db_config.store.exists() {
         if let Some(parent) = db_config.store.parent() {
             std::fs::create_dir_all(parent).expect("Create db directory");
@@ -261,11 +266,6 @@ fn is_sqlite_require_init(db_config: &IndexerRConfig) -> bool {
             .create(true)
             .open(&db_config.store)
             .expect("Create db file");
-        return true;
-    }
-
-    // for test
-    if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
         return true;
     }
 
