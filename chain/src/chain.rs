@@ -914,13 +914,14 @@ impl ChainService {
         cycles: Cycle,
     ) {
         info!(
-            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
+            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}, cache_entries: {:?}",
             b.number(),
             b.hash(),
             b.data().serialized_size_without_uncle_proposals(),
             self.shared.consensus().max_block_bytes(),
             cycles,
-            self.shared.consensus().max_block_cycles()
+            self.shared.consensus().max_block_cycles(),
+			cache_entries,
         );
 
         // log tx verification result for monitor node
@@ -930,9 +931,10 @@ impl ChainService {
             for (rtx, cycles) in resolved.iter().skip(1).zip(cache_entries.iter()) {
                 trace_target!(
                     "ckb_tx_monitor",
-                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
+                    r#"{{"tx_hash":"{:#x}","cycles":{},"fee":{}}}"#,
                     rtx.transaction.hash(),
-                    cycles.cycles
+                    cycles.cycles,
+                    cycles.fee
                 );
             }
         }
