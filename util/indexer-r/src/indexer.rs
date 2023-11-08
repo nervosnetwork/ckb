@@ -6,7 +6,7 @@ use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
     core::{BlockNumber, BlockView, TransactionView},
-    packed::Byte32,
+    packed::{Byte32, OutPointBuilder},
     prelude::*,
 };
 use seq_macro::seq;
@@ -156,8 +156,8 @@ impl AsyncIndexerR {
 async fn insert_block(block_view: &BlockView, tx: &mut Transaction<'_, Any>) -> Result<(), Error> {
     bulk_insert_block_table(&[block_view.to_owned()], tx).await?;
 
-    bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
-    bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await?;
+    // bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
+    // bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await?;
 
     Ok(())
 }
@@ -169,15 +169,15 @@ async fn insert_transactions(
     let block_hash = block_view.hash().raw_data().to_vec();
     let tx_views = block_view.transactions();
 
-    bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
+    // bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
 
     bulk_insert_output_table(&tx_views, tx).await?;
-    bulk_insert_input_table(&tx_views, tx).await?;
+    // bulk_insert_input_table(&tx_views, tx).await?;
     bulk_insert_script_table(&tx_views, tx).await?;
 
-    bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
-    bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
-    buil_insert_output_association_script(&tx_views, tx).await?;
+    // bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
+    // bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
+    // buil_insert_output_association_script(&tx_views, tx).await?;
 
     Ok(())
 }
@@ -281,7 +281,64 @@ async fn bulk_insert_output_table(
     tx_views: &[TransactionView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut output_cell_rows = Vec::new();
+
+    for (tx_index, tx_view) in tx_views.iter().enumerate() {
+        for (output_index, (cell, data)) in tx_view.outputs_with_data_iter().enumerate() {
+            let cell_capacity: u64 = cell.capacity().unpack();
+            let cell_row = (
+                OutPointBuilder::default()
+                    .tx_hash(tx_view.hash())
+                    .index(output_index.pack())
+                    .build()
+                    .as_bytes()
+                    .to_vec(),
+                i64::try_from(cell_capacity).map_err(|err| Error::DB(err.to_string()))?,
+                data.to_vec(),
+                tx_view.hash().raw_data().to_vec(),
+                i32::try_from(output_index).map_err(|err| Error::DB(err.to_string()))?,
+            );
+            output_cell_rows.push(cell_row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..output_cell_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(output_cell_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("output");
+        builder.field(
+            r#"
+            out_point,
+            capacity,
+            data,
+            tx_hash,
+            output_index"#,
+        );
+        push_values_placeholders(&mut builder, 5, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in output_cell_rows[start..end].iter() {
+            seq!(i in 0..5 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn bulk_insert_input_table(
@@ -351,7 +408,7 @@ async fn bulk_insert_script_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(script_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("mercury_script");
+        let mut builder = SqlBuilder::insert_into("script");
         builder.field(
             r#"script_hash,
             script_code_hash,
@@ -429,7 +486,7 @@ async fn script_exists(
 
     let row = sqlx::query(
         "SELECT COUNT(*) as count 
-        FROM mercury_script WHERE
+        FROM script WHERE
         script_hash = $1",
     )
     .bind(script_hash)
