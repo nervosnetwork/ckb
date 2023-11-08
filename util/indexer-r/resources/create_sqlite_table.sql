@@ -48,13 +48,13 @@ CREATE TABLE tx_association_header_dep(
 CREATE TABLE tx_association_cell_dep(
     id INTEGER PRIMARY KEY,
     tx_hash BLOB NOT NULL,
-    outpoint BLOB NOT NULL,
+    out_point BLOB NOT NULL,
     dep_type SMALLINT NOT NULL
 );
 
 CREATE TABLE output(
     id INTEGER PRIMARY KEY,
-    outpoint BLOB UNIQUE NOT NULL,
+    out_point BLOB UNIQUE NOT NULL,
     capacity BIGINT NOT NULL,
     data BLOB,
     tx_hash BLOB NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE output(
 );
 
 CREATE TABLE input(
-    outpoint BLOB PRIMARY KEY,
+    out_point BLOB PRIMARY KEY,
     since BIGINT NOT NULL,
     tx_hash BLOB NOT NULL,
     input_index INT NOT NULL
@@ -78,6 +78,6 @@ CREATE TABLE script(
 
 CREATE TABLE output_association_script(
     id INTEGER PRIMARY KEY,
-    outpoint BLOB NOT NULL,
+    out_point BLOB NOT NULL,
     script_hash BLOB NOT NULL
 );
