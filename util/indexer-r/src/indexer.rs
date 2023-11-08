@@ -11,8 +11,9 @@ use ckb_types::{
 };
 use seq_macro::seq;
 use sql_builder::SqlBuilder;
-use sqlx::{Any, Transaction};
+use sqlx::{Any, Row, Transaction};
 
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 // Note that every database has a practical limit on the number of bind parameters you can add to a single query.
@@ -142,38 +143,43 @@ impl AsyncIndexerR {
             .transaction()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
-        self.insert_block(block, &mut tx).await?;
-        // self.insert_transactions(block, &mut tx).await?;
+        insert_block(block, &mut tx).await?;
+        insert_transactions(block, &mut tx).await?;
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
     pub(crate) async fn rollback(&self) -> Result<(), Error> {
         unimplemented!("rollback")
     }
+}
 
-    async fn insert_block(
-        &self,
-        block_view: &BlockView,
-        tx: &mut Transaction<'_, Any>,
-    ) -> Result<(), Error> {
-        bulk_insert_block_table(&[block_view.to_owned()], tx).await
-        // bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
-        // bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await
-    }
+async fn insert_block(block_view: &BlockView, tx: &mut Transaction<'_, Any>) -> Result<(), Error> {
+    bulk_insert_block_table(&[block_view.to_owned()], tx).await?;
 
-    async fn insert_transactions(
-        &self,
-        block_view: &BlockView,
-        tx: &mut Transaction<'_, Any>,
-    ) -> Result<(), Error> {
-        let block_hash = block_view.hash().raw_data().to_vec();
-        let tx_views = block_view.transactions();
+    bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
+    bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await?;
 
-        bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
-        bulk_insert_output_cell_table(&tx_views, tx).await?;
-        bulk_insert_script_table(&tx_views, tx).await?;
-        Ok(())
-    }
+    Ok(())
+}
+
+async fn insert_transactions(
+    block_view: &BlockView,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    let block_hash = block_view.hash().raw_data().to_vec();
+    let tx_views = block_view.transactions();
+
+    bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
+
+    bulk_insert_output_table(&tx_views, tx).await?;
+    bulk_insert_input_table(&tx_views, tx).await?;
+    bulk_insert_script_table(&tx_views, tx).await?;
+
+    bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
+    bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
+    buil_insert_output_association_script(&tx_views, tx).await?;
+
+    Ok(())
 }
 
 async fn bulk_insert_block_table(
@@ -271,7 +277,14 @@ async fn bulk_insert_transaction_table(
     unimplemented!()
 }
 
-async fn bulk_insert_output_cell_table(
+async fn bulk_insert_output_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn bulk_insert_input_table(
     tx_views: &[TransactionView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -279,6 +292,111 @@ async fn bulk_insert_output_cell_table(
 }
 
 async fn bulk_insert_script_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    let mut script_set = HashSet::new();
+    let mut exist_script_cache = HashSet::new();
+
+    for tx_view in tx_views.iter() {
+        for (cell, _) in tx_view.outputs_with_data_iter() {
+            if let Some(type_script) = cell.type_().to_opt() {
+                let type_hash = type_script.calc_script_hash().raw_data();
+                let type_script_args = type_script.args().raw_data();
+
+                let type_script_row = (
+                    type_hash.to_vec(),
+                    type_script.code_hash().raw_data().to_vec(),
+                    type_script_args.to_vec(),
+                    i16::try_from(
+                        u8::try_from(type_script.hash_type())
+                            .map_err(|err| Error::DB(err.to_string()))?,
+                    )
+                    .map_err(|err| Error::DB(err.to_string()))?,
+                );
+                if !script_set.contains(&type_script_row)
+                    && !script_exists(&type_script_row.0, &mut exist_script_cache, tx).await?
+                {
+                    exist_script_cache.insert(type_script_row.0.clone());
+                    script_set.insert(type_script_row);
+                }
+            }
+
+            let lock_script = cell.lock();
+            let lock_hash = lock_script.calc_script_hash().raw_data();
+            let lock_script_args = lock_script.args().raw_data();
+            let lock_script_row = (
+                lock_hash.to_vec(),
+                lock_script.code_hash().raw_data().to_vec(),
+                lock_script_args.to_vec(),
+                i16::try_from(
+                    u8::try_from(lock_script.hash_type())
+                        .map_err(|err| Error::DB(err.to_string()))?,
+                )
+                .map_err(|err| Error::DB(err.to_string()))?,
+            );
+            if !script_set.contains(&lock_script_row)
+                && !script_exists(&lock_script_row.0, &mut exist_script_cache, tx).await?
+            {
+                exist_script_cache.insert(lock_script_row.0.clone());
+                script_set.insert(lock_script_row);
+            }
+        }
+    }
+
+    let script_rows = script_set.iter().cloned().collect::<Vec<_>>();
+
+    // bulk insert
+    for start in (0..script_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(script_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("mercury_script");
+        builder.field(
+            r#"script_hash,
+            script_code_hash,
+            script_args,
+            script_type"#,
+        );
+        push_values_placeholders(&mut builder, 4, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in script_rows[start..end].iter() {
+            seq!(i in 0..4 {
+                query = query.bind(&row.i);
+            });
+        }
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
+}
+
+async fn bulk_insert_tx_association_header_dep_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn bulk_insert_tx_association_cell_dep_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn buil_insert_output_association_script(
     tx_views: &[TransactionView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -298,4 +416,26 @@ pub fn push_values_placeholders(
         builder.values(&values);
         placeholder_idx += column_number;
     }
+}
+
+async fn script_exists(
+    script_hash: &[u8],
+    exist_script_cache: &mut HashSet<Vec<u8>>,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<bool, Error> {
+    if exist_script_cache.contains(script_hash) {
+        return Ok(true);
+    }
+
+    let row = sqlx::query(
+        "SELECT COUNT(*) as count 
+        FROM mercury_script WHERE
+        script_hash = $1",
+    )
+    .bind(script_hash)
+    .fetch_one(tx)
+    .await
+    .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(row.get::<i64, _>("count") != 0)
 }
