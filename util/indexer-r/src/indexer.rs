@@ -5,7 +5,7 @@ use crate::{store::SQLXPool, IndexerRHandle};
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
-    core::{BlockNumber, BlockView},
+    core::{BlockNumber, BlockView, TransactionView},
     packed::Byte32,
     prelude::*,
 };
@@ -27,6 +27,22 @@ pub(crate) const BATCH_SIZE_THRESHOLD: usize = 1_000;
 ///
 /// The handle is internally reference-counted and can be freely cloned.
 /// A handle can be obtained using the IndexerRService::handle method.
+///
+/// "Indexer-r" is based on a relational database, and the database tables are as follows:
+///
+/// - block/uncle
+///	    - block_association_proposal
+///	    - block_association_uncle
+/// - tx
+///	    - tx_association_header_dep
+///     - tx_association_cell_dep
+/// - input
+/// - output
+///	    - output_association_script
+/// - script
+///
+/// The detailed table design can be found in the SQL files in the resources folder of this crate.
+
 #[derive(Clone)]
 pub struct IndexerR {
     async_indexer_r: AsyncIndexerR,
@@ -126,8 +142,8 @@ impl AsyncIndexerR {
             .transaction()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
-        self.insert_block_table(block, &mut tx).await?;
-        self.insert_transaction_table(block, &mut tx).await?;
+        self.insert_block(block, &mut tx).await?;
+        // self.insert_transactions(block, &mut tx).await?;
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
@@ -135,24 +151,32 @@ impl AsyncIndexerR {
         unimplemented!("rollback")
     }
 
-    async fn insert_block_table(
+    async fn insert_block(
         &self,
         block_view: &BlockView,
         tx: &mut Transaction<'_, Any>,
     ) -> Result<(), Error> {
-        bulk_insert_blocks(&[block_view.to_owned()], tx).await
+        bulk_insert_block_table(&[block_view.to_owned()], tx).await
+        // bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
+        // bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await
     }
 
-    async fn insert_transaction_table(
+    async fn insert_transactions(
         &self,
-        _block: &BlockView,
-        _tx: &mut Transaction<'_, Any>,
+        block_view: &BlockView,
+        tx: &mut Transaction<'_, Any>,
     ) -> Result<(), Error> {
+        let block_hash = block_view.hash().raw_data().to_vec();
+        let tx_views = block_view.transactions();
+
+        bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
+        bulk_insert_output_cell_table(&tx_views, tx).await?;
+        bulk_insert_script_table(&tx_views, tx).await?;
         Ok(())
     }
 }
 
-pub async fn bulk_insert_blocks(
+async fn bulk_insert_block_table(
     block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -173,7 +197,6 @@ pub async fn bulk_insert_blocks(
                 block_view.epoch().length() as i32,
                 block_view.dao().raw_data().to_vec(),
                 block_view.proposals_hash().raw_data().to_vec(),
-                block_view.calc_uncles_hash().raw_data().to_vec(),
                 block_view.extra_hash().raw_data().to_vec(),
             )
         })
@@ -200,10 +223,9 @@ pub async fn bulk_insert_blocks(
                 epoch_length,
                 dao,
                 proposals_hash,
-                uncles_hash,
                 extra_hash"#,
         );
-        push_values_placeholders(&mut builder, 15, end - start);
+        push_values_placeholders(&mut builder, 14, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -213,7 +235,7 @@ pub async fn bulk_insert_blocks(
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in block_rows[start..end].iter() {
-            seq!(i in 0..15 {
+            seq!(i in 0..14 {
                 query = query.bind(&row.i);
             });
         }
@@ -225,6 +247,42 @@ pub async fn bulk_insert_blocks(
             .map_err(|err| Error::DB(err.to_string()))?;
     }
     Ok(())
+}
+
+async fn bulk_insert_block_association_proposal_table(
+    block_views: &[BlockView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!("bulk_insert_block_association_proposal_table")
+}
+
+async fn bulk_insert_block_association_uncle_table(
+    block_views: &[BlockView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!("")
+}
+
+async fn bulk_insert_transaction_table(
+    _block_hash: &[u8],
+    _tx_views: &[TransactionView],
+    _tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn bulk_insert_output_cell_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn bulk_insert_script_table(
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    unimplemented!()
 }
 
 pub fn push_values_placeholders(
