@@ -63,7 +63,7 @@ CREATE TABLE output(
 
 CREATE TABLE input(
     out_point BLOB PRIMARY KEY,
-    since BIGINT NOT NULL,
+    since BLOB NOT NULL,
     tx_hash BLOB NOT NULL,
     input_index INT NOT NULL
 );
