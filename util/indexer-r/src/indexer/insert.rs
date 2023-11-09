@@ -69,8 +69,8 @@ pub(crate) async fn insert_transactions(
     bulk_insert_input_table(&tx_views, tx).await?;
     bulk_insert_script_table(&tx_views, tx).await?;
 
-    // bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
-    // bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
+    bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
+    bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
     // buil_insert_output_association_script(&tx_views, tx).await?;
 
     Ok(())
@@ -530,17 +530,112 @@ async fn bulk_insert_script_table(
 }
 
 async fn bulk_insert_tx_association_header_dep_table(
-    _tx_views: &[TransactionView],
-    _tx: &mut Transaction<'_, Any>,
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut tx_association_header_dep_rows = Vec::new();
+
+    for tx_view in tx_views.iter() {
+        for header_dep in tx_view.header_deps_iter() {
+            let row = (
+                tx_view.hash().raw_data().to_vec(),
+                header_dep.raw_data().to_vec(),
+            );
+            tx_association_header_dep_rows.push(row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..tx_association_header_dep_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_header_dep_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("tx_association_header_dep");
+        builder.field(
+            r#"
+            tx_hash,
+            block_hash"#,
+        );
+        push_values_placeholders(&mut builder, 2, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in tx_association_header_dep_rows[start..end].iter() {
+            seq!(i in 0..2 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn bulk_insert_tx_association_cell_dep_table(
-    _tx_views: &[TransactionView],
-    _tx: &mut Transaction<'_, Any>,
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut tx_association_cell_dep_rows = Vec::new();
+
+    for tx_view in tx_views.iter() {
+        for cell_dep in tx_view.cell_deps_iter() {
+            let row = (
+                tx_view.hash().raw_data().to_vec(),
+                cell_dep.out_point().as_bytes().to_vec(),
+                i16::try_from(
+                    u8::try_from(cell_dep.dep_type()).map_err(|err| Error::DB(err.to_string()))?,
+                )
+                .map_err(|err| Error::DB(err.to_string()))?,
+            );
+            tx_association_cell_dep_rows.push(row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..tx_association_cell_dep_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_cell_dep_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("tx_association_cell_dep");
+        builder.field(
+            r#"
+            tx_hash,
+            out_point,
+            dep_type"#,
+        );
+        push_values_placeholders(&mut builder, 3, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in tx_association_cell_dep_rows[start..end].iter() {
+            seq!(i in 0..3 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn buil_insert_output_association_script(
