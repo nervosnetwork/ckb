@@ -5248,6 +5248,10 @@ The JSON view of a Block used as a parameter in the RPC.
 
 *   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
 
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension in the block body.
+
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
+
 
 ### Type `BlockEconomicState`
 
@@ -5400,7 +5404,7 @@ Miners optional pick transactions and then assemble the final block.
 
 *   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
 
-    This field is optional. It’s a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
 
 
 ### Type `BlockView`
@@ -5418,6 +5422,10 @@ The JSON view of a Block including header and body.
 *   `transactions`: `Array<` [`TransactionView`](#type-transactionview) `>` - The transactions in the block body.
 
 *   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
+
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension in the block body.
+
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
 
 
 ### Type `Byte32`
