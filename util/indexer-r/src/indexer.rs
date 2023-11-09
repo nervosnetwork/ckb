@@ -172,7 +172,7 @@ async fn insert_transactions(
     // bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
 
     bulk_insert_output_table(&tx_views, tx).await?;
-    // bulk_insert_input_table(&tx_views, tx).await?;
+    bulk_insert_input_table(&tx_views, tx).await?;
     bulk_insert_script_table(&tx_views, tx).await?;
 
     // bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
@@ -283,7 +283,7 @@ async fn bulk_insert_output_table(
 ) -> Result<(), Error> {
     let mut output_cell_rows = Vec::new();
 
-    for (tx_index, tx_view) in tx_views.iter().enumerate() {
+    for tx_view in tx_views.iter() {
         for (output_index, (cell, data)) in tx_view.outputs_with_data_iter().enumerate() {
             let cell_capacity: u64 = cell.capacity().unpack();
             let cell_row = (
@@ -345,7 +345,61 @@ async fn bulk_insert_input_table(
     tx_views: &[TransactionView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut input_rows = Vec::new();
+
+    for (tx_index, tx_view) in tx_views.iter().enumerate() {
+        if tx_index == 0 {
+            // cellbase
+            continue;
+        }
+        for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
+            let since: u64 = input.since().unpack();
+            let input_row = (
+                input.previous_output().as_bytes().to_vec(),
+                since.to_be_bytes().to_vec(),
+                tx_view.hash().raw_data().to_vec(),
+                i32::try_from(input_index).map_err(|err| Error::DB(err.to_string()))?,
+            );
+            input_rows.push(input_row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..input_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(input_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("input");
+        builder.field(
+            r#"
+            out_point,
+            since,
+            tx_hash,
+            input_index"#,
+        );
+        push_values_placeholders(&mut builder, 4, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in input_rows[start..end].iter() {
+            seq!(i in 0..4 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn bulk_insert_script_table(
