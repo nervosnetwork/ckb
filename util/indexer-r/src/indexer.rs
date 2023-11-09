@@ -169,7 +169,7 @@ async fn insert_transactions(
     let block_hash = block_view.hash().raw_data().to_vec();
     let tx_views = block_view.transactions();
 
-    // bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
+    bulk_insert_transaction_table(&block_hash, &tx_views, tx).await?;
 
     bulk_insert_output_table(&tx_views, tx).await?;
     bulk_insert_input_table(&tx_views, tx).await?;
@@ -270,11 +270,63 @@ async fn bulk_insert_block_association_uncle_table(
 }
 
 async fn bulk_insert_transaction_table(
-    _block_hash: &[u8],
-    _tx_views: &[TransactionView],
-    _tx: &mut Transaction<'_, Any>,
+    block_hash: &[u8],
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let tx_rows: Vec<_> = tx_views
+        .iter()
+        .enumerate()
+        .map(|(tx_index, transaction)| {
+            (
+                transaction.hash().raw_data().to_vec(),
+                transaction.version() as i16,
+                transaction.inputs().len() as i32,
+                transaction.outputs().len() as i32,
+                transaction.witnesses().as_bytes().to_vec(),
+                block_hash.to_vec(),
+                tx_index as i32,
+            )
+        })
+        .collect();
+
+    for start in (0..tx_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(tx_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("ckb_transaction");
+        builder.field(
+            r#"tx_hash, 
+            version, 
+            input_count, 
+            output_count, 
+            witnesses,
+            block_hash,   
+            tx_index"#,
+        );
+        push_values_placeholders(&mut builder, 7, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in tx_rows[start..end].iter() {
+            seq!(i in 0..7 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn bulk_insert_output_table(
