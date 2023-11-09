@@ -1,5 +1,6 @@
 #![allow(clippy::needless_borrow)]
 
+use super::*;
 use crate::store::SQLXPool;
 
 use ckb_indexer_sync::Error;
@@ -22,7 +23,7 @@ use std::collections::HashSet;
 // which should be within the above limits.
 pub(crate) const BATCH_SIZE_THRESHOLD: usize = 1_000;
 
-pub(crate) async fn insert_block(
+pub(crate) async fn append_block(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -71,7 +72,7 @@ pub(crate) async fn insert_transactions(
 
     bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
     bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
-    buil_insert_output_association_script(&tx_views, tx).await?;
+    bulk_insert_output_association_script(&tx_views, tx).await?;
 
     Ok(())
 }
@@ -107,7 +108,7 @@ async fn bulk_insert_block_table(
 
         // insert mercury_block
         // build query str
-        let mut builder = SqlBuilder::insert_into("block");
+        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK);
         builder.field(
             r#"
                 block_hash,
@@ -170,7 +171,7 @@ async fn bulk_insert_block_association_proposal_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_proposal_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("block_association_proposal");
+        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK_ASSOCIATION_PROPOSAL);
         builder.field(
             r#"
             block_hash,
@@ -222,7 +223,7 @@ async fn bulk_insert_block_association_uncle_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_uncle_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("block_association_uncle");
+        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK_ASSOCIATION_UNCLE);
         builder.field(
             r#"
             block_hash,
@@ -278,7 +279,7 @@ async fn bulk_insert_transaction_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("ckb_transaction");
+        let mut builder = SqlBuilder::insert_into(TABLE_TRANSACTION);
         builder.field(
             r#"tx_hash, 
             version, 
@@ -343,7 +344,7 @@ async fn bulk_insert_output_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(output_cell_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("output");
+        let mut builder = SqlBuilder::insert_into(TABLE_OUTPUT);
         builder.field(
             r#"
             out_point,
@@ -405,7 +406,7 @@ async fn bulk_insert_input_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(input_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("input");
+        let mut builder = SqlBuilder::insert_into(TABLE_INPUT);
         builder.field(
             r#"
             out_point,
@@ -498,7 +499,7 @@ async fn bulk_insert_script_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(script_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("script");
+        let mut builder = SqlBuilder::insert_into(TABLE_SCRIPT);
         builder.field(
             r#"script_hash,
             script_code_hash,
@@ -550,7 +551,7 @@ async fn bulk_insert_tx_association_header_dep_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_header_dep_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("tx_association_header_dep");
+        let mut builder = SqlBuilder::insert_into(TABLE_TX_ASSOCIATION_HEADER_DEP);
         builder.field(
             r#"
             tx_hash,
@@ -606,7 +607,7 @@ async fn bulk_insert_tx_association_cell_dep_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_cell_dep_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("tx_association_cell_dep");
+        let mut builder = SqlBuilder::insert_into(TABLE_TX_ASSOCIATION_CELL_DEP);
         builder.field(
             r#"
             tx_hash,
@@ -638,7 +639,7 @@ async fn bulk_insert_tx_association_cell_dep_table(
     Ok(())
 }
 
-async fn buil_insert_output_association_script(
+async fn bulk_insert_output_association_script(
     tx_views: &[TransactionView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -667,7 +668,7 @@ async fn buil_insert_output_association_script(
         let end = (start + BATCH_SIZE_THRESHOLD).min(output_association_script_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into("output_association_script");
+        let mut builder = SqlBuilder::insert_into(TABLE_OUTPUT_ASSOCIATION_SCRIPT);
         builder.field(
             r#"
                 out_point,

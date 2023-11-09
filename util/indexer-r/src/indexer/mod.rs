@@ -1,8 +1,10 @@
 mod insert;
+mod remove;
 
 pub(crate) use insert::*;
+pub(crate) use remove::*;
 
-use crate::{store::SQLXPool, IndexerRHandle};
+use crate::{store::SQLXPool, AsyncIndexerRHandle, IndexerRHandle};
 
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
@@ -14,7 +16,7 @@ use ckb_types::{
 
 use std::sync::{Arc, RwLock};
 
-/// "Indexer-r" is based on a relational database, and the database tables are as follows:
+/// the database tables are as follows:
 ///
 /// - block/uncle
 ///	    - block_association_proposal
@@ -28,6 +30,18 @@ use std::sync::{Arc, RwLock};
 /// - script
 ///
 /// The detailed table design can be found in the SQL files in the resources folder of this crate
+pub(crate) const TABLE_BLOCK: &str = "block";
+pub(crate) const TABLE_BLOCK_ASSOCIATION_PROPOSAL: &str = "block_association_proposal";
+pub(crate) const TABLE_BLOCK_ASSOCIATION_UNCLE: &str = "block_association_uncle";
+pub(crate) const TABLE_TRANSACTION: &str = "ckb_transaction";
+pub(crate) const TABLE_TX_ASSOCIATION_HEADER_DEP: &str = "tx_association_header_dep";
+pub(crate) const TABLE_TX_ASSOCIATION_CELL_DEP: &str = "tx_association_cell_dep";
+pub(crate) const TABLE_INPUT: &str = "input";
+pub(crate) const TABLE_OUTPUT: &str = "output";
+pub(crate) const TABLE_OUTPUT_ASSOCIATION_SCRIPT: &str = "output_association_script";
+pub(crate) const TABLE_SCRIPT: &str = "script";
+
+/// Indexer-r, which is based on a relational database
 #[derive(Clone)]
 pub(crate) struct IndexerR {
     async_indexer_r: AsyncIndexerR,
@@ -73,7 +87,7 @@ impl IndexerSync for IndexerR {
 
     /// Appends a new block to the indexer
     fn append(&self, block: &BlockView) -> Result<(), Error> {
-        let future = self.async_indexer_r.append_block(block);
+        let future = self.async_indexer_r.append(block);
         self.async_runtime.block_on(future)
     }
 
@@ -121,18 +135,36 @@ impl AsyncIndexerR {
 }
 
 impl AsyncIndexerR {
-    pub(crate) async fn append_block(&self, block: &BlockView) -> Result<(), Error> {
+    pub(crate) async fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut tx = self
             .store
             .transaction()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
-        insert_block(block, &mut tx).await?;
+        append_block(block, &mut tx).await?;
         insert_transactions(block, &mut tx).await?;
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
     pub(crate) async fn rollback(&self) -> Result<(), Error> {
-        unimplemented!("rollback")
+        let indexer_handle = AsyncIndexerRHandle::new(self.store.clone(), self.pool.clone());
+        let tip = indexer_handle
+            .query_indexer_tip()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        if let Some(tip) = tip {
+            let mut tx = self
+                .store
+                .transaction()
+                .await
+                .map_err(|err| Error::DB(err.to_string()))?;
+
+            rollback_block(tip.block_hash, indexer_handle, &mut tx).await?;
+
+            return tx.commit().await.map_err(|err| Error::DB(err.to_string()));
+        }
+
+        Ok(())
     }
 }

@@ -1,5 +1,5 @@
 use crate::store::SQLXPool;
-use crate::{AsyncIndexerR, AsyncIndexerRHandle};
+use crate::{indexer::*, AsyncIndexerR, AsyncIndexerRHandle};
 
 use ckb_app_config::IndexerRConfig;
 use ckb_indexer_sync::CustomFilters;
@@ -20,17 +20,10 @@ async fn connect_sqlite(store_path: &str) -> SQLXPool {
 
 async fn insert_blocks(store: SQLXPool) {
     let data_path = String::from(BLOCK_DIR);
-    let indexer = AsyncIndexerR::new(
-        store,
-        // handle,
-        100,
-        1000,
-        None,
-        CustomFilters::new(None, None),
-    );
+    let indexer = AsyncIndexerR::new(store, 100, 1000, None, CustomFilters::new(None, None));
     for i in 0..10 {
         indexer
-            .append_block(&read_block_view(i, data_path.clone()).into())
+            .append(&read_block_view(i, data_path.clone()).into())
             .await
             .unwrap();
     }
@@ -46,14 +39,46 @@ pub fn read_block_view(number: u64, dir_path: String) -> JsonBlockView {
 async fn test_query_tip() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncIndexerRHandle::new(pool.clone(), None);
-    let res = indexer.get_indexer_tip().await.unwrap();
+    let res = indexer.query_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
     insert_blocks(pool.clone()).await;
-    let res = indexer.get_indexer_tip().await.unwrap().unwrap();
+    let res = indexer.query_indexer_tip().await.unwrap().unwrap();
     assert_eq!(9, res.block_number.value());
     assert_eq!(
         "953761d56c03bfedf5e70dde0583470383184c41331f709df55d4acab5358640".to_string(),
         res.block_hash.to_string()
     );
+}
+
+#[tokio::test]
+async fn test_rollback_block() {
+    let storage = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncIndexerR::new(
+        storage.clone(),
+        100,
+        1000,
+        None,
+        CustomFilters::new(None, None),
+    );
+
+    let data_path = String::from(BLOCK_DIR);
+    indexer
+        .append(&read_block_view(0, data_path.clone()).into())
+        .await
+        .unwrap();
+
+    assert_eq!(1, storage.fetch_count(TABLE_BLOCK).await.unwrap());
+    assert_eq!(2, storage.fetch_count(TABLE_TRANSACTION).await.unwrap());
+    assert_eq!(12, storage.fetch_count(TABLE_OUTPUT).await.unwrap());
+    assert_eq!(1, storage.fetch_count(TABLE_INPUT).await.unwrap());
+    assert_eq!(9, storage.fetch_count(TABLE_SCRIPT).await.unwrap());
+
+    indexer.rollback().await.unwrap();
+
+    assert_eq!(0, storage.fetch_count(TABLE_BLOCK).await.unwrap());
+    assert_eq!(0, storage.fetch_count(TABLE_TRANSACTION).await.unwrap());
+    assert_eq!(0, storage.fetch_count(TABLE_OUTPUT).await.unwrap());
+    assert_eq!(0, storage.fetch_count(TABLE_INPUT).await.unwrap());
+    assert_eq!(9, storage.fetch_count(TABLE_SCRIPT).await.unwrap());
 }
