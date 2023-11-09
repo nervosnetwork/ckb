@@ -1,8 +1,4 @@
 use ckb_app_config::StoreConfig;
-<<<<<<< HEAD
-//use ckb_db_migration::SHUTDOWN_BACKGROUND_MIGRATION;
-=======
->>>>>>> bd4c28d58 (fix: fix vm version select)
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::COLUMN_EPOCH;
 use ckb_store::{ChainDB, ChainStore};
