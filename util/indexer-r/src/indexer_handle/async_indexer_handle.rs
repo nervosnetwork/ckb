@@ -1,10 +1,27 @@
 use crate::store::SQLXPool;
-use crate::AsyncIndexerRHandle;
 
-use ckb_indexer_sync::Error;
+use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::IndexerTip;
 use ckb_types::H256;
 use sqlx::Row;
+
+use std::sync::{Arc, RwLock};
+
+/// Async handle to the indexer-r.
+pub struct AsyncIndexerRHandle {
+    store: SQLXPool,
+    _pool: Option<Arc<RwLock<Pool>>>,
+}
+
+impl AsyncIndexerRHandle {
+    /// Construct new AsyncIndexerRHandle instance
+    pub fn new(_store: SQLXPool, _pool: Option<Arc<RwLock<Pool>>>) -> Self {
+        Self {
+            store: _store,
+            _pool,
+        }
+    }
+}
 
 impl AsyncIndexerRHandle {
     /// Get indexer current tip
