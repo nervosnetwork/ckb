@@ -28,7 +28,7 @@ pub(crate) async fn insert_block(
 ) -> Result<(), Error> {
     bulk_insert_block_table(&[block_view.to_owned()], tx).await?;
 
-    // bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
+    bulk_insert_block_association_proposal_table(&[block_view.to_owned()], tx).await?;
     // bulk_insert_block_association_uncle_table(&[block_view.to_owned()], tx).await?;
 
     Ok(())
@@ -128,10 +128,55 @@ async fn bulk_insert_block_table(
 }
 
 async fn bulk_insert_block_association_proposal_table(
-    _block_views: &[BlockView],
-    _tx: &mut Transaction<'_, Any>,
+    block_views: &[BlockView],
+    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!("bulk_insert_block_association_proposal_table")
+    let mut block_association_proposal_rows: Vec<_> = Vec::new();
+
+    for block_view in block_views.iter() {
+        for proposal_hash in block_view.data().proposals().into_iter() {
+            let row = (
+                block_view.hash().raw_data().to_vec(),
+                proposal_hash.raw_data().to_vec(),
+            );
+            block_association_proposal_rows.push(row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..block_association_proposal_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_proposal_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("block_association_proposal");
+        builder.field(
+            r#"
+            block_hash,
+            proposal"#,
+        );
+        push_values_placeholders(&mut builder, 2, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in block_association_proposal_rows[start..end].iter() {
+            seq!(i in 0..2 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 async fn bulk_insert_block_association_uncle_table(
