@@ -71,7 +71,7 @@ pub(crate) async fn insert_transactions(
 
     bulk_insert_tx_association_header_dep_table(&tx_views, tx).await?;
     bulk_insert_tx_association_cell_dep_table(&tx_views, tx).await?;
-    // buil_insert_output_association_script(&tx_views, tx).await?;
+    buil_insert_output_association_script(&tx_views, tx).await?;
 
     Ok(())
 }
@@ -639,10 +639,63 @@ async fn bulk_insert_tx_association_cell_dep_table(
 }
 
 async fn buil_insert_output_association_script(
-    _tx_views: &[TransactionView],
-    _tx: &mut Transaction<'_, Any>,
+    tx_views: &[TransactionView],
+    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut output_association_script_rows = Vec::new();
+
+    for tx_view in tx_views.iter() {
+        for ((cell, _), out_point) in tx_view
+            .outputs_with_data_iter()
+            .zip(tx_view.output_pts_iter())
+        {
+            if let Some(type_script) = cell.type_().to_opt() {
+                let type_hash = type_script.calc_script_hash().raw_data();
+                let row = (out_point.as_bytes().to_vec(), type_hash.to_vec());
+                output_association_script_rows.push(row)
+            }
+
+            let lock_script = cell.lock();
+            let lock_hash = lock_script.calc_script_hash().raw_data();
+            let row = (out_point.as_bytes().to_vec(), lock_hash.to_vec());
+            output_association_script_rows.push(row);
+        }
+    }
+
+    // bulk insert
+    for start in (0..output_association_script_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(output_association_script_rows.len());
+
+        // build query str
+        let mut builder = SqlBuilder::insert_into("output_association_script");
+        builder.field(
+            r#"
+                out_point,
+                script_hash"#,
+        );
+        push_values_placeholders(&mut builder, 2, end - start);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in output_association_script_rows[start..end].iter() {
+            seq!(i in 0..2 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 pub fn push_values_placeholders(
