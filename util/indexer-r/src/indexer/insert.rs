@@ -1,6 +1,5 @@
 #![allow(clippy::needless_borrow)]
 
-use super::*;
 use crate::store::SQLXPool;
 
 use ckb_indexer_sync::Error;
@@ -106,9 +105,9 @@ async fn bulk_insert_block_table(
     for start in (0..block_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_rows.len());
 
-        // insert mercury_block
+        // insert block
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK);
+        let mut builder = SqlBuilder::insert_into("block");
         builder.field(
             r#"
                 block_hash,
@@ -171,7 +170,7 @@ async fn bulk_insert_block_association_proposal_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_proposal_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK_ASSOCIATION_PROPOSAL);
+        let mut builder = SqlBuilder::insert_into("block_association_proposal");
         builder.field(
             r#"
             block_hash,
@@ -223,7 +222,7 @@ async fn bulk_insert_block_association_uncle_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_uncle_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_BLOCK_ASSOCIATION_UNCLE);
+        let mut builder = SqlBuilder::insert_into("block_association_uncle");
         builder.field(
             r#"
             block_hash,
@@ -279,7 +278,7 @@ async fn bulk_insert_transaction_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_TRANSACTION);
+        let mut builder = SqlBuilder::insert_into("ckb_transaction");
         builder.field(
             r#"tx_hash, 
             version, 
@@ -344,7 +343,7 @@ async fn bulk_insert_output_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(output_cell_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_OUTPUT);
+        let mut builder = SqlBuilder::insert_into("output");
         builder.field(
             r#"
             out_point,
@@ -406,7 +405,7 @@ async fn bulk_insert_input_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(input_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_INPUT);
+        let mut builder = SqlBuilder::insert_into("input");
         builder.field(
             r#"
             out_point,
@@ -499,7 +498,7 @@ async fn bulk_insert_script_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(script_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_SCRIPT);
+        let mut builder = SqlBuilder::insert_into("script");
         builder.field(
             r#"script_hash,
             script_code_hash,
@@ -551,7 +550,7 @@ async fn bulk_insert_tx_association_header_dep_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_header_dep_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_TX_ASSOCIATION_HEADER_DEP);
+        let mut builder = SqlBuilder::insert_into("tx_association_header_dep");
         builder.field(
             r#"
             tx_hash,
@@ -607,7 +606,7 @@ async fn bulk_insert_tx_association_cell_dep_table(
         let end = (start + BATCH_SIZE_THRESHOLD).min(tx_association_cell_dep_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_TX_ASSOCIATION_CELL_DEP);
+        let mut builder = SqlBuilder::insert_into("tx_association_cell_dep");
         builder.field(
             r#"
             tx_hash,
@@ -668,7 +667,7 @@ async fn bulk_insert_output_association_script(
         let end = (start + BATCH_SIZE_THRESHOLD).min(output_association_script_rows.len());
 
         // build query str
-        let mut builder = SqlBuilder::insert_into(TABLE_OUTPUT_ASSOCIATION_SCRIPT);
+        let mut builder = SqlBuilder::insert_into("output_association_script");
         builder.field(
             r#"
                 out_point,

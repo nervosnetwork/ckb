@@ -18,28 +18,17 @@ use std::sync::{Arc, RwLock};
 
 /// the database tables are as follows:
 ///
-/// - block/uncle
-///	    - block_association_proposal
-///	    - block_association_uncle
+/// - block
 /// - tx
-///	    - tx_association_header_dep
-///     - tx_association_cell_dep
 /// - input
 /// - output
-///	    - output_association_script
 /// - script
-///
+/// - block_association_proposal
+/// - block_association_uncle
+/// - tx_association_header_dep
+/// - tx_association_cell_dep
+/// - output_association_script
 /// The detailed table design can be found in the SQL files in the resources folder of this crate
-pub(crate) const TABLE_BLOCK: &str = "block";
-pub(crate) const TABLE_BLOCK_ASSOCIATION_PROPOSAL: &str = "block_association_proposal";
-pub(crate) const TABLE_BLOCK_ASSOCIATION_UNCLE: &str = "block_association_uncle";
-pub(crate) const TABLE_TRANSACTION: &str = "ckb_transaction";
-pub(crate) const TABLE_TX_ASSOCIATION_HEADER_DEP: &str = "tx_association_header_dep";
-pub(crate) const TABLE_TX_ASSOCIATION_CELL_DEP: &str = "tx_association_cell_dep";
-pub(crate) const TABLE_INPUT: &str = "input";
-pub(crate) const TABLE_OUTPUT: &str = "output";
-pub(crate) const TABLE_OUTPUT_ASSOCIATION_SCRIPT: &str = "output_association_script";
-pub(crate) const TABLE_SCRIPT: &str = "script";
 
 /// Indexer-r, which is based on a relational database
 #[derive(Clone)]
@@ -160,7 +149,7 @@ impl AsyncIndexerR {
                 .await
                 .map_err(|err| Error::DB(err.to_string()))?;
 
-            rollback_block(tip.block_hash, indexer_handle, &mut tx).await?;
+            rollback_block(tip.block_hash, &mut tx).await?;
 
             return tx.commit().await.map_err(|err| Error::DB(err.to_string()));
         }

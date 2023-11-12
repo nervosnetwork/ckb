@@ -1,5 +1,5 @@
 use crate::store::SQLXPool;
-use crate::{indexer::*, AsyncIndexerR, AsyncIndexerRHandle};
+use crate::{AsyncIndexerR, AsyncIndexerRHandle};
 
 use ckb_app_config::IndexerRConfig;
 use ckb_indexer_sync::CustomFilters;
@@ -68,17 +68,89 @@ async fn test_rollback_block() {
         .await
         .unwrap();
 
-    assert_eq!(1, storage.fetch_count(TABLE_BLOCK).await.unwrap());
-    assert_eq!(2, storage.fetch_count(TABLE_TRANSACTION).await.unwrap());
-    assert_eq!(12, storage.fetch_count(TABLE_OUTPUT).await.unwrap());
-    assert_eq!(1, storage.fetch_count(TABLE_INPUT).await.unwrap());
-    assert_eq!(9, storage.fetch_count(TABLE_SCRIPT).await.unwrap());
+    assert_eq!(1, storage.fetch_count("block").await.unwrap());
+    assert_eq!(2, storage.fetch_count("ckb_transaction").await.unwrap());
+    assert_eq!(12, storage.fetch_count("output").await.unwrap());
+    assert_eq!(1, storage.fetch_count("input").await.unwrap());
+    assert_eq!(9, storage.fetch_count("script").await.unwrap());
+
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("block_association_proposal")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("block_association_uncle")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("tx_association_header_dep")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        2,
+        storage
+            .fetch_count("tx_association_cell_dep")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        15,
+        storage
+            .fetch_count("output_association_script")
+            .await
+            .unwrap()
+    );
 
     indexer.rollback().await.unwrap();
 
-    assert_eq!(0, storage.fetch_count(TABLE_BLOCK).await.unwrap());
-    assert_eq!(0, storage.fetch_count(TABLE_TRANSACTION).await.unwrap());
-    assert_eq!(0, storage.fetch_count(TABLE_OUTPUT).await.unwrap());
-    assert_eq!(0, storage.fetch_count(TABLE_INPUT).await.unwrap());
-    assert_eq!(9, storage.fetch_count(TABLE_SCRIPT).await.unwrap());
+    assert_eq!(0, storage.fetch_count("block").await.unwrap());
+    assert_eq!(0, storage.fetch_count("ckb_transaction").await.unwrap());
+    assert_eq!(0, storage.fetch_count("output").await.unwrap());
+    assert_eq!(0, storage.fetch_count("input").await.unwrap());
+    assert_eq!(0, storage.fetch_count("script").await.unwrap());
+
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("block_association_proposal")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("block_association_uncle")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("tx_association_header_dep")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("tx_association_cell_dep")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        0,
+        storage
+            .fetch_count("output_association_script")
+            .await
+            .unwrap()
+    );
 }

@@ -41,31 +41,6 @@ impl AsyncIndexerRHandle {
             })
             .map_err(|err| Error::DB(err.to_string()))
     }
-
-    /// Query transaction hashes by block hash
-    pub async fn query_transaction_hashes_by_block_hash(
-        &self,
-        block_hash: &[u8],
-    ) -> Result<Vec<H256>, Error> {
-        let query = SQLXPool::new_query(
-            r#"
-            SELECT tx_hash FROM ckb_transaction
-            WHERE block_hash = $1
-            ORDER BY tx_index
-            DESC
-            "#,
-        )
-        .bind(block_hash);
-        self.store
-            .fetch_all(query)
-            .await
-            .map(|tx| {
-                tx.into_iter()
-                    .map(|tx| bytes_to_h256(tx.get("tx_hash")))
-                    .collect()
-            })
-            .map_err(|err| Error::DB(err.to_string()))
-    }
 }
 
 pub(crate) fn bytes_to_h256(input: &[u8]) -> H256 {
@@ -74,7 +49,7 @@ pub(crate) fn bytes_to_h256(input: &[u8]) -> H256 {
 
 pub(crate) fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>, Error> {
     if range.start == 0 {
-        return Err(Error::Params("no valid parameter".to_owned()).into());
+        return Err(Error::Params("no valid parameter".to_owned()));
     }
     Ok((1..=range.end)
         .map(|i| format!("${}", i))
