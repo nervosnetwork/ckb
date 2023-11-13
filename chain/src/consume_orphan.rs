@@ -58,7 +58,7 @@ impl ConsumeOrphan {
                 recv(self.lonely_blocks_rx) -> msg => match msg {
                     Ok(lonely_block) => {
                         self.orphan_blocks_broker.insert(lonely_block);
-                        self.search_orphan_pool(&self.unverified_blocks_tx)
+                        self.search_orphan_pool()
                     },
                     Err(err) => {
                         error!("lonely_block_rx err: {}", err);
@@ -68,7 +68,7 @@ impl ConsumeOrphan {
             }
         }
     }
-    fn search_orphan_pool(&self, unverified_block_tx: &Sender<UnverifiedBlock>) {
+    fn search_orphan_pool(&self) {
         for leader_hash in self.orphan_blocks_broker.clone_leaders() {
             if !self
                 .shared
@@ -130,7 +130,7 @@ impl ConsumeOrphan {
                             let block_number = unverified_block.block().number();
                             let block_hash = unverified_block.block().hash();
 
-                            match unverified_block_tx.send(unverified_block) {
+                            match self.unverified_blocks_tx.send(unverified_block) {
                                 Ok(_) => {}
                                 Err(SendError(unverified_block)) => {
                                     error!("send unverified_block_tx failed, the receiver has been closed");
