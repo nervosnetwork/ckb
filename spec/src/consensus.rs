@@ -824,16 +824,15 @@ impl Consensus {
                     epoch_duration_in_milliseconds,
                 } => {
                     if self.permanent_difficulty() {
-                        let primary_epoch_reward =
-                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
-                        let block_reward =
-                            Capacity::shannons(primary_epoch_reward / epoch.length());
-                        let remainder_reward =
-                            Capacity::shannons(primary_epoch_reward % epoch.length());
-
                         let next_epoch_length = (self.epoch_duration_target() + MIN_BLOCK_INTERVAL
                             - 1)
                             / MIN_BLOCK_INTERVAL;
+                        let primary_epoch_reward =
+                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
+                        let block_reward =
+                            Capacity::shannons(primary_epoch_reward / next_epoch_length);
+                        let remainder_reward =
+                            Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
                         let dummy_epoch_ext = epoch
                             .clone()
