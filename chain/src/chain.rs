@@ -55,10 +55,15 @@ pub type VerifyCallback = Box<dyn FnOnce(VerifyResult) + Send + Sync>;
 pub enum VerifiedBlockStatus {
     // The block is being seen for the first time.
     FirstSeenAndVerified,
+
+    // The block is being seen for the first time, but not verify it yet
     FirstSeenButNotVerified,
 
     // The block has been verified before.
     PreviouslyVerified,
+
+    // The block has been verified before, but not veriify it yet
+    PreviouslyUnVerified,
 }
 
 /// Controller to the chain service.
@@ -332,7 +337,7 @@ impl ChainService {
     /// start background single-threaded service with specified thread_name.
     pub fn start<S: ToString>(
         mut self,
-        proposal_table: ProposalTable,
+        mut proposal_table: ProposalTable,
         thread_name: Option<S>,
     ) -> ChainController {
         let orphan_blocks_broker_clone = Arc::clone(&self.orphan_blocks_broker);
@@ -667,6 +672,9 @@ impl ChainService {
                                 "doesn't accept block {}, because it has been stored",
                                 descendant_block.block().hash()
                             );
+                            let verify_result: VerifyResult =
+                                Ok(VerifiedBlockStatus::PreviouslyUnVerified);
+                            descendant_block.execute_callback(verify_result);
                         }
                     },
                 }
