@@ -8,7 +8,7 @@ use ckb_app_config::{
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::chain::{ChainController, ChainService, ChainServicesBuilder};
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
@@ -231,11 +231,9 @@ impl Launcher {
     pub fn start_chain_service(
         &self,
         shared: &Shared,
-        table: ProposalTable,
-        verify_failed_block_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+        chain_services_builder: ChainServicesBuilder,
     ) -> ChainController {
-        let chain_service = ChainService::new(shared.clone(), table, verify_failed_block_tx);
-        let chain_controller = chain_service.start(Some("ChainService"));
+        let chain_controller = chain_services_builder.start();
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller
     }
