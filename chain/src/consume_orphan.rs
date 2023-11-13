@@ -108,7 +108,8 @@ impl ConsumeOrphan {
                     Err(err) => {
                         tell_synchronizer_to_punish_the_bad_peer(
                             self.verify_failed_blocks_tx.clone(),
-                            &descendant_block,
+                            descendant_block.peer_id(),
+                            descendant_block.block().hash(),
                             &err,
                         );
 
@@ -138,7 +139,8 @@ impl ConsumeOrphan {
 
                                     tell_synchronizer_to_punish_the_bad_peer(
                                         self.verify_failed_blocks_tx.clone(),
-                                        &unverified_block.unverified_block,
+                                        unverified_block.peer_id(),
+                                        unverified_block.block().hash(),
                                         &err,
                                     );
 
