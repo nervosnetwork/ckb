@@ -1,9 +1,7 @@
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::chain::{
-    ChainController, LonelyBlock, LonelyBlockWithCallback, VerifiedBlockStatus, VerifyCallback,
-    VerifyResult,
-};
+use ckb_chain::chain::ChainController;
+use ckb_chain::{LonelyBlock, VerifyCallback};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
