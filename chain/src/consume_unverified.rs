@@ -140,7 +140,8 @@ impl ConsumeUnverifiedBlocks {
 
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    &unverified_block.unverified_block,
+                    unverified_block.peer_id(),
+                    unverified_block.block().hash(),
                     err,
                 );
             }
