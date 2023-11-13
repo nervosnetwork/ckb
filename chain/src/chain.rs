@@ -417,9 +417,10 @@ impl ChainService {
                     recv(truncate_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: target_tip_hash }) => {
                             let _ = tx_control.suspend_chunk_process();
-                            let _ = responder.send(self.truncate(
-                                &mut proposal_table,
-                                &target_tip_hash));
+                            todo!("move truncate process to consume unverified_block");
+                            // let _ = responder.send(self.truncate(
+                            //     &mut proposal_table,
+                            //     &target_tip_hash));
                             let _ = tx_control.continue_chunk_process();
                         },
                         _ => {
