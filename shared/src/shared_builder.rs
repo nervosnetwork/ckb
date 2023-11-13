@@ -35,6 +35,7 @@ use ckb_shared::{HeaderMap, Shared};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_util::Mutex;
 
+use ckb_chain::chain::{ChainService, ChainServicesBuilder};
 use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;
@@ -446,16 +447,76 @@ impl SharedBuilder {
         let (verify_failed_block_tx, verify_failed_block_rx) =
             tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
+        let chain_services_builder =
+            ChainServicesBuilder::new(shared.clone(), table, verify_failed_block_tx);
+
         let pack = SharedPackage {
-            table: Some(table),
+            chain_services_builder: Some(chain_services_builder),
             tx_pool_builder: Some(tx_pool_builder),
             relay_tx_receiver: Some(receiver),
-            verify_failed_block_tx: Some(verify_failed_block_tx),
             verify_failed_block_rx: Some(verify_failed_block_rx),
         };
 
         Ok((shared, pack))
     }
+}
+
+/// SharedBuilder build returning the shared/package halves
+/// The package structs used for init other component
+pub struct SharedPackage {
+    chain_services_builder: Option<ChainServicesBuilder>,
+    tx_pool_builder: Option<TxPoolServiceBuilder>,
+    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
+
+    verify_failed_block_rx: Option<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
+}
+
+impl SharedPackage {
+    /// Takes the chain_services_builder out of the package, leaving a None in its place.
+    pub fn take_chain_services_builder(&mut self) -> ChainServicesBuilder {
+        self.chain_services_builder
+            .take()
+            .expect("take chain_services_builder")
+    }
+
+    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
+    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
+        self.tx_pool_builder.take().expect("take tx_pool_builder")
+    }
+
+    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
+        self.relay_tx_receiver
+            .take()
+            .expect("take relay_tx_receiver")
+    }
+
+    /// Takes the verify_failed_block_rx out of the package, leaving a None in its place.
+    pub fn take_verify_failed_block_rx(
+        &mut self,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo> {
+        self.verify_failed_block_rx
+            .take()
+            .expect("take verify_failed_block_rx")
+    }
+}
+
+fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
+    NotifyService::new(notify_config, handle).start()
+}
+
+fn build_store(
+    db: RocksDB,
+    store_config: StoreConfig,
+    ancient_path: Option<PathBuf>,
+) -> Result<ChainDB, Error> {
+    let store = if store_config.freezer_enable && ancient_path.is_some() {
+        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
+        ChainDB::new_with_freezer(db, freezer, store_config)
+    } else {
+        ChainDB::new(db, store_config)
+    };
+    Ok(store)
 }
 
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
@@ -509,49 +570,4 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },
     ));
-}
-
-fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
-    NotifyService::new(notify_config, handle).start()
-}
-
-fn build_store(
-    db: RocksDB,
-    store_config: StoreConfig,
-    ancient_path: Option<PathBuf>,
-) -> Result<ChainDB, Error> {
-    let store = if store_config.freezer_enable && ancient_path.is_some() {
-        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
-        ChainDB::new_with_freezer(db, freezer, store_config)
-    } else {
-        ChainDB::new(db, store_config)
-    };
-    Ok(store)
-}
-
-/// SharedBuilder build returning the shared/package halves
-/// The package structs used for init other component
-pub struct SharedPackage {
-    table: Option<ProposalTable>,
-    tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
-}
-
-impl SharedPackage {
-    /// Takes the proposal_table out of the package, leaving a None in its place.
-    pub fn take_proposal_table(&mut self) -> ProposalTable {
-        self.table.take().expect("take proposal_table")
-    }
-
-    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
-    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
-        self.tx_pool_builder.take().expect("take tx_pool_builder")
-    }
-
-    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
-        self.relay_tx_receiver
-            .take()
-            .expect("take relay_tx_receiver")
-    }
 }
