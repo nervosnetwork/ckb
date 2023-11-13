@@ -148,14 +148,15 @@ impl GlobalIndex {
 
 pub(crate) fn tell_synchronizer_to_punish_the_bad_peer(
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    lonely_block: &LonelyBlockWithCallback,
+    peer_id: Option<PeerIndex>,
+    block_hash: Byte32,
     err: &Error,
 ) {
     let is_internal_db_error = is_internal_db_error(&err);
-    match lonely_block.peer_id() {
+    match peer_id {
         Some(peer_id) => {
             let verify_failed_block_info = VerifyFailedBlockInfo {
-                block_hash: lonely_block.lonely_block.block.hash(),
+                block_hash,
                 peer_id,
                 message_bytes: 0,
                 reason: err.to_string(),
