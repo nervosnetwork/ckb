@@ -70,7 +70,7 @@ impl IndexerConfig {
     /// If `self.secondary_path` is not set, set it to `data_dir / indexer / secondary_path`.
     ///
     /// If `self.indexer_r` is `Sqlite`, and `self.indexer_r.sqlite.store` is not set,
-    /// set it to `data_dir / indexer / indexer_r / store`.
+    /// set it to `data_dir / indexer / sqlite / sqlite.db`.
     ///
     /// If any of the above paths is relative, convert them to absolute path using
     /// `root_dir` as current working directory.
@@ -87,7 +87,7 @@ impl IndexerConfig {
                 root_dir,
                 indexer_dir.as_ref(),
                 &mut self.indexer_r.store,
-                "indexer_r",
+                "sqlite/sqlite.db",
             );
         }
     }

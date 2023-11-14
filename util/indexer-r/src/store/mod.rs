@@ -83,6 +83,7 @@ impl SQLXPool {
             DBDriver::Sqlite => {
                 let require_init = is_sqlite_require_init(db_config);
                 let uri = build_url_for_sqlite(db_config);
+                log::debug!("sqlite uri: {}", uri);
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;

@@ -30,7 +30,7 @@ pub struct IndexerRConfig {
     /// IndexerR database type.
     #[serde(default)]
     pub db_type: DBDriver,
-    /// The index-r store path, default `data_dir / indexer / indexer_r`,
+    /// The index-r store path, default `data_dir / indexer / sqlite / sqlite.db`,
     /// which will be realized through IndexerConfig::adjust.
     #[serde(default)]
     pub store: PathBuf,
