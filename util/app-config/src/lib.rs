@@ -100,6 +100,7 @@ impl Setup {
             indexer: matches.get_flag(cli::ARG_INDEXER),
             #[cfg(not(target_os = "windows"))]
             daemon: matches.get_flag(cli::ARG_DAEMON),
+            indexer_r: matches.get_flag(cli::ARG_INDEXER_R),
         })
     }
 
