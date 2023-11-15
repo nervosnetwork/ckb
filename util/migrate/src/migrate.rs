@@ -62,8 +62,9 @@ impl Migrate {
         self.migrations.expensive(db)
     }
 
+    /// Check whether the pending migrations are all background migrations.
     pub fn can_run_in_background(&self, db: &ReadOnlyDB) -> bool {
-        self.migrations.run_in_background(db)
+        self.migrations.can_run_in_background(db)
     }
 
     /// Open bulk load db.

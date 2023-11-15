@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
+/// Shutdown flag for background migration.
 pub static SHUTDOWN_BACKGROUND_MIGRATION: once_cell::sync::Lazy<AtomicBool> =
     once_cell::sync::Lazy::new(|| AtomicBool::new(false));
 
@@ -39,18 +40,15 @@ enum Command {
     //Stop,
 }
 
+type MigrationTasks = VecDeque<(String, Arc<dyn Migration>)>;
 struct MigrationWorker {
-    tasks: Arc<Mutex<VecDeque<(String, Arc<dyn Migration>)>>>,
+    tasks: Arc<Mutex<MigrationTasks>>,
     db: RocksDB,
     inbox: Receiver<Command>,
 }
 
 impl MigrationWorker {
-    pub fn new(
-        tasks: Arc<Mutex<VecDeque<(String, Arc<dyn Migration>)>>>,
-        db: RocksDB,
-        inbox: Receiver<Command>,
-    ) -> Self {
+    pub fn new(tasks: Arc<Mutex<MigrationTasks>>, db: RocksDB, inbox: Receiver<Command>) -> Self {
         Self { tasks, db, inbox }
     }
 
@@ -159,7 +157,8 @@ impl Migrations {
             .any(|m| m.expensive())
     }
 
-    pub fn run_in_background(&self, db: &ReadOnlyDB) -> bool {
+    /// Check if all the pending migrations will be executed in background.
+    pub fn can_run_in_background(&self, db: &ReadOnlyDB) -> bool {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -344,6 +343,7 @@ pub trait Migration: Send + Sync {
         true
     }
 
+    /// Will this migration be executed in background.
     fn run_in_background(&self) -> bool {
         false
     }

@@ -155,7 +155,7 @@ fn test_mock_migration() {
 
     let db = mg.open_bulk_load_db().unwrap().unwrap();
 
-    mg.migrate(db).unwrap();
+    mg.migrate(db, false).unwrap();
 
     let mg2 = Migrate::new(tmp_dir.as_ref().to_path_buf(), HardForks::new_mirana());
 
