@@ -505,6 +505,7 @@ impl Spec for RbfContainInvalidCells {
 pub struct RbfRejectReplaceProposed;
 
 // RBF Rule #6
+// We removed rule #6, even tx in `Gap` and `Proposed` status can be replaced.
 impl Spec for RbfRejectReplaceProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -557,29 +558,42 @@ impl Spec for RbfRejectReplaceProposed {
             .capacity(capacity_bytes!(70).pack())
             .build();
 
+        let tx1_hash = txs[2].hash();
         let tx2 = clone_tx
             .as_advanced_builder()
             .set_outputs(vec![output2])
             .build();
 
+        eprintln!("begin to RBF ......");
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
-        assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("all conflict Txs should be in Pending status"));
+        assert!(res.is_ok());
 
-        // when tx1 was confirmed, tx2 should be rejected
+        let old_tx_status = node0.rpc_client().get_transaction(tx1_hash).tx_status;
+        assert_eq!(old_tx_status.status, Status::Rejected);
+        assert!(old_tx_status.reason.unwrap().contains("RBFRejected"));
+
+        let tx2_status = node0.rpc_client().get_transaction(tx2.hash()).tx_status;
+        assert_eq!(tx2_status.status, Status::Pending);
+
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
+        // since old tx is already in BlockAssembler,
+        // tx1 will be committed, even it is not in tx_pool and with `Rejected` status now
         let ret = wait_until(20, || {
             let res = rpc_client0.get_transaction(txs[2].hash());
             res.tx_status.status == Status::Committed
         });
         assert!(ret, "tx1 should be committed");
+        let tx1_status = node0.rpc_client().get_transaction(txs[2].hash()).tx_status;
+        assert_eq!(tx1_status.status, Status::Committed);
+
+        // tx2 will be marked as `Rejected` because callback of `remove_committed_txs` from tx1
+        let tx2_status = node0.rpc_client().get_transaction(tx2.hash()).tx_status;
+        assert_eq!(tx2_status.status, Status::Rejected);
+
+        // the same tx2 can not be sent again
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());

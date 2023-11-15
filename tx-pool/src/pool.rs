@@ -234,6 +234,11 @@ impl TxPool {
         {
             let conflicts = self.pool_map.resolve_conflict(tx);
             for (entry, reject) in conflicts {
+                debug!(
+                    "removed {} for commited: {}",
+                    entry.transaction().hash(),
+                    tx.hash()
+                );
                 callbacks.call_reject(self, &entry, reject);
             }
         }
@@ -525,6 +530,7 @@ impl TxPool {
         fee: Capacity,
         tx_size: usize,
     ) -> Result<(), Reject> {
+        // Rule #1, the node has enabled RBF, which is checked by caller
         assert!(self.enable_rbf());
         assert!(!conflict_ids.is_empty());
 
@@ -614,19 +620,6 @@ impl TxPool {
                         "new Tx contains inputs in descendants of to be replaced Tx".to_string(),
                     ));
                 }
-            }
-
-            let mut entries_status = entries.iter().map(|e| e.status).collect::<Vec<_>>();
-            entries_status.push(conflict.status);
-            // Rule #6, all conflict Txs should be in `Pending` or `Gap` status
-            if entries_status
-                .iter()
-                .any(|s| ![Status::Pending, Status::Gap].contains(s))
-            {
-                // Here we only refer to `Pending` status, since `Gap` is an internal status
-                return Err(Reject::RBFRejected(
-                    "all conflict Txs should be in Pending status".to_string(),
-                ));
             }
         }
 
