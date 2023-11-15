@@ -13,7 +13,6 @@ use sqlx::any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, A
 use sqlx::query::{Query, QueryAs};
 use sqlx::{ConnectOptions, IntoArguments, Row, Transaction};
 
-use std::fs;
 use std::fs::OpenOptions;
 use std::marker::{Send, Unpin};
 use std::path::PathBuf;
@@ -21,7 +20,7 @@ use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 const MEMORY_DB: &str = ":memory:";
-const RESOURCE_CREATE_SQLITE: &str = "./resources/create_sqlite_table.sql";
+const SQL_CREATE_SQLITE: &str = include_str!("../../resources/create_sqlite_table.sql");
 
 #[derive(Clone)]
 pub struct SQLXPool {
@@ -224,9 +223,8 @@ impl SQLXPool {
     }
 
     async fn create_tables_for_sqlite(&self) -> Result<()> {
-        let sql = fs::read_to_string(RESOURCE_CREATE_SQLITE)?;
         let mut tx = self.transaction().await?;
-        sqlx::query(&sql).execute(&mut *tx).await?;
+        sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
         tx.commit().await.map_err(Into::into)
     }
 }

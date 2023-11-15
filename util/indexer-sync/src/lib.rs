@@ -99,10 +99,20 @@ impl IndexerSyncService {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
                         if block.parent_hash() == tip_hash {
-                            info!("{} append {}, {}", indexer.get_identity(), block.number(), block.hash());
+                            info!(
+                                "{} append {}, {}",
+                                indexer.get_identity(),
+                                block.number(),
+                                block.hash()
+                            );
                             indexer.append(&block).expect("append block should be OK");
                         } else {
-                            info!("{} rollback {}, {}", indexer.get_identity(), tip_number, tip_hash);
+                            info!(
+                                "{} rollback {}, {}",
+                                indexer.get_identity(),
+                                tip_number,
+                                tip_hash
+                            );
                             indexer.rollback().expect("rollback block should be OK");
                         }
                     }
