@@ -67,7 +67,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     })?;
 
     if let Some(db) = bulk_load_db_db {
-        migrate.migrate(db).map_err(|err| {
+        migrate.migrate(db, false).map_err(|err| {
             eprintln!("Run error: {err:?}");
             ExitCode::Failure
         })?;

@@ -10,8 +10,6 @@ pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarge
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -70,7 +68,7 @@ impl MigrationWorker {
                     let db = self.db.clone();
                     let pb = move |_count: u64| -> ProgressBar { ProgressBar::new(0) };
                     if let Some((name, task)) = self.tasks.lock().unwrap().pop_front() {
-                        eprintln!("start to run migrate: {}", name);
+                        eprintln!("start to run migrate in background: {}", name);
                         let db = task.migrate(db, Arc::new(pb)).unwrap();
                         db.put_default(MIGRATION_VERSION_KEY, task.version())
                             .map_err(|err| {
@@ -241,7 +239,7 @@ impl Migrations {
         thread::spawn(move || {
             let _ = exit_signal.recv();
             SHUTDOWN_BACKGROUND_MIGRATION.store(true, std::sync::atomic::Ordering::SeqCst);
-            eprintln!("set shutdown flat to true");
+            eprintln!("set shutdown flag to true");
         });
 
         let handler = worker.start();
@@ -280,57 +278,18 @@ impl Migrations {
     }
 
     /// TODO(doc): @quake
-    pub fn migrate(&self, db: RocksDB) -> Result<RocksDB, Error> {
+    pub fn migrate(&self, db: RocksDB, run_in_background: bool) -> Result<RocksDB, Error> {
         let db_version = self.get_migration_version(&db)?;
         match db_version {
             Some(ref v) => {
                 info!("Current database version {}", v);
-                if let Some(m) = self.migrations.values().last() {
-                    if m.version() < v.as_str() {
-                        error!(
-                            "Database downgrade detected. \
-                            The database schema version is more recent than the client schema version.\
-                            Please upgrade to the latest client version."
-                        );
-                        return Err(internal_error(
-                            "Database downgrade is not supported".to_string(),
-                        ));
-                    }
-                }
-
-                let db = self.run_migrate(db, v.as_str())?;
-                Ok(db)
-            }
-            None => {
-                // if version is none, but db is not empty
-                // patch 220464f
-                if self.is_non_empty_db(&db) {
-                    return self.patch_220464f(db);
-                }
-                Ok(db)
-            }
-        }
-    }
-
-    /// TODO(doc): @quake
-    pub fn migrate_async(&self, db: RocksDB) -> Result<RocksDB, Error> {
-        let db_version = self.get_migration_version(&db)?;
-        match db_version {
-            Some(ref v) => {
-                info!("Current database version {}", v);
-                if let Some(m) = self.migrations.values().last() {
-                    if m.version() < v.as_str() {
-                        error!(
-                            "Database downgrade detected. \
-                            The database schema version is newer than client schema version,\
-                            please upgrade to the newer version"
-                        );
-                        return Err(internal_error(
-                            "Database downgrade is not supported".to_string(),
-                        ));
-                    }
-                }
-                self.run_migrate_async(db.clone(), v.as_str());
+                self.check_migration_downgrade(v)?;
+                let db = if !run_in_background {
+                    self.run_migrate(db, v.as_str())?
+                } else {
+                    self.run_migrate_async(db.clone(), v.as_str());
+                    db
+                };
                 Ok(db)
             }
             None => {
@@ -347,6 +306,22 @@ impl Migrations {
     fn patch_220464f(&self, db: RocksDB) -> Result<RocksDB, Error> {
         const V: &str = "20210609195048"; // AddExtraDataHash - 1
         self.run_migrate(db, V)
+    }
+
+    fn check_migration_downgrade(&self, cur_version: &str) -> Result<(), Error> {
+        if let Some(m) = self.migrations.values().last() {
+            if m.version() < cur_version {
+                error!(
+                    "Database downgrade detected. \
+                    The database schema version is newer than `ckb` schema version,\
+                    please upgrade `ckb` to the latest version"
+                );
+                return Err(internal_error(
+                    "Database downgrade is not supported".to_string(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -423,14 +398,4 @@ impl Migration for DefaultMigration {
     fn expensive(&self) -> bool {
         false
     }
-}
-
-pub fn append_to_file(path: &str, data: &str) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .create(true)
-        .open(path)?;
-
-    writeln!(file, "{}", data)
 }

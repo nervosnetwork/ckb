@@ -72,12 +72,8 @@ impl Migrate {
     }
 
     /// Perform migrate.
-    pub fn migrate(self, db: RocksDB) -> Result<RocksDB, Error> {
-        self.migrations.migrate(db)
-    }
-
-    pub fn migrate_async(self, db: RocksDB) -> Result<RocksDB, Error> {
-        self.migrations.migrate_async(db)
+    pub fn migrate(self, db: RocksDB, run_in_background: bool) -> Result<RocksDB, Error> {
+        self.migrations.migrate(db, run_in_background)
     }
 
     /// Perform init_db_version.

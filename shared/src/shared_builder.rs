@@ -96,7 +96,7 @@ pub fn open_or_create_db(
                 } else if can_run_in_background {
                     info!("process migrations in background ...");
                     let db = RocksDB::open(config, COLUMNS);
-                    migrate.migrate_async(db.clone()).map_err(|err| {
+                    migrate.migrate(db.clone(), true).map_err(|err| {
                         eprintln!("Run error: {err:?}");
                         ExitCode::Failure
                     })?;
@@ -110,7 +110,7 @@ pub fn open_or_create_db(
                     })?;
 
                     if let Some(db) = bulk_load_db_db {
-                        migrate.migrate(db).map_err(|err| {
+                        migrate.migrate(db, false).map_err(|err| {
                             eprintln!("Run error: {err:?}");
                             ExitCode::Failure
                         })?;

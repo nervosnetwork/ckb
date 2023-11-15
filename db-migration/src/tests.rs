@@ -19,10 +19,10 @@ fn test_default_migration() {
     };
     {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
         let db = RocksDB::open(&config, 1);
         migrations.init_db_version(&db).unwrap();
-        let r = migrations.migrate(db).unwrap();
+        let r = migrations.migrate(db, false).unwrap();
         assert_eq!(
             b"20191116225943".to_vec(),
             r.get_pinned_default(MIGRATION_VERSION_KEY)
@@ -33,9 +33,11 @@ fn test_default_migration() {
     }
     {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-        migrations.add_migration(Box::new(DefaultMigration::new("20191127101121")));
-        let r = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191127101121")));
+        let r = migrations
+            .migrate(RocksDB::open(&config, 1), false)
+            .unwrap();
         assert_eq!(
             b"20191127101121".to_vec(),
             r.get_pinned_default(MIGRATION_VERSION_KEY)
@@ -87,10 +89,10 @@ fn test_customized_migration() {
 
     {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
         let db = RocksDB::open(&config, 1);
         migrations.init_db_version(&db).unwrap();
-        let db = migrations.migrate(db).unwrap();
+        let db = migrations.migrate(db, false).unwrap();
 
         let txn = db.transaction();
         txn.put(COLUMN, &[1, 1], &[1, 1, 1]).unwrap();
@@ -99,9 +101,11 @@ fn test_customized_migration() {
     }
     {
         let mut migrations = Migrations::default();
-        migrations.add_migration(Box::new(DefaultMigration::new("20191116225943")));
-        migrations.add_migration(Box::new(CustomizedMigration));
-        let db = migrations.migrate(RocksDB::open(&config, 1)).unwrap();
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(CustomizedMigration));
+        let db = migrations
+            .migrate(RocksDB::open(&config, 1), false)
+            .unwrap();
         assert!(
             vec![1u8, 1, 1, 1].as_slice()
                 == db.get_pinned(COLUMN, &[1, 1]).unwrap().unwrap().as_ref()
