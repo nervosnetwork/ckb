@@ -41,6 +41,8 @@ pub trait IndexerSync {
     fn append(&self, block: &BlockView) -> Result<(), Error>;
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error>;
+    /// Get indexer identity
+    fn get_identity(&self) -> &str;
 }
 
 /// Construct new secondary db instance
@@ -97,10 +99,10 @@ impl IndexerSyncService {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
                         if block.parent_hash() == tip_hash {
-                            info!("append {}, {}", block.number(), block.hash());
+                            info!("{} append {}, {}", indexer.get_identity(), block.number(), block.hash());
                             indexer.append(&block).expect("append block should be OK");
                         } else {
-                            info!("rollback {}, {}", tip_number, tip_hash);
+                            info!("{} rollback {}, {}", indexer.get_identity(), tip_number, tip_hash);
                             indexer.rollback().expect("rollback block should be OK");
                         }
                     }
@@ -150,7 +152,7 @@ impl IndexerSyncService {
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync(indexer)
                         }).await {
-                            error!("ckb indexer syncing join error {:?}", e);
+                            error!("{} syncing join error {:?}", indexer_service.get_identity(), e);
                         }
                         new_block_watcher.borrow_and_update();
                     },
@@ -159,11 +161,11 @@ impl IndexerSyncService {
                         if let Err(e) = async_handle.spawn_blocking(move || {
                             service.try_loop_sync(indexer)
                         }).await {
-                            error!("ckb indexer syncing join error {:?}", e);
+                            error!("{} syncing join error {:?}", indexer_service.get_identity(), e);
                         }
                     }
                     _ = stop.cancelled() => {
-                        debug!("Indexer received exit signal, exit now");
+                        debug!("{} received exit signal, exit now", indexer_service.get_identity());
                         break
                     },
                 }

@@ -9,7 +9,7 @@ use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, IndexerSyncService, PoolService, SecondaryDB};
 use ckb_notify::NotifyController;
 
-const SUBSCRIBER_NAME: &str = "Indexer-R";
+pub(crate) const SUBSCRIBER_NAME: &str = "Indexer-R";
 
 /// Indexer-R service
 #[derive(Clone)]

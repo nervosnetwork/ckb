@@ -35,7 +35,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
 
-const SUBSCRIBER_NAME: &str = "Indexer";
+pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
 const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 

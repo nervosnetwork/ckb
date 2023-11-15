@@ -1,3 +1,4 @@
+use crate::service::SUBSCRIBER_NAME;
 use crate::store::{Batch, IteratorDirection, Store};
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
@@ -684,6 +685,11 @@ where
                 Byte32::from_slice(&key[9..41]).expect("stored block key"),
             )
         }))
+    }
+
+    /// Return identity
+    fn get_identity(&self) -> &str {
+        SUBSCRIBER_NAME
     }
 }
 

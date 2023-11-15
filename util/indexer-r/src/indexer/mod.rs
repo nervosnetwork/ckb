@@ -4,7 +4,7 @@ mod remove;
 pub(crate) use insert::*;
 pub(crate) use remove::*;
 
-use crate::{store::SQLXPool, AsyncIndexerRHandle, IndexerRHandle};
+use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, AsyncIndexerRHandle, IndexerRHandle};
 
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
@@ -84,6 +84,11 @@ impl IndexerSync for IndexerR {
     fn rollback(&self) -> Result<(), Error> {
         let future = self.async_indexer_r.rollback();
         self.async_runtime.block_on(future)
+    }
+
+    /// Return identity
+    fn get_identity(&self) -> &str {
+        SUBSCRIBER_NAME
     }
 }
 
