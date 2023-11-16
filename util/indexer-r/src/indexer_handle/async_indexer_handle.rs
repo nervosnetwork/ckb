@@ -35,7 +35,7 @@ impl AsyncIndexerRHandle {
             .await
             .map(|res| {
                 res.map(|row| IndexerTip {
-                    block_number: (row.get::<i32, _>("block_number") as u64).into(),
+                    block_number: (row.get::<i64, _>("block_number") as u64).into(),
                     block_hash: bytes_to_h256(row.get("block_hash")),
                 })
             })

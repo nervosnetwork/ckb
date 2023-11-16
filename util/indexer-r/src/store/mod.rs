@@ -21,6 +21,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 
 const MEMORY_DB: &str = ":memory:";
 const SQL_CREATE_SQLITE: &str = include_str!("../../resources/create_sqlite_table.sql");
+const SQL_CREATE_POSTGRES: &str = include_str!("../../resources/create_postgres_table.sql");
 
 #[derive(Clone)]
 pub struct SQLXPool {
@@ -95,11 +96,18 @@ impl SQLXPool {
                 Ok(())
             }
             DBDriver::Postgres => {
+                let require_init = self.is_postgres_require_init(db_config).await?;
                 let uri = build_url_for_posgres(db_config);
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
-                self.pool.set(pool).map_err(|_| anyhow!("set pool failed"))
+                self.pool
+                    .set(pool)
+                    .map_err(|_| anyhow!("set pool failed"))?;
+                if require_init {
+                    self.create_tables_for_postgres().await?;
+                }
+                Ok(())
             }
         }
     }
@@ -226,6 +234,44 @@ impl SQLXPool {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
         tx.commit().await.map_err(Into::into)
+    }
+
+    async fn create_tables_for_postgres(&mut self) -> Result<()> {
+        let mut tx = self.transaction().await?;
+        let commands = SQL_CREATE_POSTGRES.split(';');
+        for command in commands {
+            if !command.trim().is_empty() {
+                sqlx::query(command).execute(&mut *tx).await?;
+            }
+        }
+        tx.commit().await.map_err(Into::into)
+    }
+
+    pub async fn is_postgres_require_init(&mut self, db_config: &IndexerRConfig) -> Result<bool> {
+        // Connect to the "postgres" database first
+        let mut temp_config = db_config.clone();
+        temp_config.db_name = "postgres".to_string();
+        let uri = build_url_for_posgres(&temp_config);
+        log::info!("postgres uri: {}", uri);
+        let mut connection_options = AnyConnectOptions::from_str(&uri)?;
+        connection_options.log_statements(LevelFilter::Trace);
+        let tmp_pool_options = AnyPoolOptions::new();
+        let pool = tmp_pool_options.connect_with(connection_options).await?;
+
+        // Check if database exists
+        let query =
+            SQLXPool::new_query(r#"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)"#)
+                .bind(db_config.db_name.as_str());
+        let row = query.fetch_one(&pool).await?;
+
+        // If database does not exist, create it
+        if !row.get::<bool, _>(0) {
+            let query = format!(r#"CREATE DATABASE "{}""#, db_config.db_name);
+            SQLXPool::new_query(&query).execute(&pool).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
