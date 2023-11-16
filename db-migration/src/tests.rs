@@ -1,4 +1,5 @@
 use ckb_app_config::DBConfig;
+use ckb_db::ReadOnlyDB;
 use ckb_db::RocksDB;
 use ckb_db_schema::MIGRATION_VERSION_KEY;
 use ckb_error::Error;
@@ -122,5 +123,119 @@ fn test_customized_migration() {
                 .to_vec()
                 .as_slice()
         );
+    }
+}
+
+#[test]
+fn test_background_migration() {
+    pub struct BackgroundMigration {
+        version: String,
+    }
+
+    impl BackgroundMigration {
+        pub fn new(version: &str) -> Self {
+            BackgroundMigration {
+                version: version.to_string(),
+            }
+        }
+    }
+
+    impl Migration for BackgroundMigration {
+        fn run_in_background(&self) -> bool {
+            true
+        }
+
+        fn migrate(
+            &self,
+            db: RocksDB,
+            _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
+        ) -> Result<RocksDB, Error> {
+            let db_tx = db.transaction();
+            let v = self.version.as_bytes();
+            db_tx.put("1", v, &[1])?;
+            db_tx.commit()?;
+            Ok(db)
+        }
+
+        fn version(&self) -> &str {
+            self.version.as_str()
+        }
+    }
+
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("test_default_migration")
+        .tempdir()
+        .unwrap();
+    let config = DBConfig {
+        path: tmp_dir.as_ref().to_path_buf(),
+        ..Default::default()
+    };
+    {
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
+        let db = RocksDB::open(&config, 12);
+        migrations.init_db_version(&db).unwrap();
+        let r = migrations.migrate(db, false).unwrap();
+        assert_eq!(
+            b"20191116225943".to_vec(),
+            r.get_pinned_default(MIGRATION_VERSION_KEY)
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        );
+    }
+    {
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(BackgroundMigration::new("20231127101121")));
+
+        let db = ReadOnlyDB::open_cf(&config.path, vec!["4"])
+            .unwrap()
+            .unwrap();
+
+        assert!(migrations.can_run_in_background(&db));
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191127101121")));
+        assert!(!migrations.can_run_in_background(&db));
+    }
+
+    {
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
+        migrations.add_migration(Arc::new(BackgroundMigration::new("20231127101121")));
+        migrations.add_migration(Arc::new(BackgroundMigration::new("20241127101122")));
+
+        let db = ReadOnlyDB::open_cf(&config.path, vec!["4"])
+            .unwrap()
+            .unwrap();
+
+        assert!(migrations.can_run_in_background(&db));
+        let db = migrations
+            .migrate(RocksDB::open(&config, 12), true)
+            .unwrap();
+        // sleep 1 seconds
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(
+            b"20241127101122".to_vec(),
+            db.get_pinned_default(MIGRATION_VERSION_KEY)
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        );
+
+        // confirm the background migration is executed
+        let db_tx = db.transaction();
+        let v = db_tx
+            .get_pinned("1", "20231127101121".as_bytes())
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        assert_eq!(v, vec![1]);
+
+        let v = db_tx
+            .get_pinned("1", "20241127101122".as_bytes())
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        assert_eq!(v, vec![1]);
     }
 }
