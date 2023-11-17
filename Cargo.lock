@@ -561,6 +561,7 @@ dependencies = [
  "ckb-logger-service",
  "ckb-memory-tracker",
  "ckb-metrics-service",
+ "ckb-migrate",
  "ckb-miner",
  "ckb-network",
  "ckb-resource",
@@ -884,7 +885,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-light-client-protocol-server",
  "ckb-logger",
- "ckb-migration-template",
+ "ckb-migrate",
  "ckb-network",
  "ckb-network-alert",
  "ckb-notify",
@@ -1026,6 +1027,27 @@ dependencies = [
  "ckb-util",
  "hyper",
  "prometheus",
+]
+
+[[package]]
+name = "ckb-migrate"
+version = "0.113.0-pre"
+dependencies = [
+ "ckb-app-config",
+ "ckb-chain-spec",
+ "ckb-db",
+ "ckb-db-migration",
+ "ckb-db-schema",
+ "ckb-error",
+ "ckb-hash",
+ "ckb-logger",
+ "ckb-migration-template",
+ "ckb-store",
+ "ckb-systemtime",
+ "ckb-types",
+ "console",
+ "indicatif",
+ "num_cpus",
 ]
 
 [[package]]
