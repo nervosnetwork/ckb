@@ -1347,6 +1347,7 @@ dependencies = [
  "arc-swap",
  "ckb-async-runtime",
  "ckb-chain-spec",
+ "ckb-channel",
  "ckb-constant",
  "ckb-db",
  "ckb-db-schema",
