@@ -31,7 +31,7 @@ use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
 
-pub use crate::shared_builder::{SharedBuilder, SharedPackage};
+pub use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
