@@ -25,6 +25,7 @@ indicatif = "0.16"
 console = ">=0.9.1, <1.0.0"
 ckb-hash = { path = "../hash", version = "= 0.113.0-pre" }
 num_cpus = "1.10"
+tempfile.workspace = true
 
 [dev-dependencies]
 ckb-systemtime = {path = "../systemtime", version = "= 0.113.0-pre", features = ["enable_faketime"]  }

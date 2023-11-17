@@ -1048,6 +1048,7 @@ dependencies = [
  "console",
  "indicatif",
  "num_cpus",
+ "tempfile",
 ]
 
 [[package]]
