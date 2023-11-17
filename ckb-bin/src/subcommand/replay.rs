@@ -3,7 +3,7 @@ use ckb_async_runtime::Handle;
 use ckb_chain::chain::ChainService;
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;

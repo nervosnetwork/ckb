@@ -2,7 +2,7 @@ use ckb_app_config::{ExitCode, ImportArgs};
 use ckb_async_runtime::Handle;
 use ckb_chain::chain::ChainService;
 use ckb_instrument::Import;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 
 pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let builder = SharedBuilder::new(
