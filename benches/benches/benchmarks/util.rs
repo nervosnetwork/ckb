@@ -3,7 +3,7 @@ use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
