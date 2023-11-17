@@ -1345,6 +1345,7 @@ name = "ckb-shared"
 version = "0.113.0-pre"
 dependencies = [
  "arc-swap",
+ "ckb-app-config",
  "ckb-async-runtime",
  "ckb-chain-spec",
  "ckb-channel",
@@ -1353,6 +1354,7 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
+ "ckb-migrate",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -1362,6 +1364,8 @@ dependencies = [
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
+ "once_cell",
+ "tempfile",
 ]
 
 [[package]]
