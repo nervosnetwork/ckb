@@ -4,7 +4,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_shared::Shared;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;

@@ -5,7 +5,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
