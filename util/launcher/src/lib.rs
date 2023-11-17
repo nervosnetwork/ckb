@@ -2,9 +2,6 @@
 //!
 //! ckb launcher is helps to launch ckb node.
 
-// declare here for mute ./devtools/ci/check-cargotoml.sh error
-extern crate num_cpus;
-
 mod shared_builder;
 
 use ckb_app_config::{

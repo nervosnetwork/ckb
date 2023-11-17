@@ -13,7 +13,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 ckb-migration-template = { path = "migration-template", version = "= 0.113.0-pre" }
 ckb-db = { path = "../../db", version = "= 0.113.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.113.0-pre" }
 ckb-error = { path = "../../error", version = "= 0.113.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.113.0-pre" }
 ckb-db-migration = { path = "../../db-migration", version = "= 0.113.0-pre" }
@@ -21,11 +20,13 @@ ckb-app-config = { path = "../app-config", version = "= 0.113.0-pre" }
 ckb-types = { path = "../types", version = "= 0.113.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.113.0-pre" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.113.0-pre" }
-indicatif = "0.16"
-console = ">=0.9.1, <1.0.0"
 ckb-hash = { path = "../hash", version = "= 0.113.0-pre" }
-num_cpus = "1.10"
 tempfile.workspace = true
+num_cpus = "1.10"
 
 [dev-dependencies]
 ckb-systemtime = {path = "../systemtime", version = "= 0.113.0-pre", features = ["enable_faketime"]  }
+
+[features]
+portable = ["ckb-db/portable", "ckb-db-migration/portable"]
+march-native = ["ckb-db/march-native", "ckb-db-migration/march-native"]
