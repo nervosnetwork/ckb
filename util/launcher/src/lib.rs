@@ -2,8 +2,6 @@
 //!
 //! ckb launcher is helps to launch ckb node.
 
-mod shared_builder;
-
 use ckb_app_config::{
     BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
