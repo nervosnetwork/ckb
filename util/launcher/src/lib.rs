@@ -23,6 +23,7 @@ use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::Shared;
 
+use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -30,8 +31,6 @@ use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
-
-pub use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
