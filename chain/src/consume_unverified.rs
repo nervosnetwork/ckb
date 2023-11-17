@@ -30,14 +30,16 @@ use std::cmp;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub(crate) struct ConsumeUnverifiedBlocks {
+pub(crate) struct ConsumeUnverifiedBlockProcessor {
     shared: Shared,
-    unverified_block_rx: Receiver<UnverifiedBlock>,
     proposal_table: ProposalTable,
-
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+}
 
+pub(crate) struct ConsumeUnverifiedBlocks {
+    unverified_block_rx: Receiver<UnverifiedBlock>,
     stop_rx: Receiver<()>,
+    processor: ConsumeUnverifiedBlockProcessor,
 }
 
 impl ConsumeUnverifiedBlocks {
@@ -49,12 +51,13 @@ impl ConsumeUnverifiedBlocks {
         stop_rx: Receiver<()>,
     ) -> Self {
         ConsumeUnverifiedBlocks {
-            shared,
             unverified_block_rx: unverified_blocks_rx,
-            proposal_table,
-
-            verify_failed_blocks_tx,
             stop_rx,
+            processor: ConsumeUnverifiedBlockProcessor {
+                shared,
+                proposal_table,
+                verify_failed_blocks_tx,
+            },
         }
     }
     pub(crate) fn start(mut self) {
@@ -70,7 +73,7 @@ impl ConsumeUnverifiedBlocks {
                     Ok(unverified_task) => {
                         // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
-                        self.consume_unverified_blocks(unverified_task);
+                        self.processor.consume_unverified_blocks(unverified_task);
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
@@ -82,7 +85,9 @@ impl ConsumeUnverifiedBlocks {
             }
         }
     }
+}
 
+impl ConsumeUnverifiedBlockProcessor {
     fn consume_unverified_blocks(&mut self, unverified_block: UnverifiedBlock) {
         // process this unverified block
         let verify_result = self.verify_block(&unverified_block);
