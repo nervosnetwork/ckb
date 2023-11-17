@@ -4,7 +4,7 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
