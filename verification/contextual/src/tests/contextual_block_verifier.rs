@@ -3,7 +3,7 @@ use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_test_chain_utils::always_success_cell;

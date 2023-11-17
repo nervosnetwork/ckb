@@ -5,7 +5,7 @@ use crate::uncles_verifier::UnclesVerifier;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
