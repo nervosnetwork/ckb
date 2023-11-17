@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::Shared;

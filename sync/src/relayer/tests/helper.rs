@@ -2,7 +2,7 @@ use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 use ckb_network::{
     async_trait, bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Flags,
     NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
