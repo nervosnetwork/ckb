@@ -1,3 +1,4 @@
+//! shared_builder provide SharedBuilder and SharedPacakge
 use ckb_channel::Receiver;
 use ckb_proposal_table::ProposalTable;
 use ckb_tx_pool::service::TxVerificationResult;
@@ -45,6 +46,7 @@ pub struct SharedBuilder {
     async_handle: Handle,
 }
 
+/// Open or create a rocksdb
 pub fn open_or_create_db(
     bin_name: &str,
     root_dir: &Path,
