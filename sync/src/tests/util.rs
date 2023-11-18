@@ -1,8 +1,8 @@
 use crate::SyncShared;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_dao::DaoCalculator;
-use ckb_shared::SharedBuilder;
 use ckb_reward_calculator::RewardCalculator;
+use ckb_shared::SharedBuilder;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
