@@ -59,7 +59,10 @@ async fn test_rollback_block() {
         100,
         1000,
         None,
-        CustomFilters::new(None, None),
+        CustomFilters::new(
+            Some("block.header.number.to_uint() >= \"0x0\".to_uint()"),
+            None,
+        ),
     );
 
     let data_path = String::from(BLOCK_DIR);

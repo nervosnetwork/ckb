@@ -16,11 +16,7 @@ pub struct CustomFilters {
 
 impl Clone for CustomFilters {
     fn clone(&self) -> Self {
-        CustomFilters {
-            engine: Engine::new(),
-            block_filter: self.block_filter.clone(),
-            cell_filter: self.cell_filter.clone(),
-        }
+        CustomFilters::from_filters(self.block_filter.clone(), self.cell_filter.clone())
     }
 }
 
@@ -60,6 +56,18 @@ impl CustomFilters {
                 .expect("compile cell_filter should be ok")
         });
 
+        Self {
+            engine,
+            block_filter,
+            cell_filter,
+        }
+    }
+
+    /// Construct new CustomFilters
+    pub fn from_filters(block_filter: Option<AST>, cell_filter: Option<AST>) -> Self {
+        let mut engine = Engine::new();
+        engine.register_fn("to_uint", to_uint);
+        register_ops!(engine, +, -, *, /, %, ==, !=, <, <=, >, >=);
         Self {
             engine,
             block_filter,

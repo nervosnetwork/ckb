@@ -21,7 +21,7 @@ ckb-stop-handler = { path = "../stop-handler", version = "= 0.113.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.113.0-pre" }
 ckb-types = { path = "../types", version = "= 0.113.0-pre" }
 numext-fixed-uint = "0.1"
-rhai = { version = "1.10.0", features = ["no_function", "no_float", "no_module", "sync"]}
+rhai = { version = "1.16.0", features = ["no_function", "no_float", "no_module", "sync"]}
 rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
 serde_json = "1.0"
 thiserror = "1.0"

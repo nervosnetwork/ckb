@@ -106,7 +106,7 @@ pub(crate) struct AsyncIndexerR {
     /// currently only supports removals of dead cells from the pending txs
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
     /// custom filters
-    _custom_filters: CustomFilters,
+    custom_filters: CustomFilters,
 }
 
 impl AsyncIndexerR {
@@ -123,7 +123,7 @@ impl AsyncIndexerR {
             _keep_num: keep_num,
             _prune_interval: prune_interval,
             pool,
-            _custom_filters: custom_filters,
+            custom_filters,
         }
     }
 }
@@ -136,7 +136,9 @@ impl AsyncIndexerR {
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         append_block(block, &mut tx).await?;
-        insert_transactions(block, &mut tx).await?;
+        if self.custom_filters.is_block_filter_match(block) {
+            insert_transactions(block, &mut tx).await?;
+        }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
