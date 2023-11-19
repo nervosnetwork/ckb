@@ -1,4 +1,4 @@
-use crate::chain::{LonelyBlock, LonelyBlockWithCallback};
+use crate::{LonelyBlock, LonelyBlockWithCallback};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};

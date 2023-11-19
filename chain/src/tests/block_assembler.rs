@@ -1,5 +1,5 @@
-use crate::chain::{ChainController, ChainService};
 use crate::tests::util::dummy_network;
+use crate::{ChainController, ChainServicesBuilder};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
@@ -47,12 +47,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let _chain_service = ChainService::new(
-        shared.clone(),
-        pack.take_proposal_table(),
-        pack.take_verify_failed_block_tx(),
-    );
-    let chain_controller = _chain_service.start::<&str>(None);
+    let chain_services_builder: ChainServicesBuilder = pack.take_chain_services_builder();
+    let chain_controller: ChainController = chain_services_builder.start();
+
     (chain_controller, shared)
 }
 
