@@ -19,10 +19,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = {
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-        chain_service.start::<&str>(None)
-    };
+    let chain_controller = pack.take_chain_services_builder().start();
     generate_blocks(&shared, &chain_controller, tip);
     let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
     (sync_shared, chain_controller)
