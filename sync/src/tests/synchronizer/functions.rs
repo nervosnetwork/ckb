@@ -1,4 +1,4 @@
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::ChainController;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
