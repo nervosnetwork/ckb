@@ -216,15 +216,20 @@ impl AsyncIndexerR {
                 continue;
             }
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
-                let out_point = input.previous_output();
-                if let Some((output, output_data)) = query_cell_output(&out_point, tx).await? {
-                    if self
-                        .custom_filters
-                        .is_cell_filter_match(&output, &output_data.pack())
-                    {
-                        build_input_rows(tx_view, &input, input_index, &mut input_rows)?;
-                        matched_tx_hashes.insert(tx_view.hash());
+                let mut is_match = true;
+                if self.custom_filters.is_cell_filter_enable() {
+                    let out_point = input.previous_output();
+                    if let Some((output, output_data)) = query_cell_output(&out_point, tx).await? {
+                        is_match = self
+                            .custom_filters
+                            .is_cell_filter_match(&output, &output_data.pack());
+                    } else {
+                        is_match = false;
                     }
+                }
+                if is_match {
+                    build_input_rows(tx_view, &input, input_index, &mut input_rows)?;
+                    matched_tx_hashes.insert(tx_view.hash());
                 }
             }
         }

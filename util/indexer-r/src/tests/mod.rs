@@ -74,6 +74,7 @@ async fn test_rollback_block() {
     assert_eq!(1, storage.fetch_count("block").await.unwrap());
     assert_eq!(2, storage.fetch_count("ckb_transaction").await.unwrap());
     assert_eq!(12, storage.fetch_count("output").await.unwrap());
+    assert_eq!(1, storage.fetch_count("input").await.unwrap());
     assert_eq!(9, storage.fetch_count("script").await.unwrap());
 
     assert_eq!(
