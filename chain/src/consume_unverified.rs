@@ -31,9 +31,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) struct ConsumeUnverifiedBlockProcessor {
-    shared: Shared,
-    proposal_table: ProposalTable,
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    pub(crate) shared: Shared,
+    pub(crate) proposal_table: ProposalTable,
+    pub(crate) verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 pub(crate) struct ConsumeUnverifiedBlocks {
@@ -88,7 +88,7 @@ impl ConsumeUnverifiedBlocks {
 }
 
 impl ConsumeUnverifiedBlockProcessor {
-    fn consume_unverified_blocks(&mut self, unverified_block: UnverifiedBlock) {
+    pub(crate) fn consume_unverified_blocks(&mut self, unverified_block: UnverifiedBlock) {
         // process this unverified block
         let verify_result = self.verify_block(&unverified_block);
         match &verify_result {
