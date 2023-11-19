@@ -18,7 +18,6 @@ use ckb_network::{
     NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
-use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
 use ckb_rpc::RpcServer;
 use ckb_rpc::ServiceBuilder;
