@@ -4,7 +4,8 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::chain::{ChainController, ChainService, VerifiedBlockStatus};
+use ckb_chain::ChainController;
+use ckb_chain::VerifiedBlockStatus;
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;

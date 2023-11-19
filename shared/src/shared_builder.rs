@@ -35,7 +35,7 @@ use ckb_shared::{HeaderMap, Shared};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_util::Mutex;
 
-use ckb_chain::chain::{ChainService, ChainServicesBuilder};
+use ckb_chain::ChainServicesBuilder;
 use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_store::ChainDB;
 use ckb_store::ChainStore;

@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_chain::VerifyResult;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, EpochNumberWithFraction, Transaction};

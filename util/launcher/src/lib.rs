@@ -8,7 +8,7 @@ use ckb_app_config::{
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
-use ckb_chain::chain::{ChainController, ChainService, ChainServicesBuilder};
+use ckb_chain::{ChainController, ChainServicesBuilder};
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
