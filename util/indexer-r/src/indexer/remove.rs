@@ -86,6 +86,13 @@ pub(crate) async fn rollback_block(
         }
     }
     remove_batch_by_blobs("block", "block_hash", &uncle_hashes_to_remove, tx).await?;
+    remove_batch_by_blobs(
+        "block_association_proposal",
+        "block_hash",
+        &uncle_hashes_to_remove,
+        tx,
+    )
+    .await?;
 
     Ok(())
 }

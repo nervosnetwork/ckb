@@ -9,11 +9,13 @@ use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, AsyncIndexerRHandle, Inde
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
-    core::{BlockNumber, BlockView},
+    core::{BlockNumber, BlockView, TransactionView},
     packed::Byte32,
     prelude::*,
 };
+use sqlx::{Any, Transaction};
 
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 /// the database tables are as follows:
@@ -137,7 +139,7 @@ impl AsyncIndexerR {
             .map_err(|err| Error::DB(err.to_string()))?;
         append_block(block, &mut tx).await?;
         if self.custom_filters.is_block_filter_match(block) {
-            insert_transactions(block, &mut tx).await?;
+            self.insert_transactions(block, &mut tx).await?;
         }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
@@ -160,6 +162,74 @@ impl AsyncIndexerR {
 
             return tx.commit().await.map_err(|err| Error::DB(err.to_string()));
         }
+
+        Ok(())
+    }
+
+    pub(crate) async fn insert_transactions(
+        &self,
+        block_view: &BlockView,
+        tx: &mut Transaction<'_, Any>,
+    ) -> Result<(), Error> {
+        let block_hash = block_view.hash().raw_data().to_vec();
+        let tx_views = block_view.transactions();
+        let mut matched_tx_hashes = HashSet::new();
+        let mut output_cell_rows = Vec::new();
+        let mut input_rows = Vec::new();
+        let mut output_association_script_rows = Vec::new();
+        let mut script_set = HashSet::new();
+
+        for (tx_index, tx_view) in tx_views.iter().enumerate() {
+            for ((output_index, (cell, data)), out_point) in tx_view
+                .outputs_with_data_iter()
+                .enumerate()
+                .zip(tx_view.output_pts_iter())
+            {
+                if self
+                    .custom_filters
+                    .is_cell_filter_match(&cell, &data.pack())
+                {
+                    build_output_cell_rows(
+                        &cell,
+                        tx_view,
+                        output_index,
+                        &data,
+                        &mut output_cell_rows,
+                    )?;
+                    build_script_set(&cell, &mut script_set, tx).await?;
+                    build_output_association_script_rows(
+                        &cell,
+                        &out_point,
+                        &mut output_association_script_rows,
+                    )?;
+                    matched_tx_hashes.insert(tx_view.hash());
+                }
+            }
+
+            if tx_index == 0 {
+                // cellbase
+                continue;
+            }
+            for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
+                build_input_rows(tx_view, &input, input_index, &mut input_rows)?;
+                matched_tx_hashes.insert(tx_view.hash());
+            }
+        }
+
+        bulk_insert_output_table(&output_cell_rows, tx).await?;
+        bulk_insert_input_table(&input_rows, tx).await?;
+        bulk_insert_script_table(&script_set, tx).await?;
+        bulk_insert_output_association_script(&output_association_script_rows, tx).await?;
+
+        let matched_txs_iter: Vec<(usize, TransactionView)> = tx_views
+            .into_iter()
+            .enumerate()
+            .filter(|(_, tx)| matched_tx_hashes.contains(&tx.hash()))
+            .collect();
+
+        bulk_insert_transaction_table(&block_hash, matched_txs_iter.iter(), tx).await?;
+        bulk_insert_tx_association_header_dep_table(matched_txs_iter.iter(), tx).await?;
+        bulk_insert_tx_association_cell_dep_table(matched_txs_iter.iter(), tx).await?;
 
         Ok(())
     }
