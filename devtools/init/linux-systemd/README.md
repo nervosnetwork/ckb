@@ -61,7 +61,7 @@ sudo systemctl enable ckb.service
 If ckb doesn't seem to start properly you can view the logs to figure out the problem:
 
 ```bash
-journalctl --boot -u ckb.service
+sudo journalctl --boot -u ckb.service
 ```
 
 Following the similar instructions to start a miner:
