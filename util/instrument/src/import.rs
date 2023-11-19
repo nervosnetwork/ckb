@@ -39,7 +39,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block)
+                    .blocking_process_block(block)
                     .expect("import occur malformation data");
             }
         }

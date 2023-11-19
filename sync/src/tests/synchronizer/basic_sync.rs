@@ -4,7 +4,6 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
-use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;

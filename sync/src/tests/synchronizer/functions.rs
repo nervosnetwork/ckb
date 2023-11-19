@@ -144,7 +144,7 @@ fn insert_block(
     let block = gen_block(shared, &parent, &epoch, nonce);
 
     chain_controller
-        .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+        .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 }
 
@@ -1091,7 +1091,10 @@ fn test_fix_last_common_header() {
     for number in 1..=main_tip_number {
         let key = m_(number);
         let block = graph.get(&key).cloned().unwrap();
-        synchronizer.chain.process_block(Arc::new(block)).unwrap();
+        synchronizer
+            .chain
+            .blocking_process_block(Arc::new(block))
+            .unwrap();
     }
     {
         let nc = mock_network_context(1);
