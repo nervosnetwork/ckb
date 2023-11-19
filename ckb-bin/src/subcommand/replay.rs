@@ -1,6 +1,6 @@
 use ckb_app_config::{ExitCode, ReplayArgs};
 use ckb_async_runtime::Handle;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::ChainController;
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
 use ckb_shared::{Shared, SharedBuilder};
