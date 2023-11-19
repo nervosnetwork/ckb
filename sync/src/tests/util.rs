@@ -1,5 +1,5 @@
 use crate::SyncShared;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};

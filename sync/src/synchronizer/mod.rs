@@ -25,7 +25,7 @@ use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
 
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
