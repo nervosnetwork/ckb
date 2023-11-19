@@ -46,7 +46,7 @@ pub struct ChainController {
 
 #[cfg_attr(feature = "mock", faux::methods)]
 impl ChainController {
-    pub fn new(
+    fn new(
         process_block_sender: Sender<ProcessBlockRequest>,
         truncate_sender: Sender<TruncateRequest>,
         orphan_block_broker: Arc<OrphanBlockPool>,
@@ -282,7 +282,7 @@ impl ChainServicesBuilder {
 ///
 /// The ChainService provides a single-threaded background executor.
 #[derive(Clone)]
-pub struct ChainService {
+pub(crate) struct ChainService {
     shared: Shared,
 
     process_block_rx: Receiver<ProcessBlockRequest>,
@@ -293,7 +293,7 @@ pub struct ChainService {
 }
 impl ChainService {
     /// Create a new ChainService instance with shared and initial proposal_table.
-    pub fn new(
+    pub(crate) fn new(
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
         truncate_block_rx: Receiver<TruncateRequest>,
@@ -311,7 +311,7 @@ impl ChainService {
     }
 
     /// start background single-threaded service with specified thread_name.
-    pub fn start(mut self) {
+    pub(crate) fn start(mut self) {
         let signal_receiver = new_crossbeam_exit_rx();
 
         // Mainly for test: give an empty thread_name
