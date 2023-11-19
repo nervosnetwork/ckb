@@ -88,14 +88,7 @@ impl MockChain {
         let network = dummy_network(&shared);
         pack.take_tx_pool_builder().start(network);
 
-        let chain_service = ChainService::new(
-            shared.clone(),
-            pack.take_proposal_table(),
-            pack.take_verify_failed_block_tx(),
-        );
-        let chain_controller = chain_service.start::<&str>(Some(
-            "ckb-light-client-protocol-server::tests::ChainService",
-        ));
+        let chain_controller = pack.take_chain_services_builder().start();
 
         Self {
             chain_controller,

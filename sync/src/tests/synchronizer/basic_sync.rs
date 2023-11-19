@@ -99,8 +99,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .build()
         .unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = pack.take_chain_services_builder().start();
 
     for _i in 0..height {
         let number = block.header().number() + 1;

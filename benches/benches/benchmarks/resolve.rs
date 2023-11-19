@@ -96,12 +96,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
-    let chain_service = ChainService::new(
-        shared.clone(),
-        pack.take_proposal_table(),
-        pack.take_verify_failed_block_tx(),
-    );
-    let chain_controller = chain_service.start(Some("ChainService"));
+    let chain_controller = pack.take_chain_services_builder().start();
 
     // FIXME: global cache !!!
     let _ret = setup_system_cell_cache(
