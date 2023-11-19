@@ -1,4 +1,3 @@
-use crate::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -10,13 +9,8 @@ use std::sync::Arc;
 fn test_get_block_body_after_inserting() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut _chain_service = ChainService::new(
-        shared.clone(),
-        pack.take_proposal_table(),
-        pack.take_verify_failed_block_tx(),
-    );
-    let chain_controller =
-        _chain_service.start(Some("test_get_block_body_after_inserting::ChainService"));
+    let chain_controller = pack.take_chain_services_builder().start();
+
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
