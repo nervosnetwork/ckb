@@ -37,7 +37,7 @@ fn test_get_block_template_cache() {
             .build();
         suite
             .chain_controller
-            .process_block(Arc::new(fork_block))
+            .blocking_process_block(Arc::new(fork_block))
             .expect("processing new block should be ok");
 
         assert_eq!(response_old.result["uncles"].to_string(), "[]");
