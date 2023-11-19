@@ -71,9 +71,10 @@ CREATE TABLE input(
 CREATE TABLE script(
     id SERIAL PRIMARY KEY,
     script_hash BYTEA UNIQUE NOT NULL,
-    script_code_hash BYTEA,
-    script_args BYTEA,
-    script_type SMALLINT
+    script_type SMALLINT NOT NULL,
+    code_hash BYTEA,
+    args BYTEA,
+    hash_type SMALLINT
 );
 
 CREATE TABLE output_association_script(

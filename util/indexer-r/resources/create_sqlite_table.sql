@@ -71,9 +71,10 @@ CREATE TABLE input(
 CREATE TABLE script(
     id INTEGER PRIMARY KEY,
     script_hash BLOB UNIQUE NOT NULL,
-    script_code_hash BLOB,
-    script_args BLOB,
-    script_type SMALLINT
+    script_type SMALLINT NOT NULL,
+    code_hash BLOB,
+    args BLOB,
+    hash_type SMALLINT
 );
 
 CREATE TABLE output_association_script(

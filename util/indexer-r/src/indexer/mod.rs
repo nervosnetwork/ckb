@@ -179,7 +179,7 @@ impl AsyncIndexerR {
         let mut output_association_script_rows = Vec::new();
         let mut script_set = HashSet::new();
 
-        for (tx_index, tx_view) in tx_views.iter().enumerate() {
+        for tx_view in tx_views.iter() {
             for ((output_index, (cell, data)), out_point) in tx_view
                 .outputs_with_data_iter()
                 .enumerate()
@@ -205,21 +205,30 @@ impl AsyncIndexerR {
                     matched_tx_hashes.insert(tx_view.hash());
                 }
             }
+        }
+        bulk_insert_output_table(&output_cell_rows, tx).await?;
+        bulk_insert_script_table(&script_set, tx).await?;
+        bulk_insert_output_association_script(&output_association_script_rows, tx).await?;
 
+        for (tx_index, tx_view) in tx_views.iter().enumerate() {
             if tx_index == 0 {
                 // cellbase
                 continue;
             }
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
-                build_input_rows(tx_view, &input, input_index, &mut input_rows)?;
-                matched_tx_hashes.insert(tx_view.hash());
+                let out_point = input.previous_output();
+                if let Some((output, output_data)) = query_cell_output(&out_point, tx).await? {
+                    if self
+                        .custom_filters
+                        .is_cell_filter_match(&output, &output_data.pack())
+                    {
+                        build_input_rows(tx_view, &input, input_index, &mut input_rows)?;
+                        matched_tx_hashes.insert(tx_view.hash());
+                    }
+                }
             }
         }
-
-        bulk_insert_output_table(&output_cell_rows, tx).await?;
         bulk_insert_input_table(&input_rows, tx).await?;
-        bulk_insert_script_table(&script_set, tx).await?;
-        bulk_insert_output_association_script(&output_association_script_rows, tx).await?;
 
         let matched_txs_iter: Vec<(usize, TransactionView)> = tx_views
             .into_iter()
