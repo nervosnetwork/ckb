@@ -15,14 +15,15 @@ use ckb_types::core::{BlockNumber, BlockView, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
-
-pub mod chain;
+mod chain;
 mod consume_orphan;
 mod consume_unverified;
 mod forkchanges;
 mod orphan_block_pool;
 #[cfg(test)]
 mod tests;
+
+pub use chain::{ChainController, ChainServicesBuilder};
 
 type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
