@@ -9,7 +9,7 @@ use crate::module::{
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
 use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
