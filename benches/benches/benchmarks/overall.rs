@@ -6,8 +6,7 @@ use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState};
-use ckb_shared::Shared;
-use ckb_shared::SharedBuilder;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,

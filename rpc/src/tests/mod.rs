@@ -6,8 +6,7 @@ use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::SharedBuilder;
-use ckb_shared::{Shared, Snapshot};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{

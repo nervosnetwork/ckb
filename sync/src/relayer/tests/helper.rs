@@ -7,8 +7,7 @@ use ckb_network::{
     NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
     TargetSession,
 };
-use ckb_shared::Shared;
-use ckb_shared::SharedBuilder;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_systemtime::{self, unix_time_as_millis};
 use ckb_test_chain_utils::always_success_cell;

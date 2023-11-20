@@ -8,8 +8,7 @@ use ckb_network::{
     SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::SharedBuilder;
-use ckb_shared::{Shared, Snapshot};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
