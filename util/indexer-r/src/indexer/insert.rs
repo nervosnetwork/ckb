@@ -38,6 +38,45 @@ pub(crate) async fn append_block(
     Ok(())
 }
 
+pub(crate) async fn append_block_with_filter_mode(
+    block_view: &BlockView,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    let block_row = (
+        block_view.hash().raw_data().to_vec(),
+        block_view.number() as i32,
+    );
+
+    // insert block
+    // build query str
+    let mut builder = SqlBuilder::insert_into("block");
+    builder.field(
+        r#"
+        block_hash,
+        block_number"#,
+    );
+    push_values_placeholders(&mut builder, 2, 1);
+    let sql = builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+
+    // bind
+    let mut query = SQLXPool::new_query(&sql);
+    seq!(i in 0..2 {
+        query = query.bind(&block_row.i);
+    });
+
+    // execute
+    query
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(())
+}
+
 pub(crate) async fn insert_uncle_block(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,

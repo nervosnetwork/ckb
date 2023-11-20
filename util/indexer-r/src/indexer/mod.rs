@@ -137,9 +137,11 @@ impl AsyncIndexerR {
             .transaction()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
-        append_block(block, &mut tx).await?;
         if self.custom_filters.is_block_filter_match(block) {
+            append_block(block, &mut tx).await?;
             self.insert_transactions(block, &mut tx).await?;
+        } else {
+            append_block_with_filter_mode(block, &mut tx).await?;
         }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
@@ -210,6 +212,9 @@ impl AsyncIndexerR {
         bulk_insert_script_table(&script_set, tx).await?;
         bulk_insert_output_association_script(&output_association_script_rows, tx).await?;
 
+        // The output needs to be inserted into the db-transaction before the input traversal.
+        // This is to cope with the case where the output is spent in a transaction in the same block,
+        // because the input needs to query the corresponding output cell when doing a cell filter.
         for (tx_index, tx_view) in tx_views.iter().enumerate() {
             if tx_index == 0 {
                 // cellbase
@@ -217,7 +222,7 @@ impl AsyncIndexerR {
             }
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let mut is_match = true;
-                if self.custom_filters.is_cell_filter_enable() {
+                if self.custom_filters.is_cell_filter_enabled() {
                     let out_point = input.previous_output();
                     if let Some((output, output_data)) = query_cell_output(&out_point, tx).await? {
                         is_match = self

@@ -114,7 +114,7 @@ impl CustomFilters {
             .unwrap_or(true)
     }
 
-    pub fn is_cell_filter_enable(&self) -> bool {
+    pub fn is_cell_filter_enabled(&self) -> bool {
         self.cell_filter.is_some()
     }
 }
