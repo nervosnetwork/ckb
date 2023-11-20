@@ -2,7 +2,6 @@
 //!
 //! which can be used in order to configure the properties of a new shared.
 
-use crate::migrate::Migrate;
 use ckb_app_config::ExitCode;
 use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
 use ckb_async_runtime::{new_background_runtime, Handle};
@@ -14,6 +13,7 @@ use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_logger::{error, info};
+use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;

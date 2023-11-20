@@ -86,7 +86,8 @@ members = [
     "sync",
     "util/instrument",
     "rpc",
-    "util/launcher/migration-template",
+    "util/migrate/migration-template",
+    "util/migrate",
     "util/light-client-protocol-server",
     "util/launcher",
     "ckb-bin"

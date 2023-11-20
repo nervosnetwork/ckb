@@ -1,5 +1,5 @@
 use ckb_app_config::{ExitCode, MigrateArgs};
-use ckb_launcher::migrate::Migrate;
+use ckb_migrate::migrate::Migrate;
 use is_terminal::IsTerminal;
 use std::cmp::Ordering;
 
