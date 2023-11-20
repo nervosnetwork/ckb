@@ -61,7 +61,7 @@ pub fn broadcast_exit_signals() {
         .iter()
         .for_each(|tx| match tx.try_send(()) {
             Ok(_) => {}
-            Err(TrySendError::Full(_)) => error!("send exit signal to channel failed since the channel is full, this should not happen"),
+            Err(TrySendError::Full(_)) => info!("ckb process has received exit signal"),
             Err(TrySendError::Disconnected(_)) => {
                 info!("broadcast thread: channel is disconnected")
             }
