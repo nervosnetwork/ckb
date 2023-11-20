@@ -42,10 +42,10 @@ pub enum VerifiedBlockStatus {
     FirstSeenButNotVerified,
 
     // The block has been verified before.
-    PreviouslyVerified,
+    PreviouslySeenAndVerified,
 
-    // The block has been verified before, but not veriify it yet
-    PreviouslyUnVerified,
+    // The block is being seen before, but not verify it yet
+    PreviouslySeenButNotVerified,
 }
 
 #[derive(Clone)]
