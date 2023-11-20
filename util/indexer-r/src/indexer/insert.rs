@@ -3,7 +3,6 @@
 use crate::store::SQLXPool;
 
 use ckb_indexer_sync::Error;
-use ckb_jsonrpc_types::IndexerScriptType;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockView, TransactionView},
@@ -452,7 +451,7 @@ pub(crate) fn build_output_cell_rows(
     tx_view: &TransactionView,
     output_index: usize,
     data: &Bytes,
-    output_cell_rows: &mut Vec<(Vec<u8>, i64, Vec<u8>, Vec<u8>, i32)>,
+    output_cell_rows: &mut Vec<(Vec<u8>, i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i32)>,
 ) -> Result<(), Error> {
     let cell_capacity: u64 = cell.capacity().unpack();
     let cell_row = (
@@ -464,6 +463,10 @@ pub(crate) fn build_output_cell_rows(
             .to_vec(),
         i64::try_from(cell_capacity).map_err(|err| Error::DB(err.to_string()))?,
         data.to_vec(),
+        cell.lock().calc_script_hash().raw_data().to_vec(),
+        cell.type_().to_opt().map_or_else(Vec::new, |type_script| {
+            type_script.calc_script_hash().raw_data().to_vec()
+        }),
         tx_view.hash().raw_data().to_vec(),
         i32::try_from(output_index).map_err(|err| Error::DB(err.to_string()))?,
     );
@@ -473,7 +476,7 @@ pub(crate) fn build_output_cell_rows(
 
 pub(crate) async fn build_script_set(
     cell: &CellOutput,
-    script_set: &mut HashSet<(Vec<u8>, i16, Vec<u8>, Vec<u8>, i16)>,
+    script_set: &mut HashSet<(Vec<u8>, Vec<u8>, Vec<u8>, i16)>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let mut exist_script_cache = HashSet::new();
@@ -484,7 +487,6 @@ pub(crate) async fn build_script_set(
 
         let type_script_row = (
             type_hash.to_vec(),
-            script_type_to_i16(IndexerScriptType::Type),
             type_script.code_hash().raw_data().to_vec(),
             type_script_args.to_vec(),
             i16::try_from(
@@ -505,7 +507,6 @@ pub(crate) async fn build_script_set(
     let lock_script_args = lock_script.args().raw_data();
     let lock_script_row = (
         lock_hash.to_vec(),
-        script_type_to_i16(IndexerScriptType::Lock),
         lock_script.code_hash().raw_data().to_vec(),
         lock_script_args.to_vec(),
         i16::try_from(
@@ -560,7 +561,7 @@ pub(crate) fn build_input_rows(
 }
 
 pub(crate) async fn bulk_insert_output_table(
-    output_cell_rows: &[(Vec<u8>, i64, Vec<u8>, Vec<u8>, i32)],
+    output_cell_rows: &[(Vec<u8>, i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i32)],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // bulk insert
@@ -574,10 +575,12 @@ pub(crate) async fn bulk_insert_output_table(
             out_point,
             capacity,
             data,
+            lock_script_hash,
+            type_script_hash,
             tx_hash,
             output_index"#,
         );
-        push_values_placeholders(&mut builder, 5, end - start);
+        push_values_placeholders(&mut builder, 7, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -587,7 +590,7 @@ pub(crate) async fn bulk_insert_output_table(
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in output_cell_rows[start..end].iter() {
-            seq!(i in 0..5 {
+            seq!(i in 0..7 {
                 query = query.bind(&row.i);
             });
         }
@@ -645,7 +648,7 @@ pub(crate) async fn bulk_insert_input_table(
 }
 
 pub(crate) async fn bulk_insert_script_table(
-    script_set: &HashSet<(Vec<u8>, i16, Vec<u8>, Vec<u8>, i16)>,
+    script_set: &HashSet<(Vec<u8>, Vec<u8>, Vec<u8>, i16)>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let script_rows = script_set.iter().cloned().collect::<Vec<_>>();
@@ -658,12 +661,11 @@ pub(crate) async fn bulk_insert_script_table(
         let mut builder = SqlBuilder::insert_into("script");
         builder.field(
             r#"script_hash,
-            script_type,
             code_hash,
             args,
             hash_type"#,
         );
-        push_values_placeholders(&mut builder, 5, end - start);
+        push_values_placeholders(&mut builder, 4, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -673,7 +675,7 @@ pub(crate) async fn bulk_insert_script_table(
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in script_rows[start..end].iter() {
-            seq!(i in 0..5 {
+            seq!(i in 0..4 {
                 query = query.bind(&row.i);
             });
         }
@@ -802,46 +804,6 @@ where
     Ok(())
 }
 
-pub(crate) async fn bulk_insert_output_association_script(
-    output_association_script_rows: &[(Vec<u8>, Vec<u8>)],
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    // bulk insert
-    for start in (0..output_association_script_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
-        let end = (start + BATCH_SIZE_THRESHOLD).min(output_association_script_rows.len());
-
-        // build query str
-        let mut builder = SqlBuilder::insert_into("output_association_script");
-        builder.field(
-            r#"
-            out_point,
-            script_hash"#,
-        );
-        push_values_placeholders(&mut builder, 2, end - start);
-        let sql = builder
-            .sql()
-            .map_err(|err| Error::DB(err.to_string()))?
-            .trim_end_matches(';')
-            .to_string();
-
-        // bind
-        let mut query = SQLXPool::new_query(&sql);
-        for row in output_association_script_rows[start..end].iter() {
-            seq!(i in 0..2 {
-                query = query.bind(&row.i);
-            });
-        }
-
-        // execute
-        query
-            .execute(&mut *tx)
-            .await
-            .map_err(|err| Error::DB(err.to_string()))?;
-    }
-
-    Ok(())
-}
-
 pub fn push_values_placeholders(
     builder: &mut SqlBuilder,
     column_number: usize,
@@ -886,28 +848,22 @@ pub(crate) async fn query_cell_output(
     let row = sqlx::query(
         r#"
         SELECT 
-            capacity,
-            data,
-            lock.script_hash AS lock_script_hash,
-            lock.code_hash AS lock_code_hash,
-            lock.args AS lock_args,
-            lock.hash_type AS lock_hash_type,
-            type.script_hash AS type_script_hash,
-            type.code_hash AS type_code_hash,
-            type.args AS type_args,
-            type.hash_type AS type_hash_type
+            output.capacity,
+            output.data,
+            lock_script.code_hash AS lock_code_hash,
+            lock_script.args AS lock_args,
+            lock_script.hash_type AS lock_hash_type,
+            type_script.code_hash AS type_code_hash,
+            type_script.args AS type_args,
+            type_script.hash_type AS type_hash_type
         FROM 
-            output
+            output 
         LEFT JOIN 
-            output_association_script AS assoc0 ON output.out_point = assoc0.out_point
+            script AS lock_script ON output.lock_script_hash = lock_script.script_hash
         LEFT JOIN 
-            script AS lock ON assoc0.script_hash = lock.script_hash AND lock.script_type = 0
-        LEFT JOIN 
-            output_association_script AS assoc1 ON output.out_point = assoc1.out_point
-        LEFT JOIN 
-            script AS type ON assoc1.script_hash = type.script_hash AND type.script_type = 1
-        WHERE
-            output.out_point = $1
+            script AS type_script ON output.type_script_hash = type_script.script_hash
+        WHERE 
+            out_point = $1
         "#,
     )
     .bind(out_point.as_slice())
@@ -970,11 +926,4 @@ fn to_fixed_array<const LEN: usize>(input: &[u8]) -> [u8; LEN] {
     let mut list = [0; LEN];
     list.copy_from_slice(input);
     list
-}
-
-pub fn script_type_to_i16(script_type: IndexerScriptType) -> i16 {
-    match script_type {
-        IndexerScriptType::Lock => 0,
-        IndexerScriptType::Type => 1,
-    }
 }

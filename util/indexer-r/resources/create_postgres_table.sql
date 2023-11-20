@@ -57,8 +57,10 @@ CREATE TABLE output(
     out_point BYTEA UNIQUE NOT NULL,
     capacity BIGINT NOT NULL,
     data BYTEA,
+    lock_script_hash BYTEA,
+    type_script_hash BYTEA,
     tx_hash BYTEA NOT NULL,
-    output_index INTEGER NOT NULL
+    output_index INT NOT NULL   
 );
 
 CREATE TABLE input(
@@ -71,14 +73,7 @@ CREATE TABLE input(
 CREATE TABLE script(
     id SERIAL PRIMARY KEY,
     script_hash BYTEA UNIQUE NOT NULL,
-    script_type SMALLINT NOT NULL,
     code_hash BYTEA,
     args BYTEA,
     hash_type SMALLINT
-);
-
-CREATE TABLE output_association_script(
-    id SERIAL PRIMARY KEY,
-    out_point BYTEA NOT NULL,
-    script_hash BYTEA NOT NULL
 );

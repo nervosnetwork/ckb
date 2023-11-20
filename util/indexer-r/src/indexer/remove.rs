@@ -11,8 +11,7 @@ pub(crate) async fn rollback_block(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let tx_hashes = query_transaction_hashes_by_block_hash(block_hash.as_bytes(), tx).await?;
-    let out_points = query_outputs_by_tx_hashes(&tx_hashes, tx).await?;
-    let script_hashes = query_script_hashes_by_out_points(&out_points, tx).await?;
+    let outputs = query_outputs_by_tx_hashes(&tx_hashes, tx).await?;
 
     // remove transactions, associations, inputs
     let tx_hashes_to_remove: Vec<Vec<u8>> = tx_hashes
@@ -37,24 +36,20 @@ pub(crate) async fn rollback_block(
     remove_batch_by_blobs("input", "tx_hash", &tx_hashes_to_remove, tx).await?;
 
     // remove output and association
-    let out_points_to_remove: Vec<Vec<u8>> = out_points
+    let out_points_to_remove: Vec<Vec<u8>> = outputs
         .iter()
-        .map(|out_point| out_point.as_bytes().to_vec())
+        .map(|(out_point, _, _)| out_point.as_bytes().to_vec())
         .collect();
     remove_batch_by_blobs("output", "out_point", &out_points_to_remove, tx).await?;
-    remove_batch_by_blobs(
-        "output_association_script",
-        "out_point",
-        &out_points_to_remove,
-        tx,
-    )
-    .await?;
 
     // remove script
     let mut script_hashes_to_remove = Vec::new();
-    for script_hash in script_hashes {
-        if !script_exists_in_association_table(script_hash.as_bytes(), tx).await? {
-            script_hashes_to_remove.push(script_hash.as_bytes().to_vec());
+    for (_, lock_script_hash, type_script_hash) in outputs {
+        if !script_exists_in_output(&lock_script_hash, tx).await? {
+            script_hashes_to_remove.push(lock_script_hash);
+        }
+        if !type_script_hash.is_empty() && !script_exists_in_output(&type_script_hash, tx).await? {
+            script_hashes_to_remove.push(type_script_hash);
         }
     }
     remove_batch_by_blobs("script", "script_hash", &script_hashes_to_remove, tx).await?;
@@ -195,7 +190,7 @@ async fn query_transaction_hashes_by_block_hash(
 async fn query_outputs_by_tx_hashes(
     tx_hashes: &[H256],
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<OutPoint>, Error> {
+) -> Result<Vec<(OutPoint, Vec<u8>, Vec<u8>)>, Error> {
     if tx_hashes.is_empty() {
         return Ok(vec![]);
     }
@@ -203,7 +198,7 @@ async fn query_outputs_by_tx_hashes(
     // build query str
     let mut query_builder = SqlBuilder::select_from("output");
     let sql = query_builder
-        .field("out_point")
+        .fields(&["out_point", "lock_script_hash", "type_script_hash"])
         .and_where_in("tx_hash", &sqlx_param_placeholders(1..tx_hashes.len())?)
         .order_by("output_index", false)
         .sql()
@@ -222,55 +217,26 @@ async fn query_outputs_by_tx_hashes(
         .map_err(|err| Error::DB(err.to_string()))
         .map(|rows| {
             rows.iter()
-                .map(|row| OutPoint::new_unchecked(Bytes::copy_from_slice(row.get("out_point"))))
-                .collect::<Vec<OutPoint>>()
-        })
-}
-
-async fn query_script_hashes_by_out_points(
-    out_points: &[OutPoint],
-    tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<H256>, Error> {
-    if out_points.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // build query str
-    let mut query_builder = SqlBuilder::select_from("output_association_script");
-    let sql = query_builder
-        .field("script_hash")
-        .distinct()
-        .and_where_in("out_point", &sqlx_param_placeholders(1..out_points.len())?)
-        .sql()
-        .map_err(|err| Error::DB(err.to_string()))?;
-
-    // bind
-    let mut query = SQLXPool::new_query(&sql);
-    for out_point in out_points {
-        query = query.bind(out_point.as_slice());
-    }
-
-    // execute
-    query
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|err| Error::DB(err.to_string()))
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| bytes_to_h256(row.get("script_hash")))
+                .map(|row| {
+                    (
+                        OutPoint::new_unchecked(Bytes::copy_from_slice(row.get("out_point"))),
+                        row.get("lock_script_hash"),
+                        row.get("type_script_hash"),
+                    )
+                })
                 .collect()
         })
 }
 
-async fn script_exists_in_association_table(
+async fn script_exists_in_output(
     script_hash: &[u8],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
     let row = sqlx::query(
         r#"
         SELECT COUNT(*) as count 
-        FROM output_association_script WHERE
-        script_hash = $1
+        FROM output WHERE
+        lock_script_hash = $1 OR type_script_hash = $1
         "#,
     )
     .bind(script_hash)

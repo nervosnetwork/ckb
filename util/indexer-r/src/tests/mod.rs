@@ -105,13 +105,6 @@ async fn test_rollback_block() {
             .await
             .unwrap()
     );
-    assert_eq!(
-        15,
-        storage
-            .fetch_count("output_association_script")
-            .await
-            .unwrap()
-    );
 
     indexer.rollback().await.unwrap();
 
@@ -146,13 +139,6 @@ async fn test_rollback_block() {
         0,
         storage
             .fetch_count("tx_association_cell_dep")
-            .await
-            .unwrap()
-    );
-    assert_eq!(
-        0,
-        storage
-            .fetch_count("output_association_script")
             .await
             .unwrap()
     );

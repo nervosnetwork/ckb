@@ -57,8 +57,10 @@ CREATE TABLE output(
     out_point BLOB UNIQUE NOT NULL,
     capacity BIGINT NOT NULL,
     data BLOB,
+    lock_script_hash BLOB,
+    type_script_hash BLOB,
     tx_hash BLOB NOT NULL,
-    output_index INT NOT NULL
+    output_index INT NOT NULL   
 );
 
 CREATE TABLE input(
@@ -71,14 +73,7 @@ CREATE TABLE input(
 CREATE TABLE script(
     id INTEGER PRIMARY KEY,
     script_hash BLOB UNIQUE NOT NULL,
-    script_type SMALLINT NOT NULL,
     code_hash BLOB,
     args BLOB,
     hash_type SMALLINT
-);
-
-CREATE TABLE output_association_script(
-    id INTEGER PRIMARY KEY,
-    out_point BLOB NOT NULL,
-    script_hash BLOB NOT NULL
 );

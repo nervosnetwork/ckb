@@ -29,7 +29,6 @@ use std::sync::{Arc, RwLock};
 /// - block_association_uncle
 /// - tx_association_header_dep
 /// - tx_association_cell_dep
-/// - output_association_script
 /// The detailed table design can be found in the SQL files in the resources folder of this crate
 
 /// Indexer-r, which is based on a relational database
@@ -210,7 +209,6 @@ impl AsyncIndexerR {
         }
         bulk_insert_output_table(&output_cell_rows, tx).await?;
         bulk_insert_script_table(&script_set, tx).await?;
-        bulk_insert_output_association_script(&output_association_script_rows, tx).await?;
 
         // The output needs to be inserted into the db-transaction before the input traversal.
         // This is to cope with the case where the output is spent in a transaction in the same block,
