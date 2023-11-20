@@ -36,7 +36,7 @@ pub fn deadlock_detection() {
 
                 },
                 recv(stop_rx) -> _ =>{
-                    debug!("deadlock_detection received exit signal, stopped");
+                    info!("deadlock_detection received exit signal, stopped");
                     return;
                 }
             }
