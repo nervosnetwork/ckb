@@ -177,7 +177,7 @@ impl ConsumeOrphan {
                                 descendant_block.block().hash()
                             );
                             let verify_result: VerifyResult =
-                                Ok(VerifiedBlockStatus::PreviouslyUnVerified);
+                                Ok(VerifiedBlockStatus::PreviouslySeenButNotVerified);
                             descendant_block.execute_callback(verify_result);
                         }
                     },

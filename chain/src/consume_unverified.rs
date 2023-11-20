@@ -204,7 +204,7 @@ impl ConsumeUnverifiedBlockProcessor {
                         verified
                     );
                     return if verified {
-                        Ok(VerifiedBlockStatus::PreviouslyVerified)
+                        Ok(VerifiedBlockStatus::PreviouslySeenAndVerified)
                     } else {
                         Err(InternalErrorKind::Other
                             .other("block previously verified failed")
