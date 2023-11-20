@@ -60,22 +60,26 @@ impl MigrationWorker {
             };
 
             if let Some(Command::Start) = msg {
-                // Progress Bar is no need in background, but here we fake one to keep the trait API
-                // consistent with the foreground migration.
-                loop {
-                    let db = self.db.clone();
-                    let pb = move |_count: u64| -> ProgressBar { ProgressBar::new(0) };
-                    if let Some((name, task)) = self.tasks.lock().unwrap().pop_front() {
-                        eprintln!("start to run migrate in background: {}", name);
-                        let db = task.migrate(db, Arc::new(pb)).unwrap();
-                        db.put_default(MIGRATION_VERSION_KEY, task.version())
-                            .map_err(|err| {
-                                internal_error(format!("failed to migrate the database: {err}"))
-                            })
-                            .unwrap();
-                    } else {
-                        break;
-                    }
+                let mut idx = 0;
+                let migrations_count = self.tasks.lock().unwrap().len() as u64;
+                let mpb = Arc::new(MultiProgress::new());
+
+                while let Some((name, task)) = self.tasks.lock().unwrap().pop_front() {
+                    eprintln!("start to run migrate in background: {}", name);
+                    let mpbc = Arc::clone(&mpb);
+                    idx += 1;
+                    let pb = move |count: u64| -> ProgressBar {
+                        let pb = mpbc.add(ProgressBar::new(count));
+                        pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
+                        pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
+                        pb
+                    };
+                    let db = task.migrate(self.db.clone(), Arc::new(pb)).unwrap();
+                    db.put_default(MIGRATION_VERSION_KEY, task.version())
+                        .map_err(|err| {
+                            internal_error(format!("failed to migrate the database: {err}"))
+                        })
+                        .unwrap();
                 }
             }
         })

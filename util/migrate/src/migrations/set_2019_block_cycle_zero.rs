@@ -32,22 +32,38 @@ impl Migration for BlockExt2019ToZero {
         let chain_db = ChainDB::new(db, StoreConfig::default());
         let limit_epoch = self.hardforks.ckb2021.rfc_0032();
 
-        eprintln!("begin to run block_ext 2019 to zero migrate...");
+        eprintln!(
+            "begin to run block_ext 2019 to zero migrate...: {}",
+            limit_epoch
+        );
+
         if limit_epoch == 0 {
             return Ok(chain_db.into_inner());
         }
 
-        let epoch_number: packed::Uint64 = limit_epoch.pack();
-        if let Some(epoch_hash) = chain_db.get(COLUMN_EPOCH, epoch_number.as_slice()) {
+        let hard_fork_epoch_number: packed::Uint64 = limit_epoch.pack();
+        let tip_header = chain_db.get_tip_header().expect("db must have tip header");
+        let tip_epoch_number = tip_header.epoch().pack();
+
+        let header = if tip_epoch_number < hard_fork_epoch_number {
+            Some(tip_header)
+        } else if let Some(epoch_hash) =
+            chain_db.get(COLUMN_EPOCH, hard_fork_epoch_number.as_slice())
+        {
             let epoch_ext = chain_db
                 .get_epoch_ext(
                     &packed::Byte32Reader::from_slice_should_be_ok(epoch_hash.as_ref()).to_entity(),
                 )
                 .expect("db must have epoch ext");
-            let mut header = chain_db
+            let header = chain_db
                 .get_block_header(&epoch_ext.last_block_hash_in_previous_epoch())
                 .expect("db must have header");
+            Some(header)
+        } else {
+            None
+        };
 
+        if let Some(mut header) = header {
             let pb = ::std::sync::Arc::clone(&pb);
             let pbi = pb(header.number() + 1);
             pbi.set_style(
@@ -64,7 +80,6 @@ impl Migration for BlockExt2019ToZero {
                 let db_txn = chain_db.begin_transaction();
                 for _ in 0..10000 {
                     let hash = header.hash();
-
                     let mut old_block_ext = db_txn.get_block_ext(&hash).unwrap();
                     old_block_ext.cycles = None;
                     db_txn.insert_block_ext(&hash, &old_block_ext)?;
