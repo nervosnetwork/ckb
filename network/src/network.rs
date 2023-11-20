@@ -1127,11 +1127,12 @@ impl NetworkService {
                 loop {
                     tokio::select! {
                         _ = receiver.cancelled() => {
+                            info!("NetworkService receive exit signal, start shutdown...");
                             let _ = p2p_control.shutdown().await;
                             // Drop senders to stop all corresponding background task
                             drop(bg_signals);
 
-                            info!("NetworkService receive exit signal, start shutdown...");
+                            info!("NetworkService shutdown now");
                             break;
                         },
                         else => {
