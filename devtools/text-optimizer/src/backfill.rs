@@ -22,6 +22,7 @@ fn load_all_text_info_files(input_dir: &PathBuf) -> Result<Vec<(String, Vec<Text
         if let Some(file_name) = entry.file_name().to_str() {
             if file_name.ends_with(".yml") {
                 let entry_path = entry.path();
+                log::info!("Load yaml: {:?}", entry_path);
                 let list = load_yaml(&entry_path).expect("load yaml");
                 text_info_lists.push((file_name.to_owned(), list))
             }
