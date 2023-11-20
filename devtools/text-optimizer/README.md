@@ -1,0 +1,4 @@
+- compile tools
+- extract text on rev 
+- edit
+- fillback on rev
