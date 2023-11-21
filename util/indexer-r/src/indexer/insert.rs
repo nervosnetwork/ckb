@@ -829,16 +829,19 @@ async fn script_exists(
     }
 
     let row = sqlx::query(
-        "SELECT COUNT(*) as count 
-        FROM script WHERE
-        script_hash = $1",
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM script
+            WHERE script_hash = $1
+        ) AS exist"#,
     )
     .bind(script_hash)
     .fetch_one(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(row.get::<i64, _>("count") != 0)
+    Ok(row.get::<bool, _>("exist"))
 }
 
 pub(crate) async fn query_cell_output(
