@@ -23,7 +23,7 @@ mod orphan_block_pool;
 #[cfg(test)]
 mod tests;
 
-pub use chain::{ChainController, ChainServicesBuilder};
+pub use chain::{start_chain_services, ChainController};
 
 type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
