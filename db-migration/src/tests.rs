@@ -128,6 +128,8 @@ fn test_customized_migration() {
 
 #[test]
 fn test_background_migration() {
+    use ckb_stop_handler::broadcast_exit_signals;
+
     pub struct BackgroundMigration {
         version: String,
     }
@@ -159,6 +161,35 @@ fn test_background_migration() {
 
         fn version(&self) -> &str {
             self.version.as_str()
+        }
+    }
+
+    pub struct RunStopMigration {
+        version: String,
+    }
+    impl Migration for RunStopMigration {
+        fn run_in_background(&self) -> bool {
+            true
+        }
+
+        fn migrate(
+            &self,
+            db: RocksDB,
+            _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
+        ) -> Result<RocksDB, Error> {
+            let db_tx = db.transaction();
+            loop {
+                if self.stop_background() {
+                    let v = self.version.as_bytes();
+                    db_tx.put("1", v, &[2])?;
+                    db_tx.commit()?;
+                    return Ok(db);
+                }
+            }
+        }
+
+        fn version(&self) -> &str {
+            &self.version.as_str()
         }
     }
 
@@ -212,8 +243,9 @@ fn test_background_migration() {
         let db = migrations
             .migrate(RocksDB::open(&config, 12), true)
             .unwrap();
-        // sleep 1 seconds
-        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // wait for background migration to finish
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         assert_eq!(
             b"20241127101122".to_vec(),
             db.get_pinned_default(MIGRATION_VERSION_KEY)
@@ -237,5 +269,34 @@ fn test_background_migration() {
             .unwrap()
             .to_vec();
         assert_eq!(v, vec![1]);
+    }
+
+    {
+        let mut migrations = Migrations::default();
+        migrations.add_migration(Arc::new(RunStopMigration {
+            version: "20251116225943".to_string(),
+        }));
+
+        let db = ReadOnlyDB::open_cf(&config.path, vec!["4"])
+            .unwrap()
+            .unwrap();
+
+        assert!(migrations.can_run_in_background(&db));
+        let db = migrations
+            .migrate(RocksDB::open(&config, 12), true)
+            .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        //send stop signal
+        broadcast_exit_signals();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let db_tx = db.transaction();
+        let v = db_tx
+            .get_pinned("1", "20251116225943".as_bytes())
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        assert_eq!(v, vec![2]);
     }
 }

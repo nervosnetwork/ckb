@@ -1,5 +1,7 @@
 //! TODO(doc): @quake
-use ckb_channel::{unbounded, Receiver};
+use ckb_channel::select;
+use ckb_channel::unbounded;
+use ckb_channel::Receiver;
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
@@ -7,18 +9,17 @@ use ckb_logger::{debug, error, info};
 use ckb_stop_handler::register_thread;
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use once_cell::sync::OnceCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
 
 /// Shutdown flag for background migration.
-pub static SHUTDOWN_BACKGROUND_MIGRATION: once_cell::sync::Lazy<AtomicBool> =
-    once_cell::sync::Lazy::new(|| AtomicBool::new(false));
+pub static SHUTDOWN_BACKGROUND_MIGRATION: OnceCell<bool> = OnceCell::new();
 
 #[cfg(test)]
 mod tests;
@@ -34,10 +35,10 @@ pub struct Migrations {
 }
 
 /// Commands
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum Command {
     Start,
-    //Stop,
+    Stop,
 }
 
 type MigrationTasks = VecDeque<(String, Arc<dyn Migration>)>;
@@ -54,32 +55,37 @@ impl MigrationWorker {
 
     pub fn start(self) -> JoinHandle<()> {
         thread::spawn(move || {
-            let msg = match self.inbox.recv() {
-                Ok(msg) => Some(msg),
-                Err(_err) => return,
-            };
-
-            if let Some(Command::Start) = msg {
+            if let Ok(Command::Start) = self.inbox.recv() {
                 let mut idx = 0;
                 let migrations_count = self.tasks.lock().unwrap().len() as u64;
                 let mpb = Arc::new(MultiProgress::new());
 
                 while let Some((name, task)) = self.tasks.lock().unwrap().pop_front() {
-                    eprintln!("start to run migrate in background: {}", name);
-                    let mpbc = Arc::clone(&mpb);
-                    idx += 1;
-                    let pb = move |count: u64| -> ProgressBar {
-                        let pb = mpbc.add(ProgressBar::new(count));
-                        pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
-                        pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
-                        pb
-                    };
-                    let db = task.migrate(self.db.clone(), Arc::new(pb)).unwrap();
-                    db.put_default(MIGRATION_VERSION_KEY, task.version())
-                        .map_err(|err| {
-                            internal_error(format!("failed to migrate the database: {err}"))
-                        })
-                        .unwrap();
+                    select! {
+                        recv(self.inbox) -> msg => {
+                            if let Ok(Command::Stop) = msg {
+                                eprintln!("stop to run migrate in background: {}", name);
+                                break;
+                            }
+                        }
+                        default => {
+                            eprintln!("start to run migrate in background: {}", name);
+                            let mpbc = Arc::clone(&mpb);
+                            idx += 1;
+                            let pb = move |count: u64| -> ProgressBar {
+                                let pb = mpbc.add(ProgressBar::new(count));
+                                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
+                                pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
+                                pb
+                            };
+                            let db = task.migrate(self.db.clone(), Arc::new(pb)).unwrap();
+                            db.put_default(MIGRATION_VERSION_KEY, task.version())
+                                .map_err(|err| {
+                                    internal_error(format!("failed to migrate the database: {err}"))
+                                })
+                                .unwrap();
+                        }
+                    }
                 }
             }
         })
@@ -239,10 +245,13 @@ impl Migrations {
         let worker = MigrationWorker::new(tasks, db.clone(), rx);
 
         let exit_signal = ckb_stop_handler::new_crossbeam_exit_rx();
+        let clone = v.to_string();
+        let tx_clone = tx.clone();
         thread::spawn(move || {
             let _ = exit_signal.recv();
-            SHUTDOWN_BACKGROUND_MIGRATION.store(true, std::sync::atomic::Ordering::SeqCst);
-            eprintln!("set shutdown flag to true");
+            let res = SHUTDOWN_BACKGROUND_MIGRATION.set(true);
+            let _ = tx_clone.send(Command::Stop);
+            eprintln!("set shutdown flag to true: {:?} version: {}", res, clone);
         });
 
         let handler = worker.start();
@@ -356,7 +365,7 @@ pub trait Migration: Send + Sync {
     /// If a migration need to implement the recovery logic, it should check this flag periodically,
     /// store the migration progress when exiting and recover from the current progress when restarting.
     fn stop_background(&self) -> bool {
-        SHUTDOWN_BACKGROUND_MIGRATION.load(std::sync::atomic::Ordering::SeqCst)
+        *SHUTDOWN_BACKGROUND_MIGRATION.get().unwrap_or(&false)
     }
 
     /// Check if the background migration can be resumed.
