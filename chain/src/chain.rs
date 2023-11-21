@@ -18,6 +18,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_shared::types::VerifyFailedBlockInfo;
+use ckb_shared::ChainServicesBuilder;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -175,27 +176,7 @@ impl ChainController {
     }
 }
 
-pub struct ChainServicesBuilder {
-    shared: Shared,
-    proposal_table: ProposalTable,
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-}
-
-impl ChainServicesBuilder {
-    pub fn new(
-        shared: Shared,
-        proposal_table: ProposalTable,
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    ) -> Self {
-        ChainServicesBuilder {
-            shared,
-            proposal_table,
-            verify_failed_blocks_tx,
-        }
-    }
-}
-
-pub fn start(builder: ChainServicesBuilder) -> ChainController {
+pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
 
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
