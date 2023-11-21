@@ -9,10 +9,10 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_launcher::SharedBuilder;
 use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
+use ckb_shared::SharedBuilder;
 use ckb_sync::SyncShared;
 use serde_json::json;
 use std::collections::HashMap;
@@ -94,12 +94,11 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
 
     // Start network services
-    let temp_dir = tempfile::tempdir().expect("create tempdir failed");
+    let temp_dir = tempfile::tempdir().expect("create tmp_dir failed");
 
-    let temp_path = temp_dir.path().to_path_buf();
     let network_controller = {
         let network_config = NetworkConfig {
-            path: temp_path,
+            path: temp_dir.path().join("network").to_path_buf(),
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,

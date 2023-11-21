@@ -4979,10 +4979,13 @@ Subscribe Response
   "jsonrpc": "2.0",
   "result": "0xf3"
 }
+```
+
 
 Unsubscribe Request
 
-```json
+
+```
 {
   "id": 42,
   "jsonrpc": "2.0",

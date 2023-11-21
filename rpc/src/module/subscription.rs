@@ -138,6 +138,7 @@ pub trait SubscriptionRpc {
     ///   "jsonrpc": "2.0",
     ///   "result": "0xf3"
     /// }
+    /// ```
     ///
     /// Unsubscribe Request
     ///

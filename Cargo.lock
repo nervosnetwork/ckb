@@ -901,7 +901,6 @@ dependencies = [
  "ckb-build-info",
  "ckb-chain",
  "ckb-channel",
- "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-light-client-protocol-server",
  "ckb-logger",
@@ -913,14 +912,10 @@ dependencies = [
  "ckb-shared",
  "ckb-store",
  "ckb-sync",
- "ckb-systemtime",
  "ckb-tx-pool",
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "num_cpus",
- "once_cell",
- "tempfile",
 ]
 
 [[package]]
