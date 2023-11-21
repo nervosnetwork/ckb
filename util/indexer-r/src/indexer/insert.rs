@@ -38,13 +38,11 @@ pub(crate) async fn append_block(
 }
 
 pub(crate) async fn append_block_with_filter_mode(
-    block_view: &BlockView,
+    block_hash: &[u8],
+    block_number: i64,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let block_row = (
-        block_view.hash().raw_data().to_vec(),
-        block_view.number() as i32,
-    );
+    let block_row = (block_hash, block_number);
 
     // insert block
     // build query str

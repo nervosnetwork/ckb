@@ -143,3 +143,38 @@ async fn test_rollback_block() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn test_block_filter_and_rollback_block() {
+    let storage = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncIndexerR::new(
+        storage.clone(),
+        100,
+        1000,
+        None,
+        CustomFilters::new(
+            Some("block.header.number.to_uint() >= \"0x1\".to_uint()"),
+            None,
+        ),
+    );
+
+    let data_path = String::from(BLOCK_DIR);
+    indexer
+        .append(&read_block_view(0, data_path.clone()).into())
+        .await
+        .unwrap();
+
+    assert_eq!(1, storage.fetch_count("block").await.unwrap());
+    assert_eq!(0, storage.fetch_count("ckb_transaction").await.unwrap());
+    assert_eq!(0, storage.fetch_count("output").await.unwrap());
+    assert_eq!(0, storage.fetch_count("input").await.unwrap());
+    assert_eq!(0, storage.fetch_count("script").await.unwrap());
+
+    indexer.rollback().await.unwrap();
+
+    assert_eq!(0, storage.fetch_count("block").await.unwrap());
+    assert_eq!(0, storage.fetch_count("ckb_transaction").await.unwrap());
+    assert_eq!(0, storage.fetch_count("output").await.unwrap());
+    assert_eq!(0, storage.fetch_count("input").await.unwrap());
+    assert_eq!(0, storage.fetch_count("script").await.unwrap());
+}

@@ -1,5 +1,6 @@
 pub mod page;
 
+use crate::indexer::append_block_with_filter_mode;
 use page::COUNT_COLUMN;
 pub use page::{build_next_cursor, PaginationRequest, PaginationResponse};
 
@@ -91,13 +92,14 @@ impl SQLXPool {
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed!"))?;
                 if require_init {
-                    self.create_tables_for_sqlite().await?;
+                    self.create_tables_for_sqlite(db_config).await?;
                 }
                 Ok(())
             }
             DBDriver::Postgres => {
                 let require_init = self.is_postgres_require_init(db_config).await?;
-                let uri = build_url_for_posgres(db_config);
+                let uri = build_url_for_postgres(db_config);
+                log::debug!("postgres uri: {}", uri);
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
@@ -105,7 +107,7 @@ impl SQLXPool {
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed"))?;
                 if require_init {
-                    self.create_tables_for_postgres().await?;
+                    self.create_tables_for_postgres(db_config).await?;
                 }
                 Ok(())
             }
@@ -230,19 +232,35 @@ impl SQLXPool {
         self.max_conn
     }
 
-    async fn create_tables_for_sqlite(&self) -> Result<()> {
+    async fn create_tables_for_sqlite(&self, config: &IndexerRConfig) -> Result<()> {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
+        if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
+            append_block_with_filter_mode(
+                config.init_tip_hash.clone().unwrap().as_bytes(),
+                config.init_tip_number.unwrap() as i64,
+                &mut tx,
+            )
+            .await?;
+        }
         tx.commit().await.map_err(Into::into)
     }
 
-    async fn create_tables_for_postgres(&mut self) -> Result<()> {
+    async fn create_tables_for_postgres(&mut self, config: &IndexerRConfig) -> Result<()> {
         let mut tx = self.transaction().await?;
         let commands = SQL_CREATE_POSTGRES.split(';');
         for command in commands {
             if !command.trim().is_empty() {
                 sqlx::query(command).execute(&mut *tx).await?;
             }
+        }
+        if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
+            append_block_with_filter_mode(
+                config.init_tip_hash.clone().unwrap().as_bytes(),
+                config.init_tip_number.unwrap() as i64,
+                &mut tx,
+            )
+            .await?;
         }
         tx.commit().await.map_err(Into::into)
     }
@@ -251,7 +269,7 @@ impl SQLXPool {
         // Connect to the "postgres" database first
         let mut temp_config = db_config.clone();
         temp_config.db_name = "postgres".to_string();
-        let uri = build_url_for_posgres(&temp_config);
+        let uri = build_url_for_postgres(&temp_config);
         log::info!("postgres uri: {}", uri);
         let mut connection_options = AnyConnectOptions::from_str(&uri)?;
         connection_options.log_statements(LevelFilter::Trace);
@@ -283,7 +301,7 @@ fn build_url_for_sqlite(db_config: &IndexerRConfig) -> String {
     db_config.db_type.to_string() + db_config.store.to_str().expect("get store path")
 }
 
-fn build_url_for_posgres(db_config: &IndexerRConfig) -> String {
+fn build_url_for_postgres(db_config: &IndexerRConfig) -> String {
     db_config.db_type.to_string()
         + db_config.db_user.as_str()
         + ":"
