@@ -7,6 +7,7 @@
 -   #4128 **rpc:** Introduce the new method `generate_epochs` in the `IntegrationTest` module (@EthanYuan)
 -   #4079: Tx pool Replace-by-fee (@chenyukang)
 -   #4108: Add feature of Replace-by-fee for tx-pool (@chenyukang)
+-   #4232: RBF will also replace tx not in Pending (@chenyukang)
 
 ### Bug Fixes
 
