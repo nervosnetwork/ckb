@@ -11,6 +11,7 @@ use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::tx_pool::PoolTxDetailInfo;
 use ckb_types::core::CapacityError;
 use ckb_types::{
     core::{
@@ -624,6 +625,38 @@ impl TxPool {
         }
 
         Ok(())
+    }
+
+    /// query the details of a transaction in the pool, only for trouble shooting
+    pub(crate) fn get_tx_detail(&self, id: &ProposalShortId) -> Option<PoolTxDetailInfo> {
+        if let Some(entry) = self.pool_map.get_by_id(id) {
+            let ids = self.get_ids();
+            let rank_in_pending = if entry.status == Status::Proposed {
+                0
+            } else {
+                let tx_hash = entry.inner.transaction().hash();
+                ids.pending
+                    .iter()
+                    .enumerate()
+                    .find(|(_, hash)| &tx_hash == *hash)
+                    .map(|r| r.0)
+                    .unwrap_or_default()
+                    + 1
+            };
+            let res = PoolTxDetailInfo {
+                timestamp: entry.inner.timestamp,
+                entry_status: entry.status.to_string(),
+                pending_count: self.pool_map.pending_size(),
+                rank_in_pending,
+                proposed_count: ids.proposed.len(),
+                descendants_count: self.pool_map.calc_descendants(id).len(),
+                ancestors_count: self.pool_map.calc_ancestors(id).len(),
+                score_sortkey: entry.inner.as_score_key().to_string(),
+            };
+            Some(res)
+        } else {
+            None
+        }
     }
 
     fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {

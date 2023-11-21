@@ -463,6 +463,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TxsRelayOrder),
         Box::new(SendTxChain),
         Box::new(SendTxChainRevOrder),
+        Box::new(TxPoolEntryStatus),
         Box::new(DifferentTxsWithSameInputWithOutRBF),
         Box::new(RbfEnable),
         Box::new(RbfBasic),

@@ -16,6 +16,7 @@ ckb-logger = { path = "../util/logger", version = "= 0.113.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.113.0-pre" }
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.113.0-pre" }
 lru = "0.7.1"
+
 ckb-dao = { path = "../util/dao", version = "= 0.113.0-pre" }
 ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.113.0-pre" }
 ckb-store = { path = "../store", version = "= 0.113.0-pre" }
@@ -23,6 +24,7 @@ ckb-util = { path = "../util", version = "= 0.113.0-pre" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.113.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.113.0-pre" }
 ckb-snapshot = { path = "../util/snapshot", version = "= 0.113.0-pre" }
+ckb-metrics = {path = "../util/metrics", version = "= 0.113.0-pre"}
 ckb-error = { path = "../error", version = "= 0.113.0-pre" }
 tokio = { version = "1", features = ["sync", "process"] }
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.113.0-pre" }

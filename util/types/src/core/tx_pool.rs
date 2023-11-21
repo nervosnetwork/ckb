@@ -344,3 +344,34 @@ pub struct TxPoolInfo {
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: u64,
 }
+
+/// A Tx details info in tx-pool.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PoolTxDetailInfo {
+    /// The time added into tx-pool
+    pub timestamp: u64,
+    /// The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+    pub entry_status: String,
+    /// The rank in pending, starting from 0
+    pub rank_in_pending: usize,
+    /// The pending(`Pending` and `Gap`) count
+    pub pending_count: usize,
+    /// The proposed count
+    pub proposed_count: usize,
+    /// The descendants count of tx
+    pub descendants_count: usize,
+    /// The ancestors count of tx
+    pub ancestors_count: usize,
+    /// The score key details, useful to debug
+    pub score_sortkey: String,
+}
+
+impl PoolTxDetailInfo {
+    /// Build with rejected status
+    pub fn with_unknown() -> Self {
+        Self {
+            entry_status: "unknown".to_string(),
+            ..Default::default()
+        }
+    }
+}
