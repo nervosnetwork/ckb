@@ -175,7 +175,7 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: runtime.borrow().get_or_init(new_background_runtime).clone(),
+            async_handle: runtime.get_or_init(new_background_runtime).clone(),
         })
     }
 }
