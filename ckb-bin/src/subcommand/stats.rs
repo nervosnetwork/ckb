@@ -1,7 +1,6 @@
 use ckb_app_config::{ExitCode, StatsArgs};
 use ckb_async_runtime::Handle;
-use ckb_launcher::SharedBuilder;
-use ckb_shared::Shared;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockNumber, ScriptHashType},

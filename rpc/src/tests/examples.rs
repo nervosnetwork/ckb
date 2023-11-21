@@ -9,10 +9,10 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_launcher::SharedBuilder;
 use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
+use ckb_shared::SharedBuilder;
 use ckb_sync::SyncShared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
