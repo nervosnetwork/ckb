@@ -21,19 +21,11 @@ use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
-use ckb_shared::Shared;
+use ckb_notify::{NotifyController, NotifyService};
 use ckb_store::{ChainDB, ChainStore, Freezer};
+use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::core::tx_pool::Reject;
-
-use ckb_store::ChainDB;
-use ckb_store::ChainStore;
-use ckb_tx_pool::{
-    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
-    TxPoolServiceBuilder,
-};
-use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
