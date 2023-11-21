@@ -193,89 +193,88 @@ impl ChainServicesBuilder {
             verify_failed_blocks_tx,
         }
     }
+}
 
-    pub fn start(self) -> ChainController {
-        let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
+pub fn start(builder: ChainServicesBuilder) -> ChainController {
+    let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
 
-        let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
-        let (unverified_tx, unverified_rx) =
-            channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
+    let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
+    let (unverified_tx, unverified_rx) =
+        channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
-        let consumer_unverified_thread = thread::Builder::new()
-            .name("consume_unverified_blocks".into())
-            .spawn({
-                let shared = self.shared.clone();
-                let verify_failed_blocks_tx = self.verify_failed_blocks_tx.clone();
-                move || {
-                    let mut consume_unverified = ConsumeUnverifiedBlocks::new(
-                        shared,
-                        unverified_rx,
-                        self.proposal_table,
-                        verify_failed_blocks_tx,
-                        unverified_queue_stop_rx,
-                    );
+    let consumer_unverified_thread = thread::Builder::new()
+        .name("consume_unverified_blocks".into())
+        .spawn({
+            let shared = builder.shared.clone();
+            let verify_failed_blocks_tx = builder.verify_failed_blocks_tx.clone();
+            move || {
+                let mut consume_unverified = ConsumeUnverifiedBlocks::new(
+                    shared,
+                    unverified_rx,
+                    builder.proposal_table,
+                    verify_failed_blocks_tx,
+                    unverified_queue_stop_rx,
+                );
 
-                    consume_unverified.start();
-                }
-            })
-            .expect("start unverified_queue consumer thread should ok");
+                consume_unverified.start();
+            }
+        })
+        .expect("start unverified_queue consumer thread should ok");
 
-        let (lonely_block_tx, lonely_block_rx) =
-            channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
+    let (lonely_block_tx, lonely_block_rx) =
+        channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
 
-        let (search_orphan_pool_stop_tx, search_orphan_pool_stop_rx) =
-            ckb_channel::bounded::<()>(1);
+    let (search_orphan_pool_stop_tx, search_orphan_pool_stop_rx) = ckb_channel::bounded::<()>(1);
 
-        let search_orphan_pool_thread = thread::Builder::new()
-            .name("consume_orphan_blocks".into())
-            .spawn({
-                let orphan_blocks_broker = orphan_blocks_broker.clone();
-                let shared = self.shared.clone();
-                use crate::consume_orphan::ConsumeOrphan;
-                let verify_failed_block_tx = self.verify_failed_blocks_tx.clone();
-                move || {
-                    let consume_orphan = ConsumeOrphan::new(
-                        shared,
-                        orphan_blocks_broker,
-                        unverified_tx,
-                        lonely_block_rx,
-                        verify_failed_block_tx,
-                        search_orphan_pool_stop_rx,
-                    );
-                    consume_orphan.start();
-                }
-            })
-            .expect("start search_orphan_pool thread should ok");
+    let search_orphan_pool_thread = thread::Builder::new()
+        .name("consume_orphan_blocks".into())
+        .spawn({
+            let orphan_blocks_broker = orphan_blocks_broker.clone();
+            let shared = builder.shared.clone();
+            use crate::consume_orphan::ConsumeOrphan;
+            let verify_failed_block_tx = builder.verify_failed_blocks_tx.clone();
+            move || {
+                let consume_orphan = ConsumeOrphan::new(
+                    shared,
+                    orphan_blocks_broker,
+                    unverified_tx,
+                    lonely_block_rx,
+                    verify_failed_block_tx,
+                    search_orphan_pool_stop_rx,
+                );
+                consume_orphan.start();
+            }
+        })
+        .expect("start search_orphan_pool thread should ok");
 
-        let (process_block_tx, process_block_rx) = channel::bounded(BLOCK_DOWNLOAD_WINDOW as usize);
+    let (process_block_tx, process_block_rx) = channel::bounded(BLOCK_DOWNLOAD_WINDOW as usize);
 
-        let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
+    let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
 
-        let chain_service: ChainService = ChainService::new(
-            self.shared,
-            process_block_rx,
-            truncate_block_rx,
-            lonely_block_tx,
-            self.verify_failed_blocks_tx,
-        );
-        let chain_service_thread = thread::Builder::new()
-            .name("ChainService".into())
-            .spawn({
-                move || {
-                    chain_service.start();
+    let chain_service: ChainService = ChainService::new(
+        builder.shared,
+        process_block_rx,
+        truncate_block_rx,
+        lonely_block_tx,
+        builder.verify_failed_blocks_tx,
+    );
+    let chain_service_thread = thread::Builder::new()
+        .name("ChainService".into())
+        .spawn({
+            move || {
+                chain_service.start();
 
-                    search_orphan_pool_stop_tx.send(());
-                    search_orphan_pool_thread.join();
+                search_orphan_pool_stop_tx.send(());
+                search_orphan_pool_thread.join();
 
-                    unverified_queue_stop_tx.send(());
-                    consumer_unverified_thread.join();
-                }
-            })
-            .expect("start chain_service thread should ok");
-        register_thread("ChainServices", chain_service_thread);
+                unverified_queue_stop_tx.send(());
+                consumer_unverified_thread.join();
+            }
+        })
+        .expect("start chain_service thread should ok");
+    register_thread("ChainServices", chain_service_thread);
 
-        ChainController::new(process_block_tx, truncate_block_tx, orphan_blocks_broker)
-    }
+    ChainController::new(process_block_tx, truncate_block_tx, orphan_blocks_broker)
 }
 
 /// Chain background service
