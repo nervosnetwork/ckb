@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [v0.112.0](https://github.com/nervosnetwork/ckb/compare/v0.111.0...v0.112.0) (2023-11-14)
+## [v0.112.1](https://github.com/nervosnetwork/ckb/compare/v0.111.0...v0.112.1) (2023-11-14)
 
 ### Features
 
