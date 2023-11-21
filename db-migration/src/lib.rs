@@ -78,12 +78,13 @@ impl MigrationWorker {
                                 pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
                                 pb
                             };
-                            let db = task.migrate(self.db.clone(), Arc::new(pb)).unwrap();
-                            db.put_default(MIGRATION_VERSION_KEY, task.version())
+                            if let Ok(db) = task.migrate(self.db.clone(), Arc::new(pb)) {
+                                db.put_default(MIGRATION_VERSION_KEY, task.version())
                                 .map_err(|err| {
                                     internal_error(format!("failed to migrate the database: {err}"))
                                 })
                                 .unwrap();
+                            }
                         }
                     }
                 }
@@ -247,19 +248,20 @@ impl Migrations {
         let exit_signal = ckb_stop_handler::new_crossbeam_exit_rx();
         let clone = v.to_string();
         let tx_clone = tx.clone();
-        thread::spawn(move || {
+        let notifier = thread::spawn(move || {
             let _ = exit_signal.recv();
             let res = SHUTDOWN_BACKGROUND_MIGRATION.set(true);
             let _ = tx_clone.send(Command::Stop);
             eprintln!("set shutdown flag to true: {:?} version: {}", res, clone);
         });
+        register_thread("migration-notifier", notifier);
 
         let handler = worker.start();
-        tx.send(Command::Start).expect("send start command");
         if all_can_resume {
             eprintln!("register thread: migration ....");
             register_thread("migration", handler);
         }
+        tx.send(Command::Start).expect("send start command");
     }
 
     fn get_migration_version(&self, db: &RocksDB) -> Result<Option<String>, Error> {

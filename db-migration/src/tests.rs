@@ -189,7 +189,7 @@ fn test_background_migration() {
         }
 
         fn version(&self) -> &str {
-            &self.version.as_str()
+            self.version.as_str()
         }
     }
 

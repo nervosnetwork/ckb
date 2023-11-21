@@ -1,6 +1,7 @@
 use ckb_app_config::StoreConfig;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::COLUMN_EPOCH;
+use ckb_error::InternalErrorKind;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::hardfork::HardForks,
@@ -78,6 +79,9 @@ impl Migration for BlockExt2019ToZero {
 
             loop {
                 let db_txn = chain_db.begin_transaction();
+                if self.stop_background() {
+                    return Err(InternalErrorKind::Database.other("intrupted").into());
+                }
                 for _ in 0..10000 {
                     let hash = header.hash();
                     let mut old_block_ext = db_txn.get_block_ext(&hash).unwrap();

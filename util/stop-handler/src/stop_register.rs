@@ -68,7 +68,7 @@ pub fn broadcast_exit_signals() {
         });
 }
 
-/// Register a thread `JoinHandle` to  `CKB_HANDLES`
+/// Register a thread `JoinHandle` to `CKB_HANDLES`
 pub fn register_thread(name: &str, thread_handle: std::thread::JoinHandle<()>) {
     trace!("Registering thread {}", name);
     CKB_HANDLES
