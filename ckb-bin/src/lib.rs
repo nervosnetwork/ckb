@@ -5,11 +5,15 @@ mod helper;
 mod setup_guard;
 mod subcommand;
 
+use std::fs::File;
+
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use ckb_logger::info;
 use ckb_network::tokio;
+use clap::ArgMatches;
+use daemonize::Daemonize;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
 
@@ -56,8 +60,48 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     let (cmd, matches) = app_matches
         .subcommand()
         .expect("SubcommandRequiredElseHelp");
-    let is_silent_logging = is_silent_logging(cmd);
 
+    let run_in_daemon = cmd == cli::CMD_RUN && matches.get_flag(cli::ARG_DAEMON);
+    if run_in_daemon {
+        eprintln!("starting CKB in daemon mode ...");
+        eprintln!("check status with: `ckb status`");
+        eprintln!("stop daemon with: `ckb stop`");
+        let stdout = File::create("/tmp/ckb-daemon.out")?;
+        let stderr = File::create("/tmp/ckb-daemon.err")?;
+
+        let pwd = std::env::current_dir()?;
+        let daemon = Daemonize::new()
+            .pid_file("/tmp/ckb-daemon.pid")
+            .chown_pid_file(true)
+            .working_directory(pwd)
+            .stdout(stdout)
+            .stderr(stderr);
+
+        match daemon.start() {
+            Ok(_) => {
+                eprintln!("Success, daemonized ...");
+                run_app_inner(version, bin_name, cmd, matches)
+            }
+            Err(e) => {
+                eprintln!("daemonize error: {}", e);
+                Err(ExitCode::Failure)
+            }
+        }
+    } else {
+        debug!("ckb version: {}", version);
+        run_app_inner(version, bin_name, cmd, matches)
+    }
+}
+
+fn run_app_inner(
+    version: Version,
+    bin_name: String,
+    cmd: &str,
+    matches: &ArgMatches,
+) -> Result<(), ExitCode> {
+    eprintln!("pwd = {:?}", std::env::current_dir()?);
+
+    let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;

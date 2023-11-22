@@ -45,6 +45,8 @@ pub struct RunArgs {
     pub chain_spec_hash: Byte32,
     /// Whether start indexer, default false
     pub indexer: bool,
+    /// Whether start in daemon mode
+    pub daemon: bool,
 }
 
 /// Enable profile on blocks in the range `[from, to]`.

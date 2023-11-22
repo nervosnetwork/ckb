@@ -73,6 +73,8 @@ pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
+/// Command line argument `--daemon`
+pub const ARG_DAEMON: &str = "daemon";
 /// Command line argument `--indexer`.
 pub const ARG_INDEXER: &str = "indexer";
 /// Command line argument `--from`.
@@ -168,6 +170,13 @@ fn run() -> Command {
                 .long(ARG_BA_ADVANCED)
                 .action(clap::ArgAction::SetTrue)
                 .help("Allow any block assembler code hash and args"),
+        )
+        .arg(
+            Arg::new(ARG_DAEMON)
+            .long(ARG_DAEMON)
+            .action(clap::ArgAction::SetTrue)
+            .help("Starts ckb as a daemon, \
+                which will run in the background and output logs to the specified log file"),
         )
         .arg(
             Arg::new(ARG_SKIP_CHAIN_SPEC_CHECK)
