@@ -49,7 +49,12 @@ impl IndexerService {
         let is_store_initialized = config.store.exists();
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
-        Self::apply_init_tip(is_store_initialized, config, &store);
+        Self::apply_init_tip(
+            is_store_initialized,
+            config.init_tip_number,
+            &config.init_tip_hash,
+            &store,
+        );
         let pool = if config.index_tx_pool {
             Some(Arc::new(RwLock::new(Pool::default())))
         } else {
@@ -250,16 +255,21 @@ impl IndexerService {
         opts
     }
 
-    fn apply_init_tip(is_store_initialized: bool, config: &IndexerConfig, store: &RocksdbStore) {
-        if !is_store_initialized
-            && config.init_tip_hash.is_some()
-            && config.init_tip_number.is_some()
+    pub(crate) fn apply_init_tip(
+        is_store_initialized: bool,
+        init_tip_number: Option<u64>,
+        init_tip_hash: &Option<H256>,
+        store: &RocksdbStore,
+    ) {
+        if let (true, Some(init_tip_number), Some(init_tip_hash)) =
+            (!is_store_initialized, init_tip_number, init_tip_hash)
         {
-            let block_number = config.init_tip_number.unwrap();
-            let block_hash = config.init_tip_hash.as_ref().unwrap();
             let mut batch = store.batch().expect("create batch should be OK");
             batch
-                .put_kv(Key::Header(block_number, &block_hash.pack(), true), vec![])
+                .put_kv(
+                    Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                    vec![],
+                )
                 .expect("insert init tip header should be OK");
             batch.commit().expect("commit batch should be OK");
         }
@@ -1569,6 +1579,22 @@ mod tests {
             capacity.capacity.value(),
             "cellbases (last block live cell was consumed by a pending tx in the pool)"
         );
+    }
+
+    #[test]
+    fn rpc_get_indexer_tip_with_set_init_tip() {
+        let store = new_store("rpc_get_indexer_tip_with_set_init_tip");
+        IndexerService::apply_init_tip(false, Some(10000), &Some(H256::default()), &store);
+        let pool = Arc::new(RwLock::new(Pool::default()));
+        let rpc = IndexerHandle {
+            store,
+            pool: Some(Arc::clone(&pool)),
+        };
+
+        // test get_tip rpc
+        let tip = rpc.get_indexer_tip().unwrap().unwrap();
+        assert_eq!(H256::default(), tip.block_hash);
+        assert_eq!(10000, tip.block_number.value());
     }
 
     #[test]

@@ -205,5 +205,5 @@ block_uncles_cache_size    = 30
 # cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
 # # The initial tip number and hash can be set as the starting height for building indexes in indexer-r. Effective only during the initial index creation.
 # init_tip_number = 10000
-# # The initial tip hash must match the tip number; otherwise, it will result in a rollback.
+# # The initial tip hash must match the tip number; otherwise, it will result in a rollback to empty.
 # init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"

@@ -997,7 +997,7 @@ impl CustomFilters {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::RocksdbStore;
+    use crate::{store::RocksdbStore, IndexerService};
     use ckb_types::{
         bytes::Bytes,
         core::{
@@ -2015,6 +2015,20 @@ mod tests {
         )
     }
 
+    fn new_indexer_with_init_tip(
+        prefix: &str,
+        init_tip_number: Option<BlockNumber>,
+        init_tip_hash: Option<H256>,
+    ) -> Indexer<RocksdbStore> {
+        let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
+        let store = RocksdbStore::new(
+            &RocksdbStore::default_options(),
+            tmp_dir.path().to_str().unwrap(),
+        );
+        IndexerService::apply_init_tip(false, init_tip_number, &init_tip_hash, &store);
+        Indexer::new(store, 10, 1, None, CustomFilters::new(None, None))
+    }
+
     #[test]
     fn with_custom_block_filter() {
         let indexer = new_indexer_with_custom_filters::<RocksdbStore>(
@@ -2363,5 +2377,21 @@ mod tests {
                 .unwrap()
                 .len()
         );
+    }
+
+    #[test]
+    fn rollback_with_set_init_tip() {
+        let indexer = new_indexer_with_init_tip(
+            "rollback_with_set_init_tip",
+            Some(1000),
+            Some(H256::default()),
+        );
+
+        indexer.rollback().unwrap();
+
+        // tip should be None and store should be empty;
+        assert!(indexer.tip().unwrap().is_none());
+        let mut iter = indexer.store.iter([], IteratorDirection::Forward).unwrap();
+        assert!(iter.next().is_none());
     }
 }
