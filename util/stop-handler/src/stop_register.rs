@@ -17,7 +17,7 @@ pub fn wait_all_ckb_services_exit() {
     for (name, join_handle) in handles.thread_handles.drain(..) {
         match join_handle.join() {
             Ok(_) => {
-                debug!("wait thread {} done", name);
+                info!("wait thread {} done", name);
             }
             Err(e) => {
                 warn!("wait thread {}: ERROR: {:?}", name, e)
