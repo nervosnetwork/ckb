@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, VerifiedBlockStatus, VerifyResult};
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, warn};
 use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
@@ -275,10 +275,10 @@ impl MinerRpc for MinerRpcImpl {
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        let verify_result = self.chain.blocking_process_block(Arc::clone(&block));
+        let verify_result: VerifyResult = self.chain.blocking_process_block(Arc::clone(&block));
 
-        // TODO: need to consider every enum item of verify_result
-        let is_new = verify_result.is_ok();
+        // TODO: review this logic
+        let is_new = matches!(verify_result, Ok(VerifiedBlockStatus::FirstSeenAndVerified));
 
         // Announce only new block
         if is_new {
