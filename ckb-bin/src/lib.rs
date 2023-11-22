@@ -14,6 +14,8 @@ use colored::Colorize;
 use daemonize::Daemonize;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
+
+#[cfg(not(target_os = "windows"))]
 use subcommand::check_process;
 
 #[cfg(feature = "with_sentry")]
@@ -127,6 +129,7 @@ fn run_app_inner(
         cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle.clone()),
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(matches)?),
+        #[cfg(not(target_os = "windows"))]
         cli::CMD_DAEMON => subcommand::daemon(setup.daemon(matches)?),
         _ => unreachable!(),
     };
@@ -144,13 +147,10 @@ fn run_app_inner(
     ret
 }
 
-#[cfg(target_os = "windows")]
-fn run_deamon(_cmd: &str, _matches: &ArgMatches) -> bool {
-    false
-}
-
-#[cfg(not(target_os = "windows"))]
 fn run_deamon(cmd: &str, matches: &ArgMatches) -> bool {
+    #[cfg(target_os = "windows")]
+    return false;
+
     match cmd {
         cli::CMD_RUN | cli::CMD_MINER => matches.get_flag(cli::ARG_DAEMON),
         _ => false,

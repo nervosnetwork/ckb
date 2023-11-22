@@ -124,7 +124,7 @@ const GROUP_BA: &str = "ba";
 
 /// return root clap Command
 pub fn basic_app() -> Command {
-    Command::new(BIN_NAME)
+    let command = Command::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
         .subcommand_required(true)
@@ -150,8 +150,12 @@ pub fn basic_app() -> Command {
         .subcommand(stats())
         .subcommand(reset_data())
         .subcommand(peer_id())
-        .subcommand(migrate())
-        .subcommand(daemon())
+        .subcommand(migrate());
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.subcommand(daemon());
+
+    command
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -398,6 +402,7 @@ fn migrate() -> Command {
         )
 }
 
+#[cfg(not(target_os = "windows"))]
 fn daemon() -> Command {
     Command::new(CMD_DAEMON)
         .about("Runs ckb daemon command")

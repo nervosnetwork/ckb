@@ -1,4 +1,4 @@
-use ckb_logger::{debug, info};
+use ckb_logger::debug;
 
 use std::io::{stdin, stdout, Write};
 
