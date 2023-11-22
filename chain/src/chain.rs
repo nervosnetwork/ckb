@@ -99,15 +99,6 @@ impl ChainController {
                 .into())
         })
     }
-
-    /// Since a non-owning reference does not count towards ownership,
-    /// it will not prevent the value stored in the allocation from being dropped
-    pub fn non_owning_clone(&self) -> Self {
-        ChainController {
-            truncate_sender: self.truncate_sender.clone(),
-            process_block_sender: self.process_block_sender.clone(),
-        }
-    }
 }
 
 /// The struct represent fork
@@ -560,7 +551,6 @@ impl ChainService {
             self.proposal_table
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
-
         self.reload_proposal_table(fork);
     }
 

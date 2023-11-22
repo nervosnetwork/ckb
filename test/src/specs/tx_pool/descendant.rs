@@ -1,3 +1,5 @@
+use ckb_jsonrpc_types::Status;
+
 use crate::specs::tx_pool::utils::prepare_tx_family;
 use crate::utils::{blank, commit, propose};
 use crate::{Node, Spec};
@@ -143,14 +145,27 @@ impl Spec for SubmitTransactionWhenItsParentInGap {
 
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
-        let block = node.new_block_with_blocking(|template| template.proposals.len() != 2);
-        assert!(
-            block
-                .union_proposal_ids()
-                .contains(&family.b().proposal_short_id()),
-            "Miner should propose tx_family.b since it has never been proposed, actual: {:?}",
-            block.union_proposal_ids(),
-        );
+
+        (0..=window.closest()).for_each(|_| {
+            node.submit_block(&blank(node));
+        });
+
+        // commit `tx_family.a`
+        let block = node.new_block(None, None, None);
+        let trans = block.transactions();
+        assert_eq!(trans.len(), 2);
+        assert_eq!(trans[1].proposal_short_id(), family.a().proposal_short_id());
+        node.submit_block(&block);
+
+        (0..=window.closest()).for_each(|_| {
+            node.submit_block(&blank(node));
+        });
+
+        // commit `tx_family.b`
+        let block = node.new_block(None, None, None);
+        let trans = block.transactions();
+        assert_eq!(trans.len(), 2);
+        assert_eq!(trans[1].proposal_short_id(), family.b().proposal_short_id());
         node.submit_block(&block);
     }
 }
@@ -166,21 +181,30 @@ impl Spec for SubmitTransactionWhenItsParentInProposed {
 
         // 1. Propose `tx_family.a` into proposed-pool.
         let family = prepare_tx_family(node);
-        node.submit_transaction(family.a());
-        node.submit_block(&propose(node, &[family.a()]));
+        let tx_a = family.a();
+        node.submit_transaction(tx_a);
+        node.submit_block(&propose(node, &[tx_a]));
         (0..=window.closest()).for_each(|_| {
             node.submit_block(&blank(node));
         });
 
+        // tx_a should in Proposed status
+        let tx_a_status = node.get_transaction(tx_a.hash());
+        assert_eq!(tx_a_status.status, Status::Proposed);
+
         // 2. Submit `tx_family.b` into pending-pool. Then we expect that miner propose it.
         node.submit_transaction(family.b());
         let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
+        let union_proposal_ids = block.union_proposal_ids();
         assert!(
-            block
-                .union_proposal_ids()
-                .contains(&family.b().proposal_short_id()),
+            union_proposal_ids.contains(&family.b().proposal_short_id()),
             "Miner should propose tx_family.b since it has never been proposed, actual: {:?}",
-            block.union_proposal_ids(),
+            union_proposal_ids,
+        );
+        assert!(
+            !union_proposal_ids.contains(&tx_a.proposal_short_id()),
+            "Miner should not propose tx_family.a since it has been proposed, actual: {:?}",
+            union_proposal_ids,
         );
         node.submit_block(&block);
     }
@@ -201,7 +225,7 @@ impl Spec for ProposeTransactionButParentNot {
         node.submit_transaction(family.b());
 
         // 2. Propose `tx_family.b`, but `tx_family.a` not, then continuously submit blank blocks.
-        //    In the time, miner should not commit `tx_family.b` as its parent, `tx_family.a` has
+        //    In the time, miner should not commit `tx_family.b` as its parent `tx_family.a` has
         //    not been not proposed and committed yet.
         node.submit_block(&propose(node, &[family.b()]));
         (0..window.closest()).for_each(|_| {

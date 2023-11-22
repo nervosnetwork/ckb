@@ -181,13 +181,15 @@ fn test_package_txs_with_deps() {
         tx_pool_info = tx_pool.get_tx_pool_info().unwrap()
     }
 
+    let test_now = std::time::Instant::now();
     // get block template with txs
     while !(Into::<u64>::into(block_template.number) == 3 && block_template.transactions.len() == 4)
     {
         block_template = shared
             .get_block_template(None, None, None)
             .unwrap()
-            .unwrap()
+            .unwrap();
+        assert!(test_now.elapsed().as_secs() < 120);
     }
 
     let block: Block = block_template.into();
@@ -436,7 +438,6 @@ fn test_package_txs_with_deps2() {
             .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
-
     // skip gap
     {
         while Into::<u64>::into(block_template.number) != 2 {
@@ -461,7 +462,7 @@ fn test_package_txs_with_deps2() {
 
     let mut tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
     while tx_pool_info.proposed_size != txs.len() {
-        tx_pool_info = tx_pool.get_tx_pool_info().unwrap()
+        tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
     }
 
     // get block template with txs
@@ -534,12 +535,11 @@ fn test_package_txs_with_deps_priority() {
         Capacity::shannons(10000),
     );
 
-    let txs = vec![tx2.clone(), tx1];
+    let ret = tx_pool.submit_local_tx(tx2.clone()).unwrap();
+    assert!(ret.is_ok(), "submit {} {:?}", tx2.proposal_short_id(), ret);
 
-    for tx in &txs {
-        let ret = tx_pool.submit_local_tx(tx.clone()).unwrap();
-        assert!(ret.is_ok(), "submit {} {:?}", tx.proposal_short_id(), ret);
-    }
+    let ret = tx_pool.submit_local_tx(tx1.clone()).unwrap();
+    assert!(ret.is_err(), "submit {} {:?}", tx1.proposal_short_id(), ret);
 
     let mut block_template = shared
         .get_block_template(None, None, None)
@@ -549,7 +549,7 @@ fn test_package_txs_with_deps_priority() {
     // proposal txs
     {
         while !(Into::<u64>::into(block_template.number) == 1
-            && block_template.proposals.len() == 2)
+            && block_template.proposals.len() == 1)
         {
             block_template = shared
                 .get_block_template(None, None, None)

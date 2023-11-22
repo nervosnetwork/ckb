@@ -120,6 +120,7 @@ impl Spec for PoolResolveConflictAfterReorg {
 
         node0.mine_with_blocking(|template| template.number.value() != (block.number() + 1));
         node0.wait_for_tx_pool();
+
         for tx in txs[1..].iter() {
             assert!(is_transaction_proposed(node0, tx));
         }

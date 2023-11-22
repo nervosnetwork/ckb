@@ -24,10 +24,11 @@ use std::fmt;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+    #[default]
     Data = 0,
     /// Type "type" matches script code via cell type script hash.
     Type = 1,
@@ -35,12 +36,6 @@ pub enum ScriptHashType {
     Data1 = 2,
     /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
     Data2 = 4,
-}
-
-impl Default for ScriptHashType {
-    fn default() -> Self {
-        ScriptHashType::Data
-    }
 }
 
 impl From<ScriptHashType> for core::ScriptHashType {
@@ -284,12 +279,13 @@ impl From<CellInput> for packed::CellInput {
 }
 
 /// The dep cell type. Allowed values: "code" and "dep_group".
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum DepType {
     /// Type "code".
     ///
     /// Use the cell itself as the dep cell.
+    #[default]
     Code,
     /// Type "dep_group".
     ///
@@ -299,12 +295,6 @@ pub enum DepType {
     /// The dep group stores the array of `OutPoint`s serialized via molecule in the cell data.
     /// Each `OutPoint` points to one cell member.
     DepGroup,
-}
-
-impl Default for DepType {
-    fn default() -> Self {
-        DepType::Code
-    }
 }
 
 impl From<DepType> for core::DepType {
@@ -540,6 +530,10 @@ pub struct TransactionWithStatusResponse {
     pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
+    /// The transaction fee of the transaction
+    pub fee: Option<Capacity>,
+    /// The minimal fee required to replace this transaction
+    pub min_replace_fee: Option<Capacity>,
 }
 
 impl TransactionWithStatusResponse {
@@ -554,6 +548,8 @@ impl TransactionWithStatusResponse {
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
                 time_added_to_pool: t.time_added_to_pool.map(Into::into),
+                fee: t.fee.map(Into::into),
+                min_replace_fee: t.min_replace_fee.map(Into::into),
             },
             ResponseFormatInnerType::Json => TransactionWithStatusResponse {
                 transaction: t
@@ -562,6 +558,8 @@ impl TransactionWithStatusResponse {
                 tx_status: t.tx_status.into(),
                 cycles: t.cycles.map(Into::into),
                 time_added_to_pool: t.time_added_to_pool.map(Into::into),
+                fee: t.fee.map(Into::into),
+                min_replace_fee: t.min_replace_fee.map(Into::into),
             },
         }
     }
@@ -602,8 +600,8 @@ impl From<tx_pool::TxStatus> for TxStatus {
             tx_pool::TxStatus::Pending => TxStatus::pending(),
             tx_pool::TxStatus::Proposed => TxStatus::proposed(),
             tx_pool::TxStatus::Committed(hash) => TxStatus::committed(hash),
-            tx_pool::TxStatus::Unknown => TxStatus::unknown(),
             tx_pool::TxStatus::Rejected(reason) => TxStatus::rejected(reason),
+            tx_pool::TxStatus::Unknown => TxStatus::unknown(),
         }
     }
 }
@@ -1341,7 +1339,7 @@ pub struct Consensus {
     /// The genesis block hash
     pub genesis_hash: H256,
     /// The dao type hash
-    pub dao_type_hash: Option<H256>,
+    pub dao_type_hash: H256,
     /// The secp256k1_blake160_sighash_all_type_hash
     pub secp256k1_blake160_sighash_all_type_hash: Option<H256>,
     /// The secp256k1_blake160_multisig_all_type_hash

@@ -1,15 +1,11 @@
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, TransactionBuilder},
-    packed::{CellInput, OutPoint, ProposalShortId},
+    packed::{CellInput, OutPoint},
     prelude::*,
 };
-use std::mem::size_of;
 
-use crate::component::{
-    container::{AncestorsScoreSortKey, SortedTxMap},
-    entry::TxEntry,
-};
+use crate::component::{entry::TxEntry, pool_map::PoolMap, sort_key::AncestorsScoreSortKey};
 
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 
@@ -30,10 +26,8 @@ fn test_min_fee_and_weight() {
         let key = AncestorsScoreSortKey {
             fee: Capacity::shannons(fee),
             weight,
-            id: ProposalShortId::new([0u8; 10]),
             ancestors_fee: Capacity::shannons(ancestors_fee),
             ancestors_weight,
-            ancestors_size: 0,
         };
         key.min_fee_and_weight()
     })
@@ -55,7 +49,7 @@ fn test_min_fee_and_weight() {
 
 #[test]
 fn test_ancestors_sorted_key_order() {
-    let mut keys = vec![
+    let table = vec![
         (0, 0, 0, 0),
         (1, 0, 1, 0),
         (500, 10, 1000, 30),
@@ -66,39 +60,44 @@ fn test_ancestors_sorted_key_order() {
         (std::u64::MAX, 0, std::u64::MAX, 0),
         (std::u64::MAX, 100, std::u64::MAX, 2000),
         (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(i, (fee, weight, ancestors_fee, ancestors_weight))| {
-        let mut id = [0u8; 10];
-        id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
-        AncestorsScoreSortKey {
-            fee: Capacity::shannons(fee),
-            weight,
-            id: ProposalShortId::new(id),
-            ancestors_fee: Capacity::shannons(ancestors_fee),
-            ancestors_weight,
-            ancestors_size: 0,
-        }
-    })
-    .collect::<Vec<_>>();
+    ];
+    let mut keys = table
+        .clone()
+        .into_iter()
+        .enumerate()
+        .map(
+            |(_i, (fee, weight, ancestors_fee, ancestors_weight))| AncestorsScoreSortKey {
+                fee: Capacity::shannons(fee),
+                weight,
+                ancestors_fee: Capacity::shannons(ancestors_fee),
+                ancestors_weight,
+            },
+        )
+        .collect::<Vec<_>>();
     keys.sort();
-    assert_eq!(
-        keys.into_iter().map(|k| k.id).collect::<Vec<_>>(),
-        [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
-            .iter()
-            .map(|&i| {
-                let mut id = [0u8; 10];
-                id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
-                ProposalShortId::new(id)
-            })
-            .collect::<Vec<_>>()
-    );
+    let now = keys
+        .into_iter()
+        .map(|k| (k.fee, k.weight, k.ancestors_fee, k.ancestors_weight))
+        .collect::<Vec<_>>();
+    let expect = [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
+        .iter()
+        .map(|&i| {
+            let key = table[i as usize];
+            (
+                Capacity::shannons(key.0),
+                key.1,
+                Capacity::shannons(key.2),
+                key.3,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(now, expect);
 }
 
 #[test]
 fn test_remove_entry() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
@@ -144,9 +143,9 @@ fn test_remove_entry() {
     let tx1_id = tx1.proposal_short_id();
     let tx2_id = tx2.proposal_short_id();
     let tx3_id = tx3.proposal_short_id();
-    map.add_entry(tx1).unwrap();
-    map.add_entry(tx2).unwrap();
-    map.add_entry(tx3).unwrap();
+    map.add_proposed(tx1).unwrap();
+    map.add_proposed(tx2).unwrap();
+    map.add_proposed(tx3).unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));
@@ -171,7 +170,7 @@ fn test_remove_entry() {
 
 #[test]
 fn test_remove_entry_and_descendants() {
-    let mut map = SortedTxMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
+    let mut map = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
     let tx1 = TxEntry::dummy_resolve(
         TransactionBuilder::default().build(),
         100,
@@ -217,9 +216,9 @@ fn test_remove_entry_and_descendants() {
     let tx1_id = tx1.proposal_short_id();
     let tx2_id = tx2.proposal_short_id();
     let tx3_id = tx3.proposal_short_id();
-    map.add_entry(tx1).unwrap();
-    map.add_entry(tx2).unwrap();
-    map.add_entry(tx3).unwrap();
+    map.add_proposed(tx1).unwrap();
+    map.add_proposed(tx2).unwrap();
+    map.add_proposed(tx3).unwrap();
     let descendants_set = map.calc_descendants(&tx1_id);
     assert!(descendants_set.contains(&tx2_id));
     assert!(descendants_set.contains(&tx3_id));

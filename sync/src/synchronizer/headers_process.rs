@@ -338,17 +338,12 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ValidationState {
+    #[default]
     Valid,
     TemporaryInvalid,
     Invalid,
-}
-
-impl Default for ValidationState {
-    fn default() -> Self {
-        ValidationState::Valid
-    }
 }
 
 #[derive(Debug)]

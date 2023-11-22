@@ -695,7 +695,6 @@ fn test_sync_process() {
     );
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_header_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -747,7 +746,6 @@ fn test_header_sync_timeout() {
     )
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_chain_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -945,7 +943,6 @@ fn test_chain_sync_timeout() {
     }
 }
 
-#[cfg(not(disable_faketime))]
 #[test]
 fn test_n_sync_started() {
     let _faketime_guard = ckb_systemtime::faketime();
@@ -1142,7 +1139,7 @@ fn test_fix_last_common_header() {
         }
 
         let expected = fix_last_common.map(|mark| mark.to_string());
-        let actual = BlockFetcher::new(&synchronizer, peer, IBDState::In)
+        let actual = BlockFetcher::new(Arc::clone(&synchronizer.shared), peer, IBDState::In)
             .update_last_common_header(&best_known_header.number_and_hash())
             .map(|header| {
                 if graph

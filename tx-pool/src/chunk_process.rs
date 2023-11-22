@@ -180,15 +180,6 @@ impl ChunkProcess {
                     return Err(Reject::Verification(error));
                 }
 
-                // next_limit_cycles
-                // let remain = max_cycles - self.current_cycles;
-                // let next_limit = self.limit_cycles + step_cycles;
-
-                // if next_limit < remain {
-                //     (next_limit, false)
-                // } else {
-                //     (remain, true)
-                // }
                 let (limit_cycles, last) = state.next_limit_cycles(MIN_STEP_CYCLE, max_cycles);
                 last_step = last;
 
@@ -227,7 +218,8 @@ impl ChunkProcess {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.service.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         let cached = self.service.fetch_tx_verify_cache(&tx_hash).await;
 
@@ -252,8 +244,10 @@ impl ChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) =
-                        self.service.submit_entry(tip_hash, entry, status).await;
+                    let (ret, submit_snapshot) = self
+                        .service
+                        .submit_entry(tip_hash, entry, status, conflicts)
+                        .await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
                     self.service
                         .after_process(tx, remote, &submit_snapshot, &Ok(completed))
@@ -331,7 +325,10 @@ impl ChunkProcess {
         }
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self
+            .service
+            .submit_entry(tip_hash, entry, status, conflicts)
+            .await;
         try_or_return_with_snapshot!(ret, snapshot);
 
         self.service.notify_block_assembler(status).await;

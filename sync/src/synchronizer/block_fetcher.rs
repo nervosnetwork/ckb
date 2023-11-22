@@ -1,6 +1,6 @@
 use crate::block_status::BlockStatus;
-use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, HeaderIndexView, IBDState};
+use crate::SyncShared;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
 };
@@ -9,34 +9,38 @@ use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed;
 use std::cmp::min;
+use std::sync::Arc;
 
-pub struct BlockFetcher<'a> {
-    synchronizer: &'a Synchronizer,
+pub struct BlockFetcher {
+    sync_shared: Arc<SyncShared>,
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
 }
 
-impl<'a> BlockFetcher<'a> {
-    pub fn new(synchronizer: &'a Synchronizer, peer: PeerIndex, ibd: IBDState) -> Self {
-        let active_chain = synchronizer.shared.active_chain();
+impl BlockFetcher {
+    pub fn new(sync_shared: Arc<SyncShared>, peer: PeerIndex, ibd: IBDState) -> Self {
+        let active_chain = sync_shared.active_chain();
         BlockFetcher {
+            sync_shared,
             peer,
-            synchronizer,
             active_chain,
             ibd,
         }
     }
 
     pub fn reached_inflight_limit(&self) -> bool {
-        let inflight = self.synchronizer.shared().state().read_inflight_blocks();
+        let inflight = self.sync_shared.state().read_inflight_blocks();
 
         // Can't download any more from this peer
         inflight.peer_can_fetch_count(self.peer) == 0
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderIndex> {
-        self.synchronizer.peers().get_best_known_header(self.peer)
+        self.sync_shared
+            .state()
+            .peers()
+            .get_best_known_header(self.peer)
     }
 
     pub fn update_last_common_header(
@@ -45,15 +49,19 @@ impl<'a> BlockFetcher<'a> {
     ) -> Option<BlockNumberAndHash> {
         // Bootstrap quickly by guessing an ancestor of our best tip is forking point.
         // Guessing wrong in either direction is not a problem.
-        let mut last_common =
-            if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
-                header
-            } else {
-                let tip_header = self.active_chain.tip_header();
-                let guess_number = min(tip_header.number(), best_known.number());
-                let guess_hash = self.active_chain.get_block_hash(guess_number)?;
-                (guess_number, guess_hash).into()
-            };
+        let mut last_common = if let Some(header) = self
+            .sync_shared
+            .state()
+            .peers()
+            .get_last_common_header(self.peer)
+        {
+            header
+        } else {
+            let tip_header = self.active_chain.tip_header();
+            let guess_number = min(tip_header.number(), best_known.number());
+            let guess_hash = self.active_chain.get_block_hash(guess_number)?;
+            (guess_number, guess_hash).into()
+        };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
@@ -61,7 +69,8 @@ impl<'a> BlockFetcher<'a> {
             .active_chain
             .last_common_ancestor(&last_common, best_known)?;
 
-        self.synchronizer
+        self.sync_shared
+            .state()
             .peers()
             .set_last_common_header(self.peer, last_common.clone());
 
@@ -80,13 +89,13 @@ impl<'a> BlockFetcher<'a> {
         // Update `best_known_header` based on `unknown_header_list`. It must be involved before
         // our acquiring the newest `best_known_header`.
         if let IBDState::In = self.ibd {
-            let state = self.synchronizer.shared.state();
+            let state = self.sync_shared.state();
             // unknown list is an ordered list, sorted from highest to lowest,
             // when header hash unknown, break loop is ok
             while let Some(hash) = state.peers().take_unknown_last(self.peer) {
                 // Here we need to first try search from headermap, if not, fallback to search from the db.
                 // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
-                if let Some(header) = self.synchronizer.shared.get_header_index_view(&hash, false) {
+                if let Some(header) = self.sync_shared.get_header_index_view(&hash, false) {
                     state
                         .peers()
                         .may_set_best_known_header(self.peer, header.as_header_index());
@@ -114,7 +123,8 @@ impl<'a> BlockFetcher<'a> {
             // specially advance this peer's last_common_header at the case of both us on the same
             // active chain.
             if self.active_chain.is_main_chain(&best_known.hash()) {
-                self.synchronizer
+                self.sync_shared
+                    .state()
                     .peers()
                     .set_last_common_header(self.peer, best_known.number_and_hash());
             }
@@ -128,7 +138,7 @@ impl<'a> BlockFetcher<'a> {
             return None;
         }
 
-        let state = self.synchronizer.shared().state();
+        let state = self.sync_shared.state();
         let mut inflight = state.write_inflight_blocks();
         let mut start = last_common.number() + 1;
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
@@ -156,7 +166,8 @@ impl<'a> BlockFetcher<'a> {
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     // If the block is stored, its ancestor must on store
                     // So we can skip the search of this space directly
-                    self.synchronizer
+                    self.sync_shared
+                        .state()
                         .peers()
                         .set_last_common_header(self.peer, header.number_and_hash());
                     end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
@@ -172,8 +183,7 @@ impl<'a> BlockFetcher<'a> {
 
                 status = self.active_chain.get_block_status(&parent_hash);
                 header = self
-                    .synchronizer
-                    .shared
+                    .sync_shared
                     .get_header_index_view(&parent_hash, false)?;
             }
 

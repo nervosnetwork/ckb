@@ -1,10 +1,10 @@
 //! CKB node has initial block download phase (IBD mode) like Bitcoin:
-//! https://btcinformation.org/en/glossary/initial-block-download
+//! <https://btcinformation.org/en/glossary/initial-block-download>
 //!
 //! When CKB node is in IBD mode, it will respond `packed::InIBD` to `GetHeaders` and `GetBlocks` requests
 //!
 //! And CKB has a headers-first synchronization style like Bitcoin:
-//! https://btcinformation.org/en/glossary/headers-first-sync
+//! <https://btcinformation.org/en/glossary/headers-first-sync>
 //!
 mod block_fetcher;
 mod block_process;
@@ -80,7 +80,7 @@ enum FetchCMD {
 }
 
 struct BlockFetchCMD {
-    sync: Synchronizer,
+    sync_shared: Arc<SyncShared>,
     p2p_control: ServiceControl,
     recv: channel::Receiver<FetchCMD>,
     can_start: CanStart,
@@ -93,7 +93,9 @@ impl BlockFetchCMD {
             FetchCMD::Fetch((peers, state)) => match self.can_start() {
                 CanStart::Ready => {
                     for peer in peers {
-                        if let Some(fetch) = BlockFetcher::new(&self.sync, peer, state).fetch() {
+                        if let Some(fetch) =
+                            BlockFetcher::new(Arc::clone(&self.sync_shared), peer, state).fetch()
+                        {
                             for item in fetch {
                                 BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                             }
@@ -101,7 +103,7 @@ impl BlockFetchCMD {
                     }
                 }
                 CanStart::MinWorkNotReach => {
-                    let best_known = self.sync.shared.state().shared_best_header_ref();
+                    let best_known = self.sync_shared.state().shared_best_header_ref();
                     let number = best_known.number();
                     if number != self.number && (number - self.number) % 10000 == 0 {
                         self.number = number;
@@ -111,12 +113,12 @@ impl BlockFetchCMD {
                                  then start to download block",
                             number,
                             best_known.total_difficulty(),
-                            self.sync.shared.state().min_chain_work()
+                            self.sync_shared.state().min_chain_work()
                         );
                     }
                 }
                 CanStart::AssumeValidNotFound => {
-                    let state = self.sync.shared.state();
+                    let state = self.sync_shared.state();
                     let best_known = state.shared_best_header_ref();
                     let number = best_known.number();
                     let assume_valid_target: Byte32 = state
@@ -161,7 +163,7 @@ impl BlockFetchCMD {
             return self.can_start;
         }
 
-        let state = self.sync.shared.state();
+        let state = self.sync_shared.state();
 
         let min_work_reach = |flag: &mut CanStart| {
             if state.min_chain_work_ready() {
@@ -230,7 +232,6 @@ impl BlockFetchCMD {
 }
 
 /// Sync protocol handle
-#[derive(Clone)]
 pub struct Synchronizer {
     pub(crate) chain: ChainController,
     /// Sync shared state
@@ -279,7 +280,6 @@ impl Synchronizer {
                 }
             }
             packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
-            _ => StatusCode::ProtocolMessageIsMalformed.with_context("unexpected sync message"),
         }
     }
 
@@ -364,7 +364,7 @@ impl Synchronizer {
         peer: PeerIndex,
         ibd: IBDState,
     ) -> Option<Vec<Vec<packed::Byte32>>> {
-        BlockFetcher::new(self, peer, ibd).fetch()
+        BlockFetcher::new(Arc::to_owned(self.shared()), peer, ibd).fetch()
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -632,7 +632,6 @@ impl Synchronizer {
                 }
                 None => {
                     let p2p_control = raw.clone();
-                    let sync = self.clone();
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
                     sender.send(FetchCMD::Fetch((peers, ibd))).unwrap();
@@ -640,12 +639,13 @@ impl Synchronizer {
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
                     const THREAD_NAME: &str = "BlockDownload";
+                    let sync_shared: Arc<SyncShared> = Arc::to_owned(self.shared());
                     let blockdownload_jh = thread
                         .name(THREAD_NAME.into())
                         .spawn(move || {
                             let stop_signal = new_crossbeam_exit_rx();
                             BlockFetchCMD {
-                                sync,
+                                sync_shared,
                                 p2p_control,
                                 recv,
                                 number,

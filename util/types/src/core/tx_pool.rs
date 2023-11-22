@@ -55,6 +55,10 @@ pub enum Reject {
     /// Expired
     #[error("Expiry transaction, timestamp {0}")]
     Expiry(u64),
+
+    /// RBF rejected
+    #[error("RBF rejected: {0}")]
+    RBFRejected(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {
@@ -131,6 +135,10 @@ pub struct TxEntryInfo {
     pub ancestors_size: u64,
     /// Cycles of in-tx-pool ancestor transactions
     pub ancestors_cycles: u64,
+    /// Size of in-tx-pool descendants transactions
+    pub descendants_size: u64,
+    /// Cycles of in-tx-pool descendants transactions
+    pub descendants_cycles: u64,
     /// Number of in-tx-pool ancestor transactions
     pub ancestors_count: u64,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
@@ -164,33 +172,28 @@ pub struct TransactionWithStatus {
     pub tx_status: TxStatus,
     /// The transaction verification consumed cycles
     pub cycles: Option<core::Cycle>,
+    /// The transaction fee of the transaction
+    pub fee: Option<Capacity>,
+    /// The minimal fee required to replace this transaction
+    pub min_replace_fee: Option<Capacity>,
     /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<u64>,
 }
 
 impl TransactionWithStatus {
-    /// Build with pending status
-    pub fn with_pending(
+    /// Build with tx status
+    pub fn with_status(
         tx: Option<core::TransactionView>,
         cycles: core::Cycle,
         time_added_to_pool: u64,
+        tx_status: TxStatus,
+        fee: Option<Capacity>,
+        min_replace_fee: Option<Capacity>,
     ) -> Self {
         Self {
-            tx_status: TxStatus::Pending,
-            transaction: tx,
-            cycles: Some(cycles),
-            time_added_to_pool: Some(time_added_to_pool),
-        }
-    }
-
-    /// Build with proposed status
-    pub fn with_proposed(
-        tx: Option<core::TransactionView>,
-        cycles: core::Cycle,
-        time_added_to_pool: u64,
-    ) -> Self {
-        Self {
-            tx_status: TxStatus::Proposed,
+            tx_status,
+            fee,
+            min_replace_fee,
             transaction: tx,
             cycles: Some(cycles),
             time_added_to_pool: Some(time_added_to_pool),
@@ -202,11 +205,14 @@ impl TransactionWithStatus {
         tx: Option<core::TransactionView>,
         hash: H256,
         cycles: Option<core::Cycle>,
+        fee: Option<Capacity>,
     ) -> Self {
         Self {
             tx_status: TxStatus::Committed(hash),
             transaction: tx,
             cycles,
+            fee,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -217,6 +223,8 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Rejected(reason),
             transaction: None,
             cycles: None,
+            fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -227,6 +235,8 @@ impl TransactionWithStatus {
             tx_status: TxStatus::Unknown,
             transaction: None,
             cycles: None,
+            fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -237,6 +247,8 @@ impl TransactionWithStatus {
             tx_status,
             transaction: None,
             cycles,
+            fee: None,
+            min_replace_fee: None,
             time_added_to_pool: None,
         }
     }
@@ -314,6 +326,13 @@ pub struct TxPoolInfo {
     ///
     /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
     pub min_fee_rate: FeeRate,
+
+    /// Min RBF rate threshold. The pool reject RBF transactions which fee rate is below this threshold.
+    /// if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
+    ///
+    /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
+    pub min_rbf_rate: FeeRate,
+
     /// Last updated time. This is the Unix timestamp in milliseconds.
     pub last_txs_updated_at: u64,
     /// Limiting transactions to tx_size_limit

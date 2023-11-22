@@ -602,7 +602,7 @@ impl ServiceHandle for EventHandler {
                 );
             }
             ServiceError::SessionTimeout { session_context } => {
-                warn!(
+                debug!(
                     "SessionTimeout({}, {})",
                     session_context.id, session_context.address,
                 );
@@ -617,7 +617,7 @@ impl ServiceHandle for EventHandler {
                 );
             }
             ServiceError::ListenError { address, error } => {
-                warn!("ListenError: address={:?}, error={:?}", address, error);
+                debug!("ListenError: address={:?}, error={:?}", address, error);
             }
             ServiceError::ProtocolSelectError {
                 proto_name,
@@ -1384,17 +1384,6 @@ impl NetworkController {
     pub fn ping_peers(&self) {
         if let Some(mut ping_controller) = self.ping_controller.clone() {
             let _ignore = ping_controller.try_send(());
-        }
-    }
-
-    /// Since a non-owning reference does not count towards ownership,
-    /// it will not prevent the value stored in the allocation from being dropped
-    pub fn non_owning_clone(&self) -> Self {
-        NetworkController {
-            version: self.version.clone(),
-            network_state: Arc::clone(&self.network_state),
-            p2p_control: self.p2p_control.clone(),
-            ping_controller: self.ping_controller.clone(),
         }
     }
 }

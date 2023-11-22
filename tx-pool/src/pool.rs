@@ -1,65 +1,36 @@
 //! Top-level Pool type, methods, and tests
+extern crate rustc_hash;
+extern crate slab;
 use super::component::{commit_txs_scanner::CommitTxsScanner, TxEntry};
 use crate::callback::Callbacks;
-use crate::component::pending::PendingQueue;
-use crate::component::proposed::ProposedPool;
+use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
-use crate::util::verify_rtx;
+use crate::pool_cell::PoolCell;
 use ckb_app_config::TxPoolConfig;
-use ckb_logger::{debug, error, trace, warn};
+use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::CapacityError;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
         tx_pool::{TxPoolEntryInfo, TxPoolIds},
-        Cycle, TransactionView, UncleBlockView,
+        Capacity, Cycle, TransactionView, UncleBlockView,
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_verification::{cache::CacheEntry, TxVerifyEnv};
 use lru::LruCache;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
-
-// limit the size of the pool by sorting out tx based on EvictKey.
-macro_rules! evict_for_trim_size {
-    ($self:ident, $pool:expr, $callbacks:expr) => {
-        if let Some(id) = $pool
-            .iter()
-            .min_by_key(|(_id, entry)| entry.as_evict_key())
-            .map(|(id, _)| id)
-            .cloned()
-        {
-            let removed = $pool.remove_entry_and_descendants(&id);
-            for entry in removed {
-                let tx_hash = entry.transaction().hash();
-                debug!(
-                    "removed by size limit {} timestamp({})",
-                    tx_hash, entry.timestamp
-                );
-                let reject = Reject::Full(format!(
-                    "the fee_rate for this transaction is: {}",
-                    entry.fee_rate()
-                ));
-                $callbacks.call_reject($self, &entry, reject);
-            }
-        }
-    };
-}
+const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
-    /// The short id that has not been proposed
-    pub(crate) pending: PendingQueue,
-    /// The proposal gap
-    pub(crate) gap: PendingQueue,
-    /// Tx pool that finely for commit
-    pub(crate) proposed: ProposedPool,
+    pub(crate) pool_map: PoolMap,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     // sum of all tx_pool tx's virtual sizes.
@@ -77,12 +48,10 @@ pub struct TxPool {
 impl TxPool {
     /// Create new TxPool
     pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
-        let recent_reject = build_recent_reject(&config);
+        let recent_reject = Self::build_recent_reject(&config);
         let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
         TxPool {
-            pending: PendingQueue::new(),
-            gap: PendingQueue::new(),
-            proposed: ProposedPool::new(config.max_ancestors_count),
+            pool_map: PoolMap::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
             total_tx_size: 0,
             total_tx_cycles: 0,
@@ -94,24 +63,66 @@ impl TxPool {
     }
 
     /// Tx-pool owned snapshot, it may not consistent with chain cause tx-pool update snapshot asynchronously
-    pub fn snapshot(&self) -> &Snapshot {
+    pub(crate) fn snapshot(&self) -> &Snapshot {
         &self.snapshot
     }
 
     /// Makes a clone of the `Arc<Snapshot>`
-    pub fn cloned_snapshot(&self) -> Arc<Snapshot> {
+    pub(crate) fn cloned_snapshot(&self) -> Arc<Snapshot> {
         Arc::clone(&self.snapshot)
     }
 
-    /// Whether Tx-pool reach size limit
-    pub fn reach_size_limit(&self, tx_size: usize) -> bool {
-        (self.total_tx_size + tx_size) > self.config.max_tx_pool_size
+    fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
+        self.pool_map.get_by_status(status)
+    }
+
+    /// Get tx-pool size
+    pub fn status_size(&self, status: Status) -> usize {
+        self.get_by_status(status).len()
     }
 
     /// Update size and cycles statics for add tx
     pub fn update_statics_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
         self.total_tx_size += tx_size;
         self.total_tx_cycles += cycles;
+    }
+
+    /// Check whether tx-pool enable RBF
+    pub fn enable_rbf(&self) -> bool {
+        self.config.min_rbf_rate > self.config.min_fee_rate
+    }
+
+    /// The least required fee rate to allow tx to be replaced
+    pub fn min_replace_fee(&self, tx: &TxEntry) -> Option<Capacity> {
+        if !self.enable_rbf() {
+            return None;
+        }
+        let entry = vec![self.get_pool_entry(&tx.proposal_short_id()).unwrap()];
+        self.calculate_min_replace_fee(&entry, tx.size)
+    }
+
+    /// min_replace_fee = sum(replaced_txs.fee) + extra_rbf_fee
+    fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: usize) -> Option<Capacity> {
+        let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
+        let replaced_sum_fee = conflicts
+            .iter()
+            .map(|c| c.inner.fee)
+            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(x));
+        let res = replaced_sum_fee.map_or(Err(CapacityError::Overflow), |sum| {
+            sum.safe_add(extra_rbf_fee)
+        });
+        if let Ok(res) = res {
+            Some(res)
+        } else {
+            let fees = conflicts.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
+            error!(
+                "conflicts: {:?} replaced_sum_fee {:?} overflow by add {}",
+                conflicts.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+                fees,
+                extra_rbf_fee
+            );
+            None
+        }
     }
 
     /// Update size and cycles statics for remove tx
@@ -135,78 +146,53 @@ impl TxPool {
         self.total_tx_cycles = total_tx_cycles;
     }
 
-    /// Add tx to pending pool
+    /// Add tx with pending status
     /// If did have this value present, false is returned.
-    pub fn add_pending(&mut self, entry: TxEntry) -> bool {
-        if self.gap.contains_key(&entry.proposal_short_id()) {
-            return false;
-        }
-        trace!("add_pending {}", entry.transaction().hash());
-        self.pending.add_entry(entry)
+    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+        self.pool_map.add_entry(entry, Status::Pending)
     }
 
-    /// Add tx which proposed but still uncommittable to gap pool
-    pub fn add_gap(&mut self, entry: TxEntry) -> bool {
-        if self.proposed.contains_key(&entry.proposal_short_id()) {
-            return false;
-        }
-        trace!("add_gap {}", entry.transaction().hash());
-        self.gap.add_entry(entry)
+    /// Add tx which proposed but still uncommittable to gap
+    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+        self.pool_map.add_entry(entry, Status::Gap)
     }
 
-    /// Add tx to proposed pool
-    pub fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        trace!("add_proposed {}", entry.transaction().hash());
-        self.proposed.add_entry(entry)
+    /// Add tx with proposed status
+    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+        self.pool_map.add_entry(entry, Status::Proposed)
     }
 
     /// Returns true if the tx-pool contains a tx with specified id.
-    pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
-        self.pending.contains_key(id) || self.gap.contains_key(id) || self.proposed.contains_key(id)
+    pub(crate) fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
+        self.pool_map.get_by_id(id).is_some()
+    }
+
+    pub(crate) fn set_entry_proposed(&mut self, short_id: &ProposalShortId) {
+        self.pool_map.set_entry(short_id, Status::Proposed)
+    }
+
+    pub(crate) fn set_entry_gap(&mut self, short_id: &ProposalShortId) {
+        self.pool_map.set_entry(short_id, Status::Gap)
     }
 
     /// Returns tx with cycles corresponding to the id.
-    pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(TransactionView, Cycle)> {
-        self.pending
-            .get(id)
-            .map(|entry| (entry.transaction().clone(), entry.cycles))
-            .or_else(|| {
-                self.gap
-                    .get(id)
-                    .map(|entry| (entry.transaction().clone(), entry.cycles))
-            })
-            .or_else(|| {
-                self.proposed
-                    .get(id)
-                    .map(|entry| (entry.transaction().clone(), entry.cycles))
-            })
-    }
-
-    /// Returns tx corresponding to the id.
-    pub fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
-        self.pending
-            .get_tx(id)
-            .or_else(|| self.gap.get_tx(id))
-            .or_else(|| self.proposed.get_tx(id))
-    }
-
-    /// Returns tx from pending and gap corresponding to the id. RPC
-    pub fn get_entry_from_pending_or_gap(&self, id: &ProposalShortId) -> Option<&TxEntry> {
-        self.pending.get(id).or_else(|| self.gap.get(id))
-    }
-
-    pub(crate) fn proposed(&self) -> &ProposedPool {
-        &self.proposed
-    }
-
-    pub(crate) fn get_tx_from_proposed_and_others(
+    pub(crate) fn get_tx_with_cycles(
         &self,
         id: &ProposalShortId,
-    ) -> Option<&TransactionView> {
-        self.proposed
-            .get_tx(id)
-            .or_else(|| self.gap.get_tx(id))
-            .or_else(|| self.pending.get_tx(id))
+    ) -> Option<(TransactionView, Cycle)> {
+        self.pool_map
+            .get_by_id(id)
+            .map(|entry| (entry.inner.transaction().clone(), entry.inner.cycles))
+    }
+
+    pub(crate) fn get_pool_entry(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+        self.pool_map.get_by_id(id)
+    }
+
+    pub(crate) fn get_tx_from_pool(&self, id: &ProposalShortId) -> Option<&TransactionView> {
+        self.pool_map
+            .get_by_id(id)
+            .map(|entry| entry.inner.transaction())
     }
 
     pub(crate) fn remove_committed_txs<'a>(
@@ -229,59 +215,30 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn resolve_conflict_header_dep(
+    fn resolve_conflict_header_dep(
         &mut self,
         detached_headers: &HashSet<Byte32>,
         callbacks: &Callbacks,
     ) {
-        for (entry, reject) in self.proposed.resolve_conflict_header_dep(detached_headers) {
-            callbacks.call_reject(self, &entry, reject);
-        }
-        for (entry, reject) in self.gap.resolve_conflict_header_dep(detached_headers) {
-            callbacks.call_reject(self, &entry, reject);
-        }
-        for (entry, reject) in self.pending.resolve_conflict_header_dep(detached_headers) {
+        for (entry, reject) in self.pool_map.resolve_conflict_header_dep(detached_headers) {
             callbacks.call_reject(self, &entry, reject);
         }
     }
 
-    pub(crate) fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
-        let hash = tx.hash();
+    fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
         let short_id = tx.proposal_short_id();
-        // try remove committed tx from proposed
-        // proposed tx should not contain conflict, if exists just skip resolve conflict
-        if let Some(entry) = self.proposed.remove_committed_tx(tx) {
-            debug!("remove_committed_tx from proposed {}", hash);
-            callbacks.call_committed(self, &entry)
-        } else {
-            let conflicts = self.proposed.resolve_conflict(tx);
-
-            for (entry, reject) in conflicts {
-                callbacks.call_reject(self, &entry, reject);
-            }
-        }
-
-        // pending and gap should resolve conflict no matter exists or not
-        if let Some(entry) = self.gap.remove_entry(&short_id) {
-            debug!("remove_committed_tx from gap {}", hash);
+        if let Some(entry) = self.pool_map.remove_entry(&short_id) {
+            debug!("remove_committed_tx for {}", tx.hash());
             callbacks.call_committed(self, &entry)
         }
         {
-            let conflicts = self.gap.resolve_conflict(tx);
-
+            let conflicts = self.pool_map.resolve_conflict(tx);
             for (entry, reject) in conflicts {
-                callbacks.call_reject(self, &entry, reject);
-            }
-        }
-
-        if let Some(entry) = self.pending.remove_entry(&short_id) {
-            debug!("remove_committed_tx from pending {}", hash);
-            callbacks.call_committed(self, &entry)
-        }
-        {
-            let conflicts = self.pending.resolve_conflict(tx);
-
-            for (entry, reject) in conflicts {
+                debug!(
+                    "removed {} for commited: {}",
+                    entry.transaction().hash(),
+                    tx.hash()
+                );
                 callbacks.call_reject(self, &entry, reject);
             }
         }
@@ -290,45 +247,49 @@ impl TxPool {
     // Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
-        let expired =
-            |_id: &ProposalShortId, tx_entry: &TxEntry| self.expiry + tx_entry.timestamp < now_ms;
-        let mut removed = self.pending.remove_entries_by_filter(expired);
-        removed.extend(self.gap.remove_entries_by_filter(expired));
-        let removed_proposed_ids: Vec<_> = self
-            .proposed
+        let removed: Vec<_> = self
+            .pool_map
             .iter()
-            .filter_map(|(id, tx_entry)| {
-                if self.expiry + tx_entry.timestamp < now_ms {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .cloned()
+            .filter(|&entry| self.expiry + entry.inner.timestamp < now_ms)
+            .map(|entry| entry.inner.clone())
             .collect();
-        for id in removed_proposed_ids {
-            removed.extend(self.proposed.remove_entry_and_descendants(&id))
-        }
 
         for entry in removed {
             let tx_hash = entry.transaction().hash();
             debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
+            self.pool_map.remove_entry(&entry.proposal_short_id());
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
         }
     }
 
-    // Remove transactions from the pool until total size < size_limit.
+    // Remove transactions from the pool until total size <= size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
         while self.total_tx_size > self.config.max_tx_pool_size {
-            if !self.pending.is_empty() {
-                evict_for_trim_size!(self, self.pending, callbacks)
-            } else if !self.gap.is_empty() {
-                evict_for_trim_size!(self, self.gap, callbacks)
-            } else {
-                evict_for_trim_size!(self, self.proposed, callbacks)
+            let next_evict_entry = || {
+                self.pool_map
+                    .next_evict_entry(Status::Pending)
+                    .or_else(|| self.pool_map.next_evict_entry(Status::Gap))
+                    .or_else(|| self.pool_map.next_evict_entry(Status::Proposed))
+            };
+
+            if let Some(id) = next_evict_entry() {
+                let removed = self.pool_map.remove_entry_and_descendants(&id);
+                for entry in removed {
+                    let tx_hash = entry.transaction().hash();
+                    debug!(
+                        "removed by size limit {} timestamp({})",
+                        tx_hash, entry.timestamp
+                    );
+                    let reject = Reject::Full(format!(
+                        "the fee_rate for this transaction is: {}",
+                        entry.fee_rate()
+                    ));
+                    callbacks.call_reject(self, &entry, reject);
+                }
             }
         }
+        self.pool_map.entries.shrink_to_fit();
     }
 
     // remove transaction with detached proposal from gap and proposed
@@ -338,30 +299,28 @@ impl TxPool {
         ids: impl Iterator<Item = &'a ProposalShortId>,
     ) {
         for id in ids {
-            if let Some(entry) = self.gap.remove_entry(id) {
-                let tx_hash = entry.transaction().hash();
-                let ret = self.add_pending(entry);
-                debug!(
-                    "remove_by_detached_proposal from gap {} add_pending {}",
-                    tx_hash, ret
-                );
-            }
-            let mut entries = self.proposed.remove_entry_and_descendants(id);
-            entries.sort_unstable_by_key(|entry| entry.ancestors_count);
-            for mut entry in entries {
-                let tx_hash = entry.transaction().hash();
-                entry.reset_ancestors_state();
-                let ret = self.add_pending(entry);
-                debug!(
-                    "remove_by_detached_proposal from proposed {} add_pending {}",
-                    tx_hash, ret
-                );
+            if let Some(e) = self.pool_map.get_by_id(id) {
+                let status = e.status;
+                if status == Status::Pending {
+                    continue;
+                }
+                let mut entries = self.pool_map.remove_entry_and_descendants(id);
+                entries.sort_unstable_by_key(|entry| entry.ancestors_count);
+                for mut entry in entries {
+                    let tx_hash = entry.transaction().hash();
+                    entry.reset_statistic_state();
+                    let ret = self.add_pending(entry);
+                    debug!(
+                        "remove_by_detached_proposal from {:?} {} add_pending {:?}",
+                        status, tx_hash, ret
+                    );
+                }
             }
         }
     }
 
     pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
-        let entries = self.proposed.remove_entry_and_descendants(id);
+        let entries = self.pool_map.remove_entry_and_descendants(id);
         if !entries.is_empty() {
             for entry in entries {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
@@ -369,174 +328,109 @@ impl TxPool {
             return true;
         }
 
-        if let Some(entry) = self.gap.remove_entry(id) {
+        if let Some(entry) = self.pool_map.remove_entry(id) {
             self.update_statics_for_remove_tx(entry.size, entry.cycles);
             return true;
         }
-
-        if let Some(entry) = self.pending.remove_entry(id) {
-            self.update_statics_for_remove_tx(entry.size, entry.cycles);
-            return true;
-        }
-
         false
     }
 
-    pub(crate) fn resolve_tx_from_pending_and_proposed(
-        &self,
-        tx: TransactionView,
-    ) -> Result<Arc<ResolvedTransaction>, Reject> {
+    pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
         let snapshot = self.snapshot();
-        let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
-        let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &proposed_provider);
-        let pending_and_proposed_provider =
-            OverlayCellProvider::new(&self.pending, &gap_and_proposed_provider);
+        let pool_cell = PoolCell::new(&self.pool_map, false);
+        let checker = OverlayCellChecker::new(&pool_cell, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(
-            tx,
-            &mut seen_inputs,
-            &pending_and_proposed_provider,
-            snapshot,
-        )
-        .map(Arc::new)
-        .map_err(Reject::Resolve)
-    }
-
-    pub(crate) fn check_rtx_from_pending_and_proposed(
-        &self,
-        rtx: &ResolvedTransaction,
-    ) -> Result<(), Reject> {
-        let snapshot = self.snapshot();
-        let proposed_checker = OverlayCellChecker::new(&self.proposed, snapshot);
-        let gap_and_proposed_checker = OverlayCellChecker::new(&self.gap, &proposed_checker);
-        let pending_and_proposed_checker =
-            OverlayCellChecker::new(&self.pending, &gap_and_proposed_checker);
-        let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &pending_and_proposed_checker, snapshot)
+        rtx.check(&mut seen_inputs, &checker, snapshot)
             .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn resolve_tx_from_proposed(
+    pub(crate) fn resolve_tx_from_pool(
         &self,
         tx: TransactionView,
+        rbf: bool,
     ) -> Result<Arc<ResolvedTransaction>, Reject> {
         let snapshot = self.snapshot();
-        let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
+        let pool_cell = PoolCell::new(&self.pool_map, rbf);
+        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
         let mut seen_inputs = HashSet::new();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider, snapshot)
+        resolve_transaction(tx, &mut seen_inputs, &provider, snapshot)
             .map(Arc::new)
             .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn check_rtx_from_proposed(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
-        let snapshot = self.snapshot();
-        let cell_checker = OverlayCellChecker::new(&self.proposed, snapshot);
-        let mut seen_inputs = HashSet::new();
-        rtx.check(&mut seen_inputs, &cell_checker, snapshot)
-            .map_err(Reject::Resolve)
-    }
-
-    pub(crate) fn gap_rtx(
-        &mut self,
-        cache_entry: CacheEntry,
-        size: usize,
-        timestamp: u64,
-        rtx: Arc<ResolvedTransaction>,
-    ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.cloned_snapshot();
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 0));
-        self.check_rtx_from_pending_and_proposed(&rtx)?;
-
-        let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(
-            snapshot,
-            Arc::clone(&rtx),
-            tx_env,
-            &Some(cache_entry),
-            max_cycles,
-        )?;
-
-        let entry =
-            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
-        let tx_hash = entry.transaction().hash();
-        if self.add_gap(entry) {
-            Ok(CacheEntry::Completed(verified))
-        } else {
-            Err(Reject::Duplicated(tx_hash))
+    pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        match self.get_pool_entry(short_id) {
+            Some(entry) => {
+                let tx_hash = entry.inner.transaction().hash();
+                if entry.status == Status::Gap {
+                    Err(Reject::Duplicated(tx_hash))
+                } else {
+                    debug!("gap_rtx: {:?} => {:?}", tx_hash, short_id);
+                    self.set_entry_gap(short_id);
+                    Ok(())
+                }
+            }
+            None => Err(Reject::Malformed(
+                String::from("invalid short_id"),
+                Default::default(),
+            )),
         }
     }
 
-    pub(crate) fn proposed_rtx(
-        &mut self,
-        cache_entry: CacheEntry,
-        size: usize,
-        timestamp: u64,
-        rtx: Arc<ResolvedTransaction>,
-    ) -> Result<CacheEntry, Reject> {
-        let snapshot = self.cloned_snapshot();
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(TxVerifyEnv::new_proposed(tip_header, 1));
-        self.check_rtx_from_proposed(&rtx)?;
-
-        let max_cycles = snapshot.consensus().max_block_cycles();
-        let verified = verify_rtx(
-            snapshot,
-            Arc::clone(&rtx),
-            tx_env,
-            &Some(cache_entry),
-            max_cycles,
-        )?;
-
-        let entry =
-            TxEntry::new_with_timestamp(rtx, verified.cycles, verified.fee, size, timestamp);
-        let tx_hash = entry.transaction().hash();
-        if self.add_proposed(entry)? {
-            Ok(CacheEntry::Completed(verified))
-        } else {
-            Err(Reject::Duplicated(tx_hash))
+    pub(crate) fn proposed_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        match self.get_pool_entry(short_id) {
+            Some(entry) => {
+                let tx_hash = entry.inner.transaction().hash();
+                if entry.status == Status::Proposed {
+                    Err(Reject::Duplicated(tx_hash))
+                } else {
+                    debug!("proposed_rtx: {:?} => {:?}", tx_hash, short_id);
+                    self.set_entry_proposed(short_id);
+                    Ok(())
+                }
+            }
+            None => Err(Reject::Malformed(
+                String::from("invalid short_id"),
+                Default::default(),
+            )),
         }
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.
-    pub fn get_proposals(
+    pub(crate) fn get_proposals(
         &self,
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
     ) -> HashSet<ProposalShortId> {
         let mut proposals = HashSet::with_capacity(limit);
-        self.pending
-            .fill_proposals(limit, exclusion, &mut proposals);
-        self.gap.fill_proposals(limit, exclusion, &mut proposals);
+        self.pool_map
+            .fill_proposals(limit, exclusion, &mut proposals, Status::Pending);
         proposals
     }
 
     /// Returns tx from tx-pool or storage corresponding to the id.
-    pub fn get_tx_from_pool_or_store(
+    pub(crate) fn get_tx_from_pool_or_store(
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
-        self.get_tx_from_proposed_and_others(proposal_id)
-            .cloned()
-            .or_else(|| {
-                self.committed_txs_hash_cache
-                    .peek(proposal_id)
-                    .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
-            })
+        self.get_tx_from_pool(proposal_id).cloned().or_else(|| {
+            self.committed_txs_hash_cache
+                .peek(proposal_id)
+                .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
+        })
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {
         let pending = self
-            .pending
-            .iter()
-            .map(|(_, entry)| entry.transaction().hash())
-            .chain(self.gap.iter().map(|(_, entry)| entry.transaction().hash()))
+            .pool_map
+            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .map(|entry| entry.transaction().hash())
             .collect();
 
         let proposed = self
-            .proposed
-            .iter()
-            .map(|(_, entry)| entry.transaction().hash())
+            .pool_map
+            .sorted_proposed_iter()
+            .map(|entry| entry.transaction().hash())
             .collect();
 
         TxPoolIds { pending, proposed }
@@ -544,45 +438,51 @@ impl TxPool {
 
     pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
         let pending = self
-            .pending
-            .iter()
-            .map(|(_, entry)| (entry.transaction().hash(), entry.to_info()))
-            .chain(
-                self.gap
-                    .iter()
-                    .map(|(_, entry)| (entry.transaction().hash(), entry.to_info())),
-            )
+            .pool_map
+            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
         let proposed = self
-            .proposed
-            .iter()
-            .map(|(_, entry)| (entry.transaction().hash(), entry.to_info()))
+            .pool_map
+            .sorted_proposed_iter()
+            .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
         TxPoolEntryInfo { pending, proposed }
     }
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
-        let mut txs = CommitTxsScanner::new(&self.proposed)
+        let mut txs = CommitTxsScanner::new(&self.pool_map)
             .txs_to_commit(self.total_tx_size, self.total_tx_cycles)
             .0
             .into_iter()
             .map(|tx_entry| tx_entry.into_transaction())
             .collect::<Vec<_>>();
-        self.proposed.clear();
-        txs.append(&mut self.gap.drain());
-        txs.append(&mut self.pending.drain());
+        let mut pending = self
+            .pool_map
+            .entries
+            .remove_by_status(&Status::Pending)
+            .into_iter()
+            .map(|e| e.inner.into_transaction())
+            .collect::<Vec<_>>();
+        txs.append(&mut pending);
+        let mut gap = self
+            .pool_map
+            .entries
+            .remove_by_status(&Status::Gap)
+            .into_iter()
+            .map(|e| e.inner.into_transaction())
+            .collect::<Vec<_>>();
+        txs.append(&mut gap);
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
-        // self.touch_last_txs_updated_at();
+        self.pool_map.clear();
         txs
     }
 
     pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>) {
-        self.pending = PendingQueue::new();
-        self.gap = PendingQueue::new();
-        self.proposed = ProposedPool::new(self.config.max_ancestors_count);
+        self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
         self.total_tx_size = 0;
@@ -607,7 +507,7 @@ impl TxPool {
         txs_size_limit: usize,
     ) -> (Vec<TxEntry>, usize, Cycle) {
         let (entries, size, cycles) =
-            CommitTxsScanner::new(self.proposed()).txs_to_commit(txs_size_limit, max_block_cycles);
+            CommitTxsScanner::new(&self.pool_map).txs_to_commit(txs_size_limit, max_block_cycles);
 
         if !entries.is_empty() {
             ckb_logger::info!(
@@ -621,27 +521,132 @@ impl TxPool {
         }
         (entries, size, cycles)
     }
-}
 
-fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
-    if !config.recent_reject.as_os_str().is_empty() {
-        let recent_reject_ttl = config.keep_rejected_tx_hashes_days as i32 * 24 * 60 * 60;
-        match RecentReject::new(
-            &config.recent_reject,
-            config.keep_rejected_tx_hashes_count,
-            recent_reject_ttl,
-        ) {
-            Ok(recent_reject) => Some(recent_reject),
-            Err(err) => {
-                error!(
-                    "Failed to open recent reject database {:?} {}",
-                    config.recent_reject, err
-                );
-                None
+    pub(crate) fn check_rbf(
+        &self,
+        snapshot: &Snapshot,
+        rtx: &ResolvedTransaction,
+        conflict_ids: &HashSet<ProposalShortId>,
+        fee: Capacity,
+        tx_size: usize,
+    ) -> Result<(), Reject> {
+        // Rule #1, the node has enabled RBF, which is checked by caller
+        assert!(self.enable_rbf());
+        assert!(!conflict_ids.is_empty());
+
+        let conflicts = conflict_ids
+            .iter()
+            .filter_map(|id| self.get_pool_entry(id))
+            .collect::<Vec<_>>();
+        assert!(conflicts.len() == conflict_ids.len());
+
+        let short_id = rtx.transaction.proposal_short_id();
+        // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
+        // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, tx_size) {
+            if fee < min_replace_fee {
+                return Err(Reject::RBFRejected(format!(
+                    "Tx's current fee is {}, expect it to >= {} to replace old txs",
+                    fee, min_replace_fee,
+                )));
+            }
+        } else {
+            return Err(Reject::RBFRejected(
+                "calculate_min_replace_fee failed".to_string(),
+            ));
+        }
+
+        // Rule #2, new tx don't contain any new unconfirmed inputs
+        let mut inputs = HashSet::new();
+        let mut outputs = HashSet::new();
+        for c in conflicts.iter() {
+            inputs.extend(c.inner.transaction().input_pts_iter());
+            outputs.extend(c.inner.transaction().output_pts_iter());
+        }
+
+        if rtx
+            .transaction
+            .input_pts_iter()
+            .any(|pt| !inputs.contains(&pt) && !snapshot.transaction_exists(&pt.tx_hash()))
+        {
+            return Err(Reject::RBFRejected(
+                "new Tx contains unconfirmed inputs".to_string(),
+            ));
+        }
+
+        if rtx
+            .transaction
+            .cell_deps_iter()
+            .any(|dep| outputs.contains(&dep.out_point()))
+        {
+            return Err(Reject::RBFRejected(
+                "new Tx contains cell deps from conflicts".to_string(),
+            ));
+        }
+
+        // Rule #5, the replaced tx's descendants can not more than 100
+        // and the ancestor of the new tx don't have common set with the replaced tx's descendants
+        let mut replace_count: usize = 0;
+        let ancestors = self.pool_map.calc_ancestors(&short_id);
+        for conflict in conflicts.iter() {
+            let descendants = self.pool_map.calc_descendants(&conflict.id);
+            replace_count += descendants.len() + 1;
+            if replace_count > MAX_REPLACEMENT_CANDIDATES {
+                return Err(Reject::RBFRejected(format!(
+                    "Tx conflict too many txs, conflict txs count: {}",
+                    replace_count,
+                )));
+            }
+
+            if !descendants.is_disjoint(&ancestors) {
+                return Err(Reject::RBFRejected(
+                    "Tx ancestors have common with conflict Tx descendants".to_string(),
+                ));
+            }
+
+            let entries = descendants
+                .iter()
+                .filter_map(|id| self.get_pool_entry(id))
+                .collect::<Vec<_>>();
+
+            for entry in entries.iter() {
+                let hash = entry.inner.transaction().hash();
+                if rtx
+                    .transaction
+                    .input_pts_iter()
+                    .any(|pt| pt.tx_hash() == hash)
+                {
+                    return Err(Reject::RBFRejected(
+                        "new Tx contains inputs in descendants of to be replaced Tx".to_string(),
+                    ));
+                }
             }
         }
-    } else {
-        warn!("Recent reject database is disabled!");
-        None
+
+        Ok(())
+    }
+
+    fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
+        if !config.recent_reject.as_os_str().is_empty() {
+            let recent_reject_ttl =
+                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * 24 * 60 * 60;
+            match RecentReject::new(
+                &config.recent_reject,
+                config.keep_rejected_tx_hashes_count,
+                recent_reject_ttl,
+            ) {
+                Ok(recent_reject) => Some(recent_reject),
+                Err(err) => {
+                    error!(
+                        "Failed to open recent reject database {:?} {}",
+                        config.recent_reject, err
+                    );
+                    None
+                }
+            }
+        } else {
+            warn!("Recent reject database is disabled!");
+            None
+        }
     }
 }

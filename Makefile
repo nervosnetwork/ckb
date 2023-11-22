@@ -5,7 +5,7 @@ MOLC_VERSION := 0.7.5
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
-CKB_TEST_ARGS := ${CKB_TEST_ARGS} -c 4
+CKB_TEST_ARGS := -c 4 ${CKB_TEST_ARGS}
 CKB_FEATURES ?= deadlock_detection,with_sentry
 ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
@@ -140,19 +140,19 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
+	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime --cfg docker" cargo build --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" CKB_FEATURES="with_sentry,with_dns_seeding" $(MAKE) test
+	CKB_FEATURES="with_sentry,with_dns_seeding" $(MAKE) test
 
 .PHONY: prod-with-debug
 prod-with-debug:
@@ -204,12 +204,16 @@ bench-test:
 
 .PHONY: ci
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
+ci: fmt clippy test bench-test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
 	git diff --exit-code Cargo.lock
 
 .PHONY: check-cargotoml
 check-cargotoml:
 	./devtools/ci/check-cargotoml.sh
+
+.PHONY: check-cargo-metadata
+check-cargo-metadata: ## Check cargo metadata is success
+	cargo metadata --format-version 1 --all-features --manifest-path ./Cargo.toml &> /dev/null
 
 .PHONY: check-whitespace
 check-whitespaces:

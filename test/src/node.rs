@@ -5,6 +5,8 @@ use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
+use ckb_error::AnyError;
+use ckb_jsonrpc_types::TxStatus;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
@@ -344,6 +346,13 @@ impl Node {
         self.submit_transaction(&self.new_transaction_spend_tip_cellbase())
     }
 
+    // generate a transaction which spend tip block's cellbase and capacity
+    pub fn new_transaction_with_capacity(&self, capacity: Capacity) -> TransactionView {
+        let block = self.get_tip_block();
+        let cellbase = &block.transactions()[0];
+        self.new_transaction_with_since_capacity(cellbase.hash(), 0, capacity)
+    }
+
     // generate a transaction which spend tip block's cellbase
     pub fn new_transaction_spend_tip_cellbase(&self) -> TransactionView {
         let block = self.get_tip_block();
@@ -354,6 +363,21 @@ impl Node {
     pub fn submit_transaction(&self, transaction: &TransactionView) -> Byte32 {
         self.rpc_client()
             .send_transaction(transaction.data().into())
+    }
+
+    pub fn submit_transaction_with_result(
+        &self,
+        transaction: &TransactionView,
+    ) -> Result<Byte32, AnyError> {
+        let res = self
+            .rpc_client()
+            .send_transaction_result(transaction.data().into())?
+            .pack();
+        Ok(res)
+    }
+
+    pub fn get_transaction(&self, tx_hash: Byte32) -> TxStatus {
+        self.rpc_client().get_transaction(tx_hash).tx_status
     }
 
     pub fn remove_transaction(&self, tx_hash: Byte32) -> bool {
@@ -522,11 +546,12 @@ impl Node {
         self.new_transaction_with_since_capacity(hash, since, capacity_bytes!(100))
     }
 
-    pub fn new_transaction_with_since_capacity(
+    pub fn new_transaction_with_capacity_and_index(
         &self,
         hash: Byte32,
-        since: u64,
         capacity: Capacity,
+        index: u32,
+        since: u64,
     ) -> TransactionView {
         let always_success_cell_dep = self.always_success_cell_dep();
         let always_success_script = self.always_success_script();
@@ -540,8 +565,17 @@ impl Node {
                     .build(),
             )
             .output_data(Default::default())
-            .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .input(CellInput::new(OutPoint::new(hash, index), since))
             .build()
+    }
+
+    pub fn new_transaction_with_since_capacity(
+        &self,
+        hash: Byte32,
+        since: u64,
+        capacity: Capacity,
+    ) -> TransactionView {
+        self.new_transaction_with_capacity_and_index(hash, capacity, 0, since)
     }
 
     pub fn new_always_failure_transaction(&self, hash: Byte32) -> TransactionView {

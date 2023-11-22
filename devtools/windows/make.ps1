@@ -57,7 +57,7 @@ function Disable-DebugSymbols {
 }
 
 function run-prod {
-  Set-Env RUSTFLAGS "--cfg disable_faketime"
+  Set-Env RUSTFLAGS ""
   cargo build @Verbose --release
 }
 

@@ -21,6 +21,7 @@ use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 // Keeping in mind that short_ids are expected to occasionally collide.
 // On receiving compact-block message,
@@ -53,6 +54,7 @@ impl<'a> CompactBlockProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
+        let instant = Instant::now();
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
         let compact_block = self.message.to_entity();
@@ -117,6 +119,11 @@ impl<'a> CompactBlockProcess<'a> {
                 self.relayer
                     .accept_block(self.nc.as_ref(), self.peer, block);
 
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics
+                        .ckb_relay_cb_verify_duration
+                        .observe(instant.elapsed().as_secs_f64());
+                }
                 Status::ok()
             }
             ReconstructionResult::Missing(transactions, uncles) => {

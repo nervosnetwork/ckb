@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, Transaction};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, EpochNumberWithFraction, Transaction};
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
@@ -140,15 +140,9 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "truncate")]
     fn truncate(&self, target_tip_hash: H256) -> Result<()>;
 
-    /// Generate block with block_assembler_config, process the block(with verification)
+    /// Generate block(with verification) and broadcast the block.
     ///
-    /// and broadcast the block.
-    ///
-    /// ## Params
-    ///
-    /// * `block_assembler_script` - specified block assembler script
-    ///
-    /// * `block_assembler_message` - specified block assembler message
+    /// Note that if called concurrently, it may return the hash of the same block.
     ///
     /// ## Examples
     ///
@@ -175,6 +169,62 @@ pub trait IntegrationTestRpc {
     /// ```
     #[rpc(name = "generate_block")]
     fn generate_block(&self) -> Result<H256>;
+
+    /// Generate epochs during development, can be useful for scenarios
+    /// like testing DAO-related functionalities.
+    ///
+    /// Returns the updated epoch number after generating the specified number of epochs.
+    ///
+    /// ## Params
+    ///
+    /// * `num_epochs` - The number of epochs to generate.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// Generating 2 epochs:
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "generate_epochs",
+    ///   "params": ["0x2"]
+    /// }
+    /// ```
+    ///
+    /// The input parameter "0x2" will be normalized to "0x10000000002"(the correct
+    /// [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method.
+    /// Therefore, if you want to generate epochs as integers, you can simply pass an integer
+    /// as long as it does not exceed 16777215 (24 bits).
+    ///
+    /// Generating 1/2 epoch:
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "generate_epochs",
+    ///   "params": ["0x20001000000"]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0xa0001000003",
+    ///   "error": null
+    /// }
+    /// ```
+    #[rpc(name = "generate_epochs")]
+    fn generate_epochs(
+        &self,
+        num_epochs: EpochNumberWithFraction,
+    ) -> Result<EpochNumberWithFraction>;
 
     /// Add transaction to tx-pool.
     ///
@@ -526,6 +576,33 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         self.process_and_announce_block(block_template.into())
+    }
+
+    fn generate_epochs(
+        &self,
+        num_epochs: EpochNumberWithFraction,
+    ) -> Result<EpochNumberWithFraction> {
+        let tip_block_number = self.shared.snapshot().tip_header().number();
+        let mut current_epoch = self
+            .shared
+            .snapshot()
+            .epoch_ext()
+            .number_with_fraction(tip_block_number);
+        let target_epoch = current_epoch.to_rational()
+            + core::EpochNumberWithFraction::from_full_value(num_epochs.into()).to_rational();
+
+        let tx_pool = self.shared.tx_pool_controller();
+        while current_epoch.to_rational() < target_epoch {
+            let block_template = tx_pool
+                .get_block_template(None, None, None)
+                .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?
+                .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+            current_epoch =
+                core::EpochNumberWithFraction::from_full_value(block_template.epoch.into());
+            self.process_and_announce_block(block_template.into())?;
+        }
+
+        Ok(current_epoch.full_value().into())
     }
 
     fn notify_transaction(&self, tx: Transaction) -> Result<H256> {

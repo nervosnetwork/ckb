@@ -166,6 +166,7 @@ pub trait PoolRpc {
     ///   "result": {
     ///     "last_txs_updated_at": "0x0",
     ///     "min_fee_rate": "0x3e8",
+    ///     "min_rbf_rate": "0x5dc",
     ///     "max_tx_pool_size": "0xaba9500",
     ///     "orphan": "0x0",
     ///     "pending": "0x1",
@@ -615,9 +616,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
             Some(script) => {
                 if !script.is_hash_type_type() {
                     Err(DefaultOutputsValidatorError::HashType)
-                } else if script.code_hash()
-                    != self.consensus.dao_type_hash().expect("No dao system cell")
-                {
+                } else if script.code_hash() != self.consensus.dao_type_hash() {
                     Err(DefaultOutputsValidatorError::CodeHash)
                 } else if output.lock().args().len() == BLAKE160_LEN + SINCE_LEN {
                     // https://github.com/nervosnetwork/ckb/wiki/Common-Gotchas#nervos-dao

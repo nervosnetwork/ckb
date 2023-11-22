@@ -204,13 +204,14 @@ impl<'a> GetLastStateProofProcess<'a> {
         let snapshot = self.protocol.shared.snapshot();
 
         let last_block_hash = self.message.last_hash().to_entity();
-        let last_block = if let Some(block) = snapshot.get_block(&last_block_hash) {
-            block
-        } else {
+        if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
                 .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc);
-        };
+        }
+        let last_block = snapshot
+            .get_block(&last_block_hash)
+            .expect("block should be in store");
 
         let start_block_hash = self.message.start_hash().to_entity();
         let start_block_number: BlockNumber = self.message.start_number().unpack();
@@ -283,9 +284,7 @@ impl<'a> GetLastStateProofProcess<'a> {
         {
             // There is not enough blocks, so we take all of them; so there is no sampled blocks.
             let sampled_numbers = Vec::new();
-            let last_n_numbers = (start_block_number..last_block_number)
-                .into_iter()
-                .collect::<Vec<_>>();
+            let last_n_numbers = (start_block_number..last_block_number).collect::<Vec<_>>();
             (sampled_numbers, last_n_numbers)
         } else {
             let mut difficulty_boundary_block_number = if let Some((num, _)) = sampler
@@ -307,9 +306,8 @@ impl<'a> GetLastStateProofProcess<'a> {
                 difficulty_boundary_block_number = last_block_number - last_n_blocks;
             }
 
-            let last_n_numbers = (difficulty_boundary_block_number..last_block_number)
-                .into_iter()
-                .collect::<Vec<_>>();
+            let last_n_numbers =
+                (difficulty_boundary_block_number..last_block_number).collect::<Vec<_>>();
 
             if difficulty_boundary_block_number > 0 {
                 if let Some(total_difficulty) =

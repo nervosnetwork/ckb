@@ -617,6 +617,8 @@ pub trait ChainRpc {
     ///     },
     ///     "cycles": "0x219",
     ///     "time_added_to_pool" : "0x187b3d137a1",
+    ///     "fee": "0x16923f7dcf",
+    ///     "min_replace_fee": "0x16923f7f6a",
     ///     "tx_status": {
     ///       "block_hash": null,
     ///       "status": "pending",
@@ -1334,7 +1336,7 @@ pub trait ChainRpc {
     ///   "result": {
     ///         "block_version": "0x0",
     ///         "cellbase_maturity": "0x10000000000",
-    ///         "dao_type_hash": null,
+    ///         "dao_type_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///         "epoch_duration_target": "0x3840",
     ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
     ///         "hardfork_features": [
@@ -2117,6 +2119,7 @@ impl ChainRpcImpl {
         only_committed: bool,
     ) -> Result<TransactionWithStatus> {
         let snapshot = self.shared.snapshot();
+
         if let Some(tx_info) = snapshot.get_transaction_info(&tx_hash) {
             let cycles = if tx_info.is_cellbase() {
                 None
@@ -2129,11 +2132,11 @@ impl ChainRpcImpl {
                             .and_then(|v| v.get(tx_info.index.saturating_sub(1)).copied())
                     })
             };
-
             return Ok(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_hash.unpack(),
                 cycles,
+                None,
             ));
         }
 
@@ -2180,6 +2183,7 @@ impl ChainRpcImpl {
                 Some(tx),
                 tx_info.block_hash.unpack(),
                 cycles,
+                None,
             ));
         }
 
@@ -2202,6 +2206,7 @@ impl ChainRpcImpl {
         let transaction_with_status = transaction_with_status.unwrap();
         Ok(transaction_with_status)
     }
+
     fn get_block_by_hash(
         &self,
         snapshot: &Snapshot,

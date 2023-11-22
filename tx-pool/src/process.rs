@@ -1,6 +1,7 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
+use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
@@ -18,6 +19,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
+use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
     packed::{Byte32, ProposalShortId},
@@ -51,6 +53,7 @@ pub enum TxStatus {
     Proposed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessResult {
     Suspended,
     Completed(Completed),
@@ -99,6 +102,7 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
+        conflicts: HashSet<ProposalShortId>,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
@@ -121,8 +125,25 @@ impl TxPoolService {
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
+                // try to remove conflicted tx here
+                for id in conflicts.iter() {
+                    let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
+                    for old in removed {
+                        debug!(
+                            "remove conflict tx {} for RBF by new tx {}",
+                            old.transaction().hash(),
+                            entry.transaction().hash()
+                        );
+                        let reject = Reject::RBFRejected(format!(
+                            "replaced by tx {}",
+                            entry.transaction().hash()
+                        ));
+                        // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
+                        // here we call them manually
+                        self.callbacks.call_reject(tx_pool, &old, reject)
+                    }
+                }
                 _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
-
                 Ok(())
             })
             .await;
@@ -201,13 +222,36 @@ impl TxPoolService {
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
 
+                // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
+                // It's also not possible for RBF, reject it directly
                 check_txid_collision(tx_pool, tx)?;
 
-                let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone())?;
-
-                let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-
-                Ok((tip_hash, rtx, status, fee, tx_size))
+                // Try normal path first, if double-spending check success we don't need RBF check
+                // this make sure RBF won't introduce extra performance cost for hot path
+                let res = resolve_tx(tx_pool, &snapshot, tx.clone(), false);
+                match res {
+                    Ok((rtx, status)) => {
+                        let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                        Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
+                    }
+                    Err(err) => {
+                        if tx_pool.enable_rbf()
+                            && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
+                        {
+                            // Try RBF check
+                            let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
+                            if conflicts.is_empty() {
+                                return Err(err);
+                            }
+                            let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
+                            let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                            tx_pool.check_rbf(&snapshot, &rtx, &conflicts, fee, tx_size)?;
+                            Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
+                        } else {
+                            Err(err)
+                        }
+                    }
+                }
             })
             .await;
 
@@ -238,7 +282,12 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+        if self.chunk_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        if self.orphan_contains(&tx).await {
+            debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -276,7 +325,6 @@ impl TxPoolService {
 
         if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
             self.after_process(tx, remote, &snapshot, &ret).await;
-
             ret
         } else {
             // currently, the returned cycles is not been used, mock 0 if delay
@@ -360,7 +408,7 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} reject: {} ", tx_hash, reject);
+                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
                     if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
@@ -373,7 +421,12 @@ impl TxPoolService {
                             });
                         }
 
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -398,7 +451,13 @@ impl TxPoolService {
                         });
                     }
                     Err(reject) => {
-                        if matches!(reject, Reject::Resolve(..) | Reject::Verification(..)) {
+                        debug!("after_process {} reject: {} ", tx_hash, reject);
+                        if matches!(
+                            reject,
+                            Reject::Resolve(..)
+                                | Reject::Verification(..)
+                                | Reject::RBFRejected(..)
+                        ) {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -413,38 +472,46 @@ impl TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
     ) {
-        self.orphan
+        let evicted_txs = self
+            .orphan
             .write()
             .await
-            .add_orphan_tx(tx, peer, declared_cycle)
+            .add_orphan_tx(tx, peer, declared_cycle);
+        // for any evicted orphan tx, we should send reject to relayer
+        // so that we mark it as `unknown` in filter
+        for tx_hash in evicted_txs {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
     }
 
-    pub(crate) async fn find_orphan_by_previous(
-        &self,
-        tx: &TransactionView,
-    ) -> Option<OrphanEntry> {
+    pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
         let orphan = self.orphan.read().await;
-        if let Some(id) = orphan.find_by_previous(tx) {
-            return orphan.get(&id).cloned();
-        }
-        None
+        orphan
+            .find_by_previous(tx)
+            .iter()
+            .filter_map(|id| orphan.get(id).cloned())
+            .collect::<Vec<_>>()
     }
 
     pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
         self.orphan.write().await.remove_orphan_tx(id);
     }
 
+    /// Remove all orphans which are resolved by the given transaction
+    /// the process is like a breath first search, if there is a cycle in `orphan_queue`,
+    /// `_process_tx` will return `Reject` since we have checked duplicated tx
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
 
         while let Some(previous) = orphan_queue.pop_front() {
-            if let Some(orphan) = self.find_orphan_by_previous(&previous).await {
+            let orphans = self.find_orphan_by_previous(&previous).await;
+            for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} add to chunk,  find previous from {}",
+                        "process_orphan {} add to chunk, find previous from {}",
+                        orphan.tx.hash(),
                         tx.hash(),
-                        orphan.tx.hash()
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                     self.chunk
@@ -475,8 +542,8 @@ impl TxPoolService {
                             });
                             debug!(
                                 "process_orphan {} success, find previous from {}",
-                                tx.hash(),
-                                orphan.tx.hash()
+                                orphan.tx.hash(),
+                                tx.hash()
                             );
                             self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                             orphan_queue.push_back(orphan.tx);
@@ -484,10 +551,11 @@ impl TxPoolService {
                         Err(reject) => {
                             debug!(
                                 "process_orphan {} reject {}, find previous from {}",
-                                tx.hash(),
+                                orphan.tx.hash(),
                                 reject,
-                                orphan.tx.hash()
+                                tx.hash(),
                             );
+
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                                 if reject.is_malformed_tx() {
@@ -498,12 +566,15 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(reject, Reject::Resolve(..) | Reject::Verification(..))
-                                {
+                                if matches!(
+                                    reject,
+                                    Reject::Resolve(..)
+                                        | Reject::Verification(..)
+                                        | Reject::RBFRejected(..)
+                                ) {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
-                            break;
                         }
                     }
                 }
@@ -551,8 +622,8 @@ impl TxPoolService {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
-
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -645,11 +716,10 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
-
         if cached.is_none() {
             // update cache
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
@@ -691,7 +761,8 @@ impl TxPoolService {
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -727,7 +798,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -863,15 +934,19 @@ impl TxPoolService {
             }
         }
 
-        {
-            let mut orphan = self.orphan.write().await;
-            orphan.remove_orphan_txs(attached.iter().map(|tx| tx.proposal_short_id()));
-        }
-
+        self.remove_orphan_txs_by_attach(&attached).await;
         {
             let mut chunk = self.chunk.write().await;
             chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+    }
+
+    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+        for tx in txs.iter() {
+            self.process_orphan_tx(tx).await;
+        }
+        let mut orphan = self.orphan.write().await;
+        orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
     }
 
     fn readd_detached_tx(
@@ -884,7 +959,7 @@ impl TxPoolService {
         for tx in txs {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
-            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx) {
+            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false) {
                 if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
@@ -961,9 +1036,28 @@ impl TxPoolService {
     }
 }
 
-type PreCheckedTx = (Byte32, Arc<ResolvedTransaction>, TxStatus, Capacity, usize);
+type PreCheckedTx = (
+    Byte32,                   // tip_hash
+    Arc<ResolvedTransaction>, // rtx
+    TxStatus,                 // status
+    Capacity,                 // tx fee
+    usize,                    // tx size
+    // the conflicted txs, used for latter `check_rbf`
+    // the root txs for removing from `tx-pool` when RBF is checked
+    HashSet<ProposalShortId>,
+);
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
+
+fn get_tx_status(snapshot: &Snapshot, short_id: &ProposalShortId) -> TxStatus {
+    if snapshot.proposals().contains_proposed(short_id) {
+        TxStatus::Proposed
+    } else if snapshot.proposals().contains_gap(short_id) {
+        TxStatus::Gap
+    } else {
+        TxStatus::Fresh
+    }
+}
 
 fn check_rtx(
     tx_pool: &TxPool,
@@ -971,38 +1065,21 @@ fn check_rtx(
     rtx: &ResolvedTransaction,
 ) -> Result<TxStatus, Reject> {
     let short_id = rtx.transaction.proposal_short_id();
-    if snapshot.proposals().contains_proposed(&short_id) {
-        tx_pool
-            .check_rtx_from_proposed(rtx)
-            .map(|_| TxStatus::Proposed)
-    } else {
-        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
-            TxStatus::Gap
-        } else {
-            TxStatus::Fresh
-        };
-        tx_pool
-            .check_rtx_from_pending_and_proposed(rtx)
-            .map(|_| tx_status)
-    }
+    let tx_status = get_tx_status(snapshot, &short_id);
+    tx_pool.check_rtx_from_pool(rtx).map(|_| tx_status)
 }
 
-fn resolve_tx(tx_pool: &TxPool, snapshot: &Snapshot, tx: TransactionView) -> ResolveResult {
+fn resolve_tx(
+    tx_pool: &TxPool,
+    snapshot: &Snapshot,
+    tx: TransactionView,
+    rbf: bool,
+) -> ResolveResult {
     let short_id = tx.proposal_short_id();
-    if snapshot.proposals().contains_proposed(&short_id) {
-        tx_pool
-            .resolve_tx_from_proposed(tx)
-            .map(|rtx| (rtx, TxStatus::Proposed))
-    } else {
-        let tx_status = if snapshot.proposals().contains_gap(&short_id) {
-            TxStatus::Gap
-        } else {
-            TxStatus::Fresh
-        };
-        tx_pool
-            .resolve_tx_from_pending_and_proposed(tx)
-            .map(|rtx| (rtx, tx_status))
-    }
+    let tx_status = get_tx_status(snapshot, &short_id);
+    tx_pool
+        .resolve_tx_from_pool(tx, rbf)
+        .map(|rtx| (rtx, tx_status))
 }
 
 fn _submit_entry(
@@ -1014,27 +1091,21 @@ fn _submit_entry(
     let tx_hash = entry.transaction().hash();
     match status {
         TxStatus::Fresh => {
-            if tx_pool.add_pending(entry.clone()) {
+            if tx_pool.add_pending(entry.clone())? {
                 debug!("submit_entry pending {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
         TxStatus::Gap => {
-            if tx_pool.add_gap(entry.clone()) {
+            if tx_pool.add_gap(entry.clone())? {
                 debug!("submit_entry gap {}", tx_hash);
                 callbacks.call_pending(tx_pool, &entry);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
                 debug!("submit_entry proposed {}", tx_hash);
                 callbacks.call_proposed(tx_pool, &entry, true);
-            } else {
-                return Err(Reject::Duplicated(tx_hash));
             }
         }
     }
@@ -1064,52 +1135,48 @@ fn _update_tx_pool_for_reorg(
     // pending ---> gap ----> proposed
     // try move gap to proposed
     if mine_mode {
-        let mut entries = Vec::new();
+        let mut proposals = Vec::new();
         let mut gaps = Vec::new();
 
-        tx_pool.gap.remove_entries_by_filter(|id, tx_entry| {
-            if snapshot.proposals().contains_proposed(id) {
-                entries.push(tx_entry.clone());
-                true
-            } else {
-                false
-            }
-        });
-
-        tx_pool.pending.remove_entries_by_filter(|id, tx_entry| {
-            if snapshot.proposals().contains_proposed(id) {
-                entries.push(tx_entry.clone());
-                true
-            } else if snapshot.proposals().contains_gap(id) {
-                gaps.push(tx_entry.clone());
-                true
-            } else {
-                false
-            }
-        });
-
-        for entry in entries {
-            debug!("tx move to proposed {}", entry.transaction().hash());
-            let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            let tx_hash = entry.transaction().hash();
-            if let Err(e) =
-                tx_pool.proposed_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
-            {
-                debug!("Failed to add proposed tx {}, reason: {}", tx_hash, e);
-                callbacks.call_reject(tx_pool, &entry, e.clone());
-            } else {
-                callbacks.call_proposed(tx_pool, &entry, false);
+        for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
+            let short_id = entry.inner.proposal_short_id();
+            if snapshot.proposals().contains_proposed(&short_id) {
+                proposals.push((short_id, entry.inner.clone()));
             }
         }
 
-        for entry in gaps {
-            debug!("tx move to gap {}", entry.transaction().hash());
-            let tx_hash = entry.transaction().hash();
-            let cached = CacheEntry::completed(entry.cycles, entry.fee);
-            if let Err(e) =
-                tx_pool.gap_rtx(cached, entry.size, entry.timestamp, Arc::clone(&entry.rtx))
-            {
-                debug!("Failed to add tx to gap {}, reason: {}", tx_hash, e);
+        for entry in tx_pool.pool_map.entries.get_by_status(&Status::Pending) {
+            let short_id = entry.inner.proposal_short_id();
+            let elem = (short_id.clone(), entry.inner.clone());
+            if snapshot.proposals().contains_proposed(&short_id) {
+                proposals.push(elem);
+            } else if snapshot.proposals().contains_gap(&short_id) {
+                gaps.push(elem);
+            }
+        }
+
+        for (id, entry) in proposals {
+            debug!("begin to proposed: {:x}", id);
+            if let Err(e) = tx_pool.proposed_rtx(&id) {
+                debug!(
+                    "Failed to add proposed tx {}, reason: {}",
+                    entry.transaction().hash(),
+                    e
+                );
+                callbacks.call_reject(tx_pool, &entry, e);
+            } else {
+                callbacks.call_proposed(tx_pool, &entry, false)
+            }
+        }
+
+        for (id, entry) in gaps {
+            debug!("begin to gap: {:x}", id);
+            if let Err(e) = tx_pool.gap_rtx(&id) {
+                debug!(
+                    "Failed to add tx to gap {}, reason: {}",
+                    entry.transaction().hash(),
+                    e
+                );
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             }
         }

@@ -112,11 +112,11 @@ impl Node {
     {
         let mut count = 0;
         let mut template = self.rpc_client().get_block_template(None, None, None);
+
         while blocking(&mut template) {
             sleep(Duration::from_millis(100));
             template = self.rpc_client().get_block_template(None, None, None);
             count += 1;
-
             if count > 900 {
                 panic!("mine_with_blocking timeout");
             }

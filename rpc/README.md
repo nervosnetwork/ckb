@@ -24,7 +24,7 @@ For example, a method is marked as deprecated in 0.35.0, it can be disabled in 0
 
 ## Minimum Supported Rust Version policy (MSRV)
 
-The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
+The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
 
 ## Table of Contents
@@ -68,6 +68,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.67.1.
         * [Method `process_block_without_verify`](#method-process_block_without_verify)
         * [Method `truncate`](#method-truncate)
         * [Method `generate_block`](#method-generate_block)
+        * [Method `generate_epochs`](#method-generate_epochs)
         * [Method `notify_transaction`](#method-notify_transaction)
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
@@ -882,6 +883,8 @@ Response
     },
     "cycles": "0x219",
     "time_added_to_pool" : "0x187b3d137a1",
+    "fee": "0x16923f7dcf",
+    "min_replace_fee": "0x16923f7f6a",
     "tx_status": {
       "block_hash": null,
       "status": "pending",
@@ -1651,7 +1654,7 @@ Response
   "result": {
         "block_version": "0x0",
         "cellbase_maturity": "0x10000000000",
-        "dao_type_hash": null,
+        "dao_type_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
         "hardfork_features": [
@@ -3180,19 +3183,9 @@ Response
 * `generate_block()`
 * result: [`H256`](#type-h256)
 
-Generate block with block_assembler_config, process the block(with verification)
+Generate block(with verification) and broadcast the block.
 
-and broadcast the block.
-
-###### Params
-
-*
-    `block_assembler_script` - specified block assembler script
-
-
-*
-    `block_assembler_message` - specified block assembler message
-
+Note that if called concurrently, it may return the hash of the same block.
 
 ###### Examples
 
@@ -3217,6 +3210,64 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
+  "error": null
+}
+```
+
+
+#### Method `generate_epochs`
+* `generate_epochs(num_epochs)`
+    * `num_epochs`: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
+* result: [`EpochNumberWithFraction`](#type-epochnumberwithfraction)
+
+Generate epochs during development, can be useful for scenarios like testing DAO-related functionalities.
+
+Returns the updated epoch number after generating the specified number of epochs.
+
+###### Params
+
+*   `num_epochs` - The number of epochs to generate.
+
+###### Examples
+
+Request
+
+Generating 2 epochs:
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x2"]
+}
+```
+
+
+The input parameter “0x2” will be normalized to “0x10000000002”(the correct [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method. Therefore, if you want to generate epochs as integers, you can simply pass an integer as long as it does not exceed 16777215 (24 bits).
+
+Generating 1/2 epoch:
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "generate_epochs",
+  "params": ["0x20001000000"]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0001000003",
   "error": null
 }
 ```
@@ -4510,6 +4561,7 @@ Response
   "result": {
     "last_txs_updated_at": "0x0",
     "min_fee_rate": "0x3e8",
+    "min_rbf_rate": "0x5dc",
     "max_tx_pool_size": "0xaba9500",
     "orphan": "0x0",
     "pending": "0x1",
@@ -5071,6 +5123,10 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 ### Error `PoolRejectedTransactionBySizeLimit`
 
 (-1110): The transaction exceeded maximum size limit.
+
+### Error `PoolRejectedRBF`
+
+(-1111): The transaction is rejected for RBF checking.
 
 ### Error `Indexer`
 
@@ -5647,7 +5703,7 @@ Consensus defines various parameters that influence chain consensus
 
 *   `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
 
-*   `dao_type_hash`: [`H256`](#type-h256) `|` `null` - The dao type hash
+*   `dao_type_hash`: [`H256`](#type-h256) - The dao type hash
 
 *   `secp256k1_blake160_sighash_all_type_hash`: [`H256`](#type-h256) `|` `null` - The secp256k1_blake160_sighash_all_type_hash
 
@@ -5734,7 +5790,7 @@ An object containing various state info regarding deployments of consensus chang
 
 `DeploymentInfo` is a JSON object with the following fields.
 
-*   `bit`: https://doc.rust-lang.org/1.67.1/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
+*   `bit`: https://doc.rust-lang.org/1.71.1/std/primitive.u8.html - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,…,28}.
 
 *   `start`: [`EpochNumber`](#type-epochnumber) - specifies the first epoch in which the bit gains meaning.
 
@@ -6426,7 +6482,7 @@ TX reject message
 
 `PoolTransactionReject` is a JSON object with following fields.
 
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry"` - Reject type.
+*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry" | "RBFRejected"` - Reject type.
 *   `description`: `string` - Detailed description about why the transaction is rejected.
 
 Different reject types:
@@ -6441,6 +6497,7 @@ Different reject types:
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 *   `Expiry`: Transaction expired
+*   `RBFRejected`: RBF rejected
 
 
 ### Type `ProposalShortId`
@@ -6951,6 +7008,10 @@ The JSON view of a transaction as well as its status.
 
 *   `tx_status`: [`TxStatus`](#type-txstatus) - The Transaction status.
 
+*   `fee`: [`Capacity`](#type-capacity) `|` `null` - The transaction fee of the transaction
+
+*   `min_replace_fee`: [`Capacity`](#type-capacity) `|` `null` - The minimal fee required to replace this transaction
+
 
 ### Type `TxPoolEntries`
 
@@ -7032,6 +7093,10 @@ Transaction pool information.
 *   `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
 *   `min_fee_rate`: [`Uint64`](#type-uint64) - Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
+
+    The unit is Shannons per 1000 bytes transaction serialization size in the block.
+
+*   `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold. The pool reject to replace for transactions which fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 

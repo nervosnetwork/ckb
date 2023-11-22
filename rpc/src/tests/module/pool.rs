@@ -1,8 +1,7 @@
 use std::{thread::sleep, time::Duration};
 
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::always_success_cell;
-use ckb_test_chain_utils::ckb_testnet_consensus;
+use ckb_test_chain_utils::{always_success_cell, always_success_consensus, ckb_testnet_consensus};
 use ckb_types::{
     core::{self, Capacity, TransactionBuilder},
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint},
@@ -38,7 +37,7 @@ fn test_default_outputs_validator() {
 
         // invalid code hash
         let tx = build_tx(
-            &consensus.dao_type_hash().unwrap(),
+            &consensus.dao_type_hash(),
             core::ScriptHashType::Type,
             vec![1; 20],
         );
@@ -77,7 +76,7 @@ fn test_default_outputs_validator() {
         let lock_type_hash = consensus
             .secp256k1_blake160_multisig_all_type_hash()
             .unwrap();
-        let type_type_hash = consensus.dao_type_hash().unwrap();
+        let type_type_hash = consensus.dao_type_hash();
         // valid output lock
         let tx = build_tx_with_type(
             &lock_type_hash,
@@ -139,7 +138,7 @@ fn test_default_outputs_validator() {
 #[test]
 #[ignore]
 fn test_send_transaction_exceeded_maximum_ancestors_count() {
-    let suite = setup();
+    let suite = setup(always_success_consensus());
 
     let store = suite.shared.store();
     let tip = store.get_tip_header().unwrap();
@@ -172,7 +171,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         parent_tx_hash = tx.hash();
     }
 
-    suite.wait_block_template_array_ge("proposals", 130);
+    suite.wait_block_template_array_ge("proposals", 125);
 
     // 130 txs will be added to proposal list
     while store.get_tip_header().unwrap().number() != (tip.number() + 2) {
