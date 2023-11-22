@@ -99,6 +99,10 @@ impl InnerPool {
         })
     }
 
+    pub fn contains_block(self, hash: &packed::Byte32) -> bool {
+        self.parents.contains_key(hash)
+    }
+
     /// cleanup expired blocks(epoch + EXPIRED_EPOCH < tip_epoch)
     pub fn clean_expired_blocks(&mut self, tip_epoch: EpochNumber) -> Vec<packed::Byte32> {
         let mut result = vec![];
@@ -159,6 +163,10 @@ impl OrphanBlockPool {
 
     pub fn get_block(&self, hash: &packed::Byte32) -> Option<Arc<BlockView>> {
         self.inner.read().get_block(hash)
+    }
+
+    pub fn contains_block(self, hash: &packed::Byte32) -> bool {
+        self.inner.read().contains_block(hash)
     }
 
     pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
