@@ -217,12 +217,10 @@ impl AsyncIndexerR {
 
         // The output needs to be inserted into the db-transaction before the input traversal.
         // This is to cope with the case where the output is spent in a transaction in the same block,
-        // because the input needs to query the corresponding output cell when doing a cell filter.
-        for (tx_index, tx_view) in tx_views.iter().enumerate() {
-            if tx_index == 0 {
-                // cellbase
-                continue;
-            }
+        // because the input needs to query the corresponding output cell when applying a cell filter.
+        //
+        // Skip the first cellbase transaction.
+        for tx_view in tx_views.iter().skip(1) {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let mut is_match = true;
                 if self.custom_filters.is_cell_filter_enabled() {
