@@ -63,7 +63,7 @@ pub fn broadcast_exit_signals() {
             Ok(_) => {}
             Err(TrySendError::Full(_)) => info!("ckb process has received exit signal"),
             Err(TrySendError::Disconnected(_)) => {
-                info!("broadcast thread: channel is disconnected")
+                debug!("broadcast thread: channel is disconnected")
             }
         });
 }
