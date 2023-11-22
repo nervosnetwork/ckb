@@ -3,7 +3,7 @@ use ckb_async_runtime::Handle;
 use ckb_chain::ChainController;
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::{ChainServicesBuilder, Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -47,8 +47,8 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             args.consensus,
         )?;
         let (tmp_shared, mut pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
-        let chain_service_builder = pack.take_chain_services_builder();
-        let chain_controller = chain_service_builder.start();
+        let chain_service_builder: ChainServicesBuilder = pack.take_chain_services_builder();
+        let chain_controller = ckb_chain::start_chain_services(chain_service_builder);
 
         if let Some((from, to)) = args.profile {
             profile(shared, chain_controller, from, to);
