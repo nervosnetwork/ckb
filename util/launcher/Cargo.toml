@@ -32,7 +32,7 @@ ckb-channel = { path = "../channel", version = "= 0.114.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.114.0-pre" }
 ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.114.0-pre" }
 ckb-block-filter = { path = "../../block-filter", version = "= 0.114.0-pre" }
-
+tokio = { version = "1", features = ["sync"] }
 
 [features]
 with_sentry = [ "ckb-sync/with_sentry", "ckb-network/with_sentry", "ckb-app-config/with_sentry" ]

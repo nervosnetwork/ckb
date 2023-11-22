@@ -8,7 +8,7 @@ use ckb_app_config::{
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
-use ckb_chain::{ChainController, ChainServicesBuilder};
+use ckb_chain::ChainController;
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
@@ -19,9 +19,8 @@ use ckb_network::{
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
-use ckb_rpc::RpcServer;
-use ckb_rpc::ServiceBuilder;
-use ckb_shared::Shared;
+use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_shared::{ChainServicesBuilder, Shared};
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_shared::types::VerifyFailedBlockInfo;
@@ -232,7 +231,7 @@ impl Launcher {
         shared: &Shared,
         chain_services_builder: ChainServicesBuilder,
     ) -> ChainController {
-        let chain_controller = chain_services_builder.start();
+        let chain_controller = ckb_chain::start_chain_services(chain_services_builder);
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller
     }
