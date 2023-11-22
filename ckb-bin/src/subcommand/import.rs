@@ -14,7 +14,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     )?;
     let (shared, mut pack) = builder.build()?;
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = ckb_chain::start_chain_services(pack.take_chain_services_builder());
 
     // manual drop tx_pool_builder and relay_tx_receiver
     pack.take_tx_pool_builder();
