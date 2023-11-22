@@ -513,6 +513,7 @@ impl TxPoolServiceBuilder {
                     _ = signal_receiver.cancelled() => {
                         info!("TxPool is saving, please wait...");
                         process_service.save_pool().await;
+                        info!("TxPool process_service exit now");
                         break
                     },
                     else => break,
@@ -539,7 +540,7 @@ impl TxPoolServiceBuilder {
                                 block_assembler::process(service_clone, &message).await;
                             },
                             _ = signal_receiver.cancelled() => {
-                                info!("TxPool received exit signal, exit now");
+                                info!("TxPool block_assembler process service received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -574,7 +575,7 @@ impl TxPoolServiceBuilder {
                                 queue.clear();
                             }
                             _ = signal_receiver.cancelled() => {
-                                info!("TxPool received exit signal, exit now");
+                                info!("TxPool block_assembler process service received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -612,7 +613,7 @@ impl TxPoolServiceBuilder {
                         service.update_block_assembler_after_tx_pool_reorg().await;
                     },
                     _ = signal_receiver.cancelled() => {
-                        info!("TxPool received exit signal, exit now");
+                        info!("TxPool reorg process service received exit signal, exit now");
                         break
                     },
                     else => break,

@@ -85,7 +85,7 @@ impl ChunkProcess {
                     }
                 },
                 _ = self.signal.cancelled() => {
-                    info!("TxPool received exit signal, exit now");
+                    info!("TxPool chunk_command service received exit signal, exit now");
                     break
                 },
                 else => break,
