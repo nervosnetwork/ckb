@@ -1,4 +1,4 @@
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 
 use std::io::{stdin, stdout, Write};
 
@@ -73,6 +73,6 @@ pub fn prompt(msg: &str) -> String {
 /// on the number of cores available.
 pub fn raise_fd_limit() {
     if let Some(limit) = fdlimit::raise_fd_limit() {
-        info!("raise_fd_limit newly-increased limit: {}", limit);
+        debug!("raise_fd_limit newly-increased limit: {}", limit);
     }
 }

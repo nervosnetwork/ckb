@@ -11,7 +11,7 @@ mod reset_data;
 mod run;
 mod stats;
 
-pub use self::daemon::daemon;
+pub use self::daemon::{check_process, daemon};
 pub use self::export::export;
 pub use self::import::import;
 pub use self::init::init;

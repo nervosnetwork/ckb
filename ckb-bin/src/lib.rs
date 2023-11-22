@@ -10,9 +10,11 @@ use ckb_build_info::Version;
 use ckb_logger::info;
 use ckb_network::tokio;
 use clap::ArgMatches;
+use colored::Colorize;
 use daemonize::Daemonize;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
+use subcommand::check_process;
 
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
@@ -73,12 +75,18 @@ fn run_in_daemon(
     matches: &ArgMatches,
 ) -> Result<(), ExitCode> {
     eprintln!("starting CKB in daemon mode ...");
-    eprintln!("check status with: `ckb status`");
-    eprintln!("stop daemon with: `ckb stop`");
+    eprintln!("check status : `{}`", "ckb daemon --check".green());
+    eprintln!("stop daemon  : `{}`", "ckb daemon --stop".yellow());
 
     assert!(matches!(cmd, cli::CMD_RUN | cli::CMD_MINER));
     let cmd_name = if cmd == cli::CMD_RUN { "run" } else { "miner" };
     let pid_file = format!("/tmp/ckb-{}.pid", cmd_name);
+
+    if check_process(&pid_file).is_ok() {
+        eprintln!("{}", format!("ckb {} is already running", cmd_name).red());
+        return Ok(());
+    }
+
     let pwd = std::env::current_dir()?;
     let daemon = Daemonize::new()
         .pid_file(pid_file)
@@ -87,11 +95,11 @@ fn run_in_daemon(
 
     match daemon.start() {
         Ok(_) => {
-            eprintln!("Success, daemonized ...");
+            info!("Success, daemonized ...");
             run_app_inner(version, bin_name, cmd, matches)
         }
         Err(e) => {
-            eprintln!("daemonize error: {}", e);
+            info!("daemonize error: {}", e);
             Err(ExitCode::Failure)
         }
     }
@@ -103,8 +111,6 @@ fn run_app_inner(
     cmd: &str,
     matches: &ArgMatches,
 ) -> Result<(), ExitCode> {
-    eprintln!("pwd = {:?}", std::env::current_dir()?);
-
     let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
