@@ -17,6 +17,15 @@ pub struct ExportArgs {
     pub target: PathBuf,
 }
 
+#[derive(Debug)]
+/// Parsed command line arguments for `ckb daemon`.
+pub struct DaemonArgs {
+    /// Check the daemon status
+    pub check: bool,
+    /// Stop daemon process
+    pub stop: bool,
+}
+
 /// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
     /// Parsed `ckb.toml`.

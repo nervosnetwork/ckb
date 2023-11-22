@@ -15,7 +15,7 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
+    DaemonArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
@@ -217,6 +217,14 @@ impl Setup {
             consensus,
             target,
         })
+    }
+
+    /// Executes `ckb daemon`.
+    pub fn daemon(self, matches: &ArgMatches) -> Result<DaemonArgs, ExitCode> {
+        let check = matches.get_flag(cli::ARG_DAEMON_CHECK);
+        let stop = matches.get_flag(cli::ARG_DAEMON_STOP);
+
+        Ok(DaemonArgs { check, stop })
     }
 
     /// Executes `ckb init`.

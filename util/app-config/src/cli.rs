@@ -32,7 +32,8 @@ pub const CMD_GEN_SECRET: &str = "gen";
 pub const CMD_FROM_SECRET: &str = "from-secret";
 /// Subcommand `migrate`.
 pub const CMD_MIGRATE: &str = "migrate";
-
+/// Subcommand `daemon`
+pub const CMD_DAEMON: &str = "daemon";
 /// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 /// Command line argument `--format`.
@@ -113,6 +114,10 @@ pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
+/// Command line argument `daemon --check`
+pub const ARG_DAEMON_CHECK: &str = "check";
+/// Command line argument `daemon --stop`
+pub const ARG_DAEMON_STOP: &str = "stop";
 
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
@@ -146,6 +151,7 @@ pub fn basic_app() -> Command {
         .subcommand(reset_data())
         .subcommand(peer_id())
         .subcommand(migrate())
+        .subcommand(daemon())
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -211,18 +217,29 @@ fn run() -> Command {
 }
 
 fn miner() -> Command {
-    Command::new(CMD_MINER).about("Run CKB miner").arg(
-        Arg::new(ARG_LIMIT)
-            .short('l')
-            .long(ARG_LIMIT)
-            .action(clap::ArgAction::Set)
-            .value_parser(clap::value_parser!(u128))
-            .default_value("0")
-            .help(
-                "Exit after finding this specific number of nonces; \
+    Command::new(CMD_MINER)
+        .about("Runs ckb miner")
+        .arg(
+            Arg::new(ARG_LIMIT)
+                .short('l')
+                .long(ARG_LIMIT)
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(u128))
+                .default_value("0")
+                .help(
+                    "Exit after finding this specific number of nonces; \
             0 means the miner will never exit. [default: 0]",
-            ),
-    )
+                ),
+        )
+        .arg(
+            Arg::new(ARG_DAEMON)
+                .long(ARG_DAEMON)
+                .action(clap::ArgAction::SetTrue)
+                .help(
+                    "Starts ckb as a daemon, \
+        which will run in the background and output logs to the specified log file",
+                ),
+        )
 }
 
 fn reset_data() -> Command {
@@ -378,6 +395,24 @@ fn migrate() -> Command {
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with(ARG_MIGRATE_CHECK)
                 .help("Migrate without interactive prompt"),
+        )
+}
+
+fn daemon() -> Command {
+    Command::new(CMD_DAEMON)
+        .about("Runs ckb daemon command")
+        .arg(
+            Arg::new(ARG_DAEMON_CHECK)
+                .long(ARG_DAEMON_CHECK)
+                .action(clap::ArgAction::SetTrue)
+                .help("Check the daemon status"),
+        )
+        .arg(
+            Arg::new(ARG_DAEMON_STOP)
+                .long(ARG_DAEMON_STOP)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_DAEMON_CHECK)
+                .help("Stop the daemon process, both the miner and the node"),
         )
 }
 

@@ -4,9 +4,6 @@
 mod helper;
 mod setup_guard;
 mod subcommand;
-
-use std::fs::File;
-
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
@@ -61,35 +58,42 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .subcommand()
         .expect("SubcommandRequiredElseHelp");
 
-    let run_in_daemon = cmd == cli::CMD_RUN && matches.get_flag(cli::ARG_DAEMON);
-    if run_in_daemon {
-        eprintln!("starting CKB in daemon mode ...");
-        eprintln!("check status with: `ckb status`");
-        eprintln!("stop daemon with: `ckb stop`");
-        let stdout = File::create("/tmp/ckb-daemon.out")?;
-        let stderr = File::create("/tmp/ckb-daemon.err")?;
-
-        let pwd = std::env::current_dir()?;
-        let daemon = Daemonize::new()
-            .pid_file("/tmp/ckb-daemon.pid")
-            .chown_pid_file(true)
-            .working_directory(pwd)
-            .stdout(stdout)
-            .stderr(stderr);
-
-        match daemon.start() {
-            Ok(_) => {
-                eprintln!("Success, daemonized ...");
-                run_app_inner(version, bin_name, cmd, matches)
-            }
-            Err(e) => {
-                eprintln!("daemonize error: {}", e);
-                Err(ExitCode::Failure)
-            }
-        }
+    if run_deamon(cmd, matches) {
+        run_in_daemon(version, bin_name, cmd, matches)
     } else {
         debug!("ckb version: {}", version);
         run_app_inner(version, bin_name, cmd, matches)
+    }
+}
+
+fn run_in_daemon(
+    version: Version,
+    bin_name: String,
+    cmd: &str,
+    matches: &ArgMatches,
+) -> Result<(), ExitCode> {
+    eprintln!("starting CKB in daemon mode ...");
+    eprintln!("check status with: `ckb status`");
+    eprintln!("stop daemon with: `ckb stop`");
+
+    assert!(matches!(cmd, cli::CMD_RUN | cli::CMD_MINER));
+    let cmd_name = if cmd == cli::CMD_RUN { "run" } else { "miner" };
+    let pid_file = format!("/tmp/ckb-{}.pid", cmd_name);
+    let pwd = std::env::current_dir()?;
+    let daemon = Daemonize::new()
+        .pid_file(pid_file)
+        .chown_pid_file(true)
+        .working_directory(pwd);
+
+    match daemon.start() {
+        Ok(_) => {
+            eprintln!("Success, daemonized ...");
+            run_app_inner(version, bin_name, cmd, matches)
+        }
+        Err(e) => {
+            eprintln!("daemonize error: {}", e);
+            Err(ExitCode::Failure)
+        }
     }
 }
 
@@ -117,6 +121,7 @@ fn run_app_inner(
         cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle.clone()),
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(matches)?),
+        cli::CMD_DAEMON => subcommand::daemon(setup.daemon(matches)?),
         _ => unreachable!(),
     };
 
@@ -131,6 +136,19 @@ fn run_app_inner(
     }
 
     ret
+}
+
+#[cfg(target_os = "windows")]
+fn run_deamon(_cmd: &str, _matches: &ArgMatches) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_deamon(cmd: &str, matches: &ArgMatches) -> bool {
+    match cmd {
+        cli::CMD_RUN | cli::CMD_MINER => matches.get_flag(cli::ARG_DAEMON),
+        _ => false,
+    }
 }
 
 type Silent = bool;
