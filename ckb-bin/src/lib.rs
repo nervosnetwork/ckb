@@ -80,9 +80,9 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         handle.drop_guard();
 
         tokio::task::block_in_place(|| {
-            debug!("waiting all tokio tasks done");
+            info!("waiting all tokio tasks exit...");
             handle_stop_rx.blocking_recv();
-            info!("ckb shutdown");
+            info!("all tokio tasks and threads have exited, ckb shutdown");
         });
     }
 
