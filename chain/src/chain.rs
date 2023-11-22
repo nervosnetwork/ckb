@@ -24,6 +24,7 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{cell::HeaderChecker, service::Request, BlockView},
     packed::Byte32,
+    H256,
 };
 use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier};
 use ckb_verification_traits::{Switch, Verifier};
@@ -357,23 +358,24 @@ impl ChainService {
         if block_number < 1 {
             warn!("receive 0 number block: 0-{}", block_hash);
         }
-        if let Some(switch) = lonely_block.switch() {
-            if !switch.disable_non_contextual() {
-                let result = self.non_contextual_verify(&lonely_block.block());
-                match result {
-                    Err(err) => {
-                        tell_synchronizer_to_punish_the_bad_peer(
-                            self.verify_failed_blocks_tx.clone(),
-                            lonely_block.peer_id(),
-                            lonely_block.block().hash(),
-                            &err,
-                        );
 
-                        lonely_block.execute_callback(Err(err));
-                        return;
-                    }
-                    _ => {}
+        if lonely_block.switch().is_none()
+            || matches!(lonely_block.switch(), Some(switch) if !switch.disable_non_contextual())
+        {
+            let result = self.non_contextual_verify(&lonely_block.block());
+            match result {
+                Err(err) => {
+                    tell_synchronizer_to_punish_the_bad_peer(
+                        self.verify_failed_blocks_tx.clone(),
+                        lonely_block.peer_id(),
+                        lonely_block.block().hash(),
+                        &err,
+                    );
+
+                    lonely_block.execute_callback(Err(err));
+                    return;
                 }
+                _ => {}
             }
         }
 
