@@ -68,6 +68,7 @@ impl ConsumeOrphan {
             }
         }
     }
+
     fn search_orphan_pool(&self) {
         for leader_hash in self.orphan_blocks_broker.clone_leaders() {
             if !self
@@ -88,8 +89,7 @@ impl ConsumeOrphan {
                 );
                 continue;
             }
-            let descendants_len = descendants.len();
-            let (first_descendants_number, last_descendants_number) = (
+            let (first_descendants_number, last_descendants_number, descendants_len) = (
                 descendants
                     .first()
                     .expect("descdant not empty")
@@ -100,89 +100,9 @@ impl ConsumeOrphan {
                     .expect("descdant not empty")
                     .block()
                     .number(),
+                descendants.len(),
             );
-
-            let mut accept_error_occurred = false;
-            for descendant_block in descendants {
-                match self.accept_block(descendant_block.block().to_owned()) {
-                    Err(err) => {
-                        tell_synchronizer_to_punish_the_bad_peer(
-                            self.verify_failed_blocks_tx.clone(),
-                            descendant_block.peer_id(),
-                            descendant_block.block().hash(),
-                            &err,
-                        );
-
-                        accept_error_occurred = true;
-                        error!(
-                            "accept block {} failed: {}",
-                            descendant_block.block().hash(),
-                            err
-                        );
-
-                        descendant_block.execute_callback(Err(err));
-                        continue;
-                    }
-                    Ok(accepted_opt) => match accepted_opt {
-                        Some((parent_header, total_difficulty)) => {
-                            let unverified_block: UnverifiedBlock =
-                                descendant_block.combine_parent_header(parent_header);
-                            let block_number = unverified_block.block().number();
-                            let block_hash = unverified_block.block().hash();
-
-                            match self.unverified_blocks_tx.send(unverified_block) {
-                                Ok(_) => {}
-                                Err(SendError(unverified_block)) => {
-                                    error!("send unverified_block_tx failed, the receiver has been closed");
-                                    let err: Error = InternalErrorKind::System
-                                    .other(format!("send unverified_block_tx failed, the receiver have been close")).into();
-
-                                    tell_synchronizer_to_punish_the_bad_peer(
-                                        self.verify_failed_blocks_tx.clone(),
-                                        unverified_block.peer_id(),
-                                        unverified_block.block().hash(),
-                                        &err,
-                                    );
-
-                                    let verify_result: VerifyResult = Err(err);
-                                    unverified_block.execute_callback(verify_result);
-                                    continue;
-                                }
-                            };
-
-                            if total_difficulty
-                                .gt(self.shared.get_unverified_tip().total_difficulty())
-                            {
-                                self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                                    block_number.clone(),
-                                    block_hash.clone(),
-                                    total_difficulty,
-                                ));
-                                debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
-                            block_number.clone(),
-                            block_hash.clone(),
-                            block_number.saturating_sub(self.shared.snapshot().tip_number()))
-                            } else {
-                                debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
-                                    block_number,
-                                    block_hash,
-                                    self.shared.get_unverified_tip().number(),
-                                    self.shared.get_unverified_tip().hash(),
-                                    );
-                            }
-                        }
-                        None => {
-                            info!(
-                                "doesn't accept block {}, because it has been stored",
-                                descendant_block.block().hash()
-                            );
-                            let verify_result: VerifyResult =
-                                Ok(VerifiedBlockStatus::PreviouslySeenButNotVerified);
-                            descendant_block.execute_callback(verify_result);
-                        }
-                    },
-                }
-            }
+            let accept_error_occurred = self.accept_descendants(descendants);
 
             if !accept_error_occurred {
                 debug!(
@@ -193,7 +113,97 @@ impl ConsumeOrphan {
         }
     }
 
-    fn accept_block(&self, block: Arc<BlockView>) -> Result<Option<(HeaderView, U256)>, Error> {
+    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) -> bool {
+        let mut accept_error_occurred = false;
+        for descendant_block in descendants {
+            match self.accept_descendant(descendant_block.block().to_owned()) {
+                Ok(accepted_opt) => match accepted_opt {
+                    Some((parent_header, total_difficulty)) => {
+                        let unverified_block: UnverifiedBlock =
+                            descendant_block.combine_parent_header(parent_header);
+                        let block_number = unverified_block.block().number();
+                        let block_hash = unverified_block.block().hash();
+
+                        match self.unverified_blocks_tx.send(unverified_block) {
+                            Ok(_) => {}
+                            Err(SendError(unverified_block)) => {
+                                error!(
+                                    "send unverified_block_tx failed, the receiver has been closed"
+                                );
+                                let err: Error = InternalErrorKind::System
+                                    .other(format!("send unverified_block_tx failed, the receiver have been close")).into();
+
+                                tell_synchronizer_to_punish_the_bad_peer(
+                                    self.verify_failed_blocks_tx.clone(),
+                                    unverified_block.peer_id(),
+                                    unverified_block.block().hash(),
+                                    &err,
+                                );
+
+                                let verify_result: VerifyResult = Err(err);
+                                unverified_block.execute_callback(verify_result);
+                                continue;
+                            }
+                        };
+
+                        if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty())
+                        {
+                            self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
+                                block_number.clone(),
+                                block_hash.clone(),
+                                total_difficulty,
+                            ));
+                            debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
+                            block_number.clone(),
+                            block_hash.clone(),
+                            block_number.saturating_sub(self.shared.snapshot().tip_number()))
+                        } else {
+                            debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
+                                    block_number,
+                                    block_hash,
+                                    self.shared.get_unverified_tip().number(),
+                                    self.shared.get_unverified_tip().hash(),
+                                    );
+                        }
+                    }
+                    None => {
+                        info!(
+                            "doesn't accept block {}, because it has been stored",
+                            descendant_block.block().hash()
+                        );
+                        let verify_result: VerifyResult =
+                            Ok(VerifiedBlockStatus::PreviouslySeenButNotVerified);
+                        descendant_block.execute_callback(verify_result);
+                    }
+                },
+
+                Err(err) => {
+                    accept_error_occurred = true;
+
+                    tell_synchronizer_to_punish_the_bad_peer(
+                        self.verify_failed_blocks_tx.clone(),
+                        descendant_block.peer_id(),
+                        descendant_block.block().hash(),
+                        &err,
+                    );
+
+                    error!(
+                        "accept block {} failed: {}",
+                        descendant_block.block().hash(),
+                        err
+                    );
+
+                    descendant_block.execute_callback(Err(err));
+                }
+            }
+        }
+        accept_error_occurred
+    }
+
+    fn accept_descendant(
+        &self,
+        block: Arc<BlockView>,
+    ) -> Result<Option<(HeaderView, U256)>, Error> {
         let (block_number, block_hash) = (block.number(), block.hash());
 
         if self
