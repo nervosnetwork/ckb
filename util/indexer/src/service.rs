@@ -2,7 +2,7 @@
 
 use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
-use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
+use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
@@ -46,8 +46,10 @@ pub struct IndexerService {
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
+        let is_store_initialized = config.store.exists();
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
+        Self::apply_init_tip(is_store_initialized, config, &store);
         let pool = if config.index_tx_pool {
             Some(Arc::new(RwLock::new(Pool::default())))
         } else {
@@ -246,6 +248,21 @@ impl IndexerService {
                 .unwrap_or(DEFAULT_LOG_KEEP_NUM),
         );
         opts
+    }
+
+    fn apply_init_tip(is_store_initialized: bool, config: &IndexerConfig, store: &RocksdbStore) {
+        if !is_store_initialized
+            && config.init_tip_hash.is_some()
+            && config.init_tip_number.is_some()
+        {
+            let block_number = config.init_tip_number.unwrap();
+            let block_hash = config.init_tip_hash.as_ref().unwrap();
+            let mut batch = store.batch().expect("create batch should be OK");
+            batch
+                .put_kv(Key::Header(block_number, &block_hash.pack(), true), vec![])
+                .expect("insert init tip header should be OK");
+            batch.commit().expect("commit batch should be OK");
+        }
     }
 }
 

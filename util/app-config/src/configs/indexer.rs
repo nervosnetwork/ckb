@@ -1,3 +1,4 @@
+use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,12 @@ pub struct IndexerConfig {
     /// Maximal db info log files to be kept.
     #[serde(default)]
     pub db_keep_log_file_num: Option<NonZeroUsize>,
+    /// The init tip block number
+    #[serde(default)]
+    pub init_tip_number: Option<u64>,
+    /// The init tip block hash
+    #[serde(default)]
+    pub init_tip_hash: Option<H256>,
 }
 
 const fn default_poll_interval() -> u64 {
@@ -45,6 +52,8 @@ impl Default for IndexerConfig {
             cell_filter: None,
             db_background_jobs: None,
             db_keep_log_file_num: None,
+            init_tip_number: None,
+            init_tip_hash: None,
         }
     }
 }
