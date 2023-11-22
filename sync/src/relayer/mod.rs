@@ -318,8 +318,7 @@ impl Relayer {
             let peer = peer.clone();
             move |result: VerifyResult| match result {
                 Ok(verified_block_status) => match verified_block_status {
-                    VerifiedBlockStatus::FirstSeenAndVerified
-                    | VerifiedBlockStatus::FirstSeenButNotVerified => {
+                    VerifiedBlockStatus::FirstSeenAndVerified => {
                         match broadcast_compact_block_tx.send((block, peer)) {
                             Err(_) => {
                                 error!(
