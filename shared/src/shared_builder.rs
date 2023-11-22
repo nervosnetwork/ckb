@@ -1,56 +1,32 @@
 //! shared_builder provide SharedBuilder and SharedPacakge
-use ckb_channel::Receiver;
-use ckb_proposal_table::ProposalTable;
-use ckb_tx_pool::service::TxVerificationResult;
-use ckb_tx_pool::{TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
-use std::cmp::Ordering;
-
-use crate::migrate::Migrate;
+use crate::ChainServicesBuilder;
+use crate::{types::VerifyFailedBlockInfo, HeaderMap, Shared};
 use ckb_app_config::{
-    BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, SyncConfig, TxPoolConfig,
+    BlockAssemblerConfig, DBConfig, ExitCode, HeaderMapConfig, NotifyConfig, StoreConfig,
+    SyncConfig, TxPoolConfig,
 };
-use ckb_app_config::{ExitCode, HeaderMapConfig};
 use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-
-use crate::Shared;
-use ckb_proposal_table::ProposalView;
-use ckb_snapshot::{Snapshot, SnapshotMgr};
-
-use ckb_app_config::{
-    BlockAssemblerConfig, DBConfig, ExitCode, NotifyConfig, StoreConfig, TxPoolConfig,
-};
-use ckb_async_runtime::{new_background_runtime, Handle};
+use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
-use ckb_shared::{HeaderMap, Shared};
 use ckb_snapshot::{Snapshot, SnapshotMgr};
-use ckb_util::Mutex;
-
-use ckb_chain::ChainServicesBuilder;
-use ckb_shared::types::VerifyFailedBlockInfo;
-use ckb_store::ChainDB;
-use ckb_store::ChainStore;
 use ckb_store::{ChainDB, ChainStore, Freezer};
 use ckb_tx_pool::{
-    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
-    TxPoolServiceBuilder,
+    service::TxVerificationResult, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder,
 };
 use ckb_types::core::hardfork::HardForks;
-use ckb_types::core::service::PoolTransactionEntry;
-use ckb_types::core::tx_pool::Reject;
+use ckb_types::{
+    core::service::PoolTransactionEntry, core::tx_pool::Reject, core::EpochExt, core::HeaderView,
+};
 use ckb_util::Mutex;
-
-use ckb_types::core::EpochExt;
-use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
 use dashmap::DashMap;
 use std::cmp::Ordering;
