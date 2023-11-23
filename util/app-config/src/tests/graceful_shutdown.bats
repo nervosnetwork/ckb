@@ -19,7 +19,7 @@ function ckb_graceful_shutdown { #@test
   run _ckb_graceful_shutdown
 
   [ "$status" -eq 0 ]
-  
+
   assert_output --regexp "INFO ckb_bin::subcommand::run  Trapped exit signal, exiting..."
   assert_output --regexp "INFO ckb_chain::chain  ChainService received exit signal, exit now"
   assert_output --regexp "INFO ckb_sync::synchronizer  BlockDownload received exit signal, exit now"
