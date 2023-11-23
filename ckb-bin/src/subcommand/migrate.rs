@@ -42,10 +42,11 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                     let input = prompt("\
                     \n\
                     Doing migration will take quite a long time before CKB could work again.\n\
-                    Another choice is to delete all data, then synchronize them again.\n\
                     \n\
                     Once the migration started, the data will be no longer compatible with all older versions CKB,\n\
                     so we strongly recommended you to backup the old data before migrating.\n\
+                    \n\
+                    If the migration failed, try to delete all data and sync from scratch.\n\
                     \nIf you want to migrate the data, please input YES, otherwise, the current process will exit.\n\
                     > ",
                     );

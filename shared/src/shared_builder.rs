@@ -74,12 +74,13 @@ pub fn open_or_create_db(
             Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
             Ordering::Less => {
                 let can_run_in_background = migrate.can_run_in_background(&db);
+                eprintln!("can_run_in_background: {}", can_run_in_background);
                 if migrate.require_expensive(&db) && !can_run_in_background {
                     eprintln!(
                         "For optimal performance, CKB recommends migrating your data into a new format.\n\
                         If you prefer to stick with the older version, \n\
                         it's important to note that they may have unfixed vulnerabilities.\n\
-                        Before migrating, we strongly recommend backuping your data directory.
+                        Before migrating, we strongly recommend backuping your data directory.\n\
                         To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
                         bin_name,
                         root_dir.display()

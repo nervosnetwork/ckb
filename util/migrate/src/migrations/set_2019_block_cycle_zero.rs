@@ -92,11 +92,11 @@ impl Migration for BlockExt2019ToZero {
                         .get_block_header(&header.parent_hash())
                         .expect("db must have header");
 
-                    pbi.inc(1);
-
                     if header.is_genesis() {
                         break;
                     }
+
+                    pbi.inc(1);
                 }
                 db_txn.commit()?;
 

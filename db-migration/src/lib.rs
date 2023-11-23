@@ -252,13 +252,13 @@ impl Migrations {
             let _ = exit_signal.recv();
             let res = SHUTDOWN_BACKGROUND_MIGRATION.set(true);
             let _ = tx_clone.send(Command::Stop);
-            eprintln!("set shutdown flag to true: {:?} version: {}", res, clone);
+            info!("set shutdown flag to true: {:?} version: {}", res, clone);
         });
         register_thread("migration-notifier", notifier);
 
         let handler = worker.start();
         if all_can_resume {
-            eprintln!("register thread: migration ....");
+            info!("register thread: migration ....");
             register_thread("migration", handler);
         }
         tx.send(Command::Start).expect("send start command");
