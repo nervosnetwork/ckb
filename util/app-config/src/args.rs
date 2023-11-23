@@ -24,6 +24,8 @@ pub struct DaemonArgs {
     pub check: bool,
     /// Stop daemon process
     pub stop: bool,
+    /// The pid file path
+    pub pid_file: PathBuf,
 }
 
 /// Parsed command line arguments for `ckb import`.

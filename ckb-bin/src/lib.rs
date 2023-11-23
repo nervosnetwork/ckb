@@ -80,14 +80,19 @@ fn run_in_daemon(
     eprintln!("check status : `{}`", "ckb daemon --check".green());
     eprintln!("stop daemon  : `{}`", "ckb daemon --stop".yellow());
 
-    assert!(matches!(cmd, cli::CMD_RUN | cli::CMD_MINER));
-    let cmd_name = if cmd == cli::CMD_RUN { "run" } else { "miner" };
-    let pid_file = format!("/tmp/ckb-{}.pid", cmd_name);
+    assert!(matches!(cmd, cli::CMD_RUN));
+    let root_dir = Setup::root_dir_from_matches(matches)?;
+    let daemon_dir = root_dir.join("data/daemon");
+    let pid_file = Setup::pid_file_path_from_matches(matches)?;
 
     if check_process(&pid_file).is_ok() {
-        eprintln!("{}", format!("ckb {} is already running", cmd_name).red());
+        eprintln!("{}", "ckb is already running".red());
         return Ok(());
     }
+    eprintln!("no ckb process, starting ...");
+
+    // make sure daemon dir exists
+    std::fs::create_dir_all(daemon_dir)?;
 
     let pwd = std::env::current_dir()?;
     let daemon = Daemonize::new()
@@ -152,7 +157,7 @@ fn run_deamon(cmd: &str, matches: &ArgMatches) -> bool {
     return false;
 
     match cmd {
-        cli::CMD_RUN | cli::CMD_MINER => matches.get_flag(cli::ARG_DAEMON),
+        cli::CMD_RUN => matches.get_flag(cli::ARG_DAEMON),
         _ => false,
     }
 }

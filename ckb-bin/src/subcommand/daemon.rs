@@ -3,34 +3,31 @@ use colored::*;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use std::fs;
+use std::path::PathBuf;
 
 pub fn daemon(args: DaemonArgs) -> Result<(), ExitCode> {
-    let ckb_pid_file = "/tmp/ckb-run.pid";
-    let miner_pid_file = "/tmp/ckb-miner.pid";
-
+    let name = "ckb";
+    let pid_file = &args.pid_file;
     if args.check {
         // find the pid file and check if the process is running
-        daemon_check(ckb_pid_file, "ckb");
-        daemon_check(miner_pid_file, "miner");
+        match check_process(pid_file) {
+            Ok(pid) => {
+                eprintln!("{:>10} : {:<12} pid - {}", name, "running".green(), pid);
+            }
+            _ => {
+                eprintln!("{:>10} : {:<12}", name, "not running".red());
+            }
+        }
     } else if args.stop {
-        let _ = kill_process(ckb_pid_file, "ckb");
-        let _ = kill_process(miner_pid_file, "miner");
+        kill_process(pid_file, "ckb")?;
+        fs::remove_file(pid_file).map_err(|_| ExitCode::Failure)?;
+    } else {
+        unimplemented!()
     }
     Ok(())
 }
 
-fn daemon_check(pid_file: &str, name: &str) {
-    match check_process(pid_file) {
-        Ok(pid) => {
-            eprintln!("{:>10} : {:<12} pid - {}", name, "running".green(), pid);
-        }
-        _ => {
-            eprintln!("{:>10} : {:<12}", name, "not running".red());
-        }
-    }
-}
-
-pub fn check_process(pid_file: &str) -> Result<i32, ExitCode> {
+pub fn check_process(pid_file: &PathBuf) -> Result<i32, ExitCode> {
     let pid_str = fs::read_to_string(pid_file).map_err(|_| ExitCode::Failure)?;
     let pid = pid_str
         .trim()
@@ -44,7 +41,7 @@ pub fn check_process(pid_file: &str) -> Result<i32, ExitCode> {
     }
 }
 
-fn kill_process(pid_file: &str, name: &str) -> Result<(), ExitCode> {
+fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
     if check_process(pid_file).is_err() {
         eprintln!("{} is not running", name);
         return Ok(());

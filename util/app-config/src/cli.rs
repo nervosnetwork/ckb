@@ -221,29 +221,18 @@ fn run() -> Command {
 }
 
 fn miner() -> Command {
-    Command::new(CMD_MINER)
-        .about("Runs ckb miner")
-        .arg(
-            Arg::new(ARG_LIMIT)
-                .short('l')
-                .long(ARG_LIMIT)
-                .action(clap::ArgAction::Set)
-                .value_parser(clap::value_parser!(u128))
-                .default_value("0")
-                .help(
-                    "Exit after finding this specific number of nonces; \
+    Command::new(CMD_MINER).about("Runs ckb miner").arg(
+        Arg::new(ARG_LIMIT)
+            .short('l')
+            .long(ARG_LIMIT)
+            .action(clap::ArgAction::Set)
+            .value_parser(clap::value_parser!(u128))
+            .default_value("0")
+            .help(
+                "Exit after finding this specific number of nonces; \
             0 means the miner will never exit. [default: 0]",
-                ),
-        )
-        .arg(
-            Arg::new(ARG_DAEMON)
-                .long(ARG_DAEMON)
-                .action(clap::ArgAction::SetTrue)
-                .help(
-                    "Starts ckb as a daemon, \
-        which will run in the background and output logs to the specified log file",
-                ),
-        )
+            ),
+    )
 }
 
 fn reset_data() -> Command {
