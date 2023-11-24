@@ -146,7 +146,7 @@ impl BlockFetchCMD {
                     }
                 }
                 recv(stop_signal) -> _ => {
-                    debug!("thread BlockDownload received exit signal, exit now");
+                    info!("BlockDownload received exit signal, exit now");
                     return;
                 }
             }

@@ -105,7 +105,7 @@ impl Miner {
                     },
                 },
                 recv(stop_rx) -> _msg => {
-                    debug!("miner received exit signal, stopped");
+                    info!("miner received exit signal, stopped");
                     break;
                 }
             };
