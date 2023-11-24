@@ -7,7 +7,7 @@ mod subcommand;
 use ckb_app_config::{cli, ExitCode, Setup};
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_network::tokio;
 use clap::ArgMatches;
 use colored::Colorize;
@@ -63,14 +63,14 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .expect("SubcommandRequiredElseHelp");
 
     if run_deamon(cmd, matches) {
-        run_in_daemon(version, bin_name, cmd, matches)
+        run_app_in_daemon(version, bin_name, cmd, matches)
     } else {
         debug!("ckb version: {}", version);
         run_app_inner(version, bin_name, cmd, matches)
     }
 }
 
-fn run_in_daemon(
+fn run_app_in_daemon(
     version: Version,
     bin_name: String,
     cmd: &str,
@@ -83,7 +83,7 @@ fn run_in_daemon(
     assert!(matches!(cmd, cli::CMD_RUN));
     let root_dir = Setup::root_dir_from_matches(matches)?;
     let daemon_dir = root_dir.join("data/daemon");
-    let pid_file = Setup::pid_file_path_from_matches(matches)?;
+    let pid_file = Setup::daemon_pid_file_path(matches)?;
 
     if check_process(&pid_file).is_ok() {
         eprintln!("{}", "ckb is already running".red());

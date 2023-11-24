@@ -223,7 +223,7 @@ impl Setup {
     pub fn daemon(self, matches: &ArgMatches) -> Result<DaemonArgs, ExitCode> {
         let check = matches.get_flag(cli::ARG_DAEMON_CHECK);
         let stop = matches.get_flag(cli::ARG_DAEMON_STOP);
-        let pid_file = Setup::pid_file_path_from_matches(matches)?;
+        let pid_file = Setup::daemon_pid_file_path(matches)?;
         Ok(DaemonArgs {
             check,
             stop,
@@ -361,7 +361,7 @@ impl Setup {
     }
 
     /// Resolves the pid file path for ckb from the command line arguments.
-    pub fn pid_file_path_from_matches(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
+    pub fn daemon_pid_file_path(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
         let root_dir = Self::root_dir_from_matches(matches)?;
         Ok(root_dir.join("data/daemon/ckb-run.pid"))
     }
