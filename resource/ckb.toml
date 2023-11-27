@@ -203,3 +203,5 @@ block_uncles_cache_size    = 30
 # block_filter = "block.header.number.to_uint() >= \"0x0\".to_uint()"
 # # Customize cell filtering rules to index only retained cells
 # cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
+# # The initial tip can be set at the time of the indexer's first initialization as the starting height for index construction.
+# init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
