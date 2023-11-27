@@ -79,13 +79,16 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     if matches!(cmd, cli::CMD_RUN) {
         handle.drop_guard();
 
-        tokio::task::block_in_place(|| {
+        handle.block_on(async move {
             info!("waiting all tokio tasks exit...");
-            handle_stop_rx.blocking_recv();
-            info!("all tokio tasks and threads have exited, ckb shutdown");
+            match tokio::time::timeout(std::time::Duration::from_secs(20), handle_stop_rx.recv())
+                .await
+            {
+                Ok(_) => info!("all tokio tasks and threads have exited, ckb shutdown"),
+                Err(_) => info!("wait tokio tasks exit time out, ckb shutdown"),
+            }
         });
     }
-
     ret
 }
 
