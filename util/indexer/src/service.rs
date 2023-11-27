@@ -2,7 +2,7 @@
 
 use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
-use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
+use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
 use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
@@ -45,7 +45,12 @@ pub struct IndexerService {
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
-    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
+    pub fn new(
+        ckb_db_config: &DBConfig,
+        config: &IndexerConfig,
+        async_handle: Handle,
+    ) -> Result<Self, Error> {
+        let is_store_initialized = config.store.exists();
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
@@ -68,7 +73,14 @@ impl IndexerService {
             config.secondary_path.to_string_lossy().to_string(),
         );
 
-        Self {
+        Self::apply_init_tip(
+            is_store_initialized,
+            &config.init_tip_hash,
+            &store,
+            &secondary_db,
+        )?;
+
+        Ok(Self {
             store,
             secondary_db,
             pool,
@@ -76,7 +88,7 @@ impl IndexerService {
             poll_interval: Duration::from_secs(config.poll_interval),
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
-        }
+        })
     }
 
     /// Returns a handle to the indexer.
@@ -246,6 +258,31 @@ impl IndexerService {
                 .unwrap_or(DEFAULT_LOG_KEEP_NUM),
         );
         opts
+    }
+
+    pub(crate) fn apply_init_tip(
+        is_store_initialized: bool,
+        init_tip_hash: &Option<H256>,
+        store: &RocksdbStore,
+        secondary_db: &SecondaryDB,
+    ) -> Result<(), Error> {
+        if let (true, Some(init_tip_hash)) = (!is_store_initialized, init_tip_hash) {
+            let init_tip_number = secondary_db
+                .get_block_header(&init_tip_hash.pack())
+                .ok_or(Error::Params("Setting the initial tip failed: could not find the block corresponding to the init tip hash."
+                        .to_string(),
+                ))?
+                .number();
+            let mut batch = store.batch().expect("create batch should be OK");
+            batch
+                .put_kv(
+                    Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                    vec![],
+                )
+                .expect("insert init tip header should be OK");
+            batch.commit().expect("commit batch should be OK");
+        }
+        Ok(())
     }
 }
 

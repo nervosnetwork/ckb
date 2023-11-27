@@ -11,6 +11,7 @@ use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
+use ckb_logger::warn;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
