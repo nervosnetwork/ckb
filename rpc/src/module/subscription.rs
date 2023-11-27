@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use ckb_async_runtime::Handle;
 use ckb_jsonrpc_types::Topic;
 use ckb_notify::NotifyController;
+use ckb_stop_handler::new_tokio_exit_rx;
 use futures_util::{stream::BoxStream, Stream};
 use jsonrpc_core::Result;
 use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
@@ -204,21 +205,18 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
 }
 
 impl SubscriptionRpcImpl {
-    pub async fn new(notify_controller: NotifyController, handle: Handle) -> Self {
+    pub fn new(notify_controller: NotifyController, handle: Handle) -> Self {
         const SUBSCRIBER_NAME: &str = "TcpSubscription";
 
-        let mut new_block_receiver = notify_controller
-            .subscribe_new_block(SUBSCRIBER_NAME.to_string())
-            .await;
-        let mut new_transaction_receiver = notify_controller
-            .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
-            .await;
-        let mut proposed_transaction_receiver = notify_controller
-            .subscribe_proposed_transaction(SUBSCRIBER_NAME.to_string())
-            .await;
-        let mut reject_transaction_receiver = notify_controller
-            .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
-            .await;
+        let mut new_block_receiver =
+            handle.block_on(notify_controller.subscribe_new_block(SUBSCRIBER_NAME.to_string()));
+        let mut new_transaction_receiver = handle
+            .block_on(notify_controller.subscribe_new_transaction(SUBSCRIBER_NAME.to_string()));
+        let mut proposed_transaction_receiver = handle.block_on(
+            notify_controller.subscribe_proposed_transaction(SUBSCRIBER_NAME.to_string()),
+        );
+        let mut reject_transaction_receiver = handle
+            .block_on(notify_controller.subscribe_reject_transaction(SUBSCRIBER_NAME.to_string()));
 
         let (new_tip_header_sender, _) = broadcast::channel(10);
         let (new_tip_block_sender, _) = broadcast::channel(10);
@@ -226,6 +224,7 @@ impl SubscriptionRpcImpl {
         let (new_transaction_sender, _) = broadcast::channel(10);
         let (new_reject_transaction_sender, _) = broadcast::channel(10);
 
+        let stop_rx = new_tokio_exit_rx();
         handle.spawn({
             let new_tip_header_sender = new_tip_header_sender.clone();
             let new_tip_block_sender = new_tip_block_sender.clone();
@@ -233,27 +232,31 @@ impl SubscriptionRpcImpl {
             let proposed_transaction_sender = proposed_transaction_sender.clone();
             let new_reject_transaction_sender = new_reject_transaction_sender.clone();
             async move {
-            loop {
-                tokio::select! {
-                    Some(block) = new_block_receiver.recv() => {
-                        publiser_send!(ckb_jsonrpc_types::HeaderView, block.header(), new_tip_header_sender);
-                        publiser_send!(ckb_jsonrpc_types::BlockView, block, new_tip_block_sender);
-                    },
-                    Some(tx_entry) = new_transaction_receiver.recv() => {
-                        publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, new_transaction_sender);
-                    },
-                    Some(tx_entry) = proposed_transaction_receiver.recv() => {
-                        publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, proposed_transaction_sender);
-                    },
-                    Some((tx_entry, reject)) = reject_transaction_receiver.recv() => {
-                        publiser_send!((ckb_jsonrpc_types::PoolTransactionEntry, ckb_jsonrpc_types::PoolTransactionReject),
-                                        (tx_entry.into(), reject.into()),
-                                        new_reject_transaction_sender);
+                loop {
+                    tokio::select! {
+                        Some(block) = new_block_receiver.recv() => {
+                            publiser_send!(ckb_jsonrpc_types::HeaderView, block.header(), new_tip_header_sender);
+                            publiser_send!(ckb_jsonrpc_types::BlockView, block, new_tip_block_sender);
+                        },
+                        Some(tx_entry) = new_transaction_receiver.recv() => {
+                            publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, new_transaction_sender);
+                        },
+                        Some(tx_entry) = proposed_transaction_receiver.recv() => {
+                            publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, proposed_transaction_sender);
+                        },
+                        Some((tx_entry, reject)) = reject_transaction_receiver.recv() => {
+                            publiser_send!((ckb_jsonrpc_types::PoolTransactionEntry, ckb_jsonrpc_types::PoolTransactionReject),
+                                            (tx_entry.into(), reject.into()),
+                                            new_reject_transaction_sender);
+                        }
+                        _ = stop_rx.cancelled() => {
+                            break;
+                        },
+                        else => break,
                     }
-                    else => break,
                 }
             }
-        }});
+        });
 
         Self {
             new_tip_header_sender,

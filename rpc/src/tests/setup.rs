@@ -223,7 +223,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     let io_handler = builder.build();
     let shared_clone = shared.clone();
     let handler = shared_clone.async_handle().clone();
-    let rpc_server = handler.block_on(async move { RpcServer::new(rpc_config, io_handler).await });
+    let rpc_server = RpcServer::new(rpc_config, io_handler, handler.clone());
 
     let rpc_client = reqwest::blocking::Client::new();
     let rpc_uri = format!(

@@ -254,7 +254,7 @@ impl Launcher {
     }
 
     /// Start network service and rpc serve
-    pub async fn start_network_and_rpc(
+    pub fn start_network_and_rpc(
         &self,
         shared: &Shared,
         chain_controller: ChainController,
@@ -408,10 +408,11 @@ impl Launcher {
                 &self.args.config.indexer,
             )
             .enable_debug();
-        builder.enable_subscription(shared.clone()).await;
+        builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        RpcServer::new(rpc_config, io_handler).await;
+        let async_handle = shared.async_handle();
+        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
 
         network_controller
     }

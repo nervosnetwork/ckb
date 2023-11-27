@@ -61,7 +61,6 @@ impl Handle {
             // move tokio_task_guard into the spawned future
             // so that it will be dropped when the future is finished
             let _guard = tokio_task_guard;
-
             future.await
         })
     }

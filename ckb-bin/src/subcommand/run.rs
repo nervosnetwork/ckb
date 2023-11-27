@@ -1,6 +1,6 @@
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::{tokio::spawn, Handle};
+use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
@@ -44,21 +44,15 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.start_block_filter(&shared);
 
-    async_handle.block_on(async {
-        spawn(async move {
-            let network_controller = launcher
-                .start_network_and_rpc(
-                    &shared,
-                    chain_controller.clone(),
-                    miner_enable,
-                    pack.take_relay_tx_receiver(),
-                )
-                .await;
+    let network_controller = launcher.start_network_and_rpc(
+        &shared,
+        chain_controller.clone(),
+        miner_enable,
+        pack.take_relay_tx_receiver(),
+    );
 
-            let tx_pool_builder = pack.take_tx_pool_builder();
-            tx_pool_builder.start(network_controller.clone());
-        });
-    });
+    let tx_pool_builder = pack.take_tx_pool_builder();
+    tx_pool_builder.start(network_controller.clone());
 
     ctrlc::set_handler(|| {
         info!("Trapped exit signal, exiting...");
