@@ -126,8 +126,6 @@ impl RpcServer {
             let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
             let stream_config = StreamServerConfig::default()
                 .with_channel_size(4)
-                .with_keep_alive(true)
-                .with_keep_alive_duration(Duration::from_secs(60))
                 .with_pipeline_size(4);
 
             let exit_signal: CancellationToken = new_tokio_exit_rx();
