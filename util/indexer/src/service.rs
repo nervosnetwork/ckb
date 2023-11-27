@@ -260,16 +260,16 @@ impl IndexerService {
         opts
     }
 
-    pub(crate) fn apply_init_tip(
+    pub(crate) fn apply_init_tip<T: ChainStore>(
         is_store_initialized: bool,
         init_tip_hash: &Option<H256>,
         store: &RocksdbStore,
-        secondary_db: &SecondaryDB,
+        secondary_db: &T,
     ) -> Result<(), Error> {
         if let (true, Some(init_tip_hash)) = (!is_store_initialized, init_tip_hash) {
             let init_tip_number = secondary_db
                 .get_block_header(&init_tip_hash.pack())
-                .ok_or(Error::Params("Setting the initial tip failed: could not find the block corresponding to the init tip hash."
+                .ok_or(Error::Params("setting the initial tip failed: could not find the block corresponding to the init tip hash."
                         .to_string(),
                 ))?
                 .number();
@@ -984,13 +984,20 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
+    use ckb_db::{
+        iter::{DBIter, IteratorMode},
+        DBPinnableSlice,
+    };
+    use ckb_db_schema::Col;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
+    use ckb_store::{Freezer, StoreCache};
     use ckb_types::{
         bytes::Bytes,
         core::{
             capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-            ScriptHashType, TransactionBuilder,
+            HeaderView, ScriptHashType, TransactionBuilder,
         },
+        h256,
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
         H256,
     };
@@ -1002,6 +1009,49 @@ mod tests {
             tmp_dir.path().to_str().unwrap(),
         )
         // Indexer::new(store, 10, 1)
+    }
+
+    fn new_chain_store(prefix: &str) -> impl ChainStore {
+        struct DummyChainStore {
+            inner: RocksdbStore,
+        }
+        impl ChainStore for DummyChainStore {
+            fn cache(&self) -> Option<&StoreCache> {
+                None
+            }
+            fn freezer(&self) -> Option<&Freezer> {
+                None
+            }
+            fn get(&self, _col: Col, _key: &[u8]) -> Option<DBPinnableSlice> {
+                None
+            }
+            fn get_iter(&self, _col: Col, mode: IteratorMode) -> DBIter {
+                let opts = ReadOptions::default();
+                self.inner.inner().get_iter(&opts, mode)
+            }
+            fn get_block_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
+                match hash {
+                    _ if hash
+                        == &h256!(
+                            "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
+                        )
+                        .pack() =>
+                    {
+                        let epoch = EpochNumberWithFraction::new(0, 0, 10);
+                        Some(
+                            HeaderView::new_advanced_builder()
+                                .number(100000.pack())
+                                .epoch(epoch.pack())
+                                .build(),
+                        )
+                    }
+                    _ => None,
+                }
+            }
+        }
+        DummyChainStore {
+            inner: new_store(prefix),
+        }
     }
 
     #[test]
@@ -1590,6 +1640,38 @@ mod tests {
             capacity.capacity.value(),
             "cellbases (last block live cell was consumed by a pending tx in the pool)"
         );
+    }
+
+    #[test]
+    fn rpc_get_indexer_tip_with_set_init_tip() {
+        let store = new_store("rpc_get_indexer_tip_with_set_init_tip");
+        let ckb_db = new_chain_store("rpc_get_indexer_tip_with_set_init_tip_ckb");
+
+        // test setting the initial tip failed
+        let ret = IndexerService::apply_init_tip(false, &Some(H256::default()), &store, &ckb_db);
+        assert_eq!(ret.unwrap_err().to_string(), "Invalid params setting the initial tip failed: could not find the block corresponding to the init tip hash.");
+
+        // test get_tip rpc
+        IndexerService::apply_init_tip(
+            false,
+            &Some(h256!(
+                "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
+            )),
+            &store,
+            &ckb_db,
+        )
+        .unwrap();
+        let pool = Arc::new(RwLock::new(Pool::default()));
+        let rpc = IndexerHandle {
+            store,
+            pool: Some(Arc::clone(&pool)),
+        };
+        let tip = rpc.get_indexer_tip().unwrap().unwrap();
+        assert_eq!(
+            h256!("0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"),
+            tip.block_hash
+        );
+        assert_eq!(100000, tip.block_number.value());
     }
 
     #[test]
