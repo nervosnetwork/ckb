@@ -50,7 +50,6 @@ impl IndexerService {
         config: &IndexerConfig,
         async_handle: Handle,
     ) -> Result<Self, Error> {
-        let is_store_initialized = config.store.exists();
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
@@ -73,12 +72,7 @@ impl IndexerService {
             config.secondary_path.to_string_lossy().to_string(),
         );
 
-        Self::apply_init_tip(
-            is_store_initialized,
-            &config.init_tip_hash,
-            &store,
-            &secondary_db,
-        )?;
+        Self::apply_init_tip(&config.init_tip_hash, &store, &secondary_db)?;
 
         Ok(Self {
             store,
@@ -261,26 +255,30 @@ impl IndexerService {
     }
 
     pub(crate) fn apply_init_tip<T: ChainStore>(
-        is_store_initialized: bool,
         init_tip_hash: &Option<H256>,
         store: &RocksdbStore,
         secondary_db: &T,
     ) -> Result<(), Error> {
-        if let (true, Some(init_tip_hash)) = (!is_store_initialized, init_tip_hash) {
-            let init_tip_number = secondary_db
-                .get_block_header(&init_tip_hash.pack())
-                .ok_or(Error::Params("setting the initial tip failed: could not find the block corresponding to the init tip hash."
-                        .to_string(),
-                ))?
-                .number();
-            let mut batch = store.batch().expect("create batch should be OK");
-            batch
-                .put_kv(
-                    Key::Header(init_tip_number, &init_tip_hash.pack(), true),
-                    vec![],
-                )
-                .expect("insert init tip header should be OK");
-            batch.commit().expect("commit batch should be OK");
+        if let Some(init_tip_hash) = init_tip_hash {
+            if store
+                .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
+                .expect("iter Header should be OK")
+                .next()
+                .is_none()
+            {
+                let init_tip_number = secondary_db
+                    .get_block_header(&init_tip_hash.pack())
+                    .ok_or_else(|| Error::Params("setting the initial tip failed: could not find the block corresponding to the init tip hash.".to_string()))?
+                    .number();
+                let mut batch = store.batch().expect("create batch should be OK");
+                batch
+                    .put_kv(
+                        Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                        vec![],
+                    )
+                    .expect("insert init tip header should be OK");
+                batch.commit().expect("commit batch should be OK");
+            }
         }
         Ok(())
     }
@@ -1648,12 +1646,11 @@ mod tests {
         let ckb_db = new_chain_store("rpc_get_indexer_tip_with_set_init_tip_ckb");
 
         // test setting the initial tip failed
-        let ret = IndexerService::apply_init_tip(false, &Some(H256::default()), &store, &ckb_db);
+        let ret = IndexerService::apply_init_tip(&Some(H256::default()), &store, &ckb_db);
         assert_eq!(ret.unwrap_err().to_string(), "Invalid params setting the initial tip failed: could not find the block corresponding to the init tip hash.");
 
         // test get_tip rpc
         IndexerService::apply_init_tip(
-            false,
             &Some(h256!(
                 "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
             )),
