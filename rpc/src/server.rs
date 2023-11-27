@@ -2,6 +2,7 @@ use crate::IoHandler;
 use axum::routing::post;
 use axum::{Extension, Router};
 use ckb_app_config::RpcConfig;
+use ckb_async_runtime::Handle;
 use ckb_error::AnyError;
 use ckb_logger::info;
 
@@ -15,7 +16,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 use tower_http::timeout::TimeoutLayer;
 
@@ -34,19 +34,23 @@ impl RpcServer {
     ///
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
-    pub async fn new(config: RpcConfig, io_handler: IoHandler) -> Self {
+    pub fn new(config: RpcConfig, io_handler: IoHandler, handler: Handle) -> Self {
         let rpc = Arc::new(io_handler);
 
-        let http_address = Self::start_server(&rpc, config.listen_address.to_owned())
-            .await
-            .map(|local_addr| {
-                info!("Listen HTTP RPCServer on address: {}", local_addr);
-                local_addr
-            })
-            .unwrap();
+        let http_address = Self::start_server(
+            &rpc,
+            config.listen_address.to_owned(),
+            handler.clone(),
+            false,
+        )
+        .map(|local_addr| {
+            info!("Listen HTTP RPCServer on address: {}", local_addr);
+            local_addr
+        })
+        .unwrap();
 
         let ws_address = if let Some(addr) = config.ws_listen_address {
-            let local_addr = Self::start_server(&rpc, addr).await.map(|addr| {
+            let local_addr = Self::start_server(&rpc, addr, handler.clone(), true).map(|addr| {
                 info!("Listen WebSocket RPCServer on address: {}", addr);
                 addr
             });
@@ -56,10 +60,10 @@ impl RpcServer {
         };
 
         let tcp_address = if let Some(addr) = config.tcp_listen_address {
-            let local_addr = Self::start_tcp_server(rpc, addr).await.map(|addr| {
+            let local_addr = handler.block_on(Self::start_tcp_server(rpc, addr));
+            if let Ok(addr) = &local_addr {
                 info!("Listen TCP RPCServer on address: {}", addr);
-                addr
-            });
+            };
             local_addr.ok()
         } else {
             None
@@ -72,47 +76,58 @@ impl RpcServer {
         }
     }
 
-    async fn start_server(
+    fn start_server(
         rpc: &Arc<MetaIoHandler<Option<Session>>>,
         address: String,
+        handler: Handle,
+        enable_websocket: bool,
     ) -> Result<SocketAddr, AnyError> {
         let stream_config = StreamServerConfig::default()
             .with_channel_size(4)
             .with_pipeline_size(4);
 
-        let ws_config = stream_config.clone().with_keep_alive(true);
-
         // HTTP and WS server.
         let method_router =
             post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>);
-        let app = Router::new()
+        let mut app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
             .layer(Extension(Arc::clone(rpc)))
-            .layer(Extension(ws_config))
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 
-        let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
-        tokio::spawn({
-            async move {
-                let server = axum::Server::bind(
-                    &address
-                        .to_socket_addrs()
-                        .expect("config listen_address parsed")
-                        .next()
-                        .expect("config listen_address parsed"),
-                )
-                .serve(app.clone().into_make_service());
+        if enable_websocket {
+            let ws_config: StreamServerConfig =
+                stream_config
+                    .with_keep_alive(true)
+                    .with_shutdown(async move {
+                        let exit = new_tokio_exit_rx();
+                        exit.cancelled().await;
+                    });
+            app = app.layer(Extension(ws_config));
+        }
 
-                let _ = tx_addr.send(server.local_addr());
-                let graceful = server.with_graceful_shutdown(async move {
-                    let exit = new_tokio_exit_rx();
-                    exit.cancelled().await;
-                });
-                drop(graceful.await);
-            }
+        let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
+
+        handler.spawn(async move {
+            let server = axum::Server::bind(
+                &address
+                    .to_socket_addrs()
+                    .expect("config listen_address parsed")
+                    .next()
+                    .expect("config listen_address parsed"),
+            )
+            .serve(app.clone().into_make_service());
+
+            let _ = tx_addr.send(server.local_addr());
+            let graceful = server.with_graceful_shutdown(async move {
+                let exit = new_tokio_exit_rx();
+                exit.cancelled().await;
+            });
+            drop(graceful.await);
         });
-        Ok(rx_addr.await?)
+
+        let rx_addr = handler.block_on(rx_addr)?;
+        Ok(rx_addr)
     }
 
     async fn start_tcp_server(

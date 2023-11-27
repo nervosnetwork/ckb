@@ -203,13 +203,12 @@ impl<'a> ServiceBuilder<'a> {
         )
     }
 
-    pub async fn enable_subscription(&mut self, shared: Shared) {
+    pub fn enable_subscription(&mut self, shared: Shared) {
         if self.config.subscription_enable() {
             let methods = SubscriptionRpcImpl::new(
                 shared.notify_controller().clone(),
                 shared.async_handle().clone(),
-            )
-            .await;
+            );
             let mut meta_io = MetaIoHandler::default();
             add_subscription_rpc_methods(&mut meta_io, methods);
             self.add_methods(meta_io);
