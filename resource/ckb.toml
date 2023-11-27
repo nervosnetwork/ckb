@@ -199,3 +199,7 @@ block_uncles_cache_size    = 30
 # [indexer_v2]
 # # Indexing the pending txs in the ckb tx-pool
 # index_tx_pool = false
+# # Customize block filtering rules to index only retained blocks
+# block_filter = "block.header.number.to_uint() >= \"0x0\".to_uint()"
+# # Customize cell filtering rules to index only retained cells
+# cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
