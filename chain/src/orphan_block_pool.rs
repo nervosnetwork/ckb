@@ -165,7 +165,7 @@ impl OrphanBlockPool {
         self.inner.read().get_block(hash)
     }
 
-    pub fn contains_block(self, hash: &packed::Byte32) -> bool {
+    pub fn contains_block(&self, hash: &packed::Byte32) -> bool {
         self.inner.read().contains_block(hash)
     }
 
