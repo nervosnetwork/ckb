@@ -131,14 +131,14 @@ impl TxPool {
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
             error!(
-                "total_tx_size {} overflow by sub {}",
+                "total_tx_size {} overflown by sub {}",
                 self.total_tx_size, tx_size
             );
             0
         });
         let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
             error!(
-                "total_tx_cycles {} overflow by sub {}",
+                "total_tx_cycles {} overflown by sub {}",
                 self.total_tx_cycles, cycles
             );
             0
@@ -279,7 +279,7 @@ impl TxPool {
                 for entry in removed {
                     let tx_hash = entry.transaction().hash();
                     debug!(
-                        "removed by size limit {} timestamp({})",
+                        "Removed by size limit {} timestamp({})",
                         tx_hash, entry.timestamp
                     );
                     let reject = Reject::Full(format!(
@@ -671,7 +671,7 @@ impl TxPool {
                 Ok(recent_reject) => Some(recent_reject),
                 Err(err) => {
                     error!(
-                        "Failed to open recent reject database {:?} {}",
+                        "Failed to open the recent reject database {:?} {}",
                         config.recent_reject, err
                     );
                     None

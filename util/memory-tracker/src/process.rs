@@ -58,7 +58,7 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
             .spawn(move || {
                 loop {
                     if je_epoch.advance().is_err() {
-                        error!("failed to refresh the jemalloc stats");
+                        error!("Failed to refresh the jemalloc stats");
                         return;
                     }
                     if let Ok(memory) = get_current_process_memory() {
@@ -91,7 +91,7 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                             }
                         }
                     } else {
-                        error!("failed to fetch the memory information about current process");
+                        error!("Failed to fetch the memory information of the current process");
                     }
                     thread::sleep(wait_secs);
                 }

@@ -131,7 +131,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
     ) {
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             info!(
-                "Peer {} is not outbound but sends us time message",
+                "Received a time message from a non-outbound peer {}",
                 peer_index
             );
         }
@@ -142,7 +142,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         {
             Some(timestamp) => timestamp,
             None => {
-                info!("Peer {} sends us malformed message", peer_index);
+                info!("Received a malformed message from peer {}", peer_index);
                 nc.ban_peer(
                     peer_index,
                     BAD_MESSAGE_BAN_TIME,
@@ -155,10 +155,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
         let now: u64 = ckb_systemtime::unix_time_as_millis();
         let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
         let mut net_time_checker = self.checker.write();
-        debug!("new net time offset sample {}ms", offset);
+        debug!("New net time offset sample {}ms", offset);
         net_time_checker.add_sample(offset);
         if let Err(offset) = net_time_checker.check() {
-            warn!("Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
+            warn!("Please check your computer's local clock ({}ms offset from network peers). Incorrect time setting may cause unexpected errors.", offset);
         }
     }
 }

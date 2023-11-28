@@ -26,13 +26,13 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     if args.chain != "dev" && !args.customize_spec.is_unset() {
-        eprintln!("Customizing consensus parameters for chain spec only works for dev chains.");
+        eprintln!("Customizing consensus parameters for chain spec; only works for dev chains.");
         return Err(ExitCode::Failure);
     }
 
     let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
-        eprintln!("Config files already exist, use --force to overwrite.");
+        eprintln!("Config files already exist; use --force to overwrite.");
 
         if args.interactive {
             let input = prompt("Overwrite config files now? ");
@@ -103,15 +103,15 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     );
                 } else if *default_code_hash != *hash {
                     eprintln!(
-                        "WARN: the default secp256k1 code hash is `{default_code_hash}`, you are using `{hash}`.\n\
-                         It will require `ckb run --ba-advanced` to enable this block assembler"
+                        "WARN: Use the default secp256k1 code hash `{default_code_hash}` rather than `{hash}`.\n\
+                         To enable this block assembler, use `ckb run --ba-advanced`."
                     );
                 } else if args.block_assembler_args.len() != 1
                     || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
                 {
                     eprintln!(
-                        "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
-                         It will require `ckb run --ba-advanced` to enable this block assembler"
+                        "WARN: The block assembler arg is not a valid secp256k1 pubkey hash.\n\
+                         To enable this block assembler, use `ckb run --ba-advanced`. "
                     );
                 }
             }
@@ -129,7 +129,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             )
         }
         None => {
-            eprintln!("WARN: mining feature is disabled because of lacking the block assembler config options");
+            eprintln!("WARN: Mining feature is disabled because of the lack of the block assembler config options.");
             format!(
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
@@ -175,7 +175,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         let target_file = specs_dir.join(format!("{}.toml", args.chain));
 
         if spec_file == "-" {
-            println!("create specs/{}.toml from stdin", args.chain);
+            println!("Create specs/{}.toml from stdin", args.chain);
             let mut encoded_content = String::new();
             io::stdin().read_to_string(&mut encoded_content)?;
             let base64_config =
@@ -185,11 +185,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             let spec_content = base64_engine.encode(encoded_content.trim());
             fs::write(target_file, spec_content)?;
         } else {
-            println!("cp {} specs/{}.toml", spec_file, args.chain);
+            println!("copy {} to specs/{}.toml", spec_file, args.chain);
             fs::copy(spec_file, target_file)?;
         }
     } else if args.chain == "dev" {
-        println!("create {SPEC_DEV_FILE_NAME}");
+        println!("Create {SPEC_DEV_FILE_NAME}");
         let bundled = Resource::bundled(SPEC_DEV_FILE_NAME.to_string());
         let kvs = args.customize_spec.key_value_pairs();
         let context_spec =
@@ -197,18 +197,20 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         bundled.export(&context_spec, &args.root_dir)?;
     }
 
-    println!("create {CKB_CONFIG_FILE_NAME}");
+    println!("Create {CKB_CONFIG_FILE_NAME}");
     Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
-    println!("create {MINER_CONFIG_FILE_NAME}");
+    println!("Create {MINER_CONFIG_FILE_NAME}");
     Resource::bundled_miner_config().export(&context, &args.root_dir)?;
-    println!("create {DB_OPTIONS_FILE_NAME}");
+    println!("Create {DB_OPTIONS_FILE_NAME}");
     Resource::bundled_db_options().export(&context, &args.root_dir)?;
 
     let genesis_hash = AppConfig::load_for_subcommand(args.root_dir, cli::CMD_INIT)?
         .chain_spec()?
         .build_genesis()
         .map_err(|err| {
-            eprintln!("couldn't build genesis from generated chain spec, since {err}");
+            eprintln!(
+                "Couldn't build the genesis block from the generated chain spec, since {err}"
+            );
             ExitCode::Failure
         })?
         .hash();

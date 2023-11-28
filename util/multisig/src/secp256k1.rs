@@ -29,7 +29,7 @@ where
         .iter()
         .filter_map(|sig| {
             trace!(
-                "recover sig {:x?} with message {:x?}",
+                "Recover sig {:x?} with message {:x?}",
                 &sig.serialize()[..],
                 message.as_ref()
             );

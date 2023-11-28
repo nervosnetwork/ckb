@@ -25,13 +25,13 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
 
     if !args.tmp_target.is_dir() {
         eprintln!(
-            "replay error: {:?}",
+            "Replay error: {:?}",
             "The specified path does not exist or not directory"
         );
         return Err(ExitCode::Failure);
     }
     let tmp_db_dir = tempfile::tempdir_in(args.tmp_target).map_err(|err| {
-        eprintln!("replay error: {err:?}");
+        eprintln!("Replay error: {err:?}");
         ExitCode::Failure
     })?;
     {
@@ -58,7 +58,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
         }
     }
     tmp_db_dir.close().map_err(|err| {
-        eprintln!("replay error: {err:?}");
+        eprintln!("Replay error: {err:?}");
         ExitCode::Failure
     })?;
 
@@ -72,7 +72,7 @@ fn profile(shared: Shared, mut chain: ChainService, from: Option<u64>, to: Optio
         .map(|v| std::cmp::min(v, tip_number))
         .unwrap_or(tip_number);
     process_range_block(&shared, &mut chain, 1..from);
-    println!("start profiling, re-process blocks {from}..{to}:");
+    println!("Start profiling; re-process blocks {from}..{to}:");
     let now = std::time::Instant::now();
     let tx_count = process_range_block(&shared, &mut chain, from..=to);
     let duration = std::time::Instant::now().saturating_duration_since(now);
@@ -136,7 +136,7 @@ fn sanity_check(shared: Shared, mut chain: ChainService, full_verification: bool
         let header = block.header();
         if let Err(e) = chain.process_block(Arc::new(block), switch) {
             eprintln!(
-                "replay sanity-check error: {:?} at block({}-{})",
+                "Replay sanity-check error: {:?} at block({}-{})",
                 e,
                 header.number(),
                 header.hash(),
@@ -152,7 +152,7 @@ fn sanity_check(shared: Shared, mut chain: ChainService, full_verification: bool
 
     if cursor != tip_header {
         eprintln!(
-            "sanity-check break at block({}-{}), expect tip({}-{})",
+            "Sanity-check break at block({}-{}); expect tip({}-{})",
             cursor.number(),
             cursor.hash(),
             tip_header.number(),
@@ -160,11 +160,11 @@ fn sanity_check(shared: Shared, mut chain: ChainService, full_verification: bool
         );
     } else {
         println!(
-            "sanity-check pass, tip({}-{})",
+            "Sanity-check pass, tip({}-{})",
             tip_header.number(),
             tip_header.hash()
         );
     }
 
-    println!("replay finishing, please wait...");
+    println!("Finishing replay; please wait...");
 }

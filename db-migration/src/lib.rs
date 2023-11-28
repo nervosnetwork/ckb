@@ -62,7 +62,7 @@ impl Migrations {
                 }
             }
         };
-        debug!("current database version [{}]", db_version);
+        debug!("Current database version [{}]", db_version);
 
         let latest_version = self
             .migrations
@@ -70,7 +70,7 @@ impl Migrations {
             .last()
             .unwrap_or_else(|| panic!("should have at least one version"))
             .version();
-        debug!("latest  database version [{}]", latest_version);
+        debug!("Latest database version [{}]", latest_version);
 
         db_version.as_str().cmp(latest_version)
     }
@@ -176,8 +176,8 @@ impl Migrations {
                     if m.version() < v.as_str() {
                         error!(
                             "Database downgrade detected. \
-                            The database schema version is newer than client schema version,\
-                            please upgrade to the newer version"
+                            The database schema version is more recent than the client schema version.\
+                            Please upgrade to the latest client version."
                         );
                         return Err(internal_error(
                             "Database downgrade is not supported".to_string(),

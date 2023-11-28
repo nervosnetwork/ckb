@@ -29,7 +29,7 @@ impl AddrManager {
     /// Dump address list to disk
     pub fn dump(&self, mut file: File) -> Result<(), Error> {
         let addrs: Vec<_> = self.addrs_iter().collect();
-        debug!("dump {} addrs", addrs.len());
+        debug!("Dump {} addrs", addrs.len());
         // empty file and dump the json string to it
         file.set_len(0)
             .and_then(|_| serde_json::to_string(&addrs).map_err(Into::into))
@@ -54,7 +54,7 @@ impl BanList {
     /// Dump ban list to disk
     pub fn dump(&self, mut file: File) -> Result<(), Error> {
         let banned_addrs = self.get_banned_addrs();
-        debug!("dump {} banned addrs", banned_addrs.len());
+        debug!("Dump {} banned addrs", banned_addrs.len());
         // empty file and dump the json string to it
         file.set_len(0)
             .and_then(|_| serde_json::to_string(&banned_addrs).map_err(Into::into))

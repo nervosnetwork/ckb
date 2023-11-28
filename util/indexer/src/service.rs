@@ -145,10 +145,10 @@ impl IndexerService {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
                         if block.parent_hash() == tip_hash {
-                            info!("append {}, {}", block.number(), block.hash());
+                            info!("Append {}, {}", block.number(), block.hash());
                             indexer.append(&block).expect("append block should be OK");
                         } else {
-                            info!("rollback {}, {}", tip_number, tip_hash);
+                            info!("Rollback {}, {}", tip_number, tip_hash);
                             indexer.rollback().expect("rollback block should be OK");
                         }
                     }

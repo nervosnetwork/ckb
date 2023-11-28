@@ -60,7 +60,7 @@ impl EaglesongSimple {
     }
 
     fn solve(&mut self, pow_hash: Byte32, work: Work, nonce: u128) {
-        debug!("solve, pow_hash {}, nonce {:?}", pow_hash, nonce);
+        debug!("Solved. pow_hash {}, nonce {:?}", pow_hash, nonce);
         let input = pow_message(&pow_hash, nonce);
         let output = {
             let mut output_tmp = [0u8; 32];
@@ -72,7 +72,7 @@ impl EaglesongSimple {
         };
         if U256::from_big_endian(&output[..]).expect("bound checked") <= self.target {
             debug!(
-                "send new found nonce, pow_hash {}, nonce {:?}",
+                "Send newly found nonce, pow_hash {}, nonce {:?}",
                 pow_hash, nonce
             );
             if let Err(err) = self.nonce_tx.send((pow_hash, work, nonce)) {

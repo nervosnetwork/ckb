@@ -6,10 +6,10 @@ use ckb_error::{def_error_base_on_kind, prelude::*};
 #[derive(Error, Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ErrorKind {
     /// The count of signatures should be less than the count of private keys.
-    #[error("The count of sigs should less than pks.")]
+    #[error("The count of sigs should be less than privkeys.")]
     SigCountOverflow,
     /// The count of signatures is less than the threshold.
-    #[error("The count of sigs less than threshold.")]
+    #[error("The count of sigs is less than threshold.")]
     SigNotEnough,
     /// The verified signatures count is less than the threshold.
     #[error("Failed to meet threshold {threshold}, actual: {pass_sigs}.")]

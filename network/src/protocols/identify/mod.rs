@@ -265,7 +265,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 // Interrupt processing if error, avoid pollution
                 if let MisbehaveResult::Disconnect = self.check_duplicate(&mut context) {
                     error!(
-                        "IdentifyProtocol disconnect session {:?}, reason: duplicate",
+                        "Disconnect IdentifyProtocol session {:?} due to duplication.",
                         session
                     );
                     let _ = context.disconnect(session.id).await;
@@ -277,7 +277,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                     .await
                 {
                     error!(
-                        "IdentifyProtocol disconnect session {:?}, reason: invalid identify message",
+                        "Disconnect IdentifyProtocol session {:?} due to invalid identify message.",
                         session,
                     );
                     let _ = context.disconnect(session.id).await;
@@ -287,7 +287,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                     self.process_listens(&mut context, message.listen_addrs.clone())
                 {
                     error!(
-                        "IdentifyProtocol disconnect session {:?}, reason: invalid listen addrs: {:?}",
+                        "Disconnect IdentifyProtocol session {:?} due to invalid listen addrs: {:?}.",
                         session, message.listen_addrs,
                     );
                     let _ = context.disconnect(session.id).await;
@@ -297,7 +297,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                     self.process_observed(&mut context, message.observed_addr.clone())
                 {
                     error!(
-                        "IdentifyProtocol disconnect session {:?}, reason: invalid observed addr: {}",
+                        "Disconnect IdentifyProtocol session {:?} due to invalid observed addr: {}.",
                         session, message.observed_addr,
                     );
                     let _ = context.disconnect(session.id).await;
@@ -489,7 +489,7 @@ impl Callback for IdentifyCallback {
                             .await;
                     } else {
                         // The remote end cannot support all local protocols.
-                        warn!("IdentifyProtocol close session, reason: the peer's flag does not meet the requirement");
+                        warn!("Session closed from IdentifyProtocol due to peer's flag not meeting the requirements");
                         return MisbehaveResult::Disconnect;
                     }
                 }

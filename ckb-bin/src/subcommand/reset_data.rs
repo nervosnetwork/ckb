@@ -50,7 +50,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
 
     for dir in target_dirs.iter() {
         if dir.exists() {
-            println!("deleting {}", dir.display());
+            println!("Deleting {}", dir.display());
             if let Some(e) = fs::remove_dir_all(dir).err() {
                 eprintln!("{e}");
                 errors_count += 1;
@@ -60,7 +60,7 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
 
     for file in target_files.iter() {
         if file.exists() {
-            println!("deleting {}", file.display());
+            println!("Deleting {}", file.display());
             if let Some(e) = fs::remove_file(file).err() {
                 eprintln!("{e}");
                 errors_count += 1;

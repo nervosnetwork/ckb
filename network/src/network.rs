@@ -113,7 +113,7 @@ impl NetworkState {
                     })
             })
             .collect();
-        info!("loading the peer store, which may take a few seconds to complete");
+        info!("Loading the peer store. This process may take a few seconds to complete.");
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
@@ -168,7 +168,7 @@ impl NetworkState {
                 .filter(|peer| !peer.is_whitelist)
                 .map(|peer| peer.connected_addr.clone())
         }) {
-            trace!("report {:?} because {:?}", addr, behaviour);
+            trace!("Report {:?} because {:?}", addr, behaviour);
             let report_result = self.peer_store.lock().report(&addr, behaviour);
             if report_result.is_banned() {
                 if let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
@@ -177,7 +177,7 @@ impl NetworkState {
             }
         } else {
             debug!(
-                "Report {} failed: not in peer registry or it is in the whitelist",
+                "Report {} failure: not found in peer registry; could be on whitelist",
                 session_id
             );
         }
@@ -219,7 +219,7 @@ impl NetworkState {
             }
         } else {
             debug!(
-                "Ban session({}) failed: not in peer registry or it is in the whitelist",
+                "Ban session({}) failed: not found in peer registry or on the whitelist",
                 session_id
             );
         }
@@ -356,7 +356,7 @@ impl NetworkState {
 
         if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
             trace!(
-                "Do not repeat send dial command to network service: {:?}, {}",
+                "Do not send repeated dial commands to network service: {:?}, {}",
                 peer_id,
                 addr
             );
@@ -412,7 +412,7 @@ impl NetworkState {
             return Err(Error::Dial(format!("ignore dialing addr {addr}")));
         }
 
-        debug!("dialing {addr}");
+        debug!("Dialing {addr}");
         p2p_control.dial(addr.clone(), target)?;
         self.dialing_addrs.write().insert(
             extract_peer_id(&addr).expect("verified addr"),
@@ -461,7 +461,7 @@ impl NetworkState {
                     addr.clone(),
                     TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 ) {
-                    trace!("try_dial_observed_addrs fail {err} on public address")
+                    trace!("try_dial_observed_addrs {err} failed in public address")
                 }
             }
         } else {
@@ -471,7 +471,7 @@ impl NetworkState {
                     addr,
                     TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
                 ) {
-                    trace!("try_dial_observed_addrs fail {err} on pending observed")
+                    trace!("try_dial_observed_addrs {err} failed in pending observed addresses")
                 }
             }
         }
@@ -689,14 +689,14 @@ impl ServiceHandle for EventHandler {
                     .with_peer_registry(|reg| reg.is_feeler(&session_context.address))
                 {
                     debug!(
-                        "feeler connected {} => {}",
+                        "Feeler connected {} => {}",
                         session_context.id, session_context.address,
                     );
                 } else {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
                             debug!(
-                                "evict peer (disconnect it), {} => {}",
+                                "Disconnect peer, {} => {}",
                                 evicted_peer.session_id, evicted_peer.connected_addr,
                             );
                             if let Err(err) = disconnect_with_message(
@@ -716,7 +716,7 @@ impl ServiceHandle for EventHandler {
                         ),
                         Err(err) => {
                             debug!(
-                                "registry peer failed {:?} disconnect it, {} => {}",
+                                "Peer registry failed {:?}. Disconnect {} => {}",
                                 err, session_context.id, session_context.address,
                             );
                             if let Err(err) = disconnect_with_message(
@@ -745,7 +745,7 @@ impl ServiceHandle for EventHandler {
                 });
                 if peer_exists {
                     debug!(
-                        "{} closed, remove {} from peer_registry",
+                        "{} closed. Remove {} from peer_registry",
                         session_context.id, session_context.address,
                     );
                     self.network_state.with_peer_store_mut(|peer_store| {
@@ -1044,7 +1044,7 @@ impl NetworkService {
 
         // dial whitelist_nodes
         for addr in self.network_state.config.whitelist_peers() {
-            debug!("dial whitelist_peers {:?}", addr);
+            debug!("Dial whitelist_peers {:?}", addr);
             self.network_state.dial_identify(&p2p_control, addr);
         }
 
@@ -1073,7 +1073,7 @@ impl NetworkService {
 
         // dial half bootnodes
         for addr in bootnodes {
-            debug!("dial bootnode {:?}", addr);
+            debug!("Dial bootnode {:?}", addr);
             self.network_state.dial_identify(&p2p_control, addr);
         }
 
@@ -1111,7 +1111,7 @@ impl NetworkService {
                         }
                         Err(err) => {
                             warn!(
-                                "listen on address {} failed, due to error: {}",
+                                "Listen on address {} failed, due to error: {}",
                                 addr.clone(),
                                 err
                             );
@@ -1333,13 +1333,13 @@ impl NetworkController {
                 }
                 Err(SendErrorKind::WouldBlock) => {
                     if Instant::now().saturating_duration_since(now) > P2P_SEND_TIMEOUT {
-                        warn!("broadcast message to {} timeout", proto_id);
+                        warn!("Broadcast message to {} timeout", proto_id);
                         return Err(SendErrorKind::WouldBlock);
                     }
                     thread::sleep(P2P_TRY_SEND_INTERVAL);
                 }
                 Err(err) => {
-                    warn!("broadcast message to {} failed: {:?}", proto_id, err);
+                    warn!("Broadcast message to {} failed: {:?}", proto_id, err);
                     return Err(err);
                 }
             }

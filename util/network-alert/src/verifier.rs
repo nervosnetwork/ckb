@@ -31,7 +31,7 @@ impl Verifier {
 
     /// Verify signatures
     pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), AnyError> {
-        trace!("verify alert {:?}", alert);
+        trace!("Verifying alert {:?}", alert);
         let message = Message::from_slice(alert.calc_alert_hash().as_slice())?;
         let signatures: Vec<Signature> = alert
             .signatures()

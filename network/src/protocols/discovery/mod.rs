@@ -111,7 +111,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if state.received_get_nodes && check(Misbehavior::DuplicateGetNodes) {
                                 if context.disconnect(session.id).await.is_err() {
-                                    debug!("disconnect {:?} send fail", session.id)
+                                    debug!("Disconnect {:?} msg failed to send", session.id)
                                 }
                                 return;
                             }
@@ -173,7 +173,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                         if let Some(misbehavior) = verify_nodes_message(&nodes) {
                             if check(misbehavior) {
                                 if context.disconnect(session.id).await.is_err() {
-                                    debug!("disconnect {:?} send fail", session.id)
+                                    debug!("Disconnect {:?} msg failed to send", session.id)
                                 }
                                 return;
                             }
@@ -181,11 +181,11 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
 
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if !nodes.announce && state.received_nodes {
-                                warn!("already received Nodes(announce=false) message");
+                                warn!("Nodes (announce=false) message received");
                                 if check(Misbehavior::DuplicateFirstNodes)
                                     && context.disconnect(session.id).await.is_err()
                                 {
-                                    debug!("disconnect {:?} send fail", session.id)
+                                    debug!("Disconnect {:?} msg failed to send", session.id)
                                 }
                             } else {
                                 let addrs = nodes
@@ -217,7 +217,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                     .is_disconnect()
                     && context.disconnect(session.id).await.is_err()
                 {
-                    debug!("disconnect {:?} send fail", session.id)
+                    debug!("Disconnect {:?} msg failed to send", session.id)
                 }
             }
         }
@@ -248,7 +248,7 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                 for key in keys.iter().take(3) {
                     if let Some(value) = self.sessions.get_mut(key) {
                         trace!(
-                            ">> send {:?} to: {:?}, contains: {}",
+                            ">> send {:?} to: {:?}, containing: {}",
                             announce_multiaddr,
                             value.remote_addr,
                             value.addr_known.contains(&announce_multiaddr)
@@ -270,7 +270,10 @@ fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
     let mut misbehavior = None;
     if nodes.announce {
         if nodes.items.len() > ANNOUNCE_THRESHOLD {
-            warn!("Nodes items more than {}", ANNOUNCE_THRESHOLD);
+            warn!(
+                "Number of nodes exceeds announce threshhold {}",
+                ANNOUNCE_THRESHOLD
+            );
             misbehavior = Some(Misbehavior::TooManyItems {
                 announce: nodes.announce,
                 length: nodes.items.len(),
@@ -380,7 +383,7 @@ impl AddressManager for DiscoveryAddressManager {
                 Some((paddr.addr, f))
             })
             .collect();
-        trace!("discovery send random addrs: {:?}", addrs);
+        trace!("Discovered random addrs: {:?}", addrs);
         addrs
     }
 

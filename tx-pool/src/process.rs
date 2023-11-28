@@ -110,7 +110,7 @@ impl TxPoolService {
                 let tip_hash = snapshot.tip_hash();
                 if pre_resolve_tip != tip_hash {
                     debug!(
-                        "submit_entry {} context changed previous:{} now:{}",
+                        "submit_entry {} context changed. previous:{} now:{}",
                         entry.proposal_short_id(),
                         pre_resolve_tip,
                         tip_hash
@@ -338,7 +338,10 @@ impl TxPoolService {
         let mut tx_pool = self.tx_pool.write().await;
         if let Some(ref mut recent_reject) = tx_pool.recent_reject {
             if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+                error!(
+                    "Failed to record recent_reject {} {} {}",
+                    tx_hash, reject, e
+                );
             }
         }
     }
@@ -508,7 +511,7 @@ impl TxPoolService {
             for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} add to chunk, find previous from {}",
+                        "process_orphan {} added to chunk; find previous from {}",
                         orphan.tx.hash(),
                         tx.hash(),
                     );
@@ -1004,7 +1007,7 @@ impl TxPoolService {
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
         } else {
-            info!("TxPool save successfully")
+            info!("TxPool saved successfully")
         }
     }
 
@@ -1025,7 +1028,7 @@ impl TxPoolService {
             }
         }
         if count != 0 {
-            info!("{}/{} transactions are failed to process", count, total);
+            info!("{}/{} transaction process failed.", count, total);
         }
     }
 

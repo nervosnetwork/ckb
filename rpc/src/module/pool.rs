@@ -466,7 +466,7 @@ impl PoolRpc for PoolRpcImpl {
         let submit_tx = tx_pool.submit_local_tx(tx.clone());
 
         if let Err(e) = submit_tx {
-            error!("send submit_tx request error {}", e);
+            error!("Send submit_tx request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
 
@@ -481,7 +481,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
 
         tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
-            error!("send remove_tx request error {}", e);
+            error!("Send remove_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })
     }
@@ -490,7 +490,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let get_tx_pool_info = tx_pool.get_tx_pool_info();
         if let Err(e) = get_tx_pool_info {
-            error!("send get_tx_pool_info request error {}", e);
+            error!("Send get_tx_pool_info request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
 
