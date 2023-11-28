@@ -160,47 +160,37 @@ impl ConsumeOrphan {
         let mut accept_error_occurred = false;
         for descendant_block in descendants {
             match self.accept_descendant(descendant_block.block().to_owned()) {
-                Ok(accepted_opt) => match accepted_opt {
-                    Some((parent_header, total_difficulty)) => {
-                        let unverified_block: UnverifiedBlock =
-                            descendant_block.combine_parent_header(parent_header);
-                        let block_number = unverified_block.block().number();
-                        let block_hash = unverified_block.block().hash();
+                Ok((parent_header, total_difficulty)) => {
+                    let unverified_block: UnverifiedBlock =
+                        descendant_block.combine_parent_header(parent_header);
+                    let block_number = unverified_block.block().number();
+                    let block_hash = unverified_block.block().hash();
 
-                        if !self.send_unverified_block(unverified_block) {
-                            continue;
-                        }
+                    if !self.send_unverified_block(unverified_block) {
+                        continue;
+                    }
 
-                        if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty())
-                        {
-                            self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                                block_number.clone(),
-                                block_hash.clone(),
-                                total_difficulty,
-                            ));
-                            debug!("set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
+                    if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty()) {
+                        self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
                             block_number.clone(),
                             block_hash.clone(),
-                            block_number.saturating_sub(self.shared.snapshot().tip_number()))
-                        } else {
-                            debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
+                            total_difficulty,
+                        ));
+                        debug!(
+                            "set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
+                            block_number.clone(),
+                            block_hash.clone(),
+                            block_number.saturating_sub(self.shared.snapshot().tip_number())
+                        )
+                    } else {
+                        debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
                                     block_number,
                                     block_hash,
                                     self.shared.get_unverified_tip().number(),
                                     self.shared.get_unverified_tip().hash(),
                                     );
-                        }
                     }
-                    None => {
-                        info!(
-                            "doesn't accept block {}, because it has been stored",
-                            descendant_block.block().hash()
-                        );
-                        let verify_result: VerifyResult =
-                            Ok(VerifiedBlockStatus::PreviouslySeenButNotVerified);
-                        descendant_block.execute_callback(verify_result);
-                    }
-                },
+                }
 
                 Err(err) => {
                     accept_error_occurred = true;
