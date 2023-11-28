@@ -71,9 +71,20 @@ impl BlockFetcher {
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
-        last_common = self
-            .active_chain
-            .last_common_ancestor(&last_common, best_known)?;
+        last_common = {
+            let now = std::time::Instant::now();
+            let last_common_ancestor = self
+                .active_chain
+                .last_common_ancestor(&last_common, best_known)?;
+            debug!(
+                "last_common_ancestor({}, {})->{} cost {:?}",
+                last_common,
+                best_known,
+                last_common_ancestor,
+                now.elapsed()
+            );
+            last_common_ancestor
+        };
 
         self.sync_shared
             .state()
