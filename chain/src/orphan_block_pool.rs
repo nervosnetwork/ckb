@@ -99,7 +99,7 @@ impl InnerPool {
         })
     }
 
-    pub fn contains_block(self, hash: &packed::Byte32) -> bool {
+    pub fn contains_block(&self, hash: &packed::Byte32) -> bool {
         self.parents.contains_key(hash)
     }
 
