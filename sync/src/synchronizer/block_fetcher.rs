@@ -77,7 +77,7 @@ impl BlockFetcher {
                 .active_chain
                 .last_common_ancestor(&last_common, best_known)?;
             debug!(
-                "last_common_ancestor({}, {})->{} cost {:?}",
+                "last_common_ancestor({:?}, {:?})->{:?} cost {:?}",
                 last_common,
                 best_known,
                 last_common_ancestor,
