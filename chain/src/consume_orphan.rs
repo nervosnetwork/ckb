@@ -236,7 +236,7 @@ impl ConsumeOrphan {
 
         if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
             debug!("block {}-{} has stored BlockExt", block_number, block_hash);
-            return Ok(Some((parent_header, ext.total_difficulty)));
+            return Ok((parent_header, ext.total_difficulty));
         }
 
         trace!("begin accept block: {}-{}", block.number(), block.hash());
@@ -297,6 +297,6 @@ impl ConsumeOrphan {
         self.shared
             .insert_block_status(block_hash, BlockStatus::BLOCK_PARTIAL_STORED);
 
-        Ok(Some((parent_header, cannon_total_difficulty)))
+        Ok((parent_header, cannon_total_difficulty))
     }
 }
