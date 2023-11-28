@@ -52,13 +52,12 @@ impl ConsumeOrphan {
         loop {
             select! {
                 recv(self.stop_rx) -> _ => {
-                        info!("unverified_queue_consumer got exit signal, exit now");
-                        return;
+                    info!("unverified_queue_consumer got exit signal, exit now");
+                    return;
                 },
                 recv(self.lonely_blocks_rx) -> msg => match msg {
                     Ok(lonely_block) => {
-                        self.orphan_blocks_broker.insert(lonely_block);
-                        self.search_orphan_pool()
+                        self.process_lonely_block(lonely_block);
                     },
                     Err(err) => {
                         error!("lonely_block_rx err: {}", err);
@@ -67,6 +66,25 @@ impl ConsumeOrphan {
                 },
             }
         }
+    }
+
+    fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
+        let parent_hash = lonely_block.block().parent_hash();
+        let parent_status = self.shared.get_block_status(&parent_hash);
+        if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
+            let parent_header = self
+                .shared
+                .store()
+                .get_block_header(&parent_hash)
+                .expect("parent already store");
+
+            let unverified_block: UnverifiedBlock =
+                lonely_block.combine_parent_header(parent_header);
+            self.send_unverified_block(unverified_block);
+        } else {
+            self.orphan_blocks_broker.insert(lonely_block);
+        }
+        self.search_orphan_pool()
     }
 
     fn search_orphan_pool(&self) {
@@ -113,6 +131,31 @@ impl ConsumeOrphan {
         }
     }
 
+    fn send_unverified_block(&self, unverified_block: UnverifiedBlock) -> bool {
+        match self.unverified_blocks_tx.send(unverified_block) {
+            Ok(_) => true,
+            Err(SendError(unverified_block)) => {
+                error!("send unverified_block_tx failed, the receiver has been closed");
+                let err: Error = InternalErrorKind::System
+                    .other(format!(
+                        "send unverified_block_tx failed, the receiver have been close"
+                    ))
+                    .into();
+
+                tell_synchronizer_to_punish_the_bad_peer(
+                    self.verify_failed_blocks_tx.clone(),
+                    unverified_block.peer_id(),
+                    unverified_block.block().hash(),
+                    &err,
+                );
+
+                let verify_result: VerifyResult = Err(err);
+                unverified_block.execute_callback(verify_result);
+                false
+            }
+        }
+    }
+
     fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) -> bool {
         let mut accept_error_occurred = false;
         for descendant_block in descendants {
@@ -124,27 +167,9 @@ impl ConsumeOrphan {
                         let block_number = unverified_block.block().number();
                         let block_hash = unverified_block.block().hash();
 
-                        match self.unverified_blocks_tx.send(unverified_block) {
-                            Ok(_) => {}
-                            Err(SendError(unverified_block)) => {
-                                error!(
-                                    "send unverified_block_tx failed, the receiver has been closed"
-                                );
-                                let err: Error = InternalErrorKind::System
-                                    .other(format!("send unverified_block_tx failed, the receiver have been close")).into();
-
-                                tell_synchronizer_to_punish_the_bad_peer(
-                                    self.verify_failed_blocks_tx.clone(),
-                                    unverified_block.peer_id(),
-                                    unverified_block.block().hash(),
-                                    &err,
-                                );
-
-                                let verify_result: VerifyResult = Err(err);
-                                unverified_block.execute_callback(verify_result);
-                                continue;
-                            }
-                        };
+                        if !self.send_unverified_block(unverified_block) {
+                            continue;
+                        }
 
                         if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty())
                         {
