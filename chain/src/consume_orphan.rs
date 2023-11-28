@@ -225,19 +225,8 @@ impl ConsumeOrphan {
         accept_error_occurred
     }
 
-    fn accept_descendant(
-        &self,
-        block: Arc<BlockView>,
-    ) -> Result<Option<(HeaderView, U256)>, Error> {
+    fn accept_descendant(&self, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
         let (block_number, block_hash) = (block.number(), block.hash());
-
-        if self
-            .shared
-            .contains_block_status(&block_hash, BlockStatus::BLOCK_PARTIAL_STORED)
-        {
-            debug!("block {}-{} has been stored", block_number, block_hash);
-            return Ok(None);
-        }
 
         let parent_header = self
             .shared
