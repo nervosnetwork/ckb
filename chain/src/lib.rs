@@ -18,7 +18,6 @@ use std::sync::Arc;
 mod chain;
 mod consume_orphan;
 mod consume_unverified;
-mod orphan_block_pool;
 #[cfg(test)]
 mod tests;
 mod utils;
