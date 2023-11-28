@@ -3,7 +3,7 @@
 
 use crate::consume_orphan::ConsumeOrphan;
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
-use crate::orphan_block_pool::OrphanBlockPool;
+use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, LonelyBlock, LonelyBlockWithCallback,
     ProcessBlockRequest, TruncateRequest, UnverifiedBlock, VerifyCallback, VerifyResult,
