@@ -24,7 +24,7 @@ function ckb_run { #@test
   run _ckb_run
   [ "$status" -eq 0 ]
   # assert_output --regexp "ckb_chain::chain.*block number:.*, hash:.*, size:.*, cycles:.*"
-  assert_output --regexp "INFO ckb_bin  all tokio tasks and threads have exited, ckb shutdown"
+  assert_output --regexp "INFO ckb_bin  All tokio tasks and threads have exited. CKB shutdown"
 }
 
 function ckb_replay { #@test

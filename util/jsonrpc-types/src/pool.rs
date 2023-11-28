@@ -267,7 +267,7 @@ pub enum PoolTransactionReject {
     /// Transaction are replaced because the pool is full
     Full(String),
 
-    /// Transaction already exist in transaction_pool
+    /// Transaction already exists in transaction_pool
     Duplicated(String),
 
     /// Malformed transaction

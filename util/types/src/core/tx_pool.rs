@@ -32,7 +32,7 @@ pub enum Reject {
     #[error("Transaction is replaced because the pool is full, {0}")]
     Full(String),
 
-    /// Transaction already exist in transaction_pool
+    /// Transaction already exists in transaction_pool
     #[error("Transaction({0}) already exists in transaction_pool")]
     Duplicated(Byte32),
 
@@ -45,7 +45,7 @@ pub enum Reject {
     DeclaredWrongCycles(Cycle, Cycle),
 
     /// Resolve failed
-    #[error("Resolution failed {0}")]
+    #[error("Resolve failed {0}")]
     Resolve(OutPointError),
 
     /// Verification failed

@@ -32,12 +32,12 @@ function ckb_graceful_shutdown { #@test
   assert_output --regexp "INFO ckb_sync::types::header_map  HeaderMap limit_memory received exit signal, exit now"
   assert_output --regexp "INFO ckb_network::network  NetworkService receive exit signal, start shutdown..."
   assert_output --regexp "INFO ckb_network::network  NetworkService shutdown now"
-  assert_output --regexp "INFO ckb_tx_pool::process  TxPool save successfully"
+  assert_output --regexp "INFO ckb_tx_pool::process  TxPool saved successfully"
   assert_output --regexp "INFO ckb_tx_pool::service  TxPool process_service exit now"
-  assert_output --regexp "INFO ckb_stop_handler::stop_register  wait thread ChainService done"
-  assert_output --regexp "INFO ckb_stop_handler::stop_register  wait thread BlockDownload done"
-  assert_output --regexp "INFO ckb_bin  waiting all tokio tasks exit..."
-  assert_output --regexp "INFO ckb_bin  all tokio tasks and threads have exited, ckb shutdown"
+  assert_output --regexp "INFO ckb_stop_handler::stop_register  Waiting thread ChainService done"
+  assert_output --regexp "INFO ckb_stop_handler::stop_register  Waiting thread BlockDownload done"
+  assert_output --regexp "INFO ckb_bin  Waiting for all tokio tasks to exit..."
+  assert_output --regexp "INFO ckb_bin  All tokio tasks and threads have exited. CKB shutdown"
 }
 
 teardown_file() {
