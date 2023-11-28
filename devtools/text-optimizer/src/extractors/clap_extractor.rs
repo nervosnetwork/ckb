@@ -81,9 +81,12 @@ impl syn::visit::Visit<'_> for ClapExtractor {
                         let start_line = span.start().line;
                         let category =
                             Category::from_str(method_ident.to_string().as_str()).unwrap();
-                        let meta =
-                            Meta::new(category, self.scanning_file_path.to_owned(), start_line);
-                        self.add_text_info(TextInfo::new(text, meta));
+                        let meta = Meta::new_line(
+                            category,
+                            self.scanning_file_path.to_owned(),
+                            start_line,
+                        );
+                        self.add_text_info(TextInfo::new(text.clone(), text, meta));
                     }
                 }
             }

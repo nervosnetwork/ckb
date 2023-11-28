@@ -91,12 +91,12 @@ impl syn::visit::Visit<'_> for ThiserrorExtractor {
 
                         let span = lit_str.span();
                         let start_line = span.start().line;
-                        let meta = Meta::new(
+                        let meta = Meta::new_line(
                             Category::ThisError,
                             self.scanning_file_path.to_owned(),
                             start_line,
                         );
-                        self.add_text_info(TextInfo::new(text, meta));
+                        self.add_text_info(TextInfo::new(text.clone(), text, meta));
                     }
                 }
             }

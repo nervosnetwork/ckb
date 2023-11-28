@@ -81,9 +81,12 @@ impl syn::visit::Visit<'_> for LogExtractor {
                         let span = lit.span();
                         let start_line = span.start().line;
                         let category = Category::from_str(&name).unwrap();
-                        let meta =
-                            Meta::new(category, self.scanning_file_path.to_owned(), start_line);
-                        self.add_text_info(TextInfo::new(text, meta));
+                        let meta = Meta::new_line(
+                            category,
+                            self.scanning_file_path.to_owned(),
+                            start_line,
+                        );
+                        self.add_text_info(TextInfo::new(text.clone(), text, meta));
                     }
                 }
             }

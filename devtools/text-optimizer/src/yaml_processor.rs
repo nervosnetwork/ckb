@@ -5,6 +5,7 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::str::FromStr;
 use std::{fs::File, path::PathBuf};
 use std::{io::Read, path::Path};
 
@@ -32,11 +33,32 @@ impl TextInfoSave {
     }
 }
 
+impl From<TextInfoSave> for TextInfo {
+    fn from(text_info_save: TextInfoSave) -> Self {
+        let metadata = Meta::from(text_info_save.metadata);
+        TextInfo::new(text_info_save.original, text_info_save.editable, metadata)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct Metadata {
     category: Category,
     file: PathBuf,
     code_line_link: Vec<String>,
+}
+
+impl From<Metadata> for Meta {
+    fn from(metadata: Metadata) -> Self {
+        let code_lines: Vec<usize> = metadata
+            .code_line_link
+            .iter()
+            .map(|link| {
+                let line = link.split("#L").last().expect("split line");
+                usize::from_str(line).expect("parse line")
+            })
+            .collect();
+        Meta::new(metadata.category, metadata.file, code_lines)
+    }
 }
 
 impl Metadata {
@@ -79,7 +101,10 @@ pub fn load_yaml(filename: &PathBuf) -> Result<Vec<TextInfo>, MyError> {
     let mut yaml_content = String::new();
     file.read_to_string(&mut yaml_content)?;
 
-    let extracted_texts: Vec<TextInfo> = serde_yaml::from_str(&yaml_content)?;
-
+    let extracted_texts: Vec<TextInfoSave> = serde_yaml::from_str(&yaml_content)?;
+    let extracted_texts = extracted_texts
+        .iter()
+        .map(|text_info_save| TextInfo::from(text_info_save.clone()))
+        .collect();
     Ok(extracted_texts)
 }

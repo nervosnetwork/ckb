@@ -11,10 +11,10 @@ pub struct TextInfo {
 }
 
 impl TextInfo {
-    pub fn new(original: String, metadata: Meta) -> Self {
+    pub fn new(original: String, editable: String, metadata: Meta) -> Self {
         TextInfo {
-            original: original.to_owned(),
-            editable: original,
+            original,
+            editable,
             metadata,
         }
     }
@@ -47,11 +47,19 @@ pub struct Meta {
 }
 
 impl Meta {
-    pub fn new(category: Category, file: PathBuf, start_line: usize) -> Self {
+    pub fn new_line(category: Category, file: PathBuf, start_line: usize) -> Self {
         Meta {
             category,
             file,
             code_lines: vec![start_line],
+        }
+    }
+
+    pub fn new(category: Category, file: PathBuf, code_lines: Vec<usize>) -> Self {
+        Meta {
+            category,
+            file,
+            code_lines,
         }
     }
 
