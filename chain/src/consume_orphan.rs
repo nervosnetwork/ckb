@@ -72,19 +72,43 @@ impl ConsumeOrphan {
         let parent_hash = lonely_block.block().parent_hash();
         let parent_status = self.shared.get_block_status(&parent_hash);
         if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-            let parent_header = self
-                .shared
-                .store()
-                .get_block_header(&parent_hash)
-                .expect("parent already store");
-
-            let unverified_block: UnverifiedBlock =
-                lonely_block.combine_parent_header(parent_header);
-            self.send_unverified_block(unverified_block);
+            debug!(
+                "parent has stored, processing descendant directly {}",
+                lonely_block.block().hash()
+            );
+            self.process_descendant(lonely_block);
         } else {
             self.orphan_blocks_broker.insert(lonely_block);
         }
         self.search_orphan_pool()
+    }
+
+    fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
+        match self.accept_descendant(lonely_block.block().to_owned()) {
+            Ok((parent_header, total_difficulty)) => {
+                let unverified_block: UnverifiedBlock =
+                    lonely_block.combine_parent_header(parent_header);
+
+                self.send_unverified_block(unverified_block, total_difficulty)
+            }
+
+            Err(err) => {
+                tell_synchronizer_to_punish_the_bad_peer(
+                    self.verify_failed_blocks_tx.clone(),
+                    lonely_block.peer_id(),
+                    lonely_block.block().hash(),
+                    &err,
+                );
+
+                error!(
+                    "accept block {} failed: {}",
+                    lonely_block.block().hash(),
+                    err
+                );
+
+                lonely_block.execute_callback(Err(err));
+            }
+        }
     }
 
     fn search_orphan_pool(&self) {
@@ -120,20 +144,22 @@ impl ConsumeOrphan {
                     .number(),
                 descendants.len(),
             );
-            let accept_error_occurred = self.accept_descendants(descendants);
-
-            if !accept_error_occurred {
-                debug!(
-                    "accept {} blocks [{}->{}] success",
-                    descendants_len, first_descendants_number, last_descendants_number
-                )
-            }
+            self.accept_descendants(descendants);
         }
     }
 
-    fn send_unverified_block(&self, unverified_block: UnverifiedBlock) -> bool {
-        match self.unverified_blocks_tx.send(unverified_block) {
-            Ok(_) => true,
+    fn send_unverified_block(&self, unverified_block: UnverifiedBlock, total_difficulty: U256) {
+        let block_number = unverified_block.block().number();
+        let block_hash = unverified_block.block().hash();
+
+        let send_success = match self.unverified_blocks_tx.send(unverified_block) {
+            Ok(_) => {
+                debug!(
+                    "process desendant block success {}-{}",
+                    block_number, block_hash
+                );
+                true
+            }
             Err(SendError(unverified_block)) => {
                 error!("send unverified_block_tx failed, the receiver has been closed");
                 let err: Error = InternalErrorKind::System
@@ -142,77 +168,45 @@ impl ConsumeOrphan {
                     ))
                     .into();
 
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    unverified_block.peer_id(),
-                    unverified_block.block().hash(),
-                    &err,
-                );
-
                 let verify_result: VerifyResult = Err(err);
                 unverified_block.execute_callback(verify_result);
                 false
             }
+        };
+        if !send_success {
+            return;
         }
+
+        if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty()) {
+            self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
+                block_number.clone(),
+                block_hash.clone(),
+                total_difficulty,
+            ));
+            debug!(
+                "set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
+                block_number.clone(),
+                block_hash.clone(),
+                block_number.saturating_sub(self.shared.snapshot().tip_number())
+            )
+        } else {
+            debug!(
+                "received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
+                block_number,
+                block_hash,
+                self.shared.get_unverified_tip().number(),
+                self.shared.get_unverified_tip().hash(),
+            );
+        }
+
+        self.shared
+            .insert_block_status(block_hash, BlockStatus::BLOCK_PARTIAL_STORED);
     }
 
-    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) -> bool {
-        let mut accept_error_occurred = false;
+    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) {
         for descendant_block in descendants {
-            match self.accept_descendant(descendant_block.block().to_owned()) {
-                Ok((parent_header, total_difficulty)) => {
-                    let unverified_block: UnverifiedBlock =
-                        descendant_block.combine_parent_header(parent_header);
-                    let block_number = unverified_block.block().number();
-                    let block_hash = unverified_block.block().hash();
-
-                    if !self.send_unverified_block(unverified_block) {
-                        continue;
-                    }
-
-                    if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty()) {
-                        self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                            block_number.clone(),
-                            block_hash.clone(),
-                            total_difficulty,
-                        ));
-                        debug!(
-                            "set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
-                            block_number.clone(),
-                            block_hash.clone(),
-                            block_number.saturating_sub(self.shared.snapshot().tip_number())
-                        )
-                    } else {
-                        debug!("received a block {}-{} with lower or equal difficulty than unverified_tip {}-{}",
-                                    block_number,
-                                    block_hash,
-                                    self.shared.get_unverified_tip().number(),
-                                    self.shared.get_unverified_tip().hash(),
-                                    );
-                    }
-                }
-
-                Err(err) => {
-                    accept_error_occurred = true;
-
-                    tell_synchronizer_to_punish_the_bad_peer(
-                        self.verify_failed_blocks_tx.clone(),
-                        descendant_block.peer_id(),
-                        descendant_block.block().hash(),
-                        &err,
-                    );
-
-                    error!(
-                        "accept block {} failed: {}",
-                        descendant_block.block().hash(),
-                        err
-                    );
-
-                    descendant_block.execute_callback(Err(err));
-                }
-            }
+            self.process_descendant(descendant_block);
         }
-        accept_error_occurred
     }
 
     fn accept_descendant(&self, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
@@ -283,9 +277,6 @@ impl ConsumeOrphan {
         db_txn.insert_block_ext(&block.header().hash(), &ext)?;
 
         db_txn.commit()?;
-
-        self.shared
-            .insert_block_status(block_hash, BlockStatus::BLOCK_PARTIAL_STORED);
 
         Ok((parent_header, cannon_total_difficulty))
     }
