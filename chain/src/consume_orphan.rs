@@ -131,19 +131,6 @@ impl ConsumeOrphan {
                 );
                 continue;
             }
-            let (first_descendants_number, last_descendants_number, descendants_len) = (
-                descendants
-                    .first()
-                    .expect("descdant not empty")
-                    .block()
-                    .number(),
-                descendants
-                    .last()
-                    .expect("descdant not empty")
-                    .block()
-                    .number(),
-                descendants.len(),
-            );
             self.accept_descendants(descendants);
         }
     }

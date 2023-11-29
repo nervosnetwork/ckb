@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::LonelyBlockWithCallback;
 use ckb_logger::debug;
 use ckb_types::core::{BlockView, EpochNumber};
