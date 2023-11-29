@@ -4,7 +4,7 @@ use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
-use ckb_shared::types::VerifyFailedBlockInfo;
+
 use ckb_stop_handler::{broadcast_exit_signals, wait_all_ckb_services_exit};
 
 use ckb_types::core::cell::setup_system_cell_cache;
