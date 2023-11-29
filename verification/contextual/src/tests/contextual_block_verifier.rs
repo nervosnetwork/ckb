@@ -1,6 +1,6 @@
 use super::super::contextual_block_verifier::{EpochVerifier, TwoPhaseCommitVerifier};
 use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
-use ckb_chain::start_chain_services;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};
@@ -83,7 +83,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
     (chain_controller, shared)
 }
 
