@@ -28,13 +28,11 @@ fn get_version() -> String {
         .nth(1)
         .unwrap_or("0.0.0")
         .to_owned();
-    eprintln!("version: {:?}", version);
-    return version;
+    version
 }
 
 fn get_commit_sha() -> String {
-    let res =
-        run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap_or("main".to_string());
+    let res = run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap();
     eprintln!("commit sha: {:?}", res);
     res
 }
@@ -89,7 +87,6 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
         ],
         Some(OPENRPC_DIR),
     );
-    // git push
     run_command("git", &["push"], Some(OPENRPC_DIR));
     Ok(())
 }
