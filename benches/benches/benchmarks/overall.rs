@@ -132,7 +132,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     (shared, chain_controller)
 }
