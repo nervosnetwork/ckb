@@ -1,4 +1,4 @@
-use ckb_chain::ChainController;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
