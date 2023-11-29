@@ -1,6 +1,7 @@
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, utils::forkchanges::ForkChanges, GlobalIndex,
-    LonelyBlock, LonelyBlockWithCallback, UnverifiedBlock, VerifiedBlockStatus, VerifyResult,
+    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, VerifiedBlockStatus,
+    VerifyResult,
 };
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
@@ -38,7 +39,10 @@ pub(crate) struct ConsumeUnverifiedBlockProcessor {
 
 pub(crate) struct ConsumeUnverifiedBlocks {
     tx_pool_controller: TxPoolController,
+
     unverified_block_rx: Receiver<UnverifiedBlock>,
+    truncate_block_rx: Receiver<TruncateRequest>,
+
     stop_rx: Receiver<()>,
     processor: ConsumeUnverifiedBlockProcessor,
 }
@@ -47,6 +51,7 @@ impl ConsumeUnverifiedBlocks {
     pub(crate) fn new(
         shared: Shared,
         unverified_blocks_rx: Receiver<UnverifiedBlock>,
+        truncate_block_rx: Receiver<TruncateRequest>,
         proposal_table: ProposalTable,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
         stop_rx: Receiver<()>,
@@ -54,6 +59,7 @@ impl ConsumeUnverifiedBlocks {
         ConsumeUnverifiedBlocks {
             tx_pool_controller: shared.tx_pool_controller().to_owned(),
             unverified_block_rx: unverified_blocks_rx,
+            truncate_block_rx,
             stop_rx,
             processor: ConsumeUnverifiedBlockProcessor {
                 shared,
@@ -80,6 +86,19 @@ impl ConsumeUnverifiedBlocks {
                     },
                     Err(err) => {
                         error!("unverified_block_rx err: {}", err);
+                        return;
+                    },
+                },
+                recv(self.truncate_block_rx) -> msg => match msg {
+                    Ok(Request { responder, arguments: target_tip_hash }) => {
+                        let _ = tx_pool_control.suspend_chunk_process();
+                        let _ = responder.send(self.truncate(
+                            &mut proposal_table,
+                            &target_tip_hash));
+                        let _ = tx_pool_control.continue_chunk_process();
+                    },
+                    Err(err) => {
+                        error!("truncate_block_tx has been closed,err: {}", err);
                         return;
                     },
                 },
