@@ -19,7 +19,7 @@ use ckb_tx_pool::TxPoolController;
 use ckb_types::core::cell::{
     resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction,
 };
-use ckb_types::core::{BlockExt, BlockNumber, BlockView, Cycle, HeaderView};
+use ckb_types::core::{service::Request, BlockExt, BlockNumber, BlockView, Cycle, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_types::utilities::merkle_mountain_range::ChainRootMMR;
 use ckb_types::H256;
@@ -71,7 +71,6 @@ impl ConsumeUnverifiedBlocks {
 
     pub(crate) fn start(mut self) {
         let mut begin_loop = std::time::Instant::now();
-        let tx_pool_control = self.tx_pool_controller();
         loop {
             begin_loop = std::time::Instant::now();
             select! {
@@ -79,9 +78,9 @@ impl ConsumeUnverifiedBlocks {
                     Ok(unverified_task) => {
                         // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
-                        let _ = tx_pool_control.suspend_chunk_process();
+                        let _ = self.tx_pool_controller.suspend_chunk_process();
                         self.processor.consume_unverified_blocks(unverified_task);
-                        let _ = tx_pool_control.resume_chunk_process();
+                        let _ = self.tx_pool_controller.continue_chunk_process();
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
@@ -91,11 +90,9 @@ impl ConsumeUnverifiedBlocks {
                 },
                 recv(self.truncate_block_rx) -> msg => match msg {
                     Ok(Request { responder, arguments: target_tip_hash }) => {
-                        let _ = tx_pool_control.suspend_chunk_process();
-                        let _ = responder.send(self.truncate(
-                            &mut proposal_table,
-                            &target_tip_hash));
-                        let _ = tx_pool_control.continue_chunk_process();
+                        let _ = self.tx_pool_controller.suspend_chunk_process();
+                        let _ = responder.send(self.processor.truncate(&target_tip_hash));
+                        let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
                         error!("truncate_block_tx has been closed,err: {}", err);
@@ -823,11 +820,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
     // Truncate the main chain
     // Use for testing only
-    pub(crate) fn truncate(
-        &mut self,
-        proposal_table: &mut ProposalTable,
-        target_tip_hash: &Byte32,
-    ) -> Result<(), Error> {
+    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
         let snapshot = Arc::clone(&self.shared.snapshot());
         assert!(snapshot.is_main_chain(target_tip_hash));
 
@@ -852,8 +845,9 @@ impl ConsumeUnverifiedBlockProcessor {
         db_txn.commit()?;
 
         self.update_proposal_table(&fork);
-        let (detached_proposal_id, new_proposals) =
-            proposal_table.finalize(origin_proposals, target_tip_header.number());
+        let (detached_proposal_id, new_proposals) = self
+            .proposal_table
+            .finalize(origin_proposals, target_tip_header.number());
         fork.detached_proposal_id = detached_proposal_id;
 
         let new_snapshot = self.shared.new_snapshot(
