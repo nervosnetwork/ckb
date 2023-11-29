@@ -53,6 +53,7 @@ fn consume_unverified_block(
 fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
     let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
@@ -73,7 +74,6 @@ fn test_find_fork_case1() {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
 
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
