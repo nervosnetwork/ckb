@@ -1,5 +1,6 @@
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
+use ckb_chain::start_chain_services;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
@@ -53,7 +54,7 @@ fn test_insert_parent_unknown_block() {
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
-        let chain_controller = pack.take_chain_services_builder().start();
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
         (
             SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
             chain_controller,

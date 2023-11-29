@@ -1,4 +1,4 @@
-use ckb_chain::ChainController;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
@@ -49,7 +49,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
 
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
