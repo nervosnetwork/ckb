@@ -78,7 +78,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_controller = pack.take_chain_services_builder().start();
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
         chains.push((chain_controller, shared));
     }
@@ -296,7 +296,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_controller = pack.take_chain_services_builder().start();
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
         chains.push((chain_controller, shared));
     }

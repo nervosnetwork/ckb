@@ -96,7 +96,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     // FIXME: global cache !!!
     let _ret = setup_system_cell_cache(
