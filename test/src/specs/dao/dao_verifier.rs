@@ -257,7 +257,7 @@ impl DAOVerifier {
             return false;
         }
 
-        let dao_type_hash = self.consensus.dao_type_hash().unwrap();
+        let dao_type_hash = self.consensus.dao_type_hash();
         self.get_output(out_point)
             .type_()
             .to_opt()

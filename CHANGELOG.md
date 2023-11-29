@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## [v0.112.1](https://github.com/nervosnetwork/ckb/compare/v0.111.0...v0.112.1) (2023-11-14)
+
+### Features
+
+-   #4128 **rpc:** Introduce the new method `generate_epochs` in the `IntegrationTest` module (@EthanYuan)
+-   #4079: Tx pool Replace-by-fee (@chenyukang)
+-   #4108: Add feature of Replace-by-fee for tx-pool (@chenyukang)
+-   #4232: RBF will also replace tx not in Pending (@chenyukang)
+
+### Bug Fixes
+
+-   #4172: Fix `ckb-hash` depends `blake2b-ref` multiple times (@eval-exec)
+-   #4171 **light-client:** Could not check MMR for fork chains (@yangby-cryptape)
+-   #4182: Should only return main chain data (@quake)
+-   #4208: Fix orphan pool issue for long pending tx (@chenyukang)
+
+### Improvements
+
+-   #3993: Tx pool rewrite with multi_index_map (@chenyukang)
+-   #4146: Upgrade CKB's `rust-toolchain` from `1.67.1` to `1.71.1` (@eval-exec)
+-   #4160: Remove useless `--cfg disable_faketime` from `RUSTFLAGS` (@eval-exec)
+-   #4158: Remove useless `non_owning_clone` method for `ChainController` and `NetworkController` (@eval-exec)
+-   #4161: Remove `#[derive(Clone)]` from `Synchronizer` (@eval-exec)
+-   #4113 **(molecule):** Remove deprecated `SyncMessage` union items. (@eval-exec)
+-   #4186: Remove `Consensus.dao_type_hash`'s `Option` wrapper (@eval-exec)
+
 ## [v0.111.0](https://github.com/nervosnetwork/ckb/compare/v0.110.2...v0.111.0) (2023-09-14)
 
 ### Features

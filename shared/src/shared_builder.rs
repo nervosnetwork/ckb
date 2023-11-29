@@ -1,35 +1,33 @@
-//! Shared factory
-//!
-//! which can be used in order to configure the properties of a new shared.
+//! shared_builder provide SharedBuilder and SharedPacakge
+use ckb_channel::Receiver;
+use ckb_proposal_table::ProposalTable;
+use ckb_tx_pool::service::TxVerificationResult;
+use ckb_tx_pool::{TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
+use std::cmp::Ordering;
 
-use crate::migrate::Migrate;
-use ckb_app_config::ExitCode;
-use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
-use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_channel::Receiver;
+
+use crate::Shared;
+use ckb_proposal_table::ProposalView;
+use ckb_snapshot::{Snapshot, SnapshotMgr};
+
+use ckb_app_config::{
+    BlockAssemblerConfig, DBConfig, ExitCode, NotifyConfig, StoreConfig, TxPoolConfig,
+};
+use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_freezer::Freezer;
 use ckb_logger::{error, info};
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
-use ckb_proposal_table::ProposalTable;
-use ckb_proposal_table::ProposalView;
-use ckb_shared::Shared;
-use ckb_snapshot::{Snapshot, SnapshotMgr};
-
-use ckb_store::ChainDB;
-use ckb_store::ChainStore;
-use ckb_tx_pool::{
-    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
-    TxPoolServiceBuilder,
-};
+use ckb_migrate::migrate::Migrate;
+use ckb_notify::{NotifyController, NotifyService};
+use ckb_store::{ChainDB, ChainStore, Freezer};
+use ckb_types::core::service::PoolTransactionEntry;
+use ckb_types::core::tx_pool::Reject;
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -48,6 +46,7 @@ pub struct SharedBuilder {
     async_handle: Handle,
 }
 
+/// Open or create a rocksdb
 pub fn open_or_create_db(
     bin_name: &str,
     root_dir: &Path,
@@ -177,7 +176,7 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: runtime.borrow().get_or_init(new_background_runtime).clone(),
+            async_handle: runtime.get_or_init(new_background_runtime).clone(),
         })
     }
 }
@@ -372,51 +371,6 @@ impl SharedBuilder {
     }
 }
 
-/// SharedBuilder build returning the shared/package halves
-/// The package structs used for init other component
-pub struct SharedPackage {
-    table: Option<ProposalTable>,
-    tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
-}
-
-impl SharedPackage {
-    /// Takes the proposal_table out of the package, leaving a None in its place.
-    pub fn take_proposal_table(&mut self) -> ProposalTable {
-        self.table.take().expect("take proposal_table")
-    }
-
-    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
-    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
-        self.tx_pool_builder.take().expect("take tx_pool_builder")
-    }
-
-    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
-        self.relay_tx_receiver
-            .take()
-            .expect("take relay_tx_receiver")
-    }
-}
-
-fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
-    NotifyService::new(notify_config, handle).start()
-}
-
-fn build_store(
-    db: RocksDB,
-    store_config: StoreConfig,
-    ancient_path: Option<PathBuf>,
-) -> Result<ChainDB, Error> {
-    let store = if store_config.freezer_enable && ancient_path.is_some() {
-        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
-        ChainDB::new_with_freezer(db, freezer, store_config)
-    } else {
-        ChainDB::new(db, store_config)
-    };
-    Ok(store)
-}
-
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
 
@@ -482,4 +436,49 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },
     ));
+}
+
+fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
+    NotifyService::new(notify_config, handle).start()
+}
+
+fn build_store(
+    db: RocksDB,
+    store_config: StoreConfig,
+    ancient_path: Option<PathBuf>,
+) -> Result<ChainDB, Error> {
+    let store = if store_config.freezer_enable && ancient_path.is_some() {
+        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
+        ChainDB::new_with_freezer(db, freezer, store_config)
+    } else {
+        ChainDB::new(db, store_config)
+    };
+    Ok(store)
+}
+
+/// SharedBuilder build returning the shared/package halves
+/// The package structs used for init other component
+pub struct SharedPackage {
+    table: Option<ProposalTable>,
+    tx_pool_builder: Option<TxPoolServiceBuilder>,
+    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
+}
+
+impl SharedPackage {
+    /// Takes the proposal_table out of the package, leaving a None in its place.
+    pub fn take_proposal_table(&mut self) -> ProposalTable {
+        self.table.take().expect("take proposal_table")
+    }
+
+    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
+    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
+        self.tx_pool_builder.take().expect("take tx_pool_builder")
+    }
+
+    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
+        self.relay_tx_receiver
+            .take()
+            .expect("take relay_tx_receiver")
+    }
 }

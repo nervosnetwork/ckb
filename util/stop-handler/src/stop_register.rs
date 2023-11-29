@@ -1,5 +1,5 @@
 use ckb_channel::TrySendError;
-use ckb_logger::{debug, error, info, trace, warn};
+use ckb_logger::{debug, info, trace, warn};
 use ckb_util::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -17,7 +17,7 @@ pub fn wait_all_ckb_services_exit() {
     for (name, join_handle) in handles.thread_handles.drain(..) {
         match join_handle.join() {
             Ok(_) => {
-                debug!("wait thread {} done", name);
+                info!("wait thread {} done", name);
             }
             Err(e) => {
                 warn!("wait thread {}: ERROR: {:?}", name, e)
@@ -61,9 +61,9 @@ pub fn broadcast_exit_signals() {
         .iter()
         .for_each(|tx| match tx.try_send(()) {
             Ok(_) => {}
-            Err(TrySendError::Full(_)) => error!("send exit signal to channel failed since the channel is full, this should not happen"),
+            Err(TrySendError::Full(_)) => info!("ckb process has received exit signal"),
             Err(TrySendError::Disconnected(_)) => {
-                info!("broadcast thread: channel is disconnected")
+                debug!("broadcast thread: channel is disconnected")
             }
         });
 }

@@ -126,6 +126,7 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
     // Ref: https://doc.rust-lang.org/reference/destructors.html
     store: Arc<ChainDB>,
     consensus: Arc<Consensus>,
+    version_1_enabled_at: EpochNumber,
     version_2_enabled_at: EpochNumber,
     _tmp_dir: TempDir,
 }
@@ -135,10 +136,15 @@ impl TransactionScriptsVerifierWithEnv {
         let tmp_dir = TempDir::new().unwrap();
         let db = RocksDB::open_in(&tmp_dir, COLUMNS);
         let store = Arc::new(ChainDB::new(db, Default::default()));
+        let version_1_enabled_at = 5;
         let version_2_enabled_at = 10;
 
         let hardfork_switch = HardForks {
-            ckb2021: CKB2021::new_mirana(),
+            ckb2021: CKB2021::new_mirana()
+                .as_builder()
+                .rfc_0032(version_1_enabled_at)
+                .build()
+                .unwrap(),
             ckb2023: CKB2023::new_mirana()
                 .as_builder()
                 .rfc_0049(version_2_enabled_at)
@@ -152,6 +158,7 @@ impl TransactionScriptsVerifierWithEnv {
         );
         Self {
             store,
+            version_1_enabled_at,
             version_2_enabled_at,
             consensus,
             _tmp_dir: tmp_dir,
@@ -237,7 +244,7 @@ impl TransactionScriptsVerifierWithEnv {
         let data_loader = self.store.as_data_loader();
         let epoch = match version {
             ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
-            ScriptVersion::V1 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
             ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
         };
         let header = HeaderView::new_advanced_builder()

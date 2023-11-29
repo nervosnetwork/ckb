@@ -60,8 +60,10 @@ pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 // o_ideal = 1/40 = 2.5%
 pub(crate) const DEFAULT_ORPHAN_RATE_TARGET: (u32, u32) = (1, 40);
 
-const MAX_BLOCK_INTERVAL: u64 = 48; // 48s
-const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
+/// max block interval, 48 seconds
+pub const MAX_BLOCK_INTERVAL: u64 = 48;
+/// min block interval, 8 seconds
+pub const MIN_BLOCK_INTERVAL: u64 = 8;
 
 /// cycles of a typical two-in-two-out tx.
 pub const TWO_IN_TWO_OUT_CYCLES: Cycle = 3_500_000;
@@ -276,7 +278,7 @@ impl ConsensusBuilder {
                 median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
                 max_block_cycles: MAX_BLOCK_CYCLES,
                 max_block_bytes: MAX_BLOCK_BYTES,
-                dao_type_hash: None,
+                dao_type_hash: Byte32::default(),
                 secp256k1_blake160_sighash_all_type_hash: None,
                 secp256k1_blake160_multisig_all_type_hash: None,
                 genesis_epoch_ext,
@@ -347,7 +349,7 @@ impl ConsensusBuilder {
             "genesis block must contain the witness for cellbase"
         );
 
-        self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO);
+        self.inner.dao_type_hash = self.get_type_hash(OUTPUT_INDEX_DAO).unwrap_or_default();
         self.inner.secp256k1_blake160_sighash_all_type_hash =
             self.get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
         self.inner.secp256k1_blake160_multisig_all_type_hash =
@@ -514,7 +516,7 @@ pub struct Consensus {
     /// The dao type hash
     ///
     /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
-    pub dao_type_hash: Option<Byte32>,
+    pub dao_type_hash: Byte32,
     /// The secp256k1_blake160_sighash_all_type_hash
     ///
     /// [SECP256K1/blake160](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#secp256k1blake160)
@@ -626,7 +628,7 @@ impl Consensus {
     /// The dao type hash
     ///
     /// [nervos-dao](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0024-ckb-genesis-script-list/0024-ckb-genesis-script-list.md#nervos-dao)
-    pub fn dao_type_hash(&self) -> Option<Byte32> {
+    pub fn dao_type_hash(&self) -> Byte32 {
         self.dao_type_hash.clone()
     }
 
@@ -822,16 +824,15 @@ impl Consensus {
                     epoch_duration_in_milliseconds,
                 } => {
                     if self.permanent_difficulty() {
-                        let primary_epoch_reward =
-                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
-                        let block_reward =
-                            Capacity::shannons(primary_epoch_reward / epoch.length());
-                        let remainder_reward =
-                            Capacity::shannons(primary_epoch_reward % epoch.length());
-
                         let next_epoch_length = (self.epoch_duration_target() + MIN_BLOCK_INTERVAL
                             - 1)
                             / MIN_BLOCK_INTERVAL;
+                        let primary_epoch_reward =
+                            self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
+                        let block_reward =
+                            Capacity::shannons(primary_epoch_reward / next_epoch_length);
+                        let remainder_reward =
+                            Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
                         let dummy_epoch_ext = epoch
                             .clone()
@@ -1111,7 +1112,7 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
-            dao_type_hash: consensus.dao_type_hash.map(|h| h.unpack()),
+            dao_type_hash: consensus.dao_type_hash.unpack(),
             secp256k1_blake160_sighash_all_type_hash: consensus
                 .secp256k1_blake160_sighash_all_type_hash
                 .map(|h| h.unpack()),

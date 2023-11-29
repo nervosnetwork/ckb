@@ -2,7 +2,9 @@ use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
-use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Script, Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{
+    OutputsValidator, PoolTxDetailInfo, RawTxPool, Script, Transaction, TxPoolInfo,
+};
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
 use ckb_types::{core, packed, prelude::*, H256};
@@ -255,6 +257,47 @@ pub trait PoolRpc {
     #[rpc(name = "get_raw_tx_pool")]
     fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
 
+    /// Query and returns the details of a transaction in the pool, only for trouble shooting
+    /// ## Params
+    ///
+    /// * `tx_hash` - Hash of a transaction
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_pool_tx_detail_info",
+    ///   "params": [
+    ///     "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///    "jsonrpc": "2.0",
+    ///    "result": {
+    ///        "ancestors_count": "0x0",
+    ///        "descendants_count": "0x0",
+    ///        "entry_status": "pending",
+    ///        "pending_count": "0x1",
+    ///        "proposed_count": "0x0",
+    ///        "rank_in_pending": "0x1",
+    ///        "score_sortkey": "fee: 0x16923F7DCF, ancestors_fee: 0x16923F7DCF, weight: 0x112, ancestors_weight: 0x112",
+    ///        "timestamp": "0x18aa1baa54c"
+    ///    },
+    ///    "id": 42
+    /// }
+    /// ```
+    #[rpc(name = "get_pool_tx_detail_info")]
+    fn get_pool_tx_detail_info(&self, tx_hash: H256) -> Result<PoolTxDetailInfo>;
+
     /// Returns whether tx-pool service is started, ready for request.
     ///
     /// ## Examples
@@ -486,6 +529,14 @@ impl PoolRpc for PoolRpcImpl {
         };
         Ok(raw)
     }
+
+    fn get_pool_tx_detail_info(&self, tx_hash: H256) -> Result<PoolTxDetailInfo> {
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_detail = tx_pool
+            .get_tx_detail(tx_hash.pack())
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+        Ok(tx_detail.into())
+    }
 }
 
 pub(crate) struct WellKnownScriptsOnlyValidator<'a> {
@@ -620,9 +671,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
             Some(script) => {
                 if !script.is_hash_type_type() {
                     Err(DefaultOutputsValidatorError::HashType)
-                } else if script.code_hash()
-                    != self.consensus.dao_type_hash().expect("No dao system cell")
-                {
+                } else if script.code_hash() != self.consensus.dao_type_hash() {
                     Err(DefaultOutputsValidatorError::CodeHash)
                 } else if output.lock().args().len() == BLAKE160_LEN + SINCE_LEN {
                     // https://github.com/nervosnetwork/ckb/wiki/Common-Gotchas#nervos-dao

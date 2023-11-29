@@ -385,6 +385,9 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "generate_block" => replace_rpc_response::<H256>(example, response),
         "process_block_without_verify" => replace_rpc_response::<H256>(example, response),
         "notify_transaction" => replace_rpc_response::<H256>(example, response),
+        "get_pool_tx_detail_info" => {
+            response.result["timestamp"] = example.response.result["timestamp"].clone()
+        }
         _ => {}
     }
 }

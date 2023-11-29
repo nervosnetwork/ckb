@@ -257,7 +257,7 @@ impl ChainService {
                         },
                     },
                     recv(signal_receiver) -> _ => {
-                        debug!("ChainService received exit signal, exit now");
+                        info!("ChainService received exit signal, exit now");
                         break;
                     }
                 }

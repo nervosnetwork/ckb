@@ -74,6 +74,7 @@ impl Spec for CheckVmBExtension {
     fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
         spec.params.permanent_difficulty_in_dummy = Some(true);
         spec.params.genesis_epoch_length = Some(GENESIS_EPOCH_LENGTH);
+        spec.params.epoch_duration_target = Some(GENESIS_EPOCH_LENGTH * 8);
     }
 }
 

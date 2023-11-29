@@ -12,6 +12,7 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, BlockView, Capacity, EpochExt, EpochNumber, HeaderView,
         TransactionBuilder, TransactionView, Version,
     },
+    global::DATA_DIR,
     packed::{Byte32, Bytes, CellbaseWitness},
     prelude::*,
     utilities::DIFF_TWO,
@@ -191,6 +192,11 @@ impl MockChain {
 
 #[test]
 fn test_versionbits_active() {
+    let tmp_dir = tempfile::tempdir().expect("create tmp_dir failed");
+    DATA_DIR
+        .set(tmp_dir.path().join("data"))
+        .expect("DATA_DIR set only once");
+
     let cellbase = TransactionBuilder::default()
         .witness(Bytes::default())
         .build();
@@ -294,6 +300,11 @@ fn test_versionbits_active() {
 
 #[test]
 fn test_versionbits_failed() {
+    let tmp_dir = tempfile::tempdir().expect("create tmp_dir failed");
+    DATA_DIR
+        .set(tmp_dir.path().join("data"))
+        .expect("DATA_DIR set only once");
+
     let cellbase = TransactionBuilder::default()
         .witness(Bytes::default())
         .build();

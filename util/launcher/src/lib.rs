@@ -2,15 +2,6 @@
 //!
 //! ckb launcher is helps to launch ckb node.
 
-// declare here for mute ./devtools/ci/check-cargotoml.sh error
-extern crate num_cpus;
-
-pub mod migrate;
-mod migrations;
-mod shared_builder;
-#[cfg(test)]
-mod tests;
-
 use ckb_app_config::{
     BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
@@ -33,6 +24,7 @@ use ckb_rpc::RpcServer;
 use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
+use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -40,8 +32,6 @@ use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
-
-pub use crate::shared_builder::{SharedBuilder, SharedPackage};
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
@@ -264,7 +254,7 @@ impl Launcher {
     }
 
     /// Start network service and rpc serve
-    pub async fn start_network_and_rpc(
+    pub fn start_network_and_rpc(
         &self,
         shared: &Shared,
         chain_controller: ChainController,
@@ -418,10 +408,11 @@ impl Launcher {
                 &self.args.config.indexer,
             )
             .enable_debug();
-        builder.enable_subscription(shared.clone()).await;
+        builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        RpcServer::new(rpc_config, io_handler).await;
+        let async_handle = shared.async_handle();
+        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
 
         network_controller
     }

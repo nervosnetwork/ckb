@@ -1,13 +1,13 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
+use super::links::TxLinks;
 use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-
-use ckb_logger::trace;
+use ckb_logger::{debug, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
@@ -19,8 +19,6 @@ use ckb_types::{
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
-use super::links::TxLinks;
-
 type ConflictEntry = (TxEntry, Reject);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -28,6 +26,16 @@ pub enum Status {
     Pending,
     Gap,
     Proposed,
+}
+
+impl ToString for Status {
+    fn to_string(&self) -> String {
+        match self {
+            Status::Pending => "pending".to_string(),
+            Status::Gap => "gap".to_string(),
+            Status::Proposed => "proposed".to_string(),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -107,6 +115,14 @@ impl PoolMap {
         self.add_entry(entry, Status::Proposed)
     }
 
+    pub(crate) fn get_max_update_time(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|(_, entry)| entry.inner.timestamp)
+            .max()
+            .unwrap_or(0)
+    }
+
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
     }
@@ -176,6 +192,7 @@ impl PoolMap {
         self.insert_entry(&entry, status);
         self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
+        self.track_entry_statics();
         Ok(true)
     }
 
@@ -186,10 +203,16 @@ impl PoolMap {
                 e.status = status;
             })
             .expect("unconsistent pool");
+        self.track_entry_statics();
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove_by_id(id).map(|entry| {
+            debug!(
+                "remove entry {} from status: {:?}",
+                entry.inner.transaction().hash(),
+                entry.status
+            );
             self.update_ancestors_index_key(&entry.inner, EntryOp::Remove);
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
@@ -455,6 +478,7 @@ impl PoolMap {
             entry.add_ancestor_weight(&ancestor.inner);
         }
         if entry.ancestors_count > self.max_ancestors_count {
+            debug!("debug: exceeded maximum ancestors count");
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
@@ -496,5 +520,22 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
+    }
+
+    fn track_entry_statics(&self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_tx_pool_entry
+                .pending
+                .set(self.entries.get_by_status(&Status::Pending).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .gap
+                .set(self.entries.get_by_status(&Status::Gap).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .proposed
+                .set(self.proposed_size() as i64);
+        }
     }
 }

@@ -68,15 +68,9 @@ enum CanStart {
     AssumeValidNotFound,
 }
 
-// TODO: Consider converting this enum to a struct since it only has one item
-//
-// struct FetchCMD {
-//    peers: Vec<PeerIndex>,
-//    ibd_state: IBDState,
-// }
-//
-enum FetchCMD {
-    Fetch((Vec<PeerIndex>, IBDState)),
+struct FetchCMD {
+    peers: Vec<PeerIndex>,
+    ibd_state: IBDState,
 }
 
 struct BlockFetchCMD {
@@ -89,25 +83,26 @@ struct BlockFetchCMD {
 
 impl BlockFetchCMD {
     fn process_fetch_cmd(&mut self, cmd: FetchCMD) {
-        match cmd {
-            FetchCMD::Fetch((peers, state)) => match self.can_start() {
-                CanStart::Ready => {
-                    for peer in peers {
-                        if let Some(fetch) =
-                            BlockFetcher::new(Arc::clone(&self.sync_shared), peer, state).fetch()
-                        {
-                            for item in fetch {
-                                BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
-                            }
+        let FetchCMD { peers, ibd_state }: FetchCMD = cmd;
+
+        match self.can_start() {
+            CanStart::Ready => {
+                for peer in peers {
+                    if let Some(fetch) =
+                        BlockFetcher::new(Arc::clone(&self.sync_shared), peer, ibd_state).fetch()
+                    {
+                        for item in fetch {
+                            BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                         }
                     }
                 }
-                CanStart::MinWorkNotReach => {
-                    let best_known = self.sync_shared.state().shared_best_header_ref();
-                    let number = best_known.number();
-                    if number != self.number && (number - self.number) % 10000 == 0 {
-                        self.number = number;
-                        info!(
+            }
+            CanStart::MinWorkNotReach => {
+                let best_known = self.sync_shared.state().shared_best_header_ref();
+                let number = best_known.number();
+                if number != self.number && (number - self.number) % 10000 == 0 {
+                    self.number = number;
+                    info!(
                             "best known header number: {}, total difficulty: {:#x}, \
                                  require min header number on 500_000, min total difficulty: {:#x}, \
                                  then start to download block",
@@ -115,33 +110,33 @@ impl BlockFetchCMD {
                             best_known.total_difficulty(),
                             self.sync_shared.state().min_chain_work()
                         );
-                    }
                 }
-                CanStart::AssumeValidNotFound => {
-                    let state = self.sync_shared.state();
-                    let best_known = state.shared_best_header_ref();
-                    let number = best_known.number();
-                    let assume_valid_target: Byte32 = state
-                        .assume_valid_target()
-                        .as_ref()
-                        .map(Pack::pack)
-                        .expect("assume valid target must exist");
+            }
+            CanStart::AssumeValidNotFound => {
+                let state = self.sync_shared.state();
+                let best_known = state.shared_best_header_ref();
+                let number = best_known.number();
+                let assume_valid_target: Byte32 = state
+                    .assume_valid_target()
+                    .as_ref()
+                    .map(Pack::pack)
+                    .expect("assume valid target must exist");
 
-                    if number != self.number && (number - self.number) % 10000 == 0 {
-                        self.number = number;
-                        info!(
-                            "best known header number: {}, hash: {:#?}, \
+                if number != self.number && (number - self.number) % 10000 == 0 {
+                    self.number = number;
+                    info!(
+                        "best known header number: {}, hash: {:#?}, \
                                  can't find assume valid target temporarily, hash: {:#?} \
                                  please wait",
-                            number,
-                            best_known.hash(),
-                            assume_valid_target
-                        );
-                    }
+                        number,
+                        best_known.hash(),
+                        assume_valid_target
+                    );
                 }
-            },
+            }
         }
     }
+
     fn run(&mut self, stop_signal: Receiver<()>) {
         loop {
             select! {
@@ -151,7 +146,7 @@ impl BlockFetchCMD {
                     }
                 }
                 recv(stop_signal) -> _ => {
-                    debug!("thread BlockDownload received exit signal, exit now");
+                    info!("BlockDownload received exit signal, exit now");
                     return;
                 }
             }
@@ -627,14 +622,22 @@ impl Synchronizer {
                 Some(ref sender) => {
                     if !sender.is_full() {
                         let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                        let _ignore = sender.try_send(FetchCMD::Fetch((peers, ibd)));
+                        let _ignore = sender.try_send(FetchCMD {
+                            peers,
+                            ibd_state: ibd,
+                        });
                     }
                 }
                 None => {
                     let p2p_control = raw.clone();
                     let (sender, recv) = channel::bounded(2);
                     let peers = self.get_peers_to_fetch(ibd, &disconnect_list);
-                    sender.send(FetchCMD::Fetch((peers, ibd))).unwrap();
+                    sender
+                        .send(FetchCMD {
+                            peers,
+                            ibd_state: ibd,
+                        })
+                        .unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
                     let number = self.shared.state().shared_best_header_ref().number();
@@ -716,7 +719,7 @@ impl CKBProtocolHandler for Synchronizer {
             Ok(msg) => {
                 let item = msg.to_enum();
                 if let packed::SyncMessageUnionReader::SendBlock(ref reader) = item {
-                    if reader.count_extra_fields() > 1 {
+                    if reader.has_extra_fields() || reader.block().count_extra_fields() > 1 {
                         info!(
                             "Peer {} sends us a malformed message: \
                              too many fields in SendBlock",

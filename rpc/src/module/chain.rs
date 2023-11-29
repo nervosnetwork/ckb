@@ -1338,7 +1338,7 @@ pub trait ChainRpc {
     ///   "result": {
     ///         "block_version": "0x0",
     ///         "cellbase_maturity": "0x10000000000",
-    ///         "dao_type_hash": null,
+    ///         "dao_type_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
     ///         "epoch_duration_target": "0x3840",
     ///         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
     ///         "hardfork_features": [
@@ -1346,7 +1346,7 @@ pub trait ChainRpc {
     ///             { "rfc": "0029", "epoch_number": "0x0" },
     ///             { "rfc": "0030", "epoch_number": "0x0" },
     ///             { "rfc": "0031", "epoch_number": "0x0" },
-    ///             { "rfc": "0032", "epoch_number": "0x0" },
+    ///             { "rfc": "0032", "epoch_number": "0x1526" },
     ///             { "rfc": "0036", "epoch_number": "0x0" },
     ///             { "rfc": "0038", "epoch_number": "0x0" },
     ///             { "rfc": "0048", "epoch_number": null },

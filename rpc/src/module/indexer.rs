@@ -61,9 +61,11 @@ pub trait IndexerRpc {
     ///     - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
     /// * order: enum, asc | desc
     /// * limit: result size limit
-    /// * after_cursor: pagination parameter, optional
+    /// * after: pagination parameter, optional
     ///
     /// ## Returns
+    ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
     ///
     /// * objects:
     ///     - output: the fields of an output cell
@@ -408,9 +410,12 @@ pub trait IndexerRpc {
     ///     - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
     /// * order: enum, asc | desc
     /// * limit: result size limit
-    /// * after_cursor: pagination parameter, optional
+    /// * after: pagination parameter, optional
     ///
     /// ## Returns
+    ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.
+    ///
     ///  * objects - enum, ungrouped TxWithCell | grouped TxWithCells
     ///     - TxWithCell:
     ///         - tx_hash: transaction hash,

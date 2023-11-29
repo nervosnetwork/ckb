@@ -11,8 +11,9 @@ use rocksdb::ops::{
     Put, SetOptions, WriteOps,
 };
 use rocksdb::{
-    ffi, ColumnFamily, ColumnFamilyDescriptor, DBPinnableSlice, FullOptions, IteratorMode,
-    OptimisticTransactionDB, OptimisticTransactionOptions, Options, WriteBatch, WriteOptions,
+    ffi, BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
+    DBPinnableSlice, FullOptions, IteratorMode, OptimisticTransactionDB,
+    OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -25,20 +26,28 @@ pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
 }
 
-const DEFAULT_CACHE_SIZE: usize = 128 << 20;
+const DEFAULT_CACHE_SIZE: usize = 256 << 20;
+const DEFAULT_CACHE_ENTRY_CHARGE_SIZE: usize = 4096;
 
 impl RocksDB {
     pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
         let cf_names: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
+        let mut cache = None;
 
-        let (mut opts, cf_descriptors) = if let Some(ref file) = config.options_file {
-            let cache_size = match config.cache_size {
+        let (mut opts, mut cf_descriptors) = if let Some(ref file) = config.options_file {
+            cache = match config.cache_size {
                 Some(0) => None,
-                Some(size) => Some(size),
-                None => Some(DEFAULT_CACHE_SIZE),
+                Some(size) => Some(Cache::new_hyper_clock_cache(
+                    size,
+                    DEFAULT_CACHE_ENTRY_CHARGE_SIZE,
+                )),
+                None => Some(Cache::new_hyper_clock_cache(
+                    DEFAULT_CACHE_SIZE,
+                    DEFAULT_CACHE_ENTRY_CHARGE_SIZE,
+                )),
             };
 
-            let mut full_opts = FullOptions::load_from_file(file, cache_size, false)
+            let mut full_opts = FullOptions::load_from_file_with_cache(file, cache.clone(), false)
                 .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
             let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
             full_opts
@@ -60,8 +69,33 @@ impl RocksDB {
             (opts, cf_descriptors)
         };
 
+        for cf in cf_descriptors.iter_mut() {
+            let mut block_opts = BlockBasedOptions::default();
+            block_opts.set_ribbon_filter(10.0);
+            block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+            block_opts.set_partition_filters(true);
+            block_opts.set_metadata_block_size(4096);
+            block_opts.set_pin_top_level_index_and_filter(true);
+            match cache {
+                Some(ref cache) => {
+                    block_opts.set_block_cache(cache);
+                    block_opts.set_cache_index_and_filter_blocks(true);
+                    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+                }
+                None => block_opts.disable_cache(),
+            }
+            // only COLUMN_BLOCK_BODY column family use prefix seek
+            if cf.name() == "2" {
+                block_opts.set_whole_key_filtering(false);
+                cf.options
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+            }
+            cf.options.set_block_based_table_factory(&block_opts);
+        }
+
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        opts.enable_statistics();
 
         let db = OptimisticTransactionDB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
             .map_err(|err| internal_error(format!("failed to open database: {err}")))?;

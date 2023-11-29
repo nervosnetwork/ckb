@@ -6,8 +6,8 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
-use ckb_jsonrpc_types::TxStatus;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
+use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
@@ -346,6 +346,13 @@ impl Node {
         self.submit_transaction(&self.new_transaction_spend_tip_cellbase())
     }
 
+    // generate a transaction which spend tip block's cellbase and capacity
+    pub fn new_transaction_with_capacity(&self, capacity: Capacity) -> TransactionView {
+        let block = self.get_tip_block();
+        let cellbase = &block.transactions()[0];
+        self.new_transaction_with_since_capacity(cellbase.hash(), 0, capacity)
+    }
+
     // generate a transaction which spend tip block's cellbase
     pub fn new_transaction_spend_tip_cellbase(&self) -> TransactionView {
         let block = self.get_tip_block();
@@ -415,6 +422,10 @@ impl Node {
         self.rpc_client()
             .get_block_filter(hash)
             .expect("block filter exists")
+    }
+
+    pub fn get_pool_tx_detail_info(&self, hash: Byte32) -> PoolTxDetailInfo {
+        self.rpc_client().get_pool_tx_detail_info(hash)
     }
 
     /// The states of chain and txpool are updated asynchronously. Which means that the chain has
@@ -539,11 +550,12 @@ impl Node {
         self.new_transaction_with_since_capacity(hash, since, capacity_bytes!(100))
     }
 
-    pub fn new_transaction_with_since_capacity(
+    pub fn new_transaction_with_capacity_and_index(
         &self,
         hash: Byte32,
-        since: u64,
         capacity: Capacity,
+        index: u32,
+        since: u64,
     ) -> TransactionView {
         let always_success_cell_dep = self.always_success_cell_dep();
         let always_success_script = self.always_success_script();
@@ -557,8 +569,17 @@ impl Node {
                     .build(),
             )
             .output_data(Default::default())
-            .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .input(CellInput::new(OutPoint::new(hash, index), since))
             .build()
+    }
+
+    pub fn new_transaction_with_since_capacity(
+        &self,
+        hash: Byte32,
+        since: u64,
+        capacity: Capacity,
+    ) -> TransactionView {
+        self.new_transaction_with_capacity_and_index(hash, capacity, 0, since)
     }
 
     pub fn new_always_failure_transaction(&self, hash: Byte32) -> TransactionView {
@@ -588,6 +609,11 @@ impl Node {
         let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
+    }
+
+    pub fn assert_pool_entry_status(&self, hash: Byte32, expect_status: &str) {
+        let response = self.get_pool_tx_detail_info(hash);
+        assert_eq!(response.entry_status, expect_status);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {

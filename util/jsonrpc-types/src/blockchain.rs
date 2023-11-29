@@ -925,8 +925,12 @@ pub struct Block {
     pub proposals: Vec<ProposalShortId>,
     /// The extension in the block body.
     ///
-    /// This field is optional. It's a reserved field, please leave it blank.
-    #[doc(hidden)]
+    /// This is a field introduced in [CKB RFC 0031]. Since the activation of [CKB RFC 0044], this
+    /// field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is
+    /// defined in the RFC 0044.
+    ///
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
+    /// [CKB RFC 0044]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,
 }
@@ -982,8 +986,12 @@ pub struct BlockView {
     pub proposals: Vec<ProposalShortId>,
     /// The extension in the block body.
     ///
-    /// This field is optional. It's a reserved field, please leave it blank.
-    #[doc(hidden)]
+    /// This is a field introduced in [CKB RFC 0031]. Since the activation of [CKB RFC 0044], this
+    /// field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is
+    /// defined in the RFC 0044.
+    ///
+    /// [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
+    /// [CKB RFC 0044]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension: Option<JsonBytes>,
 }
@@ -1340,7 +1348,7 @@ pub struct Consensus {
     /// The genesis block hash
     pub genesis_hash: H256,
     /// The dao type hash
-    pub dao_type_hash: Option<H256>,
+    pub dao_type_hash: H256,
     /// The secp256k1_blake160_sighash_all_type_hash
     pub secp256k1_blake160_sighash_all_type_hash: Option<H256>,
     /// The secp256k1_blake160_multisig_all_type_hash

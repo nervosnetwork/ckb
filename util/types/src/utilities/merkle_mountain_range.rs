@@ -321,6 +321,25 @@ impl ProverMessageBuilder for packed::SendBlocksProofBuilder {
     }
 }
 
+impl ProverMessageBuilder for packed::SendBlocksProofV1Builder {
+    type ProvedItems = (packed::HeaderVec, packed::Byte32Vec, packed::BytesOptVec);
+    type MissingItems = packed::Byte32Vec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
+        self.headers(items.0)
+            .blocks_uncles_hash(items.1)
+            .blocks_extension(items.2)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_block_hashes(items)
+    }
+}
+
 impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     type ProvedItems = packed::FilteredBlockVec;
     type MissingItems = packed::Byte32Vec;
@@ -332,6 +351,29 @@ impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     }
     fn set_proved_items(self, items: Self::ProvedItems) -> Self {
         self.filtered_blocks(items)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_tx_hashes(items)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendTransactionsProofV1Builder {
+    type ProvedItems = (
+        packed::FilteredBlockVec,
+        packed::Byte32Vec,
+        packed::BytesOptVec,
+    );
+    type MissingItems = packed::Byte32Vec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
+        self.filtered_blocks(items.0)
+            .blocks_uncles_hash(items.1)
+            .blocks_extension(items.2)
     }
     fn set_missing_items(self, items: Self::MissingItems) -> Self {
         self.missing_tx_hashes(items)

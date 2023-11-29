@@ -1,7 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
-
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -218,126 +217,7 @@ fn always_success_transaction() -> TransactionView {
         .build()
 }
 
-// setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test
-// there is a similar fn `setup_rpc_test_suite` which enables all rpc modules,
-// may be refactored into one fn with different paramsters in other PRs
+// setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test.
 fn setup(consensus: Consensus) -> RpcTestSuite {
     setup_rpc_test_suite(20, Some(consensus))
-    /*
-    let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(consensus)
-        .block_assembler_config(Some(BlockAssemblerConfig {
-            code_hash: h256!("0x0"),
-            args: Default::default(),
-            hash_type: ScriptHashType::Data,
-            message: Default::default(),
-            use_binary_version_as_message_prefix: false,
-            binary_version: "TEST".to_string(),
-            update_interval_millis: 800,
-            notify: vec![],
-            notify_scripts: vec![],
-            notify_timeout_millis: 800,
-        }))
-        .build()
-        .unwrap();
-    let chain_controller =
-        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
-
-    // Start network services
-    let tmp_dir = tempfile::tempdir().expect("create tempdir failed");
-
-    let tmp_path = tmp_dir.path().to_path_buf();
-    let network_controller = {
-        let network_config = NetworkConfig {
-            path: tmp_path,
-            ping_interval_secs: 1,
-            ping_timeout_secs: 1,
-            connect_outbound_interval_secs: 1,
-            ..Default::default()
-        };
-        let network_state =
-            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-        NetworkService::new(
-            Arc::clone(&network_state),
-            Vec::new(),
-            Vec::new(),
-            (
-                shared.consensus().identify_name(),
-                "0.1.0".to_string(),
-                Flags::COMPATIBILITY,
-            ),
-        )
-        .start(shared.async_handle())
-        .expect("Start network service failed")
-    };
-
-    pack.take_tx_pool_builder()
-        .start(network_controller.clone());
-
-    // Build chain, insert 20 blocks
-    let mut parent = shared.consensus().genesis_block().clone();
-
-    for _ in 0..20 {
-        let block = next_block(&shared, &parent.header());
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .expect("processing new block should be ok");
-        parent = block;
-    }
-
-    // Start rpc services
-    let rpc_config = RpcConfig {
-        listen_address: "127.0.0.1:0".to_owned(),
-        tcp_listen_address: Some("127.0.0.1:0".to_owned()),
-        ws_listen_address: None,
-        max_request_body_size: 20_000_000,
-        threads: None,
-        modules: vec![
-            RpcModule::Chain,
-            RpcModule::Miner,
-            RpcModule::Pool,
-            RpcModule::IntegrationTest,
-        ],
-        reject_ill_transactions: false,
-        enable_deprecated_rpc: false,
-        extra_well_known_lock_scripts: vec![],
-        extra_well_known_type_scripts: vec![],
-    };
-
-    let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), vec![], vec![])
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            true,
-        )
-        .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
-    let io_handler = builder.build();
-
-    let shared_clone = shared.clone();
-    let handler = shared_clone.async_handle().clone();
-    let rpc_server = handler.block_on(async move { RpcServer::new(rpc_config, io_handler).await });
-
-    let rpc_client = Client::new();
-    let rpc_uri = format!(
-        "http://{}:{}/",
-        rpc_server.http_address.ip(),
-        rpc_server.http_address.port()
-    );
-    let tcp_uri = rpc_server
-        .tcp_address
-        .as_ref()
-        .map(|addr| format!("{}:{}", addr.ip(), addr.port()));
-
-    RpcTestSuite {
-        shared,
-        chain_controller,
-        rpc_uri,
-        tcp_uri,
-        rpc_client,
-        _tmp_dir: tmp_dir,
-    }
-    */
 }

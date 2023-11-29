@@ -97,6 +97,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `get_pool_tx_detail_info`](#method-get_pool_tx_detail_info)
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/e8f344294009bb4962ef455160e63ef7b51f32ee/json/stats_rpc_doc.json)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
@@ -170,6 +171,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `OutPoint`](#type-outpoint)
     * [Type `OutputsValidator`](#type-outputsvalidator)
     * [Type `PeerSyncState`](#type-peersyncstate)
+    * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
+    * [Type `PoolTransactionReject`](#type-pooltransactionreject)
+    * [Type `PoolTxDetailInfo`](#type-pooltxdetailinfo)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
     * [Type `Ratio`](#type-ratio)
@@ -1608,7 +1612,7 @@ Response
   "result": {
         "block_version": "0x0",
         "cellbase_maturity": "0x10000000000",
-        "dao_type_hash": null,
+        "dao_type_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "epoch_duration_target": "0x3840",
         "genesis_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed",
         "hardfork_features": [
@@ -1616,7 +1620,7 @@ Response
             { "rfc": "0029", "epoch_number": "0x0" },
             { "rfc": "0030", "epoch_number": "0x0" },
             { "rfc": "0031", "epoch_number": "0x0" },
-            { "rfc": "0032", "epoch_number": "0x0" },
+            { "rfc": "0032", "epoch_number": "0x1526" },
             { "rfc": "0036", "epoch_number": "0x0" },
             { "rfc": "0038", "epoch_number": "0x0" },
             { "rfc": "0048", "epoch_number": null },
@@ -3027,8 +3031,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-  "error": null
+  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
 
@@ -3096,8 +3099,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
-  "error": null
+  "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029"
 }
 ```
 
@@ -3152,8 +3154,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa0001000003",
-  "error": null
+  "result": "0xa0001000003"
 }
 ```
 
@@ -3222,8 +3223,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-  "error": null
+  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
 }
 ```
 
@@ -3331,8 +3331,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
-  "error": null
+  "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75"
 }
 ```
 
@@ -3438,8 +3437,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-  "error": null
+  "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000"
 }
 ```
 

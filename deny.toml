@@ -18,6 +18,8 @@ allow = [
     "MIT",
     # https://softwareengineering.stackexchange.com/questions/317944/can-i-include-code-licensed-under-mpl-within-a-project-under-mit-license
     "MPL-2.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
 ]
 copyleft = "deny"
 default = "deny"

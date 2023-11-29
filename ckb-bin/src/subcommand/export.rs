@@ -1,7 +1,7 @@
 use ckb_app_config::{ExitCode, ExportArgs};
 use ckb_async_runtime::Handle;
 use ckb_instrument::Export;
-use ckb_launcher::SharedBuilder;
+use ckb_shared::SharedBuilder;
 
 pub fn export(args: ExportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let builder = SharedBuilder::new(

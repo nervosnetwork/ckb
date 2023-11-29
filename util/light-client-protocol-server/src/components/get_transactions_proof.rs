@@ -75,6 +75,10 @@ impl<'a> GetTransactionsProofProcess<'a> {
 
         let mut positions = Vec::with_capacity(txs_in_blocks.len());
         let mut filtered_blocks = Vec::with_capacity(txs_in_blocks.len());
+        let mut uncles_hash = Vec::with_capacity(txs_in_blocks.len());
+        let mut extensions = Vec::with_capacity(txs_in_blocks.len());
+        let ckb2023 = self.nc.ckb2023();
+
         for (block_hash, txs_and_tx_indices) in txs_in_blocks.into_iter() {
             let block = snapshot
                 .get_block(&block_hash)
@@ -111,20 +115,50 @@ impl<'a> GetTransactionsProofProcess<'a> {
 
             positions.push(leaf_index_to_pos(block.number()));
             filtered_blocks.push(filtered_block);
+            if ckb2023 {
+                let uncles = snapshot
+                    .get_block_uncles(&block_hash)
+                    .expect("block uncles must be stored");
+                let extension = snapshot.get_block_extension(&block_hash);
+
+                uncles_hash.push(uncles.data().calc_uncles_hash());
+                extensions.push(packed::BytesOpt::new_builder().set(extension).build());
+            }
         }
 
-        let proved_items = packed::FilteredBlockVec::new_builder()
-            .set(filtered_blocks)
-            .build();
-        let missing_items = missing.pack();
+        if ckb2023 {
+            let proved_items = (
+                packed::FilteredBlockVec::new_builder()
+                    .set(filtered_blocks)
+                    .build(),
+                uncles_hash.pack(),
+                packed::BytesOptVec::new_builder().set(extensions).build(),
+            );
+            let missing_items = missing.pack();
 
-        self.protocol.reply_proof::<packed::SendTransactionsProof>(
-            self.peer,
-            self.nc,
-            &last_block,
-            positions,
-            proved_items,
-            missing_items,
-        )
+            self.protocol
+                .reply_proof::<packed::SendTransactionsProofV1>(
+                    self.peer,
+                    self.nc,
+                    &last_block,
+                    positions,
+                    proved_items,
+                    missing_items,
+                )
+        } else {
+            let proved_items = packed::FilteredBlockVec::new_builder()
+                .set(filtered_blocks)
+                .build();
+            let missing_items = missing.pack();
+
+            self.protocol.reply_proof::<packed::SendTransactionsProof>(
+                self.peer,
+                self.nc,
+                &last_block,
+                positions,
+                proved_items,
+                missing_items,
+            )
+        }
     }
 }

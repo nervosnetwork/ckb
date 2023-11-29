@@ -4,7 +4,6 @@ use ckb_notify::NotifyService;
 
 use ckb_types::{packed, prelude::*};
 use once_cell::unsync;
-use std::borrow::Borrow;
 
 fn build_alert(
     id: u32,
@@ -33,7 +32,7 @@ fn new_notifier(version: &str) -> Notifier {
     let notify_controller = RUNTIME_HANDLE.with(|runtime| {
         NotifyService::new(
             Default::default(),
-            runtime.borrow().get_or_init(new_background_runtime).clone(),
+            runtime.get_or_init(new_background_runtime).clone(),
         )
         .start()
     });

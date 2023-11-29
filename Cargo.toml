@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.112.0-pre"
+version = "0.113.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,11 +11,11 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.71.1"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.112.0-pre" }
+ckb-build-info = { path = "util/build-info", version = "= 0.113.0-pre" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.112.0-pre" }
-ckb-bin = { path = "ckb-bin", version = "= 0.112.0-pre" }
+ckb-build-info = { path = "util/build-info", version = "= 0.113.0-pre" }
+ckb-bin = { path = "ckb-bin", version = "= 0.113.0-pre" }
 
 [dev-dependencies]
 
@@ -51,6 +51,7 @@ members = [
     "error",
     "util/multisig",
     "util/gen-types",
+    "util/migrate/migration-template",
     "util/types",
     "util/jsonrpc-types",
     "freezer",
@@ -76,6 +77,7 @@ members = [
     "util/dao",
     "util/reward-calculator",
     "util/snapshot",
+    "util/migrate",
     "verification/traits",
     "verification",
     "verification/contextual",
@@ -86,7 +88,6 @@ members = [
     "sync",
     "util/instrument",
     "rpc",
-    "util/launcher/migration-template",
     "util/light-client-protocol-server",
     "util/launcher",
     "devtools/doc/rpc-gen",

@@ -47,6 +47,18 @@ impl Ord for AncestorsScoreSortKey {
     }
 }
 
+impl ToString for AncestorsScoreSortKey {
+    fn to_string(&self) -> String {
+        format!(
+            "fee: {:#02X}, ancestors_fee: {:#02X}, weight: {:#02X}, ancestors_weight: {:#02X}",
+            self.fee.as_u64(),
+            self.ancestors_fee.as_u64(),
+            self.weight,
+            self.ancestors_weight
+        )
+    }
+}
+
 /// First compare fee_rate, select the smallest fee_rate,
 /// and then select the latest timestamp, for eviction,
 /// the latest timestamp which also means that the fewer descendants may exist.
