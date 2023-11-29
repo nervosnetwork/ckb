@@ -310,47 +310,6 @@ impl ChainService {
         }
     }
 
-    /// start background single-threaded service with specified thread_name.
-    pub(crate) fn start(mut self) {
-        let signal_receiver = new_crossbeam_exit_rx();
-
-        // Mainly for test: give an empty thread_name
-        let tx_control = self.shared.tx_pool_controller().clone();
-        loop {
-            select! {
-                recv(self.process_block_rx) -> msg => match msg {
-                    Ok(Request { responder, arguments: lonely_block }) => {
-                        let _ = tx_control.suspend_chunk_process();
-                        let _ = responder.send(self.asynchronous_process_block(lonely_block));
-                        let _ = tx_control.continue_chunk_process();
-                    },
-                    _ => {
-                        error!("process_block_receiver closed");
-                        break;
-                    },
-                },
-                recv(self.truncate_block_rx) -> msg => match msg {
-                    Ok(Request { responder, arguments: target_tip_hash }) => {
-                        let _ = tx_control.suspend_chunk_process();
-                        todo!("move truncate process to consume unverified_block");
-                        // let _ = responder.send(self.truncate(
-                        //     &mut proposal_table,
-                        //     &target_tip_hash));
-                        let _ = tx_control.continue_chunk_process();
-                    },
-                    _ => {
-                        error!("truncate_receiver closed");
-                        break;
-                    },
-                },
-                recv(signal_receiver) -> _ => {
-                    info!("ChainService received exit signal, exit now");
-                    break;
-                }
-            }
-        }
-    }
-
     fn non_contextual_verify(&self, block: &BlockView) -> Result<(), Error> {
         let consensus = self.shared.consensus();
         BlockVerifier::new(consensus).verify(block).map_err(|e| {
