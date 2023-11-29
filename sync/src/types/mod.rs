@@ -1,6 +1,6 @@
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, VerifyResult};
 use ckb_chain::{LonelyBlock, VerifyCallback};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
@@ -1155,6 +1155,16 @@ impl SyncShared {
     //         self.shared().remove_header_view(&hash);
     //     }
     // }
+
+    // Only used by unit test
+    // Blocking insert a new block, return the verify result
+    pub(crate) fn blocking_insert_new_block(
+        &self,
+        chain: &ChainController,
+        block: Arc<core::BlockView>,
+    ) -> VerifyResult {
+        chain.blocking_process_block(block)
+    }
 
     pub(crate) fn accept_block(
         &self,
