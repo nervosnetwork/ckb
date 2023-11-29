@@ -46,7 +46,7 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             async_handle,
             args.consensus,
         )?;
-        let (tmp_shared, mut pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
+        let (_tmp_shared, mut pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
         let chain_service_builder: ChainServicesBuilder = pack.take_chain_services_builder();
         let chain_controller = ckb_chain::start_chain_services(chain_service_builder);
 

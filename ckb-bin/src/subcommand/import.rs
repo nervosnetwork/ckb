@@ -12,7 +12,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         async_handle,
         args.consensus,
     )?;
-    let (shared, mut pack) = builder.build()?;
+    let (_shared, mut pack) = builder.build()?;
 
     let chain_controller = ckb_chain::start_chain_services(pack.take_chain_services_builder());
 
