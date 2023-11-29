@@ -240,11 +240,15 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             move || {
                 chain_service.start();
 
-                search_orphan_pool_stop_tx.send(());
-                search_orphan_pool_thread.join();
+                if Err(SendError(_)) = search_orphan_pool_stop_tx.send(()) {
+                    warn!("trying to notify search_orphan_pool thread to stop, but search_orphan_pool_stop_tx already closed")
+                }
+                let _ = search_orphan_pool_thread.join();
 
-                unverified_queue_stop_tx.send(());
-                consumer_unverified_thread.join();
+                if Err(SendError(_))= unverified_queue_stop_tx.send(()){
+                    warn!("trying to notify consume unverified thread to stop, but unverified_queue_stop_tx already closed");
+                }
+                let _ = consumer_unverified_thread.join();
             }
         })
         .expect("start chain_service thread should ok");
