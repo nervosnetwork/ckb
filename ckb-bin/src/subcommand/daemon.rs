@@ -2,8 +2,9 @@ use ckb_app_config::{DaemonArgs, ExitCode};
 use colored::*;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
-use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
+use std::{fs, io};
 
 pub fn daemon(args: DaemonArgs) -> Result<(), ExitCode> {
     let pid_file = &args.pid_file;
@@ -49,27 +50,40 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
         .parse::<i32>()
         .map_err(|_| ExitCode::Failure)?;
     eprintln!(
-        "stopping {} deamon service {} ...",
+        "stopping {} deamon service with pid {} ...",
         name,
         pid.to_string().red()
     );
     // Send a SIGTERM signal to the process
     let _ = kill(Pid::from_raw(pid), Some(Signal::SIGTERM)).map_err(|_| ExitCode::Failure);
-    std::thread::sleep(std::time::Duration::from_secs(20));
-    match check_process(pid_file) {
-        Ok(_) => {
-            eprintln!(
-                "{}",
-                format!(
-                "ckb daemon service is is still running with pid {}..., stop it now forcefully ...",
-                pid
-            )
-                .red()
-            );
-            kill(Pid::from_raw(pid), Some(Signal::SIGKILL)).map_err(|_| ExitCode::Failure)?;
+    let mut wait_time = 15;
+    eprintln!("{}", "waiting ckb service to stop ...".yellow());
+    loop {
+        let res = check_process(pid_file);
+        match res {
+            Ok(_) => {
+                wait_time -= 1;
+                eprint!("{}", ".".yellow());
+                let _ = io::stderr().flush();
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            _ if wait_time <= 0 => {
+                eprintln!(
+                    "{}",
+                    format!(
+                    "ckb daemon service is is still running with pid {}..., stop it now forcefully ...",
+                    pid
+                )
+                    .red()
+                );
+                kill(Pid::from_raw(pid), Some(Signal::SIGKILL)).map_err(|_| ExitCode::Failure)?;
+                break;
+            }
+            _ => {
+                break;
+            }
         }
-        _ => {}
     }
-    eprintln!("{}", "cbk daemon service stopped successfully".green());
+    eprintln!("\n{}", "cbk daemon service stopped successfully".green());
     Ok(())
 }
