@@ -51,10 +51,6 @@ impl ConsumeOrphan {
     pub(crate) fn start(&self) {
         loop {
             select! {
-                recv(self.stop_rx) -> _ => {
-                    info!("unverified_queue_consumer got exit signal, exit now");
-                    return;
-                },
                 recv(self.lonely_blocks_rx) -> msg => match msg {
                     Ok(lonely_block) => {
                         self.process_lonely_block(lonely_block);
@@ -63,6 +59,10 @@ impl ConsumeOrphan {
                         error!("lonely_block_rx err: {}", err);
                         return
                     }
+                },
+                recv(self.stop_rx) -> _ => {
+                    info!("unverified_queue_consumer got exit signal, exit now");
+                    return;
                 },
             }
         }
