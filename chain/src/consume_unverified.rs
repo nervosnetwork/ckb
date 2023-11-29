@@ -64,10 +64,6 @@ impl ConsumeUnverifiedBlocks {
         loop {
             begin_loop = std::time::Instant::now();
             select! {
-                recv(self.stop_rx) -> _ => {
-                        info!("unverified_queue_consumer got exit signal, exit now");
-                        return;
-                },
                 recv(self.unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
                         // process this unverified block
@@ -80,7 +76,11 @@ impl ConsumeUnverifiedBlocks {
                         return;
                     },
                 },
-                default => {},
+                recv(self.stop_rx) -> _ => {
+                    info!("consume_unverified_blocks thread received exit signal, exit now");
+                    break;
+                }
+
             }
         }
     }
