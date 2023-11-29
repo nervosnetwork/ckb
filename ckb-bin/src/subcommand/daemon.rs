@@ -55,10 +55,21 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
     );
     // Send a SIGTERM signal to the process
     let _ = kill(Pid::from_raw(pid), Some(Signal::SIGTERM)).map_err(|_| ExitCode::Failure);
-    // sleep 3 seconds and check if the process is still running
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    std::thread::sleep(std::time::Duration::from_secs(20));
     match check_process(pid_file) {
-        Ok(_) => kill(Pid::from_raw(pid), Some(Signal::SIGKILL)).map_err(|_| ExitCode::Failure),
-        _ => Ok(()),
+        Ok(_) => {
+            eprintln!(
+                "{}",
+                format!(
+                "ckb daemon service is is still running with pid {}..., stop it now forcefully ...",
+                pid
+            )
+                .red()
+            );
+            kill(Pid::from_raw(pid), Some(Signal::SIGKILL)).map_err(|_| ExitCode::Failure)?;
+        }
+        _ => {}
     }
+    eprintln!("{}", "cbk daemon service stopped successfully".green());
+    Ok(())
 }

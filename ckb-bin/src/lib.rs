@@ -83,6 +83,8 @@ fn run_app_in_daemon(
     assert!(matches!(cmd, cli::CMD_RUN));
     let root_dir = Setup::root_dir_from_matches(matches)?;
     let daemon_dir = root_dir.join("data/daemon");
+    // make sure daemon dir exists
+    std::fs::create_dir_all(daemon_dir)?;
     let pid_file = Setup::daemon_pid_file_path(matches)?;
 
     if check_process(&pid_file).is_ok() {
@@ -90,9 +92,6 @@ fn run_app_in_daemon(
         return Ok(());
     }
     eprintln!("no ckb process, starting ...");
-
-    // make sure daemon dir exists
-    std::fs::create_dir_all(daemon_dir)?;
 
     let pwd = std::env::current_dir()?;
     let daemon = Daemonize::new()
