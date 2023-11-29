@@ -4,6 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
+use ckb_chain::start_chain_services;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
@@ -98,7 +99,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .build()
         .unwrap();
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     for _i in 0..height {
         let number = block.header().number() + 1;
