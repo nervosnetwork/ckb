@@ -3,7 +3,7 @@ mod gen;
 use crate::gen::RpcDocGenerator;
 use ckb_rpc::module::*;
 use serde_json::json;
-use std::fs;
+use std::{fs, path::PathBuf};
 
 const OPENRPC_DIR: &str = "./docs/ckb_rpc_openrpc/";
 
@@ -21,35 +21,43 @@ fn run_command(prog: &str, args: &[&str], dir: Option<&str>) -> Option<String> {
         })
 }
 
-fn get_tag() -> String {
-    run_command("git", &["describe", "--tags", "--abbrev=0"], None).unwrap_or("main".to_owned())
+fn get_version() -> String {
+    let version = run_command("cargo", &["pkgid"], None)
+        .unwrap()
+        .split('#')
+        .nth(1)
+        .unwrap_or("0.0.0")
+        .to_owned();
+    eprintln!("version: {:?}", version);
+    return version;
 }
 
-/// Get git tag from command line
 fn get_commit_sha() -> String {
-    run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap_or("main".to_string())
+    let res =
+        run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap_or("main".to_string());
+    eprintln!("commit sha: {:?}", res);
+    res
 }
 
-fn checkout_tag_branch(tag: &str) {
+fn checkout_tag_branch(version: &str) {
     let dir = Some(OPENRPC_DIR);
-    let res = run_command("git", &["checkout", tag], dir);
+    let res = run_command("git", &["checkout", version], dir);
     if res.is_none() {
-        run_command("git", &["checkout", "-b", tag], dir);
+        run_command("git", &["checkout", "-b", version], dir);
     }
 }
 
 fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = "./docs/ckb_rpc_openrpc/json/";
-    let tag = get_tag();
-    checkout_tag_branch(&tag);
-
-    fs::create_dir_all(dir)?;
+    let json_dir = PathBuf::from(OPENRPC_DIR).join("json");
+    let version: String = get_version();
+    checkout_tag_branch(&version);
+    fs::create_dir_all(&json_dir)?;
     let dump =
         |name: &str, doc: &mut serde_json::Value| -> Result<(), Box<dyn std::error::Error>> {
-            doc["info"]["version"] = serde_json::Value::String(tag.clone());
+            doc["info"]["version"] = serde_json::Value::String(version.clone());
             let obj = json!(doc);
             let res = serde_json::to_string_pretty(&obj)?;
-            fs::write(dir.to_owned() + name, res)?;
+            fs::write(json_dir.join(name), res)?;
             Ok(())
         };
     dump("alert_rpc_doc.json", &mut alert_rpc_doc())?;
@@ -67,9 +75,22 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     dump("indexer_rpc_doc.json", &mut indexer_rpc_doc())?;
     dump("experiment_rpc_doc.json", &mut experiment_rpc_doc())?;
     eprintln!(
-        "finished dump openrpc json for tag: {:?} at dir: {:?}",
-        tag, dir
+        "finished dump openrpc json for version: {:?} at dir: {:?}",
+        version, json_dir
     );
+    // run git commit all changes before generate rpc readme
+    run_command("git", &["add", "."], Some(OPENRPC_DIR));
+    run_command(
+        "git",
+        &[
+            "commit",
+            "-m",
+            &format!("update openrpc json for version: {:?}", version),
+        ],
+        Some(OPENRPC_DIR),
+    );
+    // git push
+    run_command("git", &["push"], Some(OPENRPC_DIR));
     Ok(())
 }
 
@@ -89,8 +110,8 @@ pub fn gen_rpc_readme(readme_path: &str) -> Result<(), Box<dyn std::error::Error
         experiment_rpc_doc(),
     ];
 
-    let tag = get_commit_sha();
-    let generator = RpcDocGenerator::new(&all_rpc, readme_path.to_owned(), tag);
+    let commit_sha = get_commit_sha();
+    let generator = RpcDocGenerator::new(&all_rpc, readme_path.to_owned(), commit_sha);
     fs::write(readme_path, generator.gen_markdown())?;
 
     Ok(())

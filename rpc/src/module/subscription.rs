@@ -8,7 +8,7 @@ use jsonrpc_core::Result;
 use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
 use tokio::sync::broadcast;
 
-/// RPC Module Subscription that CKB node will push new messages to subscribers.
+/// RPC Module Subscription that CKB node will push new messages to subscribers, support with WebSocket or TCP.
 ///
 /// RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
 /// TCP (enable with `rpc.tcp_listen_address` configuration option) and WebSocket (enable with
