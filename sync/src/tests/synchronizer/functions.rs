@@ -663,7 +663,7 @@ fn test_sync_process() {
     for block in &fetched_blocks {
         let block = SendBlockBuilder::default().block(block.data()).build();
         assert_eq!(
-            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, 0).execute(),
+            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, 0).blocking_execute(),
             Status::ok(),
         );
     }
