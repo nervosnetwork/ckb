@@ -240,12 +240,12 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             move || {
                 chain_service.start_process_block();
 
-                if Err(SendError(_)) = search_orphan_pool_stop_tx.send(()) {
+                if let Err(SendError(_)) = search_orphan_pool_stop_tx.send(()) {
                     warn!("trying to notify search_orphan_pool thread to stop, but search_orphan_pool_stop_tx already closed")
                 }
                 let _ = search_orphan_pool_thread.join();
 
-                if Err(SendError(_))= unverified_queue_stop_tx.send(()){
+                if let Err(SendError(_))= unverified_queue_stop_tx.send(()){
                     warn!("trying to notify consume unverified thread to stop, but unverified_queue_stop_tx already closed");
                 }
                 let _ = consumer_unverified_thread.join();
