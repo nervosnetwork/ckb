@@ -6,23 +6,20 @@ use std::fs;
 use std::path::PathBuf;
 
 pub fn daemon(args: DaemonArgs) -> Result<(), ExitCode> {
-    let name = "ckb";
     let pid_file = &args.pid_file;
     if args.check {
         // find the pid file and check if the process is running
         match check_process(pid_file) {
             Ok(pid) => {
-                eprintln!("{:>10} : {:<12} pid - {}", name, "running".green(), pid);
+                eprintln!("{}, pid - {}", "ckb daemon service is running".green(), pid);
             }
             _ => {
-                eprintln!("{:>10} : {:<12}", name, "not running".red());
+                eprintln!("{}", "ckb daemon service is not running".red());
             }
         }
     } else if args.stop {
         kill_process(pid_file, "ckb")?;
         fs::remove_file(pid_file).map_err(|_| ExitCode::Failure)?;
-    } else {
-        unimplemented!()
     }
     Ok(())
 }
@@ -51,7 +48,11 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
         .trim()
         .parse::<i32>()
         .map_err(|_| ExitCode::Failure)?;
-    eprintln!("kill {} process {} ...", name, pid.to_string().red());
+    eprintln!(
+        "stopping {} deamon service {} ...",
+        name,
+        pid.to_string().red()
+    );
     // Send a SIGTERM signal to the process
     let _ = kill(Pid::from_raw(pid), Some(Signal::SIGTERM)).map_err(|_| ExitCode::Failure);
     // sleep 3 seconds and check if the process is still running
