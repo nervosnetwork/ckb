@@ -78,7 +78,7 @@ fn test_find_fork_case1() {
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
-        shared,
+        shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };
@@ -141,7 +141,7 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -163,7 +163,7 @@ fn test_find_fork_case2() {
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
-        shared,
+        shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };
@@ -226,7 +226,7 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -249,7 +249,7 @@ fn test_find_fork_case3() {
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
-        shared,
+        shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };
@@ -311,7 +311,7 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -334,7 +334,7 @@ fn test_find_fork_case4() {
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
-        shared,
+        shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };
@@ -394,7 +394,7 @@ fn test_find_fork_case4() {
 fn repeatedly_switch_fork() {
     let consensus = Consensus::default();
     let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(consensus)
+        .consensus(consensus.clone())
         .build()
         .unwrap();
     let genesis = shared
@@ -419,7 +419,7 @@ fn repeatedly_switch_fork() {
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
 
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
-        shared,
+        shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };

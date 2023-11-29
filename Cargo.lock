@@ -1024,6 +1024,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
+ "tokio",
 ]
 
 [[package]]
