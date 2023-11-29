@@ -289,7 +289,7 @@ impl Launcher {
         let synchronizer = Synchronizer::new(
             chain_controller.clone(),
             Arc::clone(&sync_shared),
-            Some(verify_failed_block_rx),
+            verify_failed_block_rx,
         );
         let mut protocols = vec![CKBProtocol::new_with_support_protocol(
             SupportProtocols::Sync,
