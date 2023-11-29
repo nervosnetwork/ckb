@@ -349,7 +349,7 @@ impl ConsumeUnverifiedBlockProcessor {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
             }
-            Ok(VerifiedBlockStatus::FirstSeenButNotVerified)
+            Ok(VerifiedBlockStatus::UncleBlockNotVerified)
         }
     }
 
