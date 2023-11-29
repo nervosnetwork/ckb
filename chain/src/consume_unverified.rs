@@ -14,6 +14,7 @@ use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::Shared;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_tx_pool::TxPoolController;
 use ckb_types::core::cell::{
     resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction,
 };
@@ -36,6 +37,7 @@ pub(crate) struct ConsumeUnverifiedBlockProcessor {
 }
 
 pub(crate) struct ConsumeUnverifiedBlocks {
+    tx_pool_controller: TxPoolController,
     unverified_block_rx: Receiver<UnverifiedBlock>,
     stop_rx: Receiver<()>,
     processor: ConsumeUnverifiedBlockProcessor,
@@ -50,6 +52,7 @@ impl ConsumeUnverifiedBlocks {
         stop_rx: Receiver<()>,
     ) -> Self {
         ConsumeUnverifiedBlocks {
+            tx_pool_controller: shared.tx_pool_controller().to_owned(),
             unverified_block_rx: unverified_blocks_rx,
             stop_rx,
             processor: ConsumeUnverifiedBlockProcessor {
@@ -59,8 +62,10 @@ impl ConsumeUnverifiedBlocks {
             },
         }
     }
+
     pub(crate) fn start(mut self) {
         let mut begin_loop = std::time::Instant::now();
+        let tx_pool_control = self.tx_pool_controller();
         loop {
             begin_loop = std::time::Instant::now();
             select! {
@@ -68,7 +73,9 @@ impl ConsumeUnverifiedBlocks {
                     Ok(unverified_task) => {
                         // process this unverified block
                         trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
+                        let _ = tx_pool_control.suspend_chunk_process();
                         self.processor.consume_unverified_blocks(unverified_task);
+                        let _ = tx_pool_control.resume_chunk_process();
                         trace!("consume_unverified_blocks cost: {:?}", begin_loop.elapsed());
                     },
                     Err(err) => {
