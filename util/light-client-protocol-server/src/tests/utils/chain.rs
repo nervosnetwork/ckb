@@ -4,8 +4,8 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::ChainController;
 use ckb_chain::VerifiedBlockStatus;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -88,7 +88,7 @@ impl MockChain {
         let network = dummy_network(&shared);
         pack.take_tx_pool_builder().start(network);
 
-        let chain_controller = pack.take_chain_services_builder().start();
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
         Self {
             chain_controller,
