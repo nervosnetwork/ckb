@@ -384,27 +384,36 @@ impl Synchronizer {
         block: core::BlockView,
         peer_id: PeerIndex,
         message_bytes: u64,
-    ) -> VerifyResult {
+    ) -> Result<bool, ckb_error::Error> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             error!("block {} already partial stored", block_hash);
+            Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared.blocking_insert_new_block_with_verbose_info(
-                &self.chain,
-                Arc::new(block),
-                peer_id,
-                message_bytes,
-            )
+            self.shared
+                .blocking_insert_new_block_with_verbose_info(
+                    &self.chain,
+                    Arc::new(block),
+                    peer_id,
+                    message_bytes,
+                )
+                .map(|v| {
+                    matches!(
+                        v,
+                        ckb_chain::VerifiedBlockStatus::FirstSeenAndVerified
+                            | ckb_chain::VerifiedBlockStatus::UncleBlockNotVerified
+                    )
+                })
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
                 status, block_hash,
             );
             // TODO while error should we return?
-            Err(ErrorKind::other("block status doesn't contain HEADER_VALID").into())
+            Ok(false)
         }
     }
 
