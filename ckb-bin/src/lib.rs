@@ -166,6 +166,11 @@ type Silent = bool;
 fn is_silent_logging(cmd: &str) -> Silent {
     matches!(
         cmd,
-        cli::CMD_EXPORT | cli::CMD_IMPORT | cli::CMD_STATS | cli::CMD_MIGRATE | cli::CMD_RESET_DATA
+        cli::CMD_EXPORT
+            | cli::CMD_IMPORT
+            | cli::CMD_STATS
+            | cli::CMD_MIGRATE
+            | cli::CMD_RESET_DATA
+            | cli::CMD_DAEMON
     )
 }
