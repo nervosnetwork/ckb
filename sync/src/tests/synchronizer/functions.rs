@@ -353,7 +353,7 @@ fn test_process_new_block() {
     blocks.into_iter().for_each(|block| {
         synchronizer
             .shared()
-            .insert_new_block(&synchronizer.chain, Arc::new(block))
+            .blocking_insert_new_block(&synchronizer.chain, Arc::new(block))
             .expect("Insert new block failed");
     });
     assert_eq!(&chain1_last_block.header(), shared2.snapshot().tip_header());
@@ -663,7 +663,7 @@ fn test_sync_process() {
     for block in &fetched_blocks {
         let block = SendBlockBuilder::default().block(block.data()).build();
         assert_eq!(
-            BlockProcess::new(block.as_reader(), &synchronizer1, peer1).execute(),
+            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, 0).execute(),
             Status::ok(),
         );
     }

@@ -25,13 +25,14 @@ use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
 
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, VerifyResult};
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
+use ckb_error::ErrorKind;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
@@ -374,6 +375,36 @@ impl Synchronizer {
                 status, block_hash,
             );
             // TODO which error should we return?
+        }
+    }
+
+    #[cfg(test)]
+    pub fn blocking_process_new_block(
+        &self,
+        block: core::BlockView,
+        peer_id: PeerIndex,
+        message_bytes: u64,
+    ) -> VerifyResult {
+        let block_hash = block.hash();
+        let status = self.shared.active_chain().get_block_status(&block_hash);
+        // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+        // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+        if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
+            error!("block {} already partial stored", block_hash);
+        } else if status.contains(BlockStatus::HEADER_VALID) {
+            self.shared.blocking_insert_new_block_with_verbose_info(
+                &self.chain,
+                Arc::new(block),
+                peer_id,
+                message_bytes,
+            )
+        } else {
+            debug!(
+                "Synchronizer process_new_block unexpected status {:?} {}",
+                status, block_hash,
+            );
+            // TODO while error should we return?
+            Err(ErrorKind::other("block status doesn't contain HEADER_VALID").into())
         }
     }
 

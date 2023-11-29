@@ -1167,6 +1167,22 @@ impl SyncShared {
         chain.blocking_process_block(block)
     }
 
+    #[cfg(test)]
+    pub(crate) fn blocking_insert_new_block_with_verbose_info(
+        &self,
+        chain: &ChainController,
+        block: Arc<core::BlockView>,
+        peer_id: PeerIndex,
+        message_bytes: u64,
+    ) -> VerifyResult {
+        let lonely_block: LonelyBlock = LonelyBlock {
+            block,
+            peer_id: Some(PeerIndex::new(0)),
+            switch: None,
+        };
+        chain.blocking_process_lonely_block(lonely_block)
+    }
+
     pub(crate) fn accept_block(
         &self,
         chain: &ChainController,
