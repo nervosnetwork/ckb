@@ -1,5 +1,6 @@
 use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
+use ckb_chain::start_chain_services;
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -170,7 +171,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_controller = pack.take_chain_services_builder().start();
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     // Build 1 ~ (tip-1) heights
     for i in 0..tip {
