@@ -1,6 +1,8 @@
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::{ChainController, VerifyResult};
+use ckb_chain::ChainController;
+#[cfg(test)]
+use ckb_chain::VerifyResult;
 use ckb_chain::{LonelyBlock, VerifyCallback};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
@@ -35,7 +37,6 @@ use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
 use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
