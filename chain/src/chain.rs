@@ -174,6 +174,8 @@ impl ChainController {
 pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
 
+    let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
+
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
     let (unverified_tx, unverified_rx) =
         channel::bounded::<UnverifiedBlock>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
@@ -187,6 +189,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
                 let consume_unverified = ConsumeUnverifiedBlocks::new(
                     shared,
                     unverified_rx,
+                    truncate_block_rx,
                     builder.proposal_table,
                     verify_failed_blocks_tx,
                     unverified_queue_stop_rx,
@@ -225,12 +228,9 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
     let (process_block_tx, process_block_rx) = channel::bounded(BLOCK_DOWNLOAD_WINDOW as usize);
 
-    let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
-
     let chain_service: ChainService = ChainService::new(
         builder.shared,
         process_block_rx,
-        truncate_block_rx,
         lonely_block_tx,
         builder.verify_failed_blocks_tx,
     );
@@ -238,7 +238,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
         .name("ChainService".into())
         .spawn({
             move || {
-                chain_service.start();
+                chain_service.start_process_block();
 
                 if Err(SendError(_)) = search_orphan_pool_stop_tx.send(()) {
                     warn!("trying to notify search_orphan_pool thread to stop, but search_orphan_pool_stop_tx already closed")
@@ -265,7 +265,6 @@ pub(crate) struct ChainService {
     shared: Shared,
 
     process_block_rx: Receiver<ProcessBlockRequest>,
-    truncate_block_rx: Receiver<TruncateRequest>,
 
     lonely_block_tx: Sender<LonelyBlockWithCallback>,
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
@@ -275,7 +274,6 @@ impl ChainService {
     pub(crate) fn new(
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
-        truncate_block_rx: Receiver<TruncateRequest>,
 
         lonely_block_tx: Sender<LonelyBlockWithCallback>,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
@@ -283,9 +281,32 @@ impl ChainService {
         ChainService {
             shared,
             process_block_rx,
-            truncate_block_rx,
             lonely_block_tx,
             verify_failed_blocks_tx,
+        }
+    }
+
+    pub(crate) fn start_process_block(mut self) {
+        let signal_receiver = new_crossbeam_exit_rx();
+
+        loop {
+            select! {
+                recv(self.process_block_rx) -> msg => match msg {
+                    Ok(Request { responder, arguments: lonely_block }) => {
+                        // asynchronous_process_block doesn't interact with tx-pool,
+                        // no need to pause tx-pool's chunk_process here.
+                        let _ = responder.send(self.asynchronous_process_block(lonely_block));
+                    },
+                    _ => {
+                        error!("process_block_receiver closed");
+                        break;
+                    },
+                },
+                recv(signal_receiver) -> _ => {
+                    info!("ChainService received exit signal, exit now");
+                    break;
+                }
+            }
         }
     }
 
