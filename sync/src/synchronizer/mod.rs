@@ -353,7 +353,7 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn process_new_block(
+    pub fn asynchronous_process_new_block(
         &self,
         block: core::BlockView,
         peer_id: PeerIndex,
