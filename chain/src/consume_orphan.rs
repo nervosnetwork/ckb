@@ -1,7 +1,7 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, LonelyBlockWithCallback, UnverifiedBlock,
-    VerifiedBlockStatus, VerifyResult,
+    VerifyResult,
 };
 use ckb_channel::{select, Receiver, SendError, Sender};
 use ckb_error::{Error, InternalErrorKind};

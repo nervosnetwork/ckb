@@ -4,7 +4,7 @@ use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_logger::{debug, info};
+use ckb_logger::info;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
