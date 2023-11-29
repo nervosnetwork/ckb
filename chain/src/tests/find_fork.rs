@@ -1,4 +1,4 @@
-use crate::consume_unverified::{ConsumeUnverifiedBlockProcessor, ConsumeUnverifiedBlocks};
+use crate::consume_unverified::ConsumeUnverifiedBlockProcessor;
 use crate::utils::forkchanges::ForkChanges;
 use crate::{
     start_chain_services, LonelyBlock, LonelyBlockWithCallback, UnverifiedBlock,
@@ -54,8 +54,7 @@ fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let (shared, mut _pack) = builder.consensus(consensus).build().unwrap();
 
     let genesis = shared
         .store()
@@ -141,7 +140,7 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -226,7 +225,7 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -311,7 +310,7 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()

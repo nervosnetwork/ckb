@@ -70,9 +70,8 @@ impl ConsumeUnverifiedBlocks {
     }
 
     pub(crate) fn start(mut self) {
-        let mut begin_loop = std::time::Instant::now();
         loop {
-            begin_loop = std::time::Instant::now();
+            let begin_loop = std::time::Instant::now();
             select! {
                 recv(self.unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {

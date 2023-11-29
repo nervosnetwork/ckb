@@ -286,7 +286,7 @@ impl ChainService {
         }
     }
 
-    pub(crate) fn start_process_block(mut self) {
+    pub(crate) fn start_process_block(self) {
         let signal_receiver = new_crossbeam_exit_rx();
 
         loop {

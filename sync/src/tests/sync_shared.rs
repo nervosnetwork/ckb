@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
 use ckb_chain::{start_chain_services, VerifiedBlockStatus};

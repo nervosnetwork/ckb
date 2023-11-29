@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::{LonelyBlock, LonelyBlockWithCallback};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;

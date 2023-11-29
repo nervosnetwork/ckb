@@ -1,4 +1,3 @@
-use ckb_rust_unstable_port::IsSorted;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::{BlockExt, BlockView};
 use ckb_types::packed::ProposalShortId;
@@ -46,11 +45,13 @@ impl ForkChanges {
     /// assertion for make sure attached_blocks and detached_blocks are sorted
     #[cfg(debug_assertions)]
     pub fn is_sorted(&self) -> bool {
-        IsSorted::is_sorted_by_key(&mut self.attached_blocks().iter(), |blk| {
-            blk.header().number()
-        }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
-            blk.header().number()
-        })
+        ckb_rust_unstable_port::IsSorted::is_sorted_by_key(
+            &mut self.attached_blocks().iter(),
+            |blk| blk.header().number(),
+        ) && ckb_rust_unstable_port::IsSorted::is_sorted_by_key(
+            &mut self.detached_blocks().iter(),
+            |blk| blk.header().number(),
+        )
     }
 
     pub fn during_hardfork(&self, hardfork_switch: &HardForks) -> bool {

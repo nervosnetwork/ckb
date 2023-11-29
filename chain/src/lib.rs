@@ -114,10 +114,6 @@ impl UnverifiedBlock {
         self.unverified_block.peer_id()
     }
 
-    pub fn switch(&self) -> Option<Switch> {
-        self.unverified_block.switch()
-    }
-
     pub fn execute_callback(self, verify_result: VerifyResult) {
         self.unverified_block.execute_callback(verify_result)
     }
