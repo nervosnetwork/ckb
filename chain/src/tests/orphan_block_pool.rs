@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
 
-use crate::orphan_block_pool::OrphanBlockPool;
+use crate::utils::orphan_block_pool::OrphanBlockPool;
 
 fn gen_lonely_block_with_callback(parent_header: &HeaderView) -> LonelyBlockWithCallback {
     let number = parent_header.number() + 1;

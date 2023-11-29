@@ -1,5 +1,5 @@
 use crate::consume_unverified::{ConsumeUnverifiedBlockProcessor, ConsumeUnverifiedBlocks};
-use crate::forkchanges::ForkChanges;
+use crate::utils::forkchanges::ForkChanges;
 use crate::{LonelyBlock, LonelyBlockWithCallback, UnverifiedBlock, VerifyFailedBlockInfo};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
