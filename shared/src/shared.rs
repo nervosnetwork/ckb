@@ -27,7 +27,6 @@ use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;

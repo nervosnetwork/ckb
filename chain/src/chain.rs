@@ -1,7 +1,6 @@
 //! CKB chain service.
 #![allow(missing_docs)]
 
-use crate::consume_orphan::ConsumeOrphan;
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
@@ -13,18 +12,13 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
 use ckb_network::tokio;
-use ckb_proposal_table::ProposalTable;
-#[cfg(debug_assertions)]
-use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::ChainServicesBuilder;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
-use ckb_store::ChainStore;
 use ckb_types::{
-    core::{cell::HeaderChecker, service::Request, BlockView},
+    core::{service::Request, BlockView},
     packed::Byte32,
-    H256,
 };
 use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier};
 use ckb_verification_traits::{Switch, Verifier};
@@ -190,7 +184,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             let shared = builder.shared.clone();
             let verify_failed_blocks_tx = builder.verify_failed_blocks_tx.clone();
             move || {
-                let mut consume_unverified = ConsumeUnverifiedBlocks::new(
+                let consume_unverified = ConsumeUnverifiedBlocks::new(
                     shared,
                     unverified_rx,
                     builder.proposal_table,
