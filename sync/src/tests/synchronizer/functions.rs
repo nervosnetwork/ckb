@@ -1212,8 +1212,9 @@ fn test_internal_db_error() {
 
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let _chain_controller = chain_service.start::<&str>(None);
+    // TODO fix later
+    // let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    // let _chain_controller = chain_service.start::<&str>(None);
 
     let sync_shared = Arc::new(SyncShared::new(
         shared,
@@ -1225,7 +1226,7 @@ fn test_internal_db_error() {
     let block = Arc::new(BlockBuilder::default().build());
 
     // mock process_block
-    faux::when!(chain_controller.process_block(Arc::clone(&block))).then_return(Err(
+    faux::when!(chain_controller.blocking_process_block(Arc::clone(&block))).then_return(Err(
         InternalErrorKind::Database.other("mocked db error").into(),
     ));
 
@@ -1237,7 +1238,7 @@ fn test_internal_db_error() {
 
     let status = synchronizer
         .shared()
-        .accept_block(&synchronizer.chain, Arc::clone(&block));
+        .blocking_insert_new_block(&synchronizer.chain, Arc::clone(&block));
 
     assert!(is_internal_db_error(&status.err().unwrap()));
 }
