@@ -177,7 +177,7 @@ impl NetworkState {
             }
         } else {
             debug!(
-                "Report {} failure: not found in peer registry; could be on whitelist",
+                "Report {} failure: not found in peer registry or it is on the whitelist",
                 session_id
             );
         }
@@ -219,7 +219,7 @@ impl NetworkState {
             }
         } else {
             debug!(
-                "Ban session({}) failed: not found in peer registry or on the whitelist",
+                "Ban session({}) failed: not found in peer registry or it is on the whitelist",
                 session_id
             );
         }
