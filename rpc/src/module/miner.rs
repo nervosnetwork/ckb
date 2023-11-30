@@ -278,7 +278,11 @@ impl MinerRpc for MinerRpcImpl {
         let verify_result: VerifyResult = self.chain.blocking_process_block(Arc::clone(&block));
 
         // TODO: review this logic
-        let is_new = matches!(verify_result, Ok(VerifiedBlockStatus::FirstSeenAndVerified));
+        let is_new = matches!(
+            verify_result,
+            Ok(VerifiedBlockStatus::FirstSeenAndVerified
+                | VerifiedBlockStatus::UncleBlockNotVerified)
+        );
 
         // Announce only new block
         if is_new {
