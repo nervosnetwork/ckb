@@ -56,7 +56,7 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
     );
     // Send a SIGTERM signal to the process
     let _ = kill(Pid::from_raw(pid), Some(Signal::SIGTERM)).map_err(|_| ExitCode::Failure);
-    let mut wait_time = 15;
+    let mut wait_time = 60;
     eprintln!("{}", "waiting ckb service to stop ...".yellow());
     loop {
         let res = check_process(pid_file);
