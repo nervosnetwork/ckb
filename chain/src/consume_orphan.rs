@@ -40,9 +40,9 @@ impl ConsumeDescendantProcessor {
             Err(SendError(unverified_block)) => {
                 error!("send unverified_block_tx failed, the receiver has been closed");
                 let err: Error = InternalErrorKind::System
-                    .other(format!(
-                        "send unverified_block_tx failed, the receiver have been close"
-                    ))
+                    .other(
+                        "send unverified_block_tx failed, the receiver have been close".to_string(),
+                    )
                     .into();
 
                 let verify_result: VerifyResult = Err(err);
@@ -56,7 +56,7 @@ impl ConsumeDescendantProcessor {
 
         if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty()) {
             self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
-                block_number.clone(),
+                block_number,
                 block_hash.clone(),
                 total_difficulty,
             ));

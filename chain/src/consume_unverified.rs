@@ -197,7 +197,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 Some(ref target) => {
                     // if the target has been reached, delete it
                     if target
-                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(&block))
+                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block))
                     {
                         assume_valid_target.take();
                         Switch::NONE
@@ -216,25 +216,20 @@ impl ConsumeUnverifiedBlockProcessor {
             .expect("parent should be stored already");
 
         if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
-            match ext.verified {
-                Some(verified) => {
-                    debug!(
-                        "block {}-{} has been verified, previously verified result: {}",
-                        block.number(),
-                        block.hash(),
-                        verified
-                    );
-                    return if verified {
-                        Ok(VerifiedBlockStatus::PreviouslySeenAndVerified)
-                    } else {
-                        Err(InternalErrorKind::Other
-                            .other("block previously verified failed")
-                            .into())
-                    };
-                }
-                _ => {
-                    // we didn't verify this block, going on verify now
-                }
+            if let Some(verified) = ext.verified {
+                debug!(
+                    "block {}-{} has been verified, previously verified result: {}",
+                    block.number(),
+                    block.hash(),
+                    verified
+                );
+                return if verified {
+                    Ok(VerifiedBlockStatus::PreviouslySeenAndVerified)
+                } else {
+                    Err(InternalErrorKind::Other
+                        .other("block previously verified failed")
+                        .into())
+                };
             }
         }
 
@@ -271,7 +266,7 @@ impl ConsumeUnverifiedBlockProcessor {
         let next_block_epoch = self
             .shared
             .consensus()
-            .next_epoch_ext(&parent_header, &self.shared.store().borrow_as_data_loader())
+            .next_epoch_ext(parent_header, &self.shared.store().borrow_as_data_loader())
             .expect("epoch should be stored");
         let new_epoch = next_block_epoch.is_head();
         let epoch = next_block_epoch.epoch();
@@ -285,7 +280,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 &cannon_total_difficulty - &current_total_difficulty,
                 self.shared.get_unverified_tip().number(),
             );
-            self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
+            self.find_fork(&mut fork, current_tip_header.number(), block, ext);
             self.rollback(&fork, &db_txn)?;
 
             // update and verify chain root
@@ -341,7 +336,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 }
             }
 
-            let block_ref: &BlockView = &block;
+            let block_ref: &BlockView = block;
             self.shared
                 .notify_controller()
                 .notify_new_block(block_ref.clone());
@@ -366,7 +361,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
-                let block_ref: &BlockView = &block;
+                let block_ref: &BlockView = block;
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
