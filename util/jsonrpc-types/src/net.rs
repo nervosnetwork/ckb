@@ -285,8 +285,9 @@ pub struct SyncState {
     pub unverified_tip_number: BlockNumber,
     /// The block hash of current unverified tip block
     pub unverified_tip_hash: H256,
-
+    /// The block number of current tip block
     pub tip_number: BlockNumber,
+    /// The block hash of current tip block
     pub tip_hash: H256,
     /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
     pub fast_time: Uint64,

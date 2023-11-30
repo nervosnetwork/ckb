@@ -31,7 +31,7 @@ const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
 ///
 /// The controller is internally reference-counted and can be freely cloned.
 ///
-/// A controller can invoke [`ChainService`] methods.
+/// A controller can invoke ChainService methods.
 #[cfg_attr(feature = "mock", faux::create)]
 #[derive(Clone)]
 pub struct ChainController {
