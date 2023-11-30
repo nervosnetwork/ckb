@@ -9,6 +9,7 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder};
@@ -37,9 +38,13 @@ fn basic_sync() {
     let thread_name = "fake_time=0".to_string();
 
     let (mut node1, shared1) = setup_node(1);
+    info!("finished setup node1");
     let (mut node2, shared2) = setup_node(3);
+    info!("finished setup node2");
 
+    info!("connnectiong node1 and node2");
     node1.connect(&mut node2, SupportProtocols::Sync.protocol_id());
+    info!("node1 and node2 connected");
 
     let (signal_tx1, signal_rx1) = bounded(DEFAULT_CHANNEL);
     node1.start(thread_name.clone(), signal_tx1, |data| {
@@ -61,14 +66,22 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    node1.stop();
-    node2.stop();
+    let test_start = std::time::Instant::now();
+    while test_start.elapsed().as_secs() < 3 {
+        info!("node1 tip_number: {}", shared1.snapshot().tip_number());
+        if shared1.snapshot().tip_number() == 3 {
+            assert_eq!(shared1.snapshot().tip_number(), 3);
+            assert_eq!(
+                shared1.snapshot().tip_number(),
+                shared2.snapshot().tip_number()
+            );
 
-    assert_eq!(shared1.snapshot().tip_number(), 3);
-    assert_eq!(
-        shared1.snapshot().tip_number(),
-        shared2.snapshot().tip_number()
-    );
+            node1.stop();
+            node2.stop();
+            return;
+        }
+    }
+    panic!("node1 and node2 should sync in 3 seconds");
 }
 
 fn setup_node(height: u64) -> (TestNode, Shared) {
