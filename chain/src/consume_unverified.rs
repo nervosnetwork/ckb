@@ -130,7 +130,7 @@ impl ConsumeUnverifiedBlockProcessor {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.peer_id(),
+                    unverified_block.peer_id_with_msg_bytes(),
                     unverified_block.block().hash(),
                     err
                 );
@@ -166,7 +166,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    unverified_block.peer_id(),
+                    unverified_block.peer_id_with_msg_bytes(),
                     unverified_block.block().hash(),
                     err,
                 );
@@ -183,7 +183,7 @@ impl ConsumeUnverifiedBlockProcessor {
                     lonely_block:
                         LonelyBlock {
                             block,
-                            peer_id: _peer_id,
+                            peer_id_with_msg_bytes: _peer_id_with_msg_bytes,
                             switch,
                         },
                     verify_callback: _verify_callback,

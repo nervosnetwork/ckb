@@ -1062,13 +1062,13 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id: PeerIndex,
+        peer_id_with_msg_bytes: (PeerIndex, u64),
         verify_success_callback: VerifyCallback,
     ) {
         self.accept_block(
             chain,
             Arc::clone(&block),
-            peer_id,
+            peer_id_with_msg_bytes,
             Some(verify_success_callback),
         )
     }
@@ -1081,28 +1081,12 @@ impl SyncShared {
         peer_id: PeerIndex,
         message_bytes: u64,
     ) {
-        // Insert the given block into orphan_block_pool if its parent is not found
-        // if !self.is_stored(&block.parent_hash()) {
-        //     debug!(
-        //         "insert new orphan block {} {}",
-        //         block.header().number(),
-        //         block.header().hash()
-        //     );
-        //     self.state.insert_orphan_block((*block).clone());
-        //     return Ok(false);
-        // }
-
-        // Attempt to accept the given block if its parent already exist in database
-        self.accept_block(chain, Arc::clone(&block), peer_id, None::<VerifyCallback>);
-        // if ret.is_err() {
-        //     debug!("accept block {:?} {:?}", block, ret);
-        //     return ret;
-        // }
-
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        // self.try_search_orphan_pool(chain);
-        // ret
+        self.accept_block(
+            chain,
+            Arc::clone(&block),
+            (peer_id, message_bytes),
+            None::<VerifyCallback>,
+        );
     }
 
     /// Try to find blocks from the orphan block pool that may no longer be orphan
@@ -1178,7 +1162,7 @@ impl SyncShared {
     ) -> VerifyResult {
         let lonely_block: LonelyBlock = LonelyBlock {
             block,
-            peer_id: Some(PeerIndex::new(0)),
+            peer_id_with_msg_bytes: Some((peer_id, message_bytes)),
             switch: None,
         };
         chain.blocking_process_lonely_block(lonely_block)
@@ -1188,43 +1172,17 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id: PeerIndex,
+        peer_id_with_msg_bytes: (PeerIndex, u64),
         verify_callback: Option<VerifyCallback>,
     ) {
-        // let ret = {
-        //     let mut assume_valid_target = self.state.assume_valid_target();
-        //     if let Some(ref target) = *assume_valid_target {
-        //         // if the target has been reached, delete it
-        //         let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
-        //             assume_valid_target.take();
-        //             Switch::NONE
-        //         } else {
-        //             Switch::DISABLE_SCRIPT
-        //         };
-        //
-        //         chain.blocking_process_block_with_switch(Arc::clone(&block), switch)
-        //     } else {
-        //         chain.process_block(Arc::clone(&block))
-        //     }
-        // };
-
         let lonely_block_with_callback = LonelyBlock {
             block,
-            peer_id: Some(peer_id),
+            peer_id_with_msg_bytes: Some(peer_id_with_msg_bytes),
             switch: None,
         }
         .with_callback(verify_callback);
 
         chain.asynchronous_process_lonely_block_with_callback(lonely_block_with_callback);
-
-        // if let Err(ref error) = ret {
-        //     if !is_internal_db_error(error) {
-        //         error!("accept block {:?} {}", block, error);
-        //         self.shared()
-        //             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
-        //     }
-        // }
-        // ret
     }
 
     /// Sync a new valid header, try insert to sync state

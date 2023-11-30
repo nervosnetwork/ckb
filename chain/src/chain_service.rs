@@ -57,7 +57,7 @@ impl ChainController {
     pub fn asynchronous_process_block_with_switch(&self, block: Arc<BlockView>, switch: Switch) {
         self.asynchronous_process_lonely_block(LonelyBlock {
             block,
-            peer_id: None,
+            peer_id_with_msg_bytes: None,
             switch: Some(switch),
         })
     }
@@ -66,7 +66,7 @@ impl ChainController {
         self.asynchronous_process_lonely_block_with_callback(
             LonelyBlock {
                 block,
-                peer_id: None,
+                peer_id_with_msg_bytes: None,
                 switch: None,
             }
             .without_callback(),
@@ -81,7 +81,7 @@ impl ChainController {
         self.asynchronous_process_lonely_block_with_callback(
             LonelyBlock {
                 block,
-                peer_id: None,
+                peer_id_with_msg_bytes: None,
                 switch: None,
             }
             .with_callback(Some(verify_callback)),
@@ -110,7 +110,7 @@ impl ChainController {
     pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
         self.blocking_process_lonely_block(LonelyBlock {
             block,
-            peer_id: None,
+            peer_id_with_msg_bytes: None,
             switch: None,
         })
     }
@@ -122,7 +122,7 @@ impl ChainController {
     ) -> VerifyResult {
         self.blocking_process_lonely_block(LonelyBlock {
             block,
-            peer_id: None,
+            peer_id_with_msg_bytes: None,
             switch: Some(switch),
         })
     }
@@ -345,7 +345,7 @@ impl ChainService {
                 Err(err) => {
                     tell_synchronizer_to_punish_the_bad_peer(
                         self.verify_failed_blocks_tx.clone(),
-                        lonely_block.peer_id(),
+                        lonely_block.peer_id_with_msg_bytes(),
                         lonely_block.block().hash(),
                         &err,
                     );
@@ -368,7 +368,7 @@ impl ChainService {
 
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id(),
+                    lonely_block.peer_id_with_msg_bytes(),
                     lonely_block.block().hash(),
                     &err,
                 );

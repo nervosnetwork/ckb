@@ -934,7 +934,7 @@ impl CKBProtocolHandler for Synchronizer {
                 nc.as_ref(),
                 malformed_peer_info.peer_id,
                 "SendBlock",
-                malformed_peer_info.message_bytes,
+                malformed_peer_info.msg_bytes,
                 StatusCode::BlockIsInvalid.with_context(format!(
                     "block {} is invalid, reason: {}",
                     malformed_peer_info.block_hash, malformed_peer_info.reason
