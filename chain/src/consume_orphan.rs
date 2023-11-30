@@ -24,137 +24,12 @@ pub(crate) struct ConsumeDescendantProcessor {
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
-pub(crate) struct ConsumeOrphan {
-    shared: Shared,
-
-    descendant_processor: ConsumeDescendantProcessor,
-
-    orphan_blocks_broker: Arc<OrphanBlockPool>,
-    lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
-
-    stop_rx: Receiver<()>,
-}
-
-impl ConsumeOrphan {
-    pub(crate) fn new(
-        shared: Shared,
-        orphan_block_pool: Arc<OrphanBlockPool>,
-        unverified_blocks_tx: Sender<UnverifiedBlock>,
-        lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
-
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-        stop_rx: Receiver<()>,
-    ) -> ConsumeOrphan {
-        ConsumeOrphan {
-            shared: shared.clone(),
-
-            descendant_processor: ConsumeDescendantProcessor {
-                shared,
-                unverified_blocks_tx,
-                verify_failed_blocks_tx,
-            },
-            orphan_blocks_broker: orphan_block_pool,
-            lonely_blocks_rx,
-            stop_rx,
-        }
-    }
-
-    pub(crate) fn start(&self) {
-        loop {
-            select! {
-                recv(self.lonely_blocks_rx) -> msg => match msg {
-                    Ok(lonely_block) => {
-                        self.process_lonely_block(lonely_block);
-                    },
-                    Err(err) => {
-                        error!("lonely_block_rx err: {}", err);
-                        return
-                    }
-                },
-                recv(self.stop_rx) -> _ => {
-                    info!("unverified_queue_consumer got exit signal, exit now");
-                    return;
-                },
-            }
-        }
-    }
-
-    fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
-        let parent_hash = lonely_block.block().parent_hash();
-        let parent_status = self.shared.get_block_status(&parent_hash);
-        if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-            debug!(
-                "parent has stored, processing descendant directly {}",
-                lonely_block.block().hash()
-            );
-            self.process_descendant(lonely_block);
-        } else {
-            self.orphan_blocks_broker.insert(lonely_block);
-        }
-        self.search_orphan_pool()
-    }
-
-    fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
-        match self.accept_descendant(lonely_block.block().to_owned()) {
-            Ok((parent_header, total_difficulty)) => {
-                let unverified_block: UnverifiedBlock =
-                    lonely_block.combine_parent_header(parent_header);
-
-                self.send_unverified_block(unverified_block, total_difficulty)
-            }
-
-            Err(err) => {
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.descendant_processor.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id_with_msg_bytes(),
-                    lonely_block.block().hash(),
-                    &err,
-                );
-
-                error!(
-                    "accept block {} failed: {}",
-                    lonely_block.block().hash(),
-                    err
-                );
-
-                lonely_block.execute_callback(Err(err));
-            }
-        }
-    }
-
-    fn search_orphan_pool(&self) {
-        for leader_hash in self.orphan_blocks_broker.clone_leaders() {
-            if !self
-                .shared
-                .contains_block_status(&leader_hash, BlockStatus::BLOCK_PARTIAL_STORED)
-            {
-                trace!("orphan leader: {} not partial stored", leader_hash);
-                continue;
-            }
-
-            let descendants: Vec<LonelyBlockWithCallback> = self
-                .orphan_blocks_broker
-                .remove_blocks_by_parent(&leader_hash);
-            if descendants.is_empty() {
-                error!(
-                    "leader {} does not have any descendants, this shouldn't happen",
-                    leader_hash
-                );
-                continue;
-            }
-            self.accept_descendants(descendants);
-        }
-    }
-
+impl ConsumeDescendantProcessor {
     fn send_unverified_block(&self, unverified_block: UnverifiedBlock, total_difficulty: U256) {
         let block_number = unverified_block.block().number();
         let block_hash = unverified_block.block().hash();
 
-        let send_success = match self
-            .descendant_processor
-            .unverified_blocks_tx
-            .send(unverified_block)
-        {
+        let send_success = match self.unverified_blocks_tx.send(unverified_block) {
             Ok(_) => {
                 debug!(
                     "process desendant block success {}-{}",
@@ -203,12 +78,6 @@ impl ConsumeOrphan {
 
         self.shared
             .insert_block_status(block_hash, BlockStatus::BLOCK_PARTIAL_STORED);
-    }
-
-    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) {
-        for descendant_block in descendants {
-            self.process_descendant(descendant_block);
-        }
     }
 
     fn accept_descendant(&self, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
@@ -281,5 +150,132 @@ impl ConsumeOrphan {
         db_txn.commit()?;
 
         Ok((parent_header, cannon_total_difficulty))
+    }
+
+    fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
+        match self.accept_descendant(lonely_block.block().to_owned()) {
+            Ok((parent_header, total_difficulty)) => {
+                let unverified_block: UnverifiedBlock =
+                    lonely_block.combine_parent_header(parent_header);
+
+                self.send_unverified_block(unverified_block, total_difficulty)
+            }
+
+            Err(err) => {
+                tell_synchronizer_to_punish_the_bad_peer(
+                    self.verify_failed_blocks_tx.clone(),
+                    lonely_block.peer_id_with_msg_bytes(),
+                    lonely_block.block().hash(),
+                    &err,
+                );
+
+                error!(
+                    "accept block {} failed: {}",
+                    lonely_block.block().hash(),
+                    err
+                );
+
+                lonely_block.execute_callback(Err(err));
+            }
+        }
+    }
+
+    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) {
+        for descendant_block in descendants {
+            self.process_descendant(descendant_block);
+        }
+    }
+}
+
+pub(crate) struct ConsumeOrphan {
+    shared: Shared,
+
+    descendant_processor: ConsumeDescendantProcessor,
+
+    orphan_blocks_broker: Arc<OrphanBlockPool>,
+    lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
+
+    stop_rx: Receiver<()>,
+}
+
+impl ConsumeOrphan {
+    pub(crate) fn new(
+        shared: Shared,
+        orphan_block_pool: Arc<OrphanBlockPool>,
+        unverified_blocks_tx: Sender<UnverifiedBlock>,
+        lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
+        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+        stop_rx: Receiver<()>,
+    ) -> ConsumeOrphan {
+        ConsumeOrphan {
+            shared: shared.clone(),
+            descendant_processor: ConsumeDescendantProcessor {
+                shared,
+                unverified_blocks_tx,
+                verify_failed_blocks_tx,
+            },
+            orphan_blocks_broker: orphan_block_pool,
+            lonely_blocks_rx,
+            stop_rx,
+        }
+    }
+
+    pub(crate) fn start(&self) {
+        loop {
+            select! {
+                recv(self.lonely_blocks_rx) -> msg => match msg {
+                    Ok(lonely_block) => {
+                        self.process_lonely_block(lonely_block);
+                    },
+                    Err(err) => {
+                        error!("lonely_block_rx err: {}", err);
+                        return
+                    }
+                },
+                recv(self.stop_rx) -> _ => {
+                    info!("unverified_queue_consumer got exit signal, exit now");
+                    return;
+                },
+            }
+        }
+    }
+
+    fn search_orphan_pool(&self) {
+        for leader_hash in self.orphan_blocks_broker.clone_leaders() {
+            if !self
+                .shared
+                .contains_block_status(&leader_hash, BlockStatus::BLOCK_PARTIAL_STORED)
+            {
+                trace!("orphan leader: {} not partial stored", leader_hash);
+                continue;
+            }
+
+            let descendants: Vec<LonelyBlockWithCallback> = self
+                .orphan_blocks_broker
+                .remove_blocks_by_parent(&leader_hash);
+            if descendants.is_empty() {
+                error!(
+                    "leader {} does not have any descendants, this shouldn't happen",
+                    leader_hash
+                );
+                continue;
+            }
+            self.descendant_processor.accept_descendants(descendants);
+        }
+    }
+
+    fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
+        let parent_hash = lonely_block.block().parent_hash();
+        let parent_status = self.shared.get_block_status(&parent_hash);
+        if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
+            debug!(
+                "parent has stored, processing descendant directly {}",
+                lonely_block.block().hash()
+            );
+            self.descendant_processor.process_descendant(lonely_block);
+        } else {
+            self.orphan_blocks_broker.insert(lonely_block);
+        }
+        self.search_orphan_pool()
     }
 }
