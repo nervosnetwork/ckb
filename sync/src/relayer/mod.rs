@@ -315,17 +315,13 @@ impl Relayer {
         let verify_success_callback = {
             let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
             let block = Arc::clone(&block);
-            let peer = peer.clone();
             move |result: VerifyResult| match result {
                 Ok(verified_block_status) => match verified_block_status {
                     VerifiedBlockStatus::FirstSeenAndVerified => {
-                        match broadcast_compact_block_tx.send((block, peer)) {
-                            Err(_) => {
-                                error!(
+                        if broadcast_compact_block_tx.send((block, peer)).is_err() {
+                            error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
                     );
-                            }
-                            _ => {}
                         }
                     }
                     _ => {}
