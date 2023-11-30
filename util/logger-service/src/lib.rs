@@ -527,3 +527,28 @@ fn setup_panic_logger() {
     };
     panic::set_hook(Box::new(panic_logger));
 }
+
+/// Only used by unit test
+/// Initializes the [Logger](struct.Logger.html) and run the logging service.
+#[cfg(test)]
+pub fn init_for_test(filter: &str) -> Result<LoggerInitGuard, SetLoggerError> {
+    setup_panic_logger();
+    let config: Config = Config {
+        filter: Some(filter.to_string()),
+        color: true,
+        log_to_stdout: true,
+        log_to_file: false,
+
+        emit_sentry_breadcrumbs: None,
+        file: Default::default(),
+        log_dir: Default::default(),
+        extra: Default::default(),
+    };
+
+    let logger = Logger::new(None, config);
+    let filter = logger.filter();
+    log::set_boxed_logger(Box::new(logger)).map(|_| {
+        log::set_max_level(filter);
+        LoggerInitGuard
+    })
+}
