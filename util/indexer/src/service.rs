@@ -1,10 +1,10 @@
 //！The indexer service.
 
+use crate::error::Error;
 use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
 use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
-use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
 use ckb_async_runtime::{
     tokio::{self, time},
@@ -25,6 +25,7 @@ use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
+use std::thread::sleep;
 use std::time::Duration;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
@@ -41,15 +42,12 @@ pub struct IndexerService {
     async_handle: Handle,
     block_filter: Option<String>,
     cell_filter: Option<String>,
+    init_tip_hash: Option<H256>,
 }
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
-    pub fn new(
-        ckb_db_config: &DBConfig,
-        config: &IndexerConfig,
-        async_handle: Handle,
-    ) -> Result<Self, Error> {
+    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
         let pool = if config.index_tx_pool {
@@ -72,9 +70,7 @@ impl IndexerService {
             config.secondary_path.to_string_lossy().to_string(),
         );
 
-        Self::apply_init_tip(&config.init_tip_hash, &store, &secondary_db)?;
-
-        Ok(Self {
+        Self {
             store,
             secondary_db,
             pool,
@@ -82,7 +78,8 @@ impl IndexerService {
             poll_interval: Duration::from_secs(config.poll_interval),
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
-        })
+            init_tip_hash: config.init_tip_hash.clone(),
+        }
     }
 
     /// Returns a handle to the indexer.
@@ -133,6 +130,38 @@ impl IndexerService {
         });
     }
 
+    fn apply_init_tip(&self) {
+        if let Some(init_tip_hash) = &self.init_tip_hash {
+            if self
+                .store
+                .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
+                .expect("iter Header should be OK")
+                .next()
+                .is_none()
+            {
+                loop {
+                    if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+                        error!("secondary_db try_catch_up_with_primary error {}", e);
+                    }
+                    if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack())
+                    {
+                        let init_tip_number = header.number();
+                        let mut batch = self.store.batch().expect("create batch should be OK");
+                        batch
+                            .put_kv(
+                                Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                                vec![],
+                            )
+                            .expect("insert init tip header should be OK");
+                        batch.commit().expect("commit batch should be OK");
+                        break;
+                    }
+                    sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
     fn try_loop_sync(&self) {
         // assume that long fork will not happen >= 100 blocks.
         let keep_num = 100;
@@ -177,9 +206,11 @@ impl IndexerService {
     /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub fn spawn_poll(&self, notify_controller: NotifyController) {
         let initial_service = self.clone();
-        let initial_syncing = self
-            .async_handle
-            .spawn_blocking(move || initial_service.try_loop_sync());
+        let initial_syncing = self.async_handle.spawn_blocking(move || {
+            initial_service.apply_init_tip();
+            initial_service.try_loop_sync()
+        });
+
         let stop: CancellationToken = new_tokio_exit_rx();
         let async_handle = self.async_handle.clone();
         let poll_service = self.clone();
@@ -252,35 +283,6 @@ impl IndexerService {
                 .unwrap_or(DEFAULT_LOG_KEEP_NUM),
         );
         opts
-    }
-
-    pub(crate) fn apply_init_tip<T: ChainStore>(
-        init_tip_hash: &Option<H256>,
-        store: &RocksdbStore,
-        secondary_db: &T,
-    ) -> Result<(), Error> {
-        if let Some(init_tip_hash) = init_tip_hash {
-            if store
-                .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
-                .expect("iter Header should be OK")
-                .next()
-                .is_none()
-            {
-                let init_tip_number = secondary_db
-                    .get_block_header(&init_tip_hash.pack())
-                    .ok_or_else(|| Error::Params("setting the initial tip failed: could not find the block corresponding to the init tip hash.".to_string()))?
-                    .number();
-                let mut batch = store.batch().expect("create batch should be OK");
-                batch
-                    .put_kv(
-                        Key::Header(init_tip_number, &init_tip_hash.pack(), true),
-                        vec![],
-                    )
-                    .expect("insert init tip header should be OK");
-                batch.commit().expect("commit batch should be OK");
-            }
-        }
-        Ok(())
     }
 }
 
@@ -982,20 +984,13 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
-    use ckb_db::{
-        iter::{DBIter, IteratorMode},
-        DBPinnableSlice,
-    };
-    use ckb_db_schema::Col;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
-    use ckb_store::{Freezer, StoreCache};
     use ckb_types::{
         bytes::Bytes,
         core::{
             capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-            HeaderView, ScriptHashType, TransactionBuilder,
+            ScriptHashType, TransactionBuilder,
         },
-        h256,
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
         H256,
     };
@@ -1007,49 +1002,6 @@ mod tests {
             tmp_dir.path().to_str().unwrap(),
         )
         // Indexer::new(store, 10, 1)
-    }
-
-    fn new_chain_store(prefix: &str) -> impl ChainStore {
-        struct DummyChainStore {
-            inner: RocksdbStore,
-        }
-        impl ChainStore for DummyChainStore {
-            fn cache(&self) -> Option<&StoreCache> {
-                None
-            }
-            fn freezer(&self) -> Option<&Freezer> {
-                None
-            }
-            fn get(&self, _col: Col, _key: &[u8]) -> Option<DBPinnableSlice> {
-                None
-            }
-            fn get_iter(&self, _col: Col, mode: IteratorMode) -> DBIter {
-                let opts = ReadOptions::default();
-                self.inner.inner().get_iter(&opts, mode)
-            }
-            fn get_block_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
-                match hash {
-                    _ if hash
-                        == &h256!(
-                            "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
-                        )
-                        .pack() =>
-                    {
-                        let epoch = EpochNumberWithFraction::new(0, 0, 10);
-                        Some(
-                            HeaderView::new_advanced_builder()
-                                .number(100000.pack())
-                                .epoch(epoch.pack())
-                                .build(),
-                        )
-                    }
-                    _ => None,
-                }
-            }
-        }
-        DummyChainStore {
-            inner: new_store(prefix),
-        }
     }
 
     #[test]
@@ -1638,37 +1590,6 @@ mod tests {
             capacity.capacity.value(),
             "cellbases (last block live cell was consumed by a pending tx in the pool)"
         );
-    }
-
-    #[test]
-    fn rpc_get_indexer_tip_with_set_init_tip() {
-        let store = new_store("rpc_get_indexer_tip_with_set_init_tip");
-        let ckb_db = new_chain_store("rpc_get_indexer_tip_with_set_init_tip_ckb");
-
-        // test setting the initial tip failed
-        let ret = IndexerService::apply_init_tip(&Some(H256::default()), &store, &ckb_db);
-        assert_eq!(ret.unwrap_err().to_string(), "Invalid params setting the initial tip failed: could not find the block corresponding to the init tip hash.");
-
-        // test get_tip rpc
-        IndexerService::apply_init_tip(
-            &Some(h256!(
-                "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
-            )),
-            &store,
-            &ckb_db,
-        )
-        .unwrap();
-        let pool = Arc::new(RwLock::new(Pool::default()));
-        let rpc = IndexerHandle {
-            store,
-            pool: Some(Arc::clone(&pool)),
-        };
-        let tip = rpc.get_indexer_tip().unwrap().unwrap();
-        assert_eq!(
-            h256!("0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"),
-            tip.block_hash
-        );
-        assert_eq!(100000, tip.block_number.value());
     }
 
     #[test]

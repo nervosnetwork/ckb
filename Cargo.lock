@@ -842,7 +842,6 @@ version = "0.113.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
- "ckb-db",
  "ckb-db-schema",
  "ckb-jsonrpc-types",
  "ckb-logger",

@@ -27,7 +27,5 @@ serde_json = "1.0"
 numext-fixed-uint = "0.1"
 
 [dev-dependencies]
-ckb-db = { path = "../../db", version = "= 0.113.0-pre" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.113.0-pre" }
 tempfile.workspace = true
 rand = "0.8"
