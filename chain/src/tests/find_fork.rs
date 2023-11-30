@@ -1,9 +1,7 @@
+use crate::consume_orphan::ConsumeDescendantProcessor;
 use crate::consume_unverified::ConsumeUnverifiedBlockProcessor;
 use crate::utils::forkchanges::ForkChanges;
-use crate::{
-    start_chain_services, LonelyBlock, LonelyBlockWithCallback, UnverifiedBlock,
-    VerifyFailedBlockInfo,
-};
+use crate::{start_chain_services, LonelyBlock, UnverifiedBlock, VerifyFailedBlockInfo};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::SharedBuilder;
@@ -17,33 +15,36 @@ use ckb_types::{
     U256,
 };
 use ckb_verification_traits::Switch;
+use crossbeam::channel;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-fn consume_unverified_block(
-    processor: &mut ConsumeUnverifiedBlockProcessor,
+fn process_block(
+    consume_descendant_processor: &ConsumeDescendantProcessor,
+    consume_unverified_block_processor: &mut ConsumeUnverifiedBlockProcessor,
     blk: &BlockView,
     switch: Switch,
 ) {
+    let lonely_block = LonelyBlock {
+        block: Arc::new(blk.to_owned()),
+        peer_id_with_msg_bytes: None,
+        switch: Some(switch),
+    };
+
+    consume_descendant_processor.process_descendant(lonely_block.clone().without_callback());
+
     let parent_hash = blk.data().header().raw().parent_hash();
-    let parent_header = processor
+    let parent_header = consume_descendant_processor
         .shared
         .store()
         .get_block_header(&parent_hash)
         .unwrap();
 
     let unverified_block = UnverifiedBlock {
-        unverified_block: LonelyBlockWithCallback {
-            lonely_block: LonelyBlock {
-                block: Arc::new(blk.to_owned()),
-                peer_id_with_msg_bytes: None,
-                switch: Some(switch),
-            },
-            verify_callback: None,
-        },
+        unverified_block: lonely_block.without_callback(),
         parent_header,
     };
-    processor.consume_unverified_blocks(unverified_block);
+    consume_unverified_block_processor.consume_unverified_blocks(unverified_block);
 }
 
 // 0--1--2--3--4
@@ -76,7 +77,12 @@ fn test_find_fork_case1() {
 
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
+    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let consume_descendant_processor = ConsumeDescendantProcessor {
+        shared: shared.clone(),
+        unverified_blocks_tx,
+        verify_failed_blocks_tx: verify_failed_blocks_tx.clone(),
+    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         proposal_table,
@@ -85,7 +91,8 @@ fn test_find_fork_case1() {
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -94,7 +101,8 @@ fn test_find_fork_case1() {
 
     // fork2 total_difficulty 270
     for blk in fork2.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -161,7 +169,12 @@ fn test_find_fork_case2() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
+    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let consume_descendant_processor = ConsumeDescendantProcessor {
+        shared: shared.clone(),
+        unverified_blocks_tx,
+        verify_failed_blocks_tx: verify_failed_blocks_tx.clone(),
+    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         proposal_table,
@@ -170,7 +183,8 @@ fn test_find_fork_case2() {
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -179,7 +193,8 @@ fn test_find_fork_case2() {
 
     // fork2 total_difficulty 280
     for blk in fork2.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -247,16 +262,21 @@ fn test_find_fork_case3() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
+    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let consume_descendant_processor = ConsumeDescendantProcessor {
+        shared: shared.clone(),
+        unverified_blocks_tx,
+        verify_failed_blocks_tx: verify_failed_blocks_tx.clone(),
+    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         proposal_table,
         verify_failed_blocks_tx,
     };
-
     // fork1 total_difficulty 240
     for blk in fork1.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -265,7 +285,8 @@ fn test_find_fork_case3() {
 
     // fork2 total_difficulty 200
     for blk in fork2.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -332,7 +353,12 @@ fn test_find_fork_case4() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
+    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let consume_descendant_processor = ConsumeDescendantProcessor {
+        shared: shared.clone(),
+        unverified_blocks_tx,
+        verify_failed_blocks_tx: verify_failed_blocks_tx.clone(),
+    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         proposal_table,
@@ -341,7 +367,8 @@ fn test_find_fork_case4() {
 
     // fork1 total_difficulty 200
     for blk in fork1.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -350,7 +377,8 @@ fn test_find_fork_case4() {
 
     // fork2 total_difficulty 160
     for blk in fork2.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -417,7 +445,12 @@ fn repeatedly_switch_fork() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
+    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let consume_descendant_processor = ConsumeDescendantProcessor {
+        shared: shared.clone(),
+        unverified_blocks_tx,
+        verify_failed_blocks_tx: verify_failed_blocks_tx.clone(),
+    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         proposal_table,
@@ -425,7 +458,8 @@ fn repeatedly_switch_fork() {
     };
 
     for blk in fork1.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -433,7 +467,8 @@ fn repeatedly_switch_fork() {
     }
 
     for blk in fork2.blocks() {
-        consume_unverified_block(
+        process_block(
+            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
