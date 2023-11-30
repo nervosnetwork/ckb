@@ -1,4 +1,4 @@
-use ckb_chain::ChainController;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
