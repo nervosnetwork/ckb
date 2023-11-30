@@ -18,10 +18,10 @@ use ckb_verification::InvalidParentError;
 use std::sync::Arc;
 
 pub(crate) struct ConsumeDescendantProcessor {
-    shared: Shared,
-    unverified_blocks_tx: Sender<UnverifiedBlock>,
+    pub shared: Shared,
+    pub unverified_blocks_tx: Sender<UnverifiedBlock>,
 
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+    pub verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 impl ConsumeDescendantProcessor {
@@ -152,7 +152,7 @@ impl ConsumeDescendantProcessor {
         Ok((parent_header, cannon_total_difficulty))
     }
 
-    fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
+    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
         match self.accept_descendant(lonely_block.block().to_owned()) {
             Ok((parent_header, total_difficulty)) => {
                 let unverified_block: UnverifiedBlock =
