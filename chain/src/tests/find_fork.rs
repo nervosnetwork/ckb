@@ -25,17 +25,18 @@ fn consume_unverified_block(
     blk: &BlockView,
     switch: Switch,
 ) {
+    let parent_hash = blk.data().header().raw().parent_hash();
     let parent_header = processor
         .shared
         .store()
-        .get_block_header(&blk.data().header().raw().parent_hash())
+        .get_block_header(&parent_hash)
         .unwrap();
 
     let unverified_block = UnverifiedBlock {
         unverified_block: LonelyBlockWithCallback {
             lonely_block: LonelyBlock {
                 block: Arc::new(blk.to_owned()),
-                peer_id: None,
+                peer_id_with_msg_bytes: None,
                 switch: Some(switch),
             },
             verify_callback: None,
