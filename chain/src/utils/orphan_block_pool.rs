@@ -95,7 +95,7 @@ impl InnerPool {
             self.blocks.get(parent_hash).and_then(|blocks| {
                 blocks
                     .get(hash)
-                    .map(|lonely_block| lonely_block.block().clone())
+                    .map(|lonely_block| Arc::clone(lonely_block.block()))
             })
         })
     }

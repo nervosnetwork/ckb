@@ -131,12 +131,13 @@ impl ChainController {
         let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
 
         let verify_callback = {
-            move |result: VerifyResult| match verify_result_tx.send(result) {
-                Err(err) => error!(
-                    "blocking send verify_result failed: {}, this shouldn't happen",
-                    err
-                ),
-                _ => {}
+            move |result: VerifyResult| {
+                if let Err(err) = verify_result_tx.send(result) {
+                    error!(
+                        "blocking send verify_result failed: {}, this shouldn't happen",
+                        err
+                    )
+                }
             }
         };
 
@@ -208,7 +209,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     let search_orphan_pool_thread = thread::Builder::new()
         .name("consume_orphan_blocks".into())
         .spawn({
-            let orphan_blocks_broker = orphan_blocks_broker.clone();
+            let orphan_blocks_broker = Arc::clone(&orphan_blocks_broker);
             let shared = builder.shared.clone();
             use crate::consume_orphan::ConsumeOrphan;
             let verify_failed_block_tx = builder.verify_failed_blocks_tx.clone();
@@ -295,7 +296,8 @@ impl ChainService {
                     Ok(Request { responder, arguments: lonely_block }) => {
                         // asynchronous_process_block doesn't interact with tx-pool,
                         // no need to pause tx-pool's chunk_process here.
-                        let _ = responder.send(self.asynchronous_process_block(lonely_block));
+                        self.asynchronous_process_block(lonely_block);
+                        let _ = responder.send(());
                     },
                     _ => {
                         error!("process_block_receiver closed");
@@ -340,20 +342,17 @@ impl ChainService {
         if lonely_block.switch().is_none()
             || matches!(lonely_block.switch(), Some(switch) if !switch.disable_non_contextual())
         {
-            let result = self.non_contextual_verify(&lonely_block.block());
-            match result {
-                Err(err) => {
-                    tell_synchronizer_to_punish_the_bad_peer(
-                        self.verify_failed_blocks_tx.clone(),
-                        lonely_block.peer_id_with_msg_bytes(),
-                        lonely_block.block().hash(),
-                        &err,
-                    );
+            let result = self.non_contextual_verify(lonely_block.block());
+            if let Err(err) = result {
+                tell_synchronizer_to_punish_the_bad_peer(
+                    self.verify_failed_blocks_tx.clone(),
+                    lonely_block.peer_id_with_msg_bytes(),
+                    lonely_block.block().hash(),
+                    &err,
+                );
 
-                    lonely_block.execute_callback(Err(err));
-                    return;
-                }
-                _ => {}
+                lonely_block.execute_callback(Err(err));
+                return;
             }
         }
 
