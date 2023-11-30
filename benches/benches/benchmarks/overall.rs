@@ -1,7 +1,7 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
 use ckb_app_config::NetworkConfig;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::ChainController;
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
