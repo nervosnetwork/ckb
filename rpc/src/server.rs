@@ -34,6 +34,7 @@ impl RpcServer {
     ///
     /// * `config` - RPC config options.
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
+    /// * `handler` - Tokio runtime handle.
     pub fn new(config: RpcConfig, io_handler: IoHandler, handler: Handle) -> Self {
         let rpc = Arc::new(io_handler);
 
@@ -141,7 +142,11 @@ impl RpcServer {
             let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
             let stream_config = StreamServerConfig::default()
                 .with_channel_size(4)
-                .with_pipeline_size(4);
+                .with_pipeline_size(4)
+                .with_shutdown(async move {
+                    let exit = new_tokio_exit_rx();
+                    exit.cancelled().await;
+                });
 
             let exit_signal: CancellationToken = new_tokio_exit_rx();
             tokio::select! {
@@ -160,14 +165,8 @@ impl RpcServer {
                                     })
                                 });
                                 tokio::pin!(w);
-                                let exit_signal: CancellationToken = new_tokio_exit_rx();
-                                tokio::select! {
-                                    result = serve_stream_sink(&rpc, w, r, stream_config) => {
-                                        if let Err(err) = result {
-                                            info!("TCP RPCServer error: {:?}", err);
-                                        }
-                                    }
-                                    _ = exit_signal.cancelled() => {}
+                                if let Err(err) = serve_stream_sink(&rpc, w, r, stream_config).await {
+                                    info!("TCP RPCServer error: {:?}", err);
                                 }
                             });
                         }
