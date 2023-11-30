@@ -17,13 +17,20 @@ use ckb_types::U256;
 use ckb_verification::InvalidParentError;
 use std::sync::Arc;
 
-pub(crate) struct ConsumeOrphan {
+pub(crate) struct ConsumeDescendantProcessor {
     shared: Shared,
-    orphan_blocks_broker: Arc<OrphanBlockPool>,
-    lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
     unverified_blocks_tx: Sender<UnverifiedBlock>,
 
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
+}
+
+pub(crate) struct ConsumeOrphan {
+    shared: Shared,
+
+    descendant_processor: ConsumeDescendantProcessor,
+
+    orphan_blocks_broker: Arc<OrphanBlockPool>,
+    lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
 
     stop_rx: Receiver<()>,
 }
@@ -39,11 +46,15 @@ impl ConsumeOrphan {
         stop_rx: Receiver<()>,
     ) -> ConsumeOrphan {
         ConsumeOrphan {
-            shared,
+            shared: shared.clone(),
+
+            descendant_processor: ConsumeDescendantProcessor {
+                shared,
+                unverified_blocks_tx,
+                verify_failed_blocks_tx,
+            },
             orphan_blocks_broker: orphan_block_pool,
             lonely_blocks_rx,
-            unverified_blocks_tx,
-            verify_failed_blocks_tx,
             stop_rx,
         }
     }
@@ -94,7 +105,7 @@ impl ConsumeOrphan {
 
             Err(err) => {
                 tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
+                    self.descendant_processor.verify_failed_blocks_tx.clone(),
                     lonely_block.peer_id_with_msg_bytes(),
                     lonely_block.block().hash(),
                     &err,
@@ -139,7 +150,11 @@ impl ConsumeOrphan {
         let block_number = unverified_block.block().number();
         let block_hash = unverified_block.block().hash();
 
-        let send_success = match self.unverified_blocks_tx.send(unverified_block) {
+        let send_success = match self
+            .descendant_processor
+            .unverified_blocks_tx
+            .send(unverified_block)
+        {
             Ok(_) => {
                 debug!(
                     "process desendant block success {}-{}",
