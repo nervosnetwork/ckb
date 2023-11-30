@@ -1,4 +1,5 @@
-//! TODO(doc): @quake
+//! Provide Shared
+#![allow(missing_docs)]
 use crate::block_status::BlockStatus;
 use crate::{HeaderMap, Snapshot, SnapshotMgr};
 use arc_swap::{ArcSwap, Guard};
