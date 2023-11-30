@@ -1,3 +1,5 @@
+//! Provide BlockStatus
+#![allow(missing_docs)]
 #![allow(clippy::bad_bit_mask)]
 
 use bitflags::bitflags;
