@@ -317,7 +317,8 @@ impl Relayer {
             let block = Arc::clone(&block);
             move |result: VerifyResult| match result {
                 Ok(verified_block_status) => match verified_block_status {
-                    VerifiedBlockStatus::FirstSeenAndVerified => {
+                    VerifiedBlockStatus::FirstSeenAndVerified
+                    | VerifiedBlockStatus::UncleBlockNotVerified => {
                         if broadcast_compact_block_tx.send((block, peer)).is_err() {
                             error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
