@@ -1,3 +1,5 @@
+//! Provide BlockStatus
+#![allow(missing_docs)]
 use bitflags::bitflags;
 bitflags! {
     pub struct BlockStatus: u32 {
