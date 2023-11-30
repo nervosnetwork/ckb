@@ -344,7 +344,7 @@ impl Relayer {
         self.shared().insert_new_block_with_callback(
             &self.chain,
             Arc::clone(&block),
-            peer,
+            (peer, 0),
             Box::new(verify_success_callback),
         );
     }

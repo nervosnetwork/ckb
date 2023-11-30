@@ -48,7 +48,8 @@ pub enum VerifiedBlockStatus {
 #[derive(Clone)]
 pub struct LonelyBlock {
     pub block: Arc<BlockView>,
-    pub peer_id: Option<PeerIndex>,
+
+    pub peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
     pub switch: Option<Switch>,
 }
 
@@ -83,8 +84,8 @@ impl LonelyBlockWithCallback {
     pub fn block(&self) -> &Arc<BlockView> {
         &self.lonely_block.block
     }
-    pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.lonely_block.peer_id
+    pub fn peer_id_with_msg_bytes(&self) -> Option<(PeerIndex, u64)> {
+        self.lonely_block.peer_id_with_msg_bytes
     }
     pub fn switch(&self) -> Option<Switch> {
         self.lonely_block.switch
@@ -110,8 +111,8 @@ impl UnverifiedBlock {
         self.unverified_block.block()
     }
 
-    pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.unverified_block.peer_id()
+    pub fn peer_id_with_msg_bytes(&self) -> Option<(PeerIndex, u64)> {
+        self.unverified_block.peer_id_with_msg_bytes()
     }
 
     pub fn execute_callback(self, verify_result: VerifyResult) {
@@ -142,17 +143,17 @@ impl GlobalIndex {
 
 pub(crate) fn tell_synchronizer_to_punish_the_bad_peer(
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    peer_id: Option<PeerIndex>,
+    peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
     block_hash: Byte32,
     err: &Error,
 ) {
     let is_internal_db_error = is_internal_db_error(&err);
-    match peer_id {
-        Some(peer_id) => {
+    match peer_id_with_msg_bytes {
+        Some((peer_id, msg_bytes)) => {
             let verify_failed_block_info = VerifyFailedBlockInfo {
                 block_hash,
                 peer_id,
-                message_bytes: 0,
+                msg_bytes,
                 reason: err.to_string(),
                 is_internal_db_error,
             };
