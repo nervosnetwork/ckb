@@ -255,8 +255,8 @@ impl BlockFetcher {
                 *state.read_inflight_blocks()
             );
         } else {
-            let fetch_head = fetch.first().map_or(0_u64.into(), |v| v.number());
-            let fetch_last = fetch.last().map_or(0_u64.into(), |v| v.number());
+            let fetch_head = fetch.first().map_or(0_u64, |v| v.number());
+            let fetch_last = fetch.last().map_or(0_u64, |v| v.number());
             let inflight_peer_count = state.read_inflight_blocks().peer_inflight_count(self.peer);
             let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
             debug!(
