@@ -64,7 +64,8 @@ CREATE TABLE output(
 );
 
 CREATE TABLE input(
-    out_point BYTEA PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
+    out_point BYTEA UNIQUE NOT NULL,
     since BYTEA NOT NULL,
     tx_hash BYTEA NOT NULL,
     input_index INTEGER NOT NULL

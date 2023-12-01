@@ -64,7 +64,8 @@ CREATE TABLE output(
 );
 
 CREATE TABLE input(
-    out_point BLOB PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
+    out_point BLOB UNIQUE NOT NULL,
     since BLOB NOT NULL,
     tx_hash BLOB NOT NULL,
     input_index INT NOT NULL
