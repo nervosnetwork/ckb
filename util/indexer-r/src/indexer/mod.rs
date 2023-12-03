@@ -140,12 +140,7 @@ impl AsyncIndexerR {
             append_block(block, &mut tx).await?;
             self.insert_transactions(block, &mut tx).await?;
         } else {
-            append_block_header(
-                &block.hash().raw_data().to_vec(),
-                block.number() as i64,
-                &mut tx,
-            )
-            .await?;
+            append_block_header(&block.hash().raw_data(), block.number() as i64, &mut tx).await?;
         }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }

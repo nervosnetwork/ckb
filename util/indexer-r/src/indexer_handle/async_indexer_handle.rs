@@ -26,7 +26,8 @@ impl AsyncIndexerRHandle {
         let query = SQLXPool::new_query(
             r#"
             SELECT block_hash, block_number FROM block
-            WHERE id = (SELECT MAX(id) FROM block)
+            ORDER BY id DESC
+            LIMIT 1
             "#,
         );
         self.store

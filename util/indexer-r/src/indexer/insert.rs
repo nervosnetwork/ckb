@@ -449,7 +449,15 @@ pub(crate) fn build_output_cell_rows(
     tx_view: &TransactionView,
     output_index: usize,
     data: &Bytes,
-    output_cell_rows: &mut Vec<(Vec<u8>, i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i32)>,
+    output_cell_rows: &mut Vec<(
+        Vec<u8>,
+        i64,
+        Vec<u8>,
+        Vec<u8>,
+        Option<Vec<u8>>,
+        Vec<u8>,
+        i32,
+    )>,
 ) -> Result<(), Error> {
     let cell_capacity: u64 = cell.capacity().unpack();
     let cell_row = (
@@ -462,9 +470,9 @@ pub(crate) fn build_output_cell_rows(
         i64::try_from(cell_capacity).map_err(|err| Error::DB(err.to_string()))?,
         data.to_vec(),
         cell.lock().calc_script_hash().raw_data().to_vec(),
-        cell.type_().to_opt().map_or_else(Vec::new, |type_script| {
-            type_script.calc_script_hash().raw_data().to_vec()
-        }),
+        cell.type_()
+            .to_opt()
+            .map(|type_script| type_script.calc_script_hash().raw_data().to_vec()),
         tx_view.hash().raw_data().to_vec(),
         i32::try_from(output_index).map_err(|err| Error::DB(err.to_string()))?,
     );
@@ -559,7 +567,15 @@ pub(crate) fn build_input_rows(
 }
 
 pub(crate) async fn bulk_insert_output_table(
-    output_cell_rows: &[(Vec<u8>, i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i32)],
+    output_cell_rows: &[(
+        Vec<u8>,
+        i64,
+        Vec<u8>,
+        Vec<u8>,
+        Option<Vec<u8>>,
+        Vec<u8>,
+        i32,
+    )],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // bulk insert
