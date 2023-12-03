@@ -37,7 +37,7 @@ pub(crate) async fn append_block(
     Ok(())
 }
 
-pub(crate) async fn append_block_with_filter_mode(
+pub(crate) async fn append_block_header(
     block_hash: &[u8],
     block_number: i64,
     tx: &mut Transaction<'_, Any>,

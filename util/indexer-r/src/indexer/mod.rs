@@ -140,7 +140,7 @@ impl AsyncIndexerR {
             append_block(block, &mut tx).await?;
             self.insert_transactions(block, &mut tx).await?;
         } else {
-            append_block_with_filter_mode(
+            append_block_header(
                 &block.hash().raw_data().to_vec(),
                 block.number() as i64,
                 &mut tx,

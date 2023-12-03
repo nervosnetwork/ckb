@@ -1,6 +1,6 @@
 pub mod page;
 
-use crate::indexer::append_block_with_filter_mode;
+use crate::indexer::append_block_header;
 use page::COUNT_COLUMN;
 pub use page::{build_next_cursor, PaginationRequest, PaginationResponse};
 
@@ -236,7 +236,7 @@ impl SQLXPool {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            append_block_with_filter_mode(
+            append_block_header(
                 config.init_tip_hash.clone().unwrap().as_bytes(),
                 config.init_tip_number.unwrap() as i64,
                 &mut tx,
@@ -255,7 +255,7 @@ impl SQLXPool {
             }
         }
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            append_block_with_filter_mode(
+            append_block_header(
                 config.init_tip_hash.clone().unwrap().as_bytes(),
                 config.init_tip_number.unwrap() as i64,
                 &mut tx,
