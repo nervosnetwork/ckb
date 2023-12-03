@@ -1,6 +1,6 @@
 CREATE TABLE block(
     id SERIAL PRIMARY KEY,
-    block_hash BYTEA UNIQUE NOT NULL,
+    block_hash BYTEA NOT NULL,
     block_number BIGINT NOT NULL,
     compact_target INTEGER,
     parent_hash BYTEA,
@@ -30,7 +30,7 @@ CREATE TABLE block_association_uncle(
 
 CREATE TABLE ckb_transaction(
     id SERIAL PRIMARY KEY,
-    tx_hash BYTEA UNIQUE NOT NULL,
+    tx_hash BYTEA NOT NULL,
     version INTEGER NOT NULL,
     input_count SMALLINT NOT NULL,
     output_count SMALLINT NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE tx_association_cell_dep(
 
 CREATE TABLE output(
     id SERIAL PRIMARY KEY,
-    out_point BYTEA UNIQUE NOT NULL,
+    out_point BYTEA NOT NULL,
     capacity BIGINT NOT NULL,
     data BYTEA,
     lock_script_hash BYTEA,
@@ -65,7 +65,7 @@ CREATE TABLE output(
 
 CREATE TABLE input(
     id SERIAL PRIMARY KEY,
-    out_point BYTEA UNIQUE NOT NULL,
+    out_point BYTEA NOT NULL,
     since BYTEA NOT NULL,
     tx_hash BYTEA NOT NULL,
     input_index INTEGER NOT NULL
@@ -73,8 +73,15 @@ CREATE TABLE input(
 
 CREATE TABLE script(
     id SERIAL PRIMARY KEY,
-    script_hash BYTEA UNIQUE NOT NULL,
+    script_hash BYTEA NOT NULL,
     code_hash BYTEA,
     args BYTEA,
     hash_type SMALLINT
 );
+
+CREATE INDEX "index_block_table_block_hash" ON "block" ("block_hash");
+CREATE INDEX "index_tx_table_tx_hash" ON "ckb_transaction" ("tx_hash");
+CREATE INDEX "index_ouput_table_out_point" ON "output" ("out_point");
+CREATE INDEX "index_input_table_out_point" ON "input" ("out_point");
+CREATE INDEX "index_script_table_script_hash" ON "script" ("script_hash");
+

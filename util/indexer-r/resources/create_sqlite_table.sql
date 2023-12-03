@@ -1,6 +1,6 @@
 CREATE TABLE block(
     id INTEGER PRIMARY KEY,
-    block_hash BLOB UNIQUE NOT NULL,
+    block_hash BLOB NOT NULL,
     block_number BIGINT NOT NULL,
     compact_target INT,
     parent_hash BLOB,
@@ -30,7 +30,7 @@ CREATE TABLE block_association_uncle(
 
 CREATE TABLE ckb_transaction(
     id INTEGER PRIMARY KEY,
-    tx_hash BLOB UNIQUE NOT NULL,
+    tx_hash BLOB NOT NULL,
     version INT NOT NULL,
     input_count SMALLINT NOT NULL,
     output_count SMALLINT NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE tx_association_cell_dep(
 
 CREATE TABLE output(
     id INTEGER PRIMARY KEY,
-    out_point BLOB UNIQUE NOT NULL,
+    out_point BLOB NOT NULL,
     capacity BIGINT NOT NULL,
     data BLOB,
     lock_script_hash BLOB,
@@ -65,7 +65,7 @@ CREATE TABLE output(
 
 CREATE TABLE input(
     id INTEGER PRIMARY KEY,
-    out_point BLOB UNIQUE NOT NULL,
+    out_point BLOB NOT NULL,
     since BLOB NOT NULL,
     tx_hash BLOB NOT NULL,
     input_index INT NOT NULL
@@ -73,8 +73,14 @@ CREATE TABLE input(
 
 CREATE TABLE script(
     id INTEGER PRIMARY KEY,
-    script_hash BLOB UNIQUE NOT NULL,
+    script_hash BLOB NOT NULL,
     code_hash BLOB,
     args BLOB,
     hash_type SMALLINT
 );
+
+CREATE INDEX "index_block_table_block_hash" ON "block" ("block_hash");
+CREATE INDEX "index_tx_table_tx_hash" ON "ckb_transaction" ("tx_hash");
+CREATE INDEX "index_ouput_table_out_point" ON "output" ("out_point");
+CREATE INDEX "index_input_table_out_point" ON "input" ("out_point");
+CREATE INDEX "index_script_table_script_hash" ON "script" ("script_hash");
