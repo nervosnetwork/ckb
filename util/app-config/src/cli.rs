@@ -191,26 +191,32 @@ fn run() -> Command {
                 .action(clap::ArgAction::SetTrue)
                 .help("Skip checking the chain spec with the hash stored in the database"),
         ).arg(
-            Arg::new(ARG_OVERWRITE_CHAIN_SPEC)
-                .long(ARG_OVERWRITE_CHAIN_SPEC)
-                .action(clap::ArgAction::SetTrue)
-                .help("Overwrite the chain spec in the database with the present configured chain spec")
-        ).arg(
+        Arg::new(ARG_OVERWRITE_CHAIN_SPEC)
+            .long(ARG_OVERWRITE_CHAIN_SPEC)
+            .action(clap::ArgAction::SetTrue)
+            .help("Overwrite the chain spec in the database with the present configured chain spec")
+    ).arg(
         Arg::new(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)
             .action(clap::ArgAction::Set)
             .value_parser(is_h256)
-            .help("This parameter specifies the hash of a block. \
-            When the current height does not reach this block's height, script execution will be disabled, \
-            meaning it will skip the verification of the script content. \
-            \
-            Please note that when this option is enabled, the header will be synchronized to \
-            the highest block currently found. During this period, if the assume valid target is found, \
-            the block download starts; \
-            if the assume valid target is either absent or has a timestamp within 24 hours of the current time, \
-            the target is considered invalid, and the block download proceeds with verification.")
-        ).arg(
-            Arg::new(ARG_INDEXER)
+            .help(format!("This parameter specifies the hash of a block. \
+When the height does not reach this block's height, script execution will be disabled, \
+meaning it will skip the verification of the script content. \n\n\
+Please note that when this option is enabled, the header will be synchronized to \
+the highest block currently found. During this period, if the assume valid target is found, \
+the block download starts; \
+If the assume valid target is either absent or has a timestamp within 24 hours of the current time, \
+the target considered invalid, and the block download proceeds with full verification. \n\n\n\
+default(MainNet): {}\n
+default(TestNet): {}\n\n
+You can explicitly set the value to 0x0000000000000000000000000000000000000000000000000000000000000000 \
+to disable the default behavior and execute full verification for all blocks, \
+",
+                          ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET,
+                          ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET))
+    ).arg(
+        Arg::new(ARG_INDEXER)
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
             .help("Start the built-in indexer service"),
@@ -352,13 +358,13 @@ fn replay() -> Command {
         ))
         .arg(
             Arg::new(ARG_FROM)
-            .value_parser(clap::value_parser!(u64))
-              .help("Specify profile from block number"),
+                .value_parser(clap::value_parser!(u64))
+                .help("Specify profile from block number"),
         )
         .arg(
             Arg::new(ARG_TO)
-            .value_parser(clap::value_parser!(u64))
-              .help("Specify profile to block number"),
+                .value_parser(clap::value_parser!(u64))
+                .help("Specify profile to block number"),
         )
         .arg(
             Arg::new(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).action(clap::ArgAction::SetTrue).help("Enable sanity check")
