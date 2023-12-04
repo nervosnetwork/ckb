@@ -94,11 +94,11 @@ impl Setup {
         if config.network.sync.assume_valid_target.is_none() {
             config.network.sync.assume_valid_target = match consensus.id.as_str() {
                 ckb_constant::hardfork::mainnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET)
+                    H256::from_str(&ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET[2..])
                         .expect("default assume_valid_target for mainnet must be valid"),
                 ),
                 ckb_constant::hardfork::testnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET)
+                    H256::from_str(&ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET[2..])
                         .expect("default assume_valid_target for testnet must be valid"),
                 ),
                 _ => None,
@@ -112,10 +112,7 @@ impl Setup {
                 info!("Disable assume valid target since assume_valid_target is zero");
                 config.network.sync.assume_valid_target = None
             } else {
-                info!(
-                    "assume_valid_target set to {:?}",
-                    assume_valid_target
-                );
+                info!("assume_valid_target set to {:?}", assume_valid_target);
             }
         }
 
