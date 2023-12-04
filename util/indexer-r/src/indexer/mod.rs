@@ -81,6 +81,12 @@ impl IndexerSync for IndexerR {
         self.async_runtime.block_on(future)
     }
 
+    /// Appends new blocks to the indexer
+    fn append_bulk(&self, block: &[BlockView]) -> Result<(), Error> {
+        let future = self.async_indexer_r.append_bulk(block);
+        self.async_runtime.block_on(future)
+    }
+
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error> {
         let future = self.async_indexer_r.rollback();
@@ -137,11 +143,52 @@ impl AsyncIndexerR {
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         if self.custom_filters.is_block_filter_match(block) {
-            append_block(block, &mut tx).await?;
-            self.insert_transactions(block, &mut tx).await?;
+            append_blocks(&vec![block.clone()], &mut tx).await?;
+            self.insert_transactions(&vec![block.clone()], &mut tx)
+                .await?;
         } else {
             append_block_header(&block.hash().raw_data(), block.number() as i64, &mut tx).await?;
         }
+        tx.commit().await.map_err(|err| Error::DB(err.to_string()))
+    }
+
+    pub(crate) async fn append_bulk(&self, blocks: &[BlockView]) -> Result<(), Error> {
+        let mut tx = self
+            .store
+            .transaction()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        let mut block_groups = Vec::new();
+        let mut current_group = Vec::new();
+        let mut current_match = self.custom_filters.is_block_filter_match(&blocks[0]);
+        for block in blocks {
+            let is_match = self.custom_filters.is_block_filter_match(block);
+            if is_match == current_match {
+                current_group.push(block.clone());
+            } else {
+                block_groups.push((current_match, current_group));
+                current_group = vec![block.clone()];
+                current_match = is_match;
+            }
+        }
+        if !current_group.is_empty() {
+            block_groups.push((current_match, current_group));
+        }
+
+        for (is_match, blocks) in block_groups {
+            if is_match {
+                append_blocks(&blocks, &mut tx).await?;
+                self.insert_transactions(&blocks, &mut tx).await?;
+            } else {
+                let block_headers: Vec<(_, _)> = blocks
+                    .iter()
+                    .map(|block| (block.hash().raw_data().to_vec(), block.number() as i64))
+                    .collect();
+                append_block_headers(&block_headers, &mut tx).await?;
+            }
+        }
+
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
@@ -169,18 +216,28 @@ impl AsyncIndexerR {
 
     pub(crate) async fn insert_transactions(
         &self,
-        block_view: &BlockView,
+        block_views: &[BlockView],
         tx: &mut Transaction<'_, Any>,
     ) -> Result<(), Error> {
-        let block_hash = block_view.hash().raw_data().to_vec();
-        let tx_views = block_view.transactions();
+        let tx_views = block_views
+            .into_iter()
+            .flat_map(|block_view| {
+                let block_hash = block_view.hash().raw_data().to_vec();
+                block_view
+                    .transactions()
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(tx_index, tx_view)| (block_hash.clone(), tx_index, tx_view))
+            })
+            .collect::<Vec<(_, _, _)>>();
+
         let mut matched_tx_hashes = HashSet::new();
         let mut output_cell_rows = Vec::new();
         let mut input_rows = Vec::new();
         let mut output_association_script_rows = Vec::new();
         let mut script_set = HashSet::new();
 
-        for tx_view in tx_views.iter() {
+        for (_, _, tx_view) in tx_views.iter() {
             for ((output_index, (cell, data)), out_point) in tx_view
                 .outputs_with_data_iter()
                 .enumerate()
@@ -215,7 +272,7 @@ impl AsyncIndexerR {
         // because the input needs to query the corresponding output cell when applying a cell filter.
         //
         // Skip the first cellbase transaction.
-        for tx_view in tx_views.iter().skip(1) {
+        for (_, _, tx_view) in tx_views.iter().skip(1) {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let mut is_match = true;
                 if self.custom_filters.is_cell_filter_enabled() {
@@ -236,13 +293,12 @@ impl AsyncIndexerR {
         }
         bulk_insert_input_table(&input_rows, tx).await?;
 
-        let matched_txs_iter: Vec<(usize, TransactionView)> = tx_views
+        let matched_txs_iter: Vec<(_, _, TransactionView)> = tx_views
             .into_iter()
-            .enumerate()
-            .filter(|(_, tx)| matched_tx_hashes.contains(&tx.hash()))
+            .filter(|(_, _, tx)| matched_tx_hashes.contains(&tx.hash()))
             .collect();
 
-        bulk_insert_transaction_table(&block_hash, matched_txs_iter.iter(), tx).await?;
+        bulk_insert_transaction_table(matched_txs_iter.iter(), tx).await?;
         bulk_insert_tx_association_header_dep_table(matched_txs_iter.iter(), tx).await?;
         bulk_insert_tx_association_cell_dep_table(matched_txs_iter.iter(), tx).await?;
 

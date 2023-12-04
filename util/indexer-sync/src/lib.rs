@@ -39,6 +39,8 @@ pub trait IndexerSync {
     fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error>;
     /// Appends a new block to the indexer
     fn append(&self, block: &BlockView) -> Result<(), Error>;
+    /// Appends new blocks to the indexer
+    fn append_bulk(&self, block: &[BlockView]) -> Result<(), Error>;
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error>;
     /// Get indexer identity
@@ -132,6 +134,51 @@ impl IndexerSyncService {
         }
     }
 
+    // Bulk insert blocks without the need to verify the parent of new block.
+    fn try_loop_sync_fast<I: IndexerSync>(&self, indexer: I)
+    where
+        I: IndexerSync + Clone + Send + 'static,
+    {
+        const BULK_SIZE: u64 = 10;
+        if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+            error!("secondary_db try_catch_up_with_primary error {}", e);
+        }
+        let chain_tip = self.get_tip().expect("get chain tip should be OK");
+        let indexer_tip = {
+            if let Some((tip_number, _)) = indexer.tip().expect("get tip should be OK") {
+                tip_number
+            } else {
+                let block = self
+                    .get_block_by_number(0)
+                    .expect("get genesis block should be OK");
+                indexer.append(&block).expect("append block should be OK");
+                0
+            }
+        };
+        // assume that long fork will not happen >= 100 blocks.
+        let target: u64 = chain_tip.0.saturating_sub(100);
+        for start in (indexer_tip + 1..=target).step_by(BULK_SIZE as usize) {
+            let end = (start + BULK_SIZE - 1).min(target);
+            let blocks: Vec<BlockView> = (start..=end)
+                .map(|number| {
+                    self.get_block_by_number(number)
+                        .expect("get block should be OK")
+                })
+                .collect();
+            indexer
+                .append_bulk(&blocks)
+                .expect("append blocks should be OK");
+            blocks.iter().for_each(|block| {
+                info!(
+                    "{} append {}, {}",
+                    indexer.get_identity(),
+                    block.number(),
+                    block.hash()
+                );
+            });
+        }
+    }
+
     /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub fn spawn_poll<I>(
         &self,
@@ -141,11 +188,15 @@ impl IndexerSyncService {
     ) where
         I: IndexerSync + Clone + Send + 'static,
     {
+        // Initial sync
         let initial_service = self.clone();
         let indexer = indexer_service.clone();
-        let initial_syncing = self
-            .async_handle
-            .spawn_blocking(move || initial_service.try_loop_sync(indexer));
+        let initial_syncing = self.async_handle.spawn_blocking(move || {
+            initial_service.try_loop_sync_fast(indexer.clone());
+            initial_service.try_loop_sync(indexer)
+        });
+
+        // Follow-up sync
         let stop: CancellationToken = new_tokio_exit_rx();
         let async_handle = self.async_handle.clone();
         let poll_service = self.clone();
@@ -191,6 +242,12 @@ impl IndexerSyncService {
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
         let block_hash = self.secondary_db.get_block_hash(block_number)?;
         self.secondary_db.get_block(&block_hash)
+    }
+
+    fn get_tip(&self) -> Option<(BlockNumber, Byte32)> {
+        self.secondary_db
+            .get_tip_header()
+            .map(|h| (h.number(), h.hash()))
     }
 }
 

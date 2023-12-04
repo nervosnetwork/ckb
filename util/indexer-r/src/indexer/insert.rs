@@ -23,16 +23,16 @@ use std::collections::HashSet;
 // which should be within the above limits.
 pub(crate) const BATCH_SIZE_THRESHOLD: usize = 1_000;
 
-pub(crate) async fn append_block(
-    block_view: &BlockView,
+pub(crate) async fn append_blocks(
+    block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // insert "uncle" first so that the row with the maximum ID in the "block" table corresponds to the tip block.
-    insert_uncle_block(block_view, tx).await?;
+    insert_uncle_blocks(block_views, tx).await?;
 
-    single_insert_block_table(block_view, tx).await?;
-    single_insert_block_association_proposal_table(&block_view, tx).await?;
-    single_insert_block_association_uncle_table(block_view, tx).await?;
+    bulk_insert_block_table(block_views, tx).await?;
+    bulk_insert_block_association_proposal_table(block_views, tx).await?;
+    bulk_insert_block_association_uncle_table(block_views, tx).await?;
 
     Ok(())
 }
@@ -74,87 +74,64 @@ pub(crate) async fn append_block_header(
     Ok(())
 }
 
-pub(crate) async fn insert_uncle_block(
-    block_view: &BlockView,
+pub(crate) async fn append_block_headers(
+    block_rows: &[(Vec<u8>, i64)],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let uncle_blocks = block_view
-        .uncles()
+    for start in (0..block_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
+        let end = (start + BATCH_SIZE_THRESHOLD).min(block_rows.len());
+
+        // insert block
+        // build query str
+        let mut builder = SqlBuilder::insert_into("block");
+        builder.field(
+            r#"
+            block_hash,
+            block_number"#,
+        );
+        push_values_placeholders(&mut builder, 2, 1);
+        let sql = builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        for row in block_rows[start..end].iter() {
+            seq!(i in 0..2 {
+                query = query.bind(&row.i);
+            });
+        }
+
+        // execute
+        query
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn insert_uncle_blocks(
+    block_views: &[BlockView],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<(), Error> {
+    let uncle_blocks = block_views
         .into_iter()
-        .map(|uncle| {
-            let uncle_block_header = uncle.header();
-            BlockView::new_advanced_builder()
-                .header(uncle_block_header)
-                .proposals(uncle.data().proposals())
-                .build()
+        .flat_map(|block_view| {
+            block_view.uncles().into_iter().map(|uncle| {
+                let uncle_block_header = uncle.header();
+                BlockView::new_advanced_builder()
+                    .header(uncle_block_header)
+                    .proposals(uncle.data().proposals())
+                    .build()
+            })
         })
         .collect::<Vec<_>>();
 
     bulk_insert_block_table(&uncle_blocks, tx).await?;
     bulk_insert_block_association_proposal_table(&uncle_blocks, tx).await?;
-
-    Ok(())
-}
-
-async fn single_insert_block_table(
-    block_view: &BlockView,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let block_row = (
-        block_view.hash().raw_data().to_vec(),
-        block_view.number() as i32,
-        block_view.compact_target() as i32,
-        block_view.parent_hash().raw_data().to_vec(),
-        block_view.nonce().to_be_bytes().to_vec(),
-        block_view.timestamp() as i64,
-        block_view.version() as i16,
-        block_view.transactions_root().raw_data().to_vec(),
-        block_view.epoch().number() as i32,
-        block_view.epoch().index() as i32,
-        block_view.epoch().length() as i32,
-        block_view.dao().raw_data().to_vec(),
-        block_view.proposals_hash().raw_data().to_vec(),
-        block_view.extra_hash().raw_data().to_vec(),
-    );
-
-    // insert block
-    // build query str
-    let mut builder = SqlBuilder::insert_into("block");
-    builder.field(
-        r#"
-        block_hash,
-        block_number,
-        compact_target,
-        parent_hash,
-        nonce,
-        timestamp,
-        version,
-        transactions_root,
-        epoch_number,
-        epoch_index,
-        epoch_length,
-        dao,
-        proposals_hash,
-        extra_hash"#,
-    );
-    push_values_placeholders(&mut builder, 14, 1);
-    let sql = builder
-        .sql()
-        .map_err(|err| Error::DB(err.to_string()))?
-        .trim_end_matches(';')
-        .to_string();
-
-    // bind
-    let mut query = SQLXPool::new_query(&sql);
-    seq!(i in 0..14 {
-        query = query.bind(&block_row.i);
-    });
-
-    // execute
-    query
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::DB(err.to_string()))?;
 
     Ok(())
 }
@@ -232,62 +209,12 @@ async fn bulk_insert_block_table(
     Ok(())
 }
 
-async fn single_insert_block_association_proposal_table(
-    block_view: &BlockView,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let mut block_association_proposal_rows: Vec<_> = Vec::new();
-    for proposal_hash in block_view.data().proposals().into_iter() {
-        let row = (
-            block_view.hash().raw_data().to_vec(),
-            proposal_hash.raw_data().to_vec(),
-        );
-        block_association_proposal_rows.push(row);
-    }
-
-    // bulk insert
-    for start in (0..block_association_proposal_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
-        let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_proposal_rows.len());
-
-        // build query str
-        let mut builder = SqlBuilder::insert_into("block_association_proposal");
-        builder.field(
-            r#"
-            block_hash,
-            proposal"#,
-        );
-        push_values_placeholders(&mut builder, 2, end - start);
-        let sql = builder
-            .sql()
-            .map_err(|err| Error::DB(err.to_string()))?
-            .trim_end_matches(';')
-            .to_string();
-
-        // bind
-        let mut query = SQLXPool::new_query(&sql);
-        for row in block_association_proposal_rows[start..end].iter() {
-            seq!(i in 0..2 {
-                query = query.bind(&row.i);
-            });
-        }
-
-        // execute
-        query
-            .execute(&mut *tx)
-            .await
-            .map_err(|err| Error::DB(err.to_string()))?;
-    }
-
-    Ok(())
-}
-
 async fn bulk_insert_block_association_proposal_table(
     block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let mut block_association_proposal_rows: Vec<_> = Vec::new();
-
-    for block_view in block_views.iter() {
+    for block_view in block_views {
         for proposal_hash in block_view.data().proposals().into_iter() {
             let row = (
                 block_view.hash().raw_data().to_vec(),
@@ -333,18 +260,20 @@ async fn bulk_insert_block_association_proposal_table(
     Ok(())
 }
 
-async fn single_insert_block_association_uncle_table(
-    block_view: &BlockView,
+async fn bulk_insert_block_association_uncle_table(
+    block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let mut block_association_uncle_rows: Vec<_> = Vec::new();
 
-    for uncle in block_view.uncles().into_iter() {
-        let row = (
-            block_view.hash().raw_data().to_vec(),
-            uncle.hash().raw_data().to_vec(),
-        );
-        block_association_uncle_rows.push(row);
+    for block_view in block_views {
+        for uncle in block_view.uncles().into_iter() {
+            let row = (
+                block_view.hash().raw_data().to_vec(),
+                uncle.hash().raw_data().to_vec(),
+            );
+            block_association_uncle_rows.push(row);
+        }
     }
 
     // bulk insert
@@ -384,15 +313,14 @@ async fn single_insert_block_association_uncle_table(
 }
 
 pub(crate) async fn bulk_insert_transaction_table<'a, T>(
-    block_hash: &[u8],
     tx_views: T,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error>
 where
-    T: Iterator<Item = &'a (usize, TransactionView)>,
+    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
 {
     let tx_rows: Vec<_> = tx_views
-        .map(|(tx_index, transaction)| {
+        .map(|(block_hash, tx_index, transaction)| {
             (
                 transaction.hash().raw_data().to_vec(),
                 transaction.version() as i16,
@@ -708,11 +636,11 @@ pub(crate) async fn bulk_insert_tx_association_header_dep_table<'a, T>(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error>
 where
-    T: Iterator<Item = &'a (usize, TransactionView)>,
+    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
 {
     let mut tx_association_header_dep_rows = Vec::new();
 
-    for (_, tx_view) in tx_views {
+    for (_, _, tx_view) in tx_views {
         for header_dep in tx_view.header_deps_iter() {
             let row = (
                 tx_view.hash().raw_data().to_vec(),
@@ -763,11 +691,11 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table<'a, T>(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error>
 where
-    T: Iterator<Item = &'a (usize, TransactionView)>,
+    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
 {
     let mut tx_association_cell_dep_rows = Vec::new();
 
-    for (_, tx_view) in tx_views {
+    for (_, _, tx_view) in tx_views {
         for cell_dep in tx_view.cell_deps_iter() {
             let row = (
                 tx_view.hash().raw_data().to_vec(),
