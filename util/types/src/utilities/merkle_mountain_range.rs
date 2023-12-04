@@ -209,8 +209,9 @@ impl VerifiableHeader {
     }
 
     /// Checks if the current verifiable header is valid.
-    pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
-        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
+    pub fn is_valid(&self, mmr_activated_epoch_number: EpochNumber) -> bool {
+        let mmr_activated_epoch = EpochNumberWithFraction::new(mmr_activated_epoch_number, 0, 1);
+        let has_chain_root = self.header().epoch() > mmr_activated_epoch;
         if has_chain_root {
             if self.header().is_genesis() {
                 if !self.parent_chain_root().is_default() {
