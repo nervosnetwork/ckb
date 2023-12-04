@@ -18,6 +18,7 @@ pub use args::{
     DaemonArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
+use ckb_logger::info;
 pub use configs::*;
 pub use exit_code::ExitCode;
 #[cfg(feature = "with_sentry")]
@@ -86,9 +87,37 @@ impl Setup {
                 u256!("0x0")
             };
 
-        config.network.sync.assume_valid_target = matches
-            .get_one::<String>(cli::ARG_ASSUME_VALID_TARGET)
-            .and_then(|s| H256::from_str(&s[2..]).ok());
+        let arg_assume_valid_target = matches.get_one::<String>(cli::ARG_ASSUME_VALID_TARGET);
+
+        config.network.sync.assume_valid_target =
+            arg_assume_valid_target.and_then(|s| H256::from_str(&s[2..]).ok());
+        if config.network.sync.assume_valid_target.is_none() {
+            config.network.sync.assume_valid_target = match consensus.id.as_str() {
+                ckb_constant::hardfork::mainnet::CHAIN_SPEC_NAME => Some(
+                    H256::from_str(ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET)
+                        .expect("default assume_valid_target for mainnet must be valid"),
+                ),
+                ckb_constant::hardfork::testnet::CHAIN_SPEC_NAME => Some(
+                    H256::from_str(ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET)
+                        .expect("default assume_valid_target for testnet must be valid"),
+                ),
+                _ => None,
+            };
+        }
+
+        if let Some(ref assume_valid_target) = config.network.sync.assume_valid_target {
+            if assume_valid_target
+                == &H256::from_slice(&vec![0; 32]).expect("must parse Zero h256 successful")
+            {
+                info!("Disable assume valid target since assume_valid_target is zero");
+                config.network.sync.assume_valid_target = None
+            } else {
+                info!(
+                    "assume_valid_target set to {:?}",
+                    assume_valid_target
+                );
+            }
+        }
 
         Ok(RunArgs {
             config,
