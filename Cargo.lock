@@ -589,6 +589,7 @@ version = "0.115.0-pre"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
+ "ckb-constant",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-logger-config",
