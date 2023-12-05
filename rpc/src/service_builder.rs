@@ -49,7 +49,7 @@ impl<'a> ServiceBuilder<'a> {
     pub fn new(config: &'a RpcConfig) -> Self {
         Self {
             config,
-            io_handler: IoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
+            io_handler: IoHandler::default(),
         }
     }
 

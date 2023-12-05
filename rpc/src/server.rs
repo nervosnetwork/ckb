@@ -101,8 +101,7 @@ impl RpcServer {
                 stream_config
                     .with_keep_alive(true)
                     .with_shutdown(async move {
-                        let exit = new_tokio_exit_rx();
-                        exit.cancelled().await;
+                        new_tokio_exit_rx().cancelled().await;
                     });
             app = app.layer(Extension(ws_config));
         }
@@ -121,8 +120,7 @@ impl RpcServer {
 
             let _ = tx_addr.send(server.local_addr());
             let graceful = server.with_graceful_shutdown(async move {
-                let exit = new_tokio_exit_rx();
-                exit.cancelled().await;
+                new_tokio_exit_rx().cancelled().await;
             });
             drop(graceful.await);
         });
@@ -144,8 +142,7 @@ impl RpcServer {
                 .with_channel_size(4)
                 .with_pipeline_size(4)
                 .with_shutdown(async move {
-                    let exit = new_tokio_exit_rx();
-                    exit.cancelled().await;
+                    new_tokio_exit_rx().cancelled().await;
                 });
 
             let exit_signal: CancellationToken = new_tokio_exit_rx();
