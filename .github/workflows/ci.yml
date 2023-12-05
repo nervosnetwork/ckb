@@ -172,6 +172,8 @@ jobs:
           make -j $(nproc)
           make -j $(nproc) install_sw
           ./custom_build/bin/openssl version
+          ls ./custom_build
+          ls ./custom_build/*
           cd ..
 
       - name: Build CKB and Package CKB
@@ -181,7 +183,7 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           export TOP_DIR=$(pwd)
-          export RUSTFLAGS="-L "${TOP_DIR}/openssl-3.1.3/custom_build/lib64"
+          export RUSTFLAGS="-L ${TOP_DIR}/openssl-3.1.3/custom_build/lib64"
           export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-3.1.3/custom_build
           export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/custom_build/include
           export OPENSSL_STATIC=1
