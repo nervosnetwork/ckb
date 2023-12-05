@@ -518,14 +518,6 @@ where
         Ok(())
     }
 
-    /// Implementing by making multiple calls to append
-    fn append_bulk(&self, blocks: &[BlockView]) -> Result<(), Error> {
-        for block in blocks {
-            self.append(block)?;
-        }
-        Ok(())
-    }
-
     /// Rollback the current tip
     fn rollback(&self) -> Result<(), Error> {
         let mut iter = self

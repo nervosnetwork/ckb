@@ -79,8 +79,15 @@ CREATE TABLE script(
     hash_type SMALLINT
 );
 
-CREATE INDEX "index_tx_table_tx_hash" ON "ckb_transaction" ("tx_hash");
-CREATE INDEX "index_input_table_out_point" ON "input" ("out_point");
-CREATE INDEX "index_script_table_script" ON "script" ("code_hash", "args", "hash_type");
-CREATE INDEX "index_output_table_lock" ON "output" ("lock_script_hash");
-CREATE INDEX "index_output_table_type" ON "output" ("type_script_hash");
+CREATE INDEX "index_tx_table_tx_hash" ON "ckb_transaction" USING HASH ("tx_hash");
+
+CREATE INDEX "index_input_table_out_point" ON "input" USING HASH ("out_point");
+
+CREATE INDEX "index_output_table_out_point" ON "output" USING HASH ("out_point");
+CREATE INDEX "index_output_table_lock" ON "output" USING HASH ("lock_script_hash");
+CREATE INDEX "index_output_table_type" ON "output" USING HASH ("type_script_hash");
+CREATE INDEX "index_output_table_tx_hash" ON "output" USING HASH ("tx_hash");
+
+CREATE INDEX "index_script_table_script_hash" ON "script" USING HASH ("script_hash");
+CREATE INDEX "index_script_table_script_code_hash" ON "script" USING HASH ("code_hash");
+CREATE INDEX "index_script_table_script_args" ON "script" ("args");

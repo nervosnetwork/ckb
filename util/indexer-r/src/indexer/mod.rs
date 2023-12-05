@@ -81,12 +81,6 @@ impl IndexerSync for IndexerR {
         self.async_runtime.block_on(future)
     }
 
-    /// Appends new blocks to the indexer
-    fn append_bulk(&self, block: &[BlockView]) -> Result<(), Error> {
-        let future = self.async_indexer_r.append_bulk(block);
-        self.async_runtime.block_on(future)
-    }
-
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error> {
         let future = self.async_indexer_r.rollback();
@@ -147,11 +141,13 @@ impl AsyncIndexerR {
             self.insert_transactions(&vec![block.clone()], &mut tx)
                 .await?;
         } else {
-            append_block_header(&block.hash().raw_data(), block.number() as i64, &mut tx).await?;
+            let block_headers = vec![(block.hash().raw_data().to_vec(), block.number() as i64)];
+            bulk_insert_blocks_simple(&block_headers, &mut tx).await?;
         }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
+    #[cfg(test)]
     pub(crate) async fn append_bulk(&self, blocks: &[BlockView]) -> Result<(), Error> {
         let mut tx = self
             .store
@@ -185,7 +181,7 @@ impl AsyncIndexerR {
                     .iter()
                     .map(|block| (block.hash().raw_data().to_vec(), block.number() as i64))
                     .collect();
-                append_block_headers(&block_headers, &mut tx).await?;
+                bulk_insert_blocks_simple(&block_headers, &mut tx).await?;
             }
         }
 
@@ -297,7 +293,6 @@ impl AsyncIndexerR {
             .into_iter()
             .filter(|(_, _, tx)| matched_tx_hashes.contains(&tx.hash()))
             .collect();
-
         bulk_insert_transaction_table(matched_txs_iter.iter(), tx).await?;
         bulk_insert_tx_association_header_dep_table(matched_txs_iter.iter(), tx).await?;
         bulk_insert_tx_association_cell_dep_table(matched_txs_iter.iter(), tx).await?;

@@ -28,7 +28,7 @@ pub(crate) async fn append_blocks(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // insert "uncle" first so that the row with the maximum ID in the "block" table corresponds to the tip block.
-    insert_uncle_blocks(block_views, tx).await?;
+    bulk_insert_uncle_blocks(block_views, tx).await?;
 
     bulk_insert_block_table(block_views, tx).await?;
     bulk_insert_block_association_proposal_table(block_views, tx).await?;
@@ -37,44 +37,7 @@ pub(crate) async fn append_blocks(
     Ok(())
 }
 
-pub(crate) async fn append_block_header(
-    block_hash: &[u8],
-    block_number: i64,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let block_row = (block_hash, block_number);
-
-    // insert block
-    // build query str
-    let mut builder = SqlBuilder::insert_into("block");
-    builder.field(
-        r#"
-        block_hash,
-        block_number"#,
-    );
-    push_values_placeholders(&mut builder, 2, 1);
-    let sql = builder
-        .sql()
-        .map_err(|err| Error::DB(err.to_string()))?
-        .trim_end_matches(';')
-        .to_string();
-
-    // bind
-    let mut query = SQLXPool::new_query(&sql);
-    seq!(i in 0..2 {
-        query = query.bind(&block_row.i);
-    });
-
-    // execute
-    query
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::DB(err.to_string()))?;
-
-    Ok(())
-}
-
-pub(crate) async fn append_block_headers(
+pub(crate) async fn bulk_insert_blocks_simple(
     block_rows: &[(Vec<u8>, i64)],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
@@ -113,7 +76,7 @@ pub(crate) async fn append_block_headers(
     Ok(())
 }
 
-pub(crate) async fn insert_uncle_blocks(
+pub(crate) async fn bulk_insert_uncle_blocks(
     block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {

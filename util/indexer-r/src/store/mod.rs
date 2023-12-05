@@ -1,6 +1,6 @@
 pub mod page;
 
-use crate::indexer::append_block_header;
+use crate::indexer::bulk_insert_blocks_simple;
 use page::COUNT_COLUMN;
 pub use page::{build_next_cursor, PaginationRequest, PaginationResponse};
 
@@ -236,12 +236,11 @@ impl SQLXPool {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            append_block_header(
-                config.init_tip_hash.clone().unwrap().as_bytes(),
+            let blocks_simple = vec![(
+                config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
                 config.init_tip_number.unwrap() as i64,
-                &mut tx,
-            )
-            .await?;
+            )];
+            bulk_insert_blocks_simple(&blocks_simple, &mut tx).await?;
         }
         tx.commit().await.map_err(Into::into)
     }
@@ -255,12 +254,11 @@ impl SQLXPool {
             }
         }
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            append_block_header(
-                config.init_tip_hash.clone().unwrap().as_bytes(),
+            let blocks_simple = vec![(
+                config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
                 config.init_tip_number.unwrap() as i64,
-                &mut tx,
-            )
-            .await?;
+            )];
+            bulk_insert_blocks_simple(&blocks_simple, &mut tx).await?;
         }
         tx.commit().await.map_err(Into::into)
     }
