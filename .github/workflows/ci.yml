@@ -170,7 +170,7 @@ jobs:
           mkdir custom_build
           ./Configure --prefix=$(pwd)/custom_build
           make -j $(nproc)
-          make install -j $(nproc)
+          make install_sw -j $(nproc)
           ./custom_build/bin/openssl version
           cd ..
 
