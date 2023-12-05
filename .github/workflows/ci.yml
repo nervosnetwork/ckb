@@ -164,6 +164,7 @@ jobs:
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Dependencies
         run: |
+          brew install gdb
           curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
           tar -xzf openssl-3.1.3.tar.gz
           cd openssl-3.1.3
