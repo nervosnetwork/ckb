@@ -160,6 +160,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Set Env
         run: |
+          system_profiler SPHardwareDataType
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Dependencies
@@ -191,7 +192,7 @@ jobs:
           # make ${{ matrix.build_target }}
           cargo build
           otool -L ./target/debug/ckb
-          gdb -batch -ex "set logging enable on" -ex "b main" -ex "continue" -ex "b main" -ex "r" -ex "bt full" -ex "quit" ./target/debug/ckb
+          # gdb -batch -ex "set logging enable on" -ex "b main" -ex "continue" -ex "b main" -ex "r" -ex "bt full" -ex "quit" ./target/debug/ckb
           ./target/debug/ckb --version
           ls -ahl ./target/debug/ckb
           CKB_TEMP_TEST_DIR=$(mktemp -d)
