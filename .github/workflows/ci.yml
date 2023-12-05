@@ -154,8 +154,8 @@ jobs:
         include:
           - rel_pkg: "x86_64-apple-darwin.zip"
             build_target: "prod"
-          - rel_pkg: "x86_64-apple-darwin-portable.zip"
-            build_target: "prod_portable"
+          # - rel_pkg: "x86_64-apple-darwin-portable.zip"
+          #   build_target: "prod_portable"
     steps:
       - uses: actions/checkout@v3
       - name: Set Env
@@ -168,9 +168,9 @@ jobs:
           tar -xzf openssl-3.1.3.tar.gz
           cd openssl-3.1.3
           mkdir custom_build
-          ./Configure --prefix=$(pwd)/custom_build
+          ./Configure --prefix=$(pwd)/custom_build no-shared no-pic -static
           make -j $(nproc)
-          make install_sw -j $(nproc)
+          make -j $(nproc) install_sw
           ./custom_build/bin/openssl version
           cd ..
 
