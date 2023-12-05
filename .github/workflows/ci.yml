@@ -167,8 +167,11 @@ jobs:
           curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
           tar -xzf openssl-3.1.3.tar.gz
           cd openssl-3.1.3
-          ./Configure no-sse2
-          make
+          mkdir custom_build
+          ./Configure --prefix=$(realpath custom_build)
+          make -j $(nproc)
+          make install -j $(nproc)
+          ./custom_build/bin/openssl version
           cd ..
 
       - name: Build CKB and Package CKB
@@ -178,8 +181,8 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           export TOP_DIR=$(pwd)
-          export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-3.1.3
-          export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/include
+          export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-3.1.3/custom_build
+          export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/custom_build/include
           export OPENSSL_STATIC=1
           make ${{ matrix.build_target }}
           otool -L ./target/prod/ckb
