@@ -197,7 +197,7 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
             Topic::RejectedTransaction => self.new_reject_transaction_sender.clone(),
         };
         Ok(Box::pin(async_stream::stream! {
-               while let Ok(msg) = tx.clone().subscribe().recv().await {
+               while let Ok(msg) = tx.subscribe().recv().await {
                     yield msg;
                }
         }))
