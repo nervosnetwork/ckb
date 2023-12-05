@@ -250,7 +250,7 @@ impl AsyncIndexerR {
                         &data,
                         &mut output_cell_rows,
                     )?;
-                    build_script_set(&cell, &mut script_set, tx).await?;
+                    build_script_set(&cell, &mut script_set).await?;
                     build_output_association_script_rows(
                         &cell,
                         &out_point,

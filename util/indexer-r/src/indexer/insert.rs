@@ -374,10 +374,7 @@ pub(crate) fn build_output_cell_rows(
 pub(crate) async fn build_script_set(
     cell: &CellOutput,
     script_set: &mut HashSet<(Vec<u8>, Vec<u8>, Vec<u8>, i16)>,
-    tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let mut exist_script_cache = HashSet::new();
-
     if let Some(type_script) = cell.type_().to_opt() {
         let type_hash = type_script.calc_script_hash().raw_data();
         let type_script_args = type_script.args().raw_data();
@@ -391,12 +388,7 @@ pub(crate) async fn build_script_set(
             )
             .map_err(|err| Error::DB(err.to_string()))?,
         );
-        if !script_set.contains(&type_script_row)
-            && !script_exists(&type_script_row.0, &mut exist_script_cache, tx).await?
-        {
-            exist_script_cache.insert(type_script_row.0.clone());
-            script_set.insert(type_script_row);
-        }
+        script_set.insert(type_script_row);
     }
 
     let lock_script = cell.lock();
@@ -411,12 +403,7 @@ pub(crate) async fn build_script_set(
         )
         .map_err(|err| Error::DB(err.to_string()))?,
     );
-    if !script_set.contains(&lock_script_row)
-        && !script_exists(&lock_script_row.0, &mut exist_script_cache, tx).await?
-    {
-        exist_script_cache.insert(lock_script_row.0.clone());
-        script_set.insert(lock_script_row);
-    }
+    script_set.insert(lock_script_row);
 
     Ok(())
 }
@@ -576,6 +563,7 @@ pub(crate) async fn bulk_insert_script_table(
             .map_err(|err| Error::DB(err.to_string()))?
             .trim_end_matches(';')
             .to_string();
+        let sql = format!("{} ON CONFLICT (script_hash) DO NOTHING", sql);
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -722,31 +710,6 @@ pub fn push_values_placeholders(
         builder.values(&values);
         placeholder_idx += column_number;
     }
-}
-
-async fn script_exists(
-    script_hash: &[u8],
-    exist_script_cache: &mut HashSet<Vec<u8>>,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<bool, Error> {
-    if exist_script_cache.contains(script_hash) {
-        return Ok(true);
-    }
-
-    let row = sqlx::query(
-        r#"
-        SELECT EXISTS (
-            SELECT 1
-            FROM script
-            WHERE script_hash = $1
-        ) AS exist"#,
-    )
-    .bind(script_hash)
-    .fetch_one(tx)
-    .await
-    .map_err(|err| Error::DB(err.to_string()))?;
-
-    Ok(row.get::<bool, _>("exist"))
 }
 
 pub(crate) async fn query_cell_output(

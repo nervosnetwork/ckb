@@ -73,7 +73,7 @@ CREATE TABLE input(
 
 CREATE TABLE script(
     id SERIAL PRIMARY KEY,
-    script_hash BYTEA NOT NULL,
+    script_hash BYTEA UNIQUE NOT NULL,
     code_hash BYTEA,
     args BYTEA,
     hash_type SMALLINT
@@ -88,6 +88,5 @@ CREATE INDEX "index_output_table_lock" ON "output" USING HASH ("lock_script_hash
 CREATE INDEX "index_output_table_type" ON "output" USING HASH ("type_script_hash");
 CREATE INDEX "index_output_table_tx_hash" ON "output" USING HASH ("tx_hash");
 
-CREATE INDEX "index_script_table_script_hash" ON "script" USING HASH ("script_hash");
 CREATE INDEX "index_script_table_script_code_hash" ON "script" USING HASH ("code_hash");
 CREATE INDEX "index_script_table_script_args" ON "script" ("args");
