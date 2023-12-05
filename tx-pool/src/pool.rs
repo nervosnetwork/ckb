@@ -13,6 +13,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::tx_pool::PoolTxDetailInfo;
 use ckb_types::core::CapacityError;
+use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -526,22 +527,28 @@ impl TxPool {
     pub(crate) fn check_rbf(
         &self,
         snapshot: &Snapshot,
-        rtx: &ResolvedTransaction,
-        conflict_ids: &HashSet<ProposalShortId>,
+        txv: &TransactionView,
         fee: Capacity,
         tx_size: usize,
-    ) -> Result<(), Reject> {
-        // Rule #1, the node has enabled RBF, which is checked by caller
+    ) -> Result<HashSet<ProposalShortId>, Reject> {
         assert!(self.enable_rbf());
-        assert!(!conflict_ids.is_empty());
+        let tx_inputs: Vec<OutPoint> = txv.input_pts_iter().collect();
+        let conflict_ids = self.pool_map.find_conflict_tx(&tx_inputs);
 
+        if conflict_ids.is_empty() {
+            return Ok(conflict_ids);
+        }
+
+        let tx_cells_deps: Vec<OutPoint> = txv.cell_deps_iter().map(|c| c.out_point()).collect();
+        let short_id = txv.proposal_short_id();
+
+        // Rule #1, the node has enabled RBF, which is checked by caller
         let conflicts = conflict_ids
             .iter()
             .filter_map(|id| self.get_pool_entry(id))
             .collect::<Vec<_>>();
         assert!(conflicts.len() == conflict_ids.len());
 
-        let short_id = rtx.transaction.proposal_short_id();
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
         if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, tx_size) {
@@ -565,21 +572,16 @@ impl TxPool {
             outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
-        if rtx
-            .transaction
-            .input_pts_iter()
-            .any(|pt| !inputs.contains(&pt) && !snapshot.transaction_exists(&pt.tx_hash()))
+        if tx_inputs
+            .iter()
+            .any(|pt| !inputs.contains(pt) && !snapshot.transaction_exists(&pt.tx_hash()))
         {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
             ));
         }
 
-        if rtx
-            .transaction
-            .cell_deps_iter()
-            .any(|dep| outputs.contains(&dep.out_point()))
-        {
+        if tx_cells_deps.iter().any(|dep| outputs.contains(dep)) {
             return Err(Reject::RBFRejected(
                 "new Tx contains cell deps from conflicts".to_string(),
             ));
@@ -612,11 +614,7 @@ impl TxPool {
 
             for entry in entries.iter() {
                 let hash = entry.inner.transaction().hash();
-                if rtx
-                    .transaction
-                    .input_pts_iter()
-                    .any(|pt| pt.tx_hash() == hash)
-                {
+                if tx_inputs.iter().any(|pt| pt.tx_hash() == hash) {
                     return Err(Reject::RBFRejected(
                         "new Tx contains inputs in descendants of to be replaced Tx".to_string(),
                     ));
@@ -624,7 +622,7 @@ impl TxPool {
             }
         }
 
-        Ok(())
+        Ok(conflict_ids)
     }
 
     /// query the details of a transaction in the pool, only for trouble shooting

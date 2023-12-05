@@ -28,7 +28,9 @@ impl Edges {
     }
 
     pub(crate) fn insert_input(&mut self, out_point: OutPoint, txid: ProposalShortId) {
-        self.inputs.insert(out_point, txid);
+        let res = self.inputs.insert(out_point, txid);
+        // inputs is occupied means double speanding happened here
+        assert!(res.is_none());
     }
 
     pub(crate) fn remove_input(&mut self, out_point: &OutPoint) -> Option<ProposalShortId> {

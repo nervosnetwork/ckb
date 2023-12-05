@@ -263,9 +263,10 @@ impl PoolMap {
         conflicts
     }
 
-    pub(crate) fn find_conflict_tx(&self, tx: &TransactionView) -> HashSet<ProposalShortId> {
-        tx.input_pts_iter()
-            .filter_map(|out_point| self.edges.get_input_ref(&out_point).cloned())
+    pub(crate) fn find_conflict_tx(&self, tx_inputs: &[OutPoint]) -> HashSet<ProposalShortId> {
+        tx_inputs
+            .iter()
+            .filter_map(|out_point| self.edges.get_input_ref(out_point).cloned())
             .collect()
     }
 
