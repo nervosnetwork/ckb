@@ -160,7 +160,10 @@ jobs:
       - uses: actions/checkout@v3
       - name: Set Env
         run: |
+          echo "system_profiler"
           system_profiler SPHardwareDataType
+          echo "sysctl hw.optional"
+          sysctl hw.optional
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Dependencies
@@ -170,9 +173,9 @@ jobs:
           tar -xzf openssl-3.1.3.tar.gz
           cd openssl-3.1.3
           mkdir custom_build
-          ./Configure --prefix=$(pwd)/custom_build no-sse2
-          make -j $(nproc)
-          make -j $(nproc) install_sw
+          ./Configure --prefix=$(pwd)/custom_build
+          make 
+          make install_sw
           ./custom_build/bin/openssl version
           ls ./custom_build
           ls ./custom_build/*
@@ -185,7 +188,7 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           export TOP_DIR=$(pwd)
-          export RUSTFLAGS="-L ${TOP_DIR}/openssl-3.1.3/custom_build/lib"
+          # export RUSTFLAGS="-L ${TOP_DIR}/openssl-3.1.3/custom_build/lib"
           export OPENSSL_DIR=${TOP_DIR}/openssl-3.1.3/custom_build
           # export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-3.1.3/custom_build/include
           export OPENSSL_STATIC=1
