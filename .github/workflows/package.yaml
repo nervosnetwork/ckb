@@ -94,6 +94,15 @@ jobs:
       run: rustup target add aarch64-unknown-linux-gnu
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+    - name: Install OpenSSL 
+      run: |
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+        tar -xzf openssl-3.1.3.tar.gz
+        cd openssl-3.1.3
+        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
+        CC=aarch64-linux-gnu-gcc ./Configure --prefix=$(pwd)/openssl-3.1.3/build linux-aarch64 no-shared
+        CC=aarch64-linux-gnu-gcc make -j $(nproc)
+        CC=aarch64-linux-gnu-gcc make -j $(nproc) install_sw
     - name: Build CKB and Package CKB
       env:
         LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -103,19 +112,13 @@ jobs:
         SKIP_CKB_CLI: true
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        export TOP_DIR=$(pwd)
-        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
-        tar -xzf openssl-3.1.3.tar.gz
-        cd openssl-3.1.3
-        export OPENSSL_DIR=${TOP_DIR}/openssl-3.1.3/build
-        CC=aarch64-linux-gnu-gcc ./Configure --prefix=${OPENSSL_DIR} linux-aarch64 no-shared
-        CC=aarch64-linux-gnu-gcc make
-        CC=aarch64-linux-gnu-gcc make install_sw
-        cd ..
+        
+        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
         export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
         export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib64
         export OPENSSL_STATIC=1
         PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
+        
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
