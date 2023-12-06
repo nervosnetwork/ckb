@@ -268,7 +268,10 @@ impl AsyncIndexerR {
         // because the input needs to query the corresponding output cell when applying a cell filter.
         //
         // Skip the first cellbase transaction.
-        for (_, _, tx_view) in tx_views.iter().skip(1) {
+        for (_, tx_index, tx_view) in tx_views.iter() {
+            if 0 == *tx_index {
+                continue;
+            }
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let mut is_match = true;
                 if self.custom_filters.is_cell_filter_enabled() {
