@@ -203,7 +203,10 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include ${{ matrix.build_target }}
+        export OPENSSL_STATIC=1
+        export OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@3.1/lib
+        export OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3.1/include 
+        make ${{ matrix.build_target }}
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
