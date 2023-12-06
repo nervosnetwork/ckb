@@ -175,7 +175,7 @@ jobs:
           ./Configure --prefix=$(pwd)/build no-shared
           make 
           make install_sw
-          ./custom_build/bin/openssl version
+          ./build/bin/openssl version
           ls ./build
           ls ./build/*
       - name: Build CKB and Package CKB
