@@ -78,8 +78,3 @@ CREATE TABLE script(
     args BLOB,
     hash_type SMALLINT
 );
-
-CREATE INDEX "index_output_table_lock" ON "output" ("lock_script_hash");
-CREATE INDEX "index_output_table_type" ON "output" ("type_script_hash");
-CREATE INDEX "index_output_table_tx_hash" ON "output" ("tx_hash");
-CREATE INDEX "index_script_table_script_code_hash" ON "script" ("code_hash", "hash_type", "args");

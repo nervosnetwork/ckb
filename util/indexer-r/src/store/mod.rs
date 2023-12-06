@@ -246,13 +246,14 @@ impl SQLXPool {
     }
 
     async fn create_tables_for_postgres(&mut self, config: &IndexerRConfig) -> Result<()> {
-        let mut tx = self.transaction().await?;
         let commands = SQL_CREATE_POSTGRES.split(';');
         for command in commands {
             if !command.trim().is_empty() {
-                sqlx::query(command).execute(&mut *tx).await?;
+                let pool = self.get_pool()?;
+                sqlx::query(command).execute(pool).await?;
             }
         }
+        let mut tx = self.transaction().await?;
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
             let blocks_simple = vec![(
                 config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
