@@ -96,6 +96,8 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
     - name: Install OpenSSL 
       run: |
+        mkdir target && cd target
+        
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
         
@@ -107,7 +109,6 @@ jobs:
         
         tar -xzf openssl-3.1.3.tar.gz
         cd openssl-3.1.3
-        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
         CC=aarch64-linux-gnu-gcc ./Configure --prefix=$(pwd)/openssl-3.1.3/build linux-aarch64 no-shared
         CC=aarch64-linux-gnu-gcc make -j $(nproc)
         CC=aarch64-linux-gnu-gcc make -j $(nproc) install_sw
@@ -121,7 +122,7 @@ jobs:
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         
-        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
         export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
         export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib64
         export OPENSSL_STATIC=1
@@ -205,6 +206,8 @@ jobs:
         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
     - name: Install Dependencies
       run: |
+        mkdir target && cd target
+        
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
         
@@ -226,7 +229,7 @@ jobs:
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         
-        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
         export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib
         export OPENSSL_LIB_DIR=${OPENSSL_DIR}/include
         export OPENSSL_STATIC=1
@@ -280,6 +283,8 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         fi
         
+        mkdir target && cd target
+        
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
         curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
         
@@ -302,7 +307,7 @@ jobs:
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         
-        export OPENSSL_DIR=$(pwd)/openssl-3.1.3/build
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
         export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib
         export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
         export OPENSSL_STATIC=1
