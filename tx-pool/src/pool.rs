@@ -524,6 +524,11 @@ impl TxPool {
         (entries, size, cycles)
     }
 
+    pub(crate) fn find_conflict_tx(&self, txv: &TransactionView) -> HashSet<ProposalShortId> {
+        let tx_inputs: Vec<OutPoint> = txv.input_pts_iter().collect();
+        self.pool_map.find_conflict_tx(&tx_inputs)
+    }
+
     pub(crate) fn check_rbf(
         &self,
         snapshot: &Snapshot,

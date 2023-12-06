@@ -105,16 +105,15 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                // the invoking of check_rbf in pre_check only holds read lock
-                // so here we double confirm RBF rules before insert entry
-                let mut conflicts = HashSet::new();
-                if tx_pool.enable_rbf() {
-                    conflicts =
-                        tx_pool.check_rbf(&snapshot, entry.transaction(), entry.fee, entry.size)?;
-                }
+                // here we double confirm RBF rules before insert entry
+                // check_rbf must be invoked in `write` lock to avoid concurrent issues.
+                let conflicts = if tx_pool.enable_rbf() {
+                    tx_pool.check_rbf(&snapshot, entry.transaction(), entry.fee, entry.size)?
+                } else {
+                    HashSet::new()
+                };
 
                 // if snapshot changed by context switch we need redo time_relative verify
-                // if snapshot changed by context switch
                 let tip_hash = snapshot.tip_hash();
                 if pre_resolve_tip != tip_hash {
                     debug!(
@@ -245,12 +244,17 @@ impl TxPoolService {
                         if tx_pool.enable_rbf()
                             && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
                         {
-                            // Try RBF check
                             let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                             let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                            let conflicts =
-                                tx_pool.check_rbf(&snapshot, &rtx.transaction, fee, tx_size)?;
+                            // Try an RBF cheap check, here if the tx is resolved as Dead,
+                            // we assume there must be conflicted happened in txpool now,
+                            // if there is no conflicted transactions reject it
+                            let conflicts = tx_pool.find_conflict_tx(&rtx.transaction);
                             if conflicts.is_empty() {
+                                error!(
+                                    "{} is resolved as Dead, but there is no conflicted tx",
+                                    rtx.transaction.proposal_short_id()
+                                );
                                 return Err(err);
                             }
                             Ok((tip_hash, rtx, status, fee, tx_size))
