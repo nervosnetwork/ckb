@@ -1,5 +1,7 @@
-use ckb_logger::error;
-use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
+use ckb_types::{
+    core::tx_pool::Reject,
+    packed::{Byte32, OutPoint, ProposalShortId},
+};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 #[derive(Default, Debug, Clone)]
@@ -28,12 +30,26 @@ impl Edges {
         self.deps.len()
     }
 
-    pub(crate) fn insert_input(&mut self, out_point: OutPoint, txid: ProposalShortId) {
+    pub(crate) fn insert_input(
+        &mut self,
+        out_point: OutPoint,
+        txid: ProposalShortId,
+    ) -> Result<(), Reject> {
         // inputs is occupied means double speanding happened here
-        if self.inputs.contains_key(&out_point) {
-            error!("double spending happened {:?} {:?}", out_point, txid);
+        match self.inputs.entry(out_point.clone()) {
+            Entry::Occupied(occupied) => {
+                let msg =
+                    format!(
+                    "txpool unexpected double-spending out_point: {:?} old_tx: {:?} new_tx: {:?}",
+                    out_point, occupied.get(), txid
+                );
+                Err(Reject::RBFRejected(msg))
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(txid);
+                Ok(())
+            }
         }
-        self.inputs.insert(out_point, txid);
     }
 
     pub(crate) fn remove_input(&mut self, out_point: &OutPoint) -> Option<ProposalShortId> {

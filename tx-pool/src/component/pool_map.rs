@@ -189,8 +189,8 @@ impl PoolMap {
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         self.check_and_record_ancestors(&mut entry)?;
+        self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
-        self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
         Ok(true)
@@ -263,10 +263,9 @@ impl PoolMap {
         conflicts
     }
 
-    pub(crate) fn find_conflict_tx(&self, tx_inputs: &[OutPoint]) -> HashSet<ProposalShortId> {
-        tx_inputs
-            .iter()
-            .filter_map(|out_point| self.edges.get_input_ref(out_point).cloned())
+    pub(crate) fn find_conflict_tx(&self, tx: &TransactionView) -> HashSet<ProposalShortId> {
+        tx.input_pts_iter()
+            .filter_map(|out_point| self.edges.get_input_ref(&out_point).cloned())
             .collect()
     }
 
@@ -390,7 +389,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry) -> Result<(), Reject> {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -399,7 +398,7 @@ impl PoolMap {
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in inputs {
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+            self.edges.insert_input(i.to_owned(), tx_short_id.clone())?;
         }
 
         // record dep-txid
@@ -412,6 +411,7 @@ impl PoolMap {
                 .header_deps
                 .insert(tx_short_id, header_deps.into_iter().collect());
         }
+        Ok(())
     }
 
     fn record_entry_descendants(&mut self, entry: &TxEntry) {

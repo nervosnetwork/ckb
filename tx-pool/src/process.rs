@@ -108,7 +108,7 @@ impl TxPoolService {
                 // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
-                    tx_pool.check_rbf(&snapshot, entry.transaction(), entry.fee, entry.size)?
+                    tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
                     HashSet::new()
                 };
@@ -249,7 +249,7 @@ impl TxPoolService {
                             // Try an RBF cheap check, here if the tx is resolved as Dead,
                             // we assume there must be conflicted happened in txpool now,
                             // if there is no conflicted transactions reject it
-                            let conflicts = tx_pool.find_conflict_tx(&rtx.transaction);
+                            let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
                             if conflicts.is_empty() {
                                 error!(
                                     "{} is resolved as Dead, but there is no conflicted tx",

@@ -524,28 +524,25 @@ impl TxPool {
         (entries, size, cycles)
     }
 
-    pub(crate) fn find_conflict_tx(&self, txv: &TransactionView) -> HashSet<ProposalShortId> {
-        let tx_inputs: Vec<OutPoint> = txv.input_pts_iter().collect();
-        self.pool_map.find_conflict_tx(&tx_inputs)
-    }
-
     pub(crate) fn check_rbf(
         &self,
         snapshot: &Snapshot,
-        txv: &TransactionView,
-        fee: Capacity,
-        tx_size: usize,
+        entry: &TxEntry,
     ) -> Result<HashSet<ProposalShortId>, Reject> {
         assert!(self.enable_rbf());
-        let tx_inputs: Vec<OutPoint> = txv.input_pts_iter().collect();
-        let conflict_ids = self.pool_map.find_conflict_tx(&tx_inputs);
+        let tx_inputs: Vec<OutPoint> = entry.transaction().input_pts_iter().collect();
+        let conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
         if conflict_ids.is_empty() {
             return Ok(conflict_ids);
         }
 
-        let tx_cells_deps: Vec<OutPoint> = txv.cell_deps_iter().map(|c| c.out_point()).collect();
-        let short_id = txv.proposal_short_id();
+        let tx_cells_deps: Vec<OutPoint> = entry
+            .transaction()
+            .cell_deps_iter()
+            .map(|c| c.out_point())
+            .collect();
+        let short_id = entry.proposal_short_id();
 
         // Rule #1, the node has enabled RBF, which is checked by caller
         let conflicts = conflict_ids
@@ -556,7 +553,8 @@ impl TxPool {
 
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, tx_size) {
+        let fee = entry.fee;
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, entry.size) {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",
