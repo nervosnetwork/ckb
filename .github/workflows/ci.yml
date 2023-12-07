@@ -191,13 +191,13 @@ jobs:
           export OPENSSL_INCLUDE_DIR=${TOP_DIR}/target/openssl-3.1.3/build/include
           export OPENSSL_STATIC=1
           # make ${{ matrix.build_target }}
-          cargo build --release
-          otool -L ./target/release/ckb
+          cargo build 
+          otool -L ./target/debug/ckb
           # gdb -batch -ex "set logging enable on" -ex "b main" -ex "continue" -ex "b main" -ex "r" -ex "bt full" -ex "quit" ./target/prod/ckb
-          ./target/release/ckb --version
-          ls -ahl ./target/release/ckb
+          ./target/debug/ckb --version
+          ls -ahl ./target/debug/ckb
           CKB_TEMP_TEST_DIR=$(mktemp -d)
-          ./target/release/ckb init -C ${CKB_TEMP_TEST_DIR}
+          ./target/debug/ckb init -C ${CKB_TEMP_TEST_DIR}
           rm -rfv ${CKB_TEMP_TEST_DIR}
           
     env:
