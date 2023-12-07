@@ -186,9 +186,9 @@ jobs:
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           export TOP_DIR=$(pwd)
           # export RUSTFLAGS="-L ${TOP_DIR}/target/openssl-3.1.3/build/lib"
-          export OPENSSL_DIR=${TOP_DIR}/target/openssl-3.1.3/build
-          # export OPENSSL_LIB_DIR=${TOP_DIR}/target/openssl-3.1.3/build/lib
-          # export OPENSSL_INCLUDE_DIR=${TOP_DIR}/target/openssl-3.1.3/build/include
+          # export OPENSSL_DIR=${TOP_DIR}/target/openssl-3.1.3/build
+          export OPENSSL_LIB_DIR=${TOP_DIR}/target/openssl-3.1.3/build/lib
+          export OPENSSL_INCLUDE_DIR=${TOP_DIR}/target/openssl-3.1.3/build/include
           export OPENSSL_STATIC=1
           make ${{ matrix.build_target }}
           # cargo build
