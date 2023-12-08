@@ -13,7 +13,7 @@ pub fn deadlock_detection() {
     use ckb_util::parking_lot::deadlock;
     use std::{thread, time::Duration};
 
-    info!("deadlock_detection enable");
+    info!("deadlock_detection enabled");
     let dead_lock_jh = thread::spawn({
         let ticker = ckb_channel::tick(Duration::from_secs(10));
         let stop_rx = new_crossbeam_exit_rx();

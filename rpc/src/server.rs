@@ -47,7 +47,10 @@ impl RpcServer {
                     .expect("config listen_address parsed"),
             )
             .expect("Start Jsonrpc HTTP service");
-        info!("Listen HTTP RPCServer on address {}", config.listen_address);
+        info!(
+            "Listen HTTP RPC server on address {}",
+            config.listen_address
+        );
 
         let _tcp = config
             .tcp_listen_address
@@ -75,7 +78,7 @@ impl RpcServer {
                         .expect("config tcp_listen_address parsed"),
                 )
                 .expect("Start Jsonrpc TCP service");
-                info!("Listen TCP RPCServer on address {}", tcp_listen_address);
+                info!("Listen TCP RPC server on address {}", tcp_listen_address);
 
                 tcp_server
             });
@@ -100,7 +103,7 @@ impl RpcServer {
                     .expect("config ws_listen_address parsed"),
             )
             .expect("Start Jsonrpc WebSocket service");
-            info!("Listen WS RPCServer on address {}", ws_listen_address);
+            info!("Listen WS RPC server on address {}", ws_listen_address);
 
             ws_server
         });

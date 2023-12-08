@@ -8,7 +8,7 @@ use thiserror::Error;
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum FromStrError {
     /// Invalid character.
-    #[error("invalid character code `{chr}` at {idx}")]
+    #[error("Invalid character code `{chr}` at {idx}")]
     InvalidCharacter {
         /// The value of the invalid character.
         chr: u8,
@@ -16,7 +16,7 @@ pub enum FromStrError {
         idx: usize,
     },
     /// Invalid length.
-    #[error("invalid length: {0}")]
+    #[error("Invalid length: {0}")]
     InvalidLength(usize),
 }
 
@@ -24,6 +24,6 @@ pub enum FromStrError {
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum FromSliceError {
     /// Invalid length.
-    #[error("invalid length: {0}")]
+    #[error("Invalid length: {0}")]
     InvalidLength(usize),
 }

@@ -5,19 +5,19 @@ use thiserror::Error;
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum Error {
     /// Invalid privkey
-    #[error("invalid privkey")]
+    #[error("Invalid privkey")]
     InvalidPrivKey,
     /// Invalid pubkey
-    #[error("invalid pubkey")]
+    #[error("Invalid pubkey")]
     InvalidPubKey,
     /// Invalid signature
-    #[error("invalid signature")]
+    #[error("Invalid signature")]
     InvalidSignature,
     /// Invalid message
-    #[error("invalid message")]
+    #[error("Invalid message")]
     InvalidMessage,
     /// Invalid recovery_id
-    #[error("invalid recovery_id")]
+    #[error("Invalid recovery_id")]
     InvalidRecoveryId,
     /// Any error not part of this list.
     #[error("{0}")]

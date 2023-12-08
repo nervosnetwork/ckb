@@ -263,7 +263,7 @@ Response
   "error": {
     "code": -1000,
     "data": "SigNotEnough",
-    "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
+    "message":"AlertFailedToVerifySignatures: The count of sigs is less than threshold."
   },
   "jsonrpc": "2.0",
   "result": null,
@@ -6548,7 +6548,7 @@ Different reject types:
 *   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
 *   `ExceededTransactionSizeLimit`: Transaction exceeded maximum size limit
 *   `Full`: Transaction are replaced because the pool is full
-*   `Duplicated`: Transaction already exist in transaction_pool
+*   `Duplicated`: Transaction already exists in transaction_pool
 *   `Malformed`: Malformed transaction
 *   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed

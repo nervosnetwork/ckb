@@ -68,7 +68,10 @@ impl SessionState {
             });
 
             if context.send_message(msg).await.is_err() {
-                debug!("{:?} send discovery msg GetNode fail", context.session.id)
+                debug!(
+                    "{:?} sending discovery msg GetNode failed",
+                    context.session.id
+                )
             }
 
             addr_known.insert(&context.session.address);
@@ -120,7 +123,7 @@ impl SessionState {
                 items,
             }));
             if cx.send_message_to(id, cx.proto_id, msg).await.is_err() {
-                debug!("{:?} send discovery msg Nodes fail", id)
+                debug!("{:?} sending discovery msg Nodes failed", id)
             }
         }
     }

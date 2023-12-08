@@ -220,7 +220,7 @@ impl AppConfig {
         match self {
             AppConfig::CKB(config) => Ok(config),
             _ => {
-                eprintln!("unmatched config file");
+                eprintln!("Unmatched config file");
                 Err(ExitCode::Failure)
             }
         }
@@ -233,7 +233,7 @@ impl AppConfig {
         match self {
             AppConfig::Miner(config) => Ok(config),
             _ => {
-                eprintln!("unmatched config file");
+                eprintln!("Unmatched config file");
                 Err(ExitCode::Failure)
             }
         }
@@ -373,7 +373,7 @@ fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
     if r.exists() {
         Ok(r)
     } else {
-        eprintln!("Not a CKB directory, initialize one with `ckb init`.");
+        eprintln!("Not a CKB directory; initialize one with `ckb init`.");
         Err(ExitCode::Config)
     }
 }

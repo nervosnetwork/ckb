@@ -51,7 +51,7 @@ impl<'a> GetHeadersProcess<'a> {
 
         if active_chain.is_initial_block_download() {
             info!(
-                "Ignoring getheaders from peer={} because node is in initial block download",
+                "Ignoring getheaders from peer={} because the node is in initial block download stage.",
                 self.peer
             );
             self.send_in_ibd();

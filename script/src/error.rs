@@ -24,7 +24,7 @@ pub enum ScriptError {
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[error("ValidationFailure: see the error code {1} in the page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
+    #[error("ValidationFailure: see error code {1} on page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
     ValidationFailure(String, i8),
 
     /// Known bugs are detected in transaction script outputs

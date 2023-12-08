@@ -99,8 +99,8 @@ impl Launcher {
                     Some(block_assembler)
                 } else {
                     info!(
-                        "Miner is disabled because block assembler is not a recommended lock format. \
-                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                        "Miner is disabled because block assembler uses a non-recommended lock format. \
+                         Edit ckb.toml or use `ckb run --ba-advanced` for other lock scripts"
                     );
 
                     None
@@ -108,7 +108,7 @@ impl Launcher {
             }
 
             _ => {
-                info!("Miner is disabled, edit ckb.toml to enable it");
+                info!("Miner is disabled; edit ckb.toml to enable it");
 
                 None
             }
@@ -160,9 +160,9 @@ impl Launcher {
         } else {
             // stored != configured
             eprintln!(
-                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument \
-                    --skip-spec-check if you are sure that the two different chains are compatible; \
-                    or pass --overwrite-spec to force overriding stored chain spec with configured chain spec",
+                "chain_spec_hash mismatch: Config({}), storage({}). \
+                    If the two chains are compatible, pass command line argument --skip-spec-check; \
+                    otherwise, pass --overwrite-spec to enforce overriding the stored chain spec with the configured one.",
                 self.args.chain_spec_hash, stored_spec_hash.expect("checked")
             );
             return Err(ExitCode::Config);

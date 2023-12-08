@@ -59,7 +59,7 @@ impl<'a> GetBlocksProcess<'a> {
 
             if !active_chain.contains_block_status(&block_hash, BlockStatus::BLOCK_VALID) {
                 debug!(
-                    "ignoring get_block {} request from peer={} for unverified",
+                    "Ignoring get_block {} request from peer={} as it is not unverified.",
                     block_hash, self.peer
                 );
                 continue;
@@ -83,7 +83,7 @@ impl<'a> GetBlocksProcess<'a> {
                 // We expect that `block_hashes` is sorted descending by height.
                 // So if we cannot find the current one from local, we cannot find
                 // the next either.
-                debug!("getblocks stopping since {} is not found", block_hash);
+                debug!("Stopping getblocks, since {} is not found", block_hash);
                 break;
             }
         }

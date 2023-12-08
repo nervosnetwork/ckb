@@ -78,13 +78,13 @@ impl BlockFilter {
         let tip_header = snapshot.get_tip_header().expect("tip stored");
         let start_number = match snapshot.get_latest_built_filter_data_block_hash() {
             Some(block_hash) => {
-                debug!("Latest built block hash {:#x}", block_hash);
+                debug!("Hash of the latest created block {:#x}", block_hash);
                 if snapshot.is_main_chain(&block_hash) {
                     let header = snapshot
                         .get_block_header(&block_hash)
                         .expect("header stored");
                     debug!(
-                        "Latest built block is main chain, start from {}",
+                        "Latest created block on the main chain, starting from {}",
                         header.number() + 1
                     );
                     header.number() + 1
@@ -99,7 +99,7 @@ impl BlockFilter {
                             .expect("parent header stored");
                     }
                     debug!(
-                        "Latest built filter data block is fork chain, start from {}",
+                        "Block with the latest built filter data on the forked chain, starting from {}",
                         header.number()
                     );
                     header.number()
@@ -126,7 +126,7 @@ impl BlockFilter {
         let db = self.shared.store();
         if db.get_block_filter_hash(&header.hash()).is_some() {
             debug!(
-                "Filter data for block {:#x} already exist, skip build",
+                "Filter data for block {:#x} already exists. Skip building.",
                 header.hash()
             );
             return;
@@ -144,8 +144,8 @@ impl BlockFilter {
         let (filter_data, missing_out_points) = build_filter_data(provider, &transactions);
         for out_point in missing_out_points {
             warn!(
-                "Can't find input cell for out_point: {:#x}, \
-                should only happen in test, skip adding to filter",
+                "Unable to find the input cell for the out_point: {:#x}, \
+                Skip adding it to the filter. This should only happen during testing.",
                 out_point
             );
         }

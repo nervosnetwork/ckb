@@ -39,7 +39,7 @@ impl DumpPeerStoreService {
 
 impl Drop for DumpPeerStoreService {
     fn drop(&mut self) {
-        debug!("dump peer store before exit");
+        debug!("Dump peer store before exiting");
         self.dump_peer_store();
     }
 }

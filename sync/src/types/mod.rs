@@ -204,7 +204,9 @@ impl HeadersSyncController {
                 self.last_updated_tip_ts = now_tip_ts;
                 self.is_close_to_the_end = false;
                 // if the node is behind the estimated tip header too much, sync again;
-                trace!("headers-sync: send GetHeaders again since we behind the tip too much");
+                trace!(
+                    "headers-sync: send GetHeaders again since we are significantly behind the tip"
+                );
                 None
             } else {
                 // ignore timeout because the tip already almost reach the real time;
@@ -213,7 +215,7 @@ impl HeadersSyncController {
             }
         } else if expected_before_finished < inspect_window {
             self.is_close_to_the_end = true;
-            trace!("headers-sync: ignore timeout because the tip almost reach the real time");
+            trace!("headers-sync: ignore timeout because the tip almost reaches the real time");
             Some(false)
         } else {
             let spent_since_last_updated = now.saturating_sub(self.last_updated_ts);
@@ -249,7 +251,7 @@ impl HeadersSyncController {
                             // the global average speed is too slow
                             trace!(
                                 "headers-sync: both the global average speed and the instantaneous speed \
-                                is slow than expected"
+                                are slower than expected"
                             );
                             Some(true)
                         } else {
@@ -1414,7 +1416,7 @@ impl SyncShared {
             if self.is_stored(&hash) {
                 let descendants = self.state.remove_orphan_by_parent(&hash);
                 debug!(
-                    "try accepting {} descendant orphan blocks by exist parents hash",
+                    "attempting to accept {} descendant orphan blocks with existing parents hash",
                     descendants.len()
                 );
                 for block in descendants {
@@ -2298,7 +2300,7 @@ impl ActiveChain {
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
-                    "last send get headers from {} less than {:?} ago, ignore it",
+                    "Last get_headers request to peer {} is less than {:?}; Ignore it.",
                     peer, GET_HEADERS_TIMEOUT,
                 );
                 return;

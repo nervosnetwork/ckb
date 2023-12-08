@@ -7,7 +7,7 @@ use thiserror::Error;
 
 /// An error with no reason.
 #[derive(Error, Debug, Clone, Copy)]
-#[error("no reason is provided")]
+#[error("No reason provided")]
 pub struct SilentError;
 
 /// An error with only a string as the reason.

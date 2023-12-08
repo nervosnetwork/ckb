@@ -285,7 +285,7 @@ impl Spec for TxPoolOrphanUnordered {
             .err()
             .unwrap()
             .to_string()
-            .contains("already exist in transaction_pool"));
+            .contains("already exists in transaction_pool"));
 
         assert!(
             run_replay_tx(&net, node0, parent, 3, 1),

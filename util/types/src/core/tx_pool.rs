@@ -17,11 +17,11 @@ use std::collections::HashMap;
 #[derive(Error, Debug, Clone)]
 pub enum Reject {
     /// Transaction fee lower than config
-    #[error("The min fee rate is {0}, so the transaction fee should be {1} shannons at least, but only got {2}")]
+    #[error("The min fee rate is {0}, requiring a transaction fee of at least {1} shannons, but the fee provided is only {2}")]
     LowFeeRate(FeeRate, u64, u64),
 
     /// Transaction exceeded maximum ancestors count limit
-    #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
+    #[error("Transaction exceeded maximum ancestors count limit; try later")]
     ExceededMaximumAncestorsCount,
 
     /// Transaction exceeded maximum size limit
@@ -29,11 +29,11 @@ pub enum Reject {
     ExceededTransactionSizeLimit(u64, u64),
 
     /// Transaction are replaced because the pool is full
-    #[error("Transaction are replaced because the pool is full, {0}")]
+    #[error("Transaction is replaced because the pool is full, {0}")]
     Full(String),
 
-    /// Transaction already exist in transaction_pool
-    #[error("Transaction({0}) already exist in transaction_pool")]
+    /// Transaction already exists in transaction_pool
+    #[error("Transaction({0}) already exists in transaction_pool")]
     Duplicated(Byte32),
 
     /// Malformed transaction

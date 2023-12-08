@@ -105,7 +105,7 @@ impl Notifier {
 
         // check conditions, figure out do we need to notice this alert
         if !self.is_version_effective(alert) {
-            debug!("received a version ineffective alert {:?}", alert);
+            debug!("Received a version ineffective alert {:?}", alert);
             return;
         }
 

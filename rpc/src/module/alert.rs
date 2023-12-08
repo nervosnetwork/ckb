@@ -59,7 +59,7 @@ pub trait AlertRpc {
     ///   "error": {
     ///     "code": -1000,
     ///     "data": "SigNotEnough",
-    ///     "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
+    ///     "message":"AlertFailedToVerifySignatures: The count of sigs is less than threshold."
     ///   },
     ///   "jsonrpc": "2.0",
     ///   "result": null,

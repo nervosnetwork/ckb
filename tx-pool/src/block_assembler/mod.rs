@@ -602,7 +602,7 @@ impl BlockAssembler {
                             .check(&mut seen_inputs, &overlay_cell_checker, snapshot)
                     {
                         error!(
-                            "resolve transactions when build block template, \
+                            "Resolving transactions while building block template, \
                              tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
                             tip_header.number(),
                             tip_header.hash(),
@@ -649,7 +649,10 @@ impl BlockAssembler {
                             timeout(notify_timeout, client.request(req))
                                 .await
                                 .map_err(|_| {
-                                    ckb_logger::warn!("block assembler notify {} timed out", url);
+                                    ckb_logger::warn!(
+                                        "block assembler notifying {} timed out",
+                                        url
+                                    );
                                 });
                     });
                 }
@@ -676,7 +679,9 @@ impl BlockAssembler {
                             Ok(status) => debug!("the command exited with: {}", status),
                             Err(e) => error!("the script {} failed to spawn {}", script, e),
                         },
-                        Err(_) => ckb_logger::warn!("block assembler notify {} timed out", script),
+                        Err(_) => {
+                            ckb_logger::warn!("block assembler notifying {} timed out", script)
+                        }
                     }
                 });
             }

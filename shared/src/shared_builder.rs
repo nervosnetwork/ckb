@@ -55,7 +55,7 @@ pub fn open_or_create_db(
     let migrate = Migrate::new(&config.path);
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
-        eprintln!("migrate error {e}");
+        eprintln!("Migration error {e}");
         ExitCode::Failure
     })?;
 
@@ -63,8 +63,8 @@ pub fn open_or_create_db(
         match migrate.check(&db) {
             Ordering::Greater => {
                 eprintln!(
-                    "The database is created by a higher version CKB executable binary, \n\
-                     so that the current CKB executable binary couldn't open this database.\n\
+                    "The database was created by a higher version CKB executable binary \n\
+                     and cannot be opened by the current binary.\n\
                      Please download the latest CKB executable binary."
                 );
                 Err(ExitCode::Failure)
@@ -73,21 +73,20 @@ pub fn open_or_create_db(
             Ordering::Less => {
                 if migrate.require_expensive(&db) {
                     eprintln!(
-                        "For optimal performance, CKB wants to migrate the data into new format.\n\
-                        You can use the old version CKB if you don't want to do the migration.\n\
-                        We strongly recommended you to use the latest stable version of CKB, \
-                        since the old versions may have unfixed vulnerabilities.\n\
-                        Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
-                        We strongly recommend that you backup the data directory before migration.",
+                        "For optimal performance, CKB recommends migrating your data into a new format.\n\
+                        If you prefer to stick with the older version, \n\
+                        it's important to note that they may have unfixed vulnerabilities.\n\
+                        Before migrating, we strongly recommend backuping your data directory.
+                        To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
                         bin_name,
                         root_dir.display()
                     );
                     Err(ExitCode::Failure)
                 } else {
-                    info!("process fast migrations ...");
+                    info!("Processing fast migrations ...");
 
                     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-                        eprintln!("migrate error {e}");
+                        eprintln!("Migration error {e}");
                         ExitCode::Failure
                     })?;
 
@@ -105,7 +104,7 @@ pub fn open_or_create_db(
     } else {
         let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
-            eprintln!("migrate init_db_version error {e}");
+            eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
         })?;
         Ok(db)
