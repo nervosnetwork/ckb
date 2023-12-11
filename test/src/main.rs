@@ -476,6 +476,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RbfContainInvalidCells),
         Box::new(RbfRejectReplaceProposed),
         Box::new(RbfReplaceProposedSuccess),
+        Box::new(RbfConcurrency),
         Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),
         Box::new(CompactBlockPrefilled),
