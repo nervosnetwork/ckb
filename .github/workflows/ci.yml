@@ -173,7 +173,7 @@ jobs:
           tar -xzf openssl-3.1.3.tar.gz
           cd openssl-3.1.3
           CC=clang
-          CC=clang ./Configure --prefix=$(pwd)/build no-shared no-ssl-trace no-sse2
+          CC=clang ./Configure --prefix=$(pwd)/build no-shared no-ssl-trace no-sse2 no-tests
           CC=clang make 
           CC=clang make install_sw
           echo "we build openssl:"
