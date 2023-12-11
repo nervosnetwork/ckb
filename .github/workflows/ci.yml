@@ -187,6 +187,7 @@ jobs:
           openssl3 version -a || echo "system doesn't have openssl3"
           ls /usr/local/etc/openssl* || echo "system doesn't have /usr/loca/etc/openssl"
           ls /usr/local/etc/openssl@3.2 || echo "system doesn't have /usr/loca/etc/openssl@3.2"
+          ls -al /usr/local/Cellar/openssl* || echo "usr/local/Cellar/openssl doesn't have files"
           echo "uname -a"
           ls ./build
           ls ./build/*
