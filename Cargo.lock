@@ -2836,9 +2836,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-utils"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6b61d552676857e07ec4be9d99d84ca67e74f9092d1eb5adfe376287a76b4dd"
+checksum = "dfe6601e4eedf0730aebf2ad532cd22c05c67d3cb20105577dd12a5f004abd3b"
 dependencies = [
  "anyhow",
  "axum",
