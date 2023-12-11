@@ -1,16 +1,16 @@
 CREATE TABLE block(
     id INTEGER PRIMARY KEY,
-    block_hash BLOB UNIQUE NOT NULL,
-    block_number BIGINT NOT NULL,
-    compact_target INT,
+    block_hash BLOB NOT NULL,
+    block_number INTEGER NOT NULL,
+    compact_target INTEGER,
     parent_hash BLOB,
     nonce BLOB,
-    timestamp BIGINT,
-    version INT,
+    timestamp INTEGER,
+    version INTEGER,
     transactions_root BLOB,
-    epoch_number INT,
-    epoch_index SMALLINT,
-    epoch_length SMALLINT,
+    epoch_number INTEGER,
+    epoch_index INTEGER,
+    epoch_length INTEGER,
     dao BLOB,
     proposals_hash BLOB,
     extra_hash BLOB
@@ -18,63 +18,61 @@ CREATE TABLE block(
 
 CREATE TABLE block_association_proposal(
     id INTEGER PRIMARY KEY,
-    block_hash BLOB NOT NULL,
+    block_id INTEGER NOT NULL,
     proposal BLOB NOT NULL
 );
 
 CREATE TABLE block_association_uncle(
     id INTEGER PRIMARY KEY,
-    block_hash BLOB NOT NULL,
-    uncle_hash BLOB NOT NULL
+    block_id INTEGER NOT NULL,
+    uncle_id INTEGER NOT NULL
 );
 
 CREATE TABLE ckb_transaction(
     id INTEGER PRIMARY KEY,
-    tx_hash BLOB UNIQUE NOT NULL,
-    version INT NOT NULL,
-    input_count SMALLINT NOT NULL,
-    output_count SMALLINT NOT NULL,
+    tx_hash BLOB NOT NULL,
+    version INTEGER NOT NULL,
+    input_count INTEGER NOT NULL,
+    output_count INTEGER NOT NULL,
     witnesses BLOB,
-    block_hash BLOB NOT NULL,
-    tx_index INT NOT NULL
+    block_id INTEGER NOT NULL,
+    tx_index INTEGER NOT NULL
 );
 
 CREATE TABLE tx_association_header_dep(
     id INTEGER PRIMARY KEY,
-    tx_hash BLOB NOT NULL,
+    tx_id INTEGER NOT NULL,
     block_hash BLOB NOT NULL
 );
 
 CREATE TABLE tx_association_cell_dep(
     id INTEGER PRIMARY KEY,
-    tx_hash BLOB NOT NULL,
-    out_point BLOB NOT NULL,
-    dep_type SMALLINT NOT NULL
+    tx_id INTEGER NOT NULL,
+    output_tx_id INTEGER NOT NULL,
+    output_index INTEGER NOT NULL,
+    dep_type INTEGER NOT NULL
 );
 
 CREATE TABLE output(
     id INTEGER PRIMARY KEY,
-    out_point BLOB UNIQUE NOT NULL,
-    capacity BIGINT NOT NULL,
-    data BLOB,
-    lock_script_hash BLOB,
-    type_script_hash BLOB,
-    tx_hash BLOB NOT NULL,
-    output_index INT NOT NULL   
+    tx_id INTEGER NOT NULL,
+    output_index INTEGER NOT NULL,
+    capacity INTEGER NOT NULL,
+    lock_script_id INTEGER,
+    type_script_id INTEGER, 
+    data BLOB
 );
 
 CREATE TABLE input(
-    id INTEGER PRIMARY KEY,
-    out_point BLOB UNIQUE NOT NULL,
+    previous_output_id INTEGER PRIMARY KEY,
     since BLOB NOT NULL,
-    tx_hash BLOB NOT NULL,
-    input_index INT NOT NULL
+    consumed_tx_id INTEGER NOT NULL,
+    input_index INTEGER NOT NULL
 );
 
 CREATE TABLE script(
     id INTEGER PRIMARY KEY,
-    script_hash BLOB UNIQUE NOT NULL,
     code_hash BLOB,
-    args BLOB,
-    hash_type SMALLINT
+    hash_type INTEGER,
+    args BLOB
 );

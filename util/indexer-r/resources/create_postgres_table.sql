@@ -1,5 +1,5 @@
 CREATE TABLE block(
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     block_hash BYTEA NOT NULL,
     block_number BIGINT NOT NULL,
     compact_target INTEGER,
@@ -17,64 +17,62 @@ CREATE TABLE block(
 );
 
 CREATE TABLE block_association_proposal(
-    id SERIAL PRIMARY KEY,
-    block_hash BYTEA NOT NULL,
+    id BIGSERIAL,
+    block_id BIGINT NOT NULL,
     proposal BYTEA NOT NULL
 );
 
 CREATE TABLE block_association_uncle(
-    id SERIAL PRIMARY KEY,
-    block_hash BYTEA NOT NULL,
-    uncle_hash BYTEA NOT NULL
+    id BIGSERIAL,
+    block_id BIGINT NOT NULL,
+    uncle_id BIGINT NOT NULL
 );
 
 CREATE TABLE ckb_transaction(
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     tx_hash BYTEA NOT NULL,
     version INTEGER NOT NULL,
     input_count SMALLINT NOT NULL,
     output_count SMALLINT NOT NULL,
     witnesses BYTEA,
-    block_hash BYTEA NOT NULL,
+    block_id BIGINT NOT NULL,
     tx_index INTEGER NOT NULL
 );
 
 CREATE TABLE tx_association_header_dep(
-    id SERIAL PRIMARY KEY,
-    tx_hash BYTEA NOT NULL,
+    id BIGSERIAL,
+    tx_id BIGINT NOT NULL,
     block_hash BYTEA NOT NULL
 );
 
 CREATE TABLE tx_association_cell_dep(
-    id SERIAL PRIMARY KEY,
-    tx_hash BYTEA NOT NULL,
-    out_point BYTEA NOT NULL,
+    id BIGSERIAL,
+    tx_id BIGINT NOT NULL,
+    output_tx_id BIGINT NOT NULL,
+    output_index INTEGER NOT NULL,
     dep_type SMALLINT NOT NULL
 );
 
 CREATE TABLE output(
-    id SERIAL PRIMARY KEY,
-    out_point BYTEA NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    tx_id BIGINT NOT NULL,
+    output_index INTEGER NOT NULL,
     capacity BIGINT NOT NULL,
-    data BYTEA,
-    lock_script_hash BYTEA,
-    type_script_hash BYTEA,
-    tx_hash BYTEA NOT NULL,
-    output_index INT NOT NULL   
+    lock_script_id BIGINT,
+    type_script_id BIGINT, 
+    data BYTEA
 );
 
 CREATE TABLE input(
-    id SERIAL PRIMARY KEY,
-    out_point BYTEA NOT NULL,
+    previous_output_id BIGINT PRIMARY KEY,
     since BYTEA NOT NULL,
-    tx_hash BYTEA NOT NULL,
+    consumed_tx_id BIGINT NOT NULL,
     input_index INTEGER NOT NULL
 );
 
 CREATE TABLE script(
-    id SERIAL PRIMARY KEY,
-    script_hash BYTEA UNIQUE NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
     code_hash BYTEA,
-    args BYTEA,
-    hash_type SMALLINT
+    hash_type SMALLINT,
+    args BYTEA
 );
