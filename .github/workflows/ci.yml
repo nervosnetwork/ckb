@@ -183,6 +183,7 @@ jobs:
 
           # brew install "openssl@3"
           brew --help
+          brew unlink openssl
           brew link openssl@3
           echo "system openssl3:"
           openssl version -a || echo "system doesn't have openssl"
