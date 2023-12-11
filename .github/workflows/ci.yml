@@ -183,10 +183,12 @@ jobs:
 
           # brew install "openssl@3"
           brew --help
-          brew unlink openssl
-          brew link openssl@3
-          echo "system openssl3:"
+          # brew unlink openssl
+          # brew link openssl@3
+          brew link --overwrite openssl@3
+          echo "system openssl:"
           openssl version -a || echo "system doesn't have openssl"
+          echo "system openssl3:"
           openssl3 version -a || echo "system doesn't have openssl3"
           ls /usr/local/etc/openssl* || echo "system doesn't have /usr/loca/etc/openssl"
           ls /usr/local/etc/openssl@3.2 || echo "system doesn't have /usr/loca/etc/openssl@3.2"
