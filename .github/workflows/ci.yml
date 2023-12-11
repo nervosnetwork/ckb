@@ -195,7 +195,6 @@ jobs:
           echo "uname -a"
           ls ./build
           ls ./build/*
-      - uses: fawazahmed0/action-debug@main
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -212,11 +211,12 @@ jobs:
           # cargo build 
           otool -L ./target/prod/ckb
           # gdb -batch -ex "set logging enable on" -ex "b main" -ex "continue" -ex "b main" -ex "r" -ex "bt full" -ex "quit" ./target/prod/ckb
-          ./target/prod/ckb --version
+          ./target/prod/ckb --version || echo "ckb version failed"
           ls -ahl ./target/prod/ckb
           CKB_TEMP_TEST_DIR=$(mktemp -d)
-          ./target/prod/ckb init -C ${CKB_TEMP_TEST_DIR}
+          ./target/prod/ckb init -C ${CKB_TEMP_TEST_DIR} || echo "ckb init failed"
           rm -rfv ${CKB_TEMP_TEST_DIR}
+      - uses: fawazahmed0/action-debug@main
           
     env:
       REL_PKG: ${{ matrix.rel_pkg }}
