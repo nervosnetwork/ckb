@@ -1,4 +1,5 @@
 use super::helper::{build_chain, new_transaction};
+use crate::relayer::packed::{CellInput, OutPoint};
 use crate::relayer::ReconstructionResult;
 use crate::StatusCode;
 use ckb_tx_pool::{PlugTarget, TxEntry};
@@ -8,7 +9,6 @@ use ckb_types::{
     packed::{self, CompactBlockBuilder},
 };
 use std::collections::HashSet;
-
 // There are more test cases in block_transactions_process and compact_block_process.rs
 #[test]
 fn test_missing_txs() {
@@ -64,9 +64,23 @@ fn test_missing_txs() {
 #[test]
 fn test_reconstruct_transactions_and_uncles() {
     let (relayer, always_success_out_point) = build_chain(5);
-    let prepare: Vec<TransactionView> = (0..20)
-        .map(|i| new_transaction(&relayer, i, &always_success_out_point))
-        .collect();
+    let parent = new_transaction(&relayer, 0, &always_success_out_point);
+
+    // create a chain of transactions as prepare
+    let mut prepare = vec![parent];
+    while prepare.len() <= 20 {
+        let parent = prepare.last().unwrap();
+        let child = parent
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(parent.hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![parent.output(0).unwrap()])
+            .build();
+        prepare.push(child);
+    }
     let uncle = BlockBuilder::default().build();
 
     let block = BlockBuilder::default()
