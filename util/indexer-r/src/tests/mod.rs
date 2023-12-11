@@ -21,11 +21,12 @@ async fn connect_sqlite(store_path: &str) -> SQLXPool {
 async fn insert_blocks(store: SQLXPool) {
     let data_path = String::from(BLOCK_DIR);
     let indexer = AsyncIndexerR::new(store, 100, 1000, None, CustomFilters::new(None, None));
-    let mut blocks = Vec::new();
     for i in 0..10 {
-        blocks.push(read_block_view(i, data_path.clone()).into());
+        indexer
+            .append(&read_block_view(i, data_path.clone()).into())
+            .await
+            .unwrap();
     }
-    indexer.append_bulk(&blocks).await.unwrap();
 }
 
 pub fn read_block_view(number: u64, dir_path: String) -> JsonBlockView {

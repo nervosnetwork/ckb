@@ -137,54 +137,13 @@ impl AsyncIndexerR {
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         if self.custom_filters.is_block_filter_match(block) {
-            append_blocks(&vec![block.clone()], &mut tx).await?;
+            append_blocks(&[block.clone()], &mut tx).await?;
             self.insert_transactions(&vec![block.clone()], &mut tx)
                 .await?;
         } else {
             let block_headers = vec![(block.hash().raw_data().to_vec(), block.number() as i64)];
             bulk_insert_blocks_simple(&block_headers, &mut tx).await?;
         }
-        tx.commit().await.map_err(|err| Error::DB(err.to_string()))
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn append_bulk(&self, blocks: &[BlockView]) -> Result<(), Error> {
-        let mut tx = self
-            .store
-            .transaction()
-            .await
-            .map_err(|err| Error::DB(err.to_string()))?;
-
-        let mut block_groups = Vec::new();
-        let mut current_group = Vec::new();
-        let mut current_match = self.custom_filters.is_block_filter_match(&blocks[0]);
-        for block in blocks {
-            let is_match = self.custom_filters.is_block_filter_match(block);
-            if is_match == current_match {
-                current_group.push(block.clone());
-            } else {
-                block_groups.push((current_match, current_group));
-                current_group = vec![block.clone()];
-                current_match = is_match;
-            }
-        }
-        if !current_group.is_empty() {
-            block_groups.push((current_match, current_group));
-        }
-
-        for (is_match, blocks) in block_groups {
-            if is_match {
-                append_blocks(&blocks, &mut tx).await?;
-                self.insert_transactions(&blocks, &mut tx).await?;
-            } else {
-                let block_headers: Vec<(_, _)> = blocks
-                    .iter()
-                    .map(|block| (block.hash().raw_data().to_vec(), block.number() as i64))
-                    .collect();
-                bulk_insert_blocks_simple(&block_headers, &mut tx).await?;
-            }
-        }
-
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
@@ -216,7 +175,7 @@ impl AsyncIndexerR {
         tx: &mut Transaction<'_, Any>,
     ) -> Result<(), Error> {
         let tx_views = block_views
-            .into_iter()
+            .iter()
             .flat_map(|block_view| {
                 let block_hash = block_view.hash().raw_data().to_vec();
                 block_view

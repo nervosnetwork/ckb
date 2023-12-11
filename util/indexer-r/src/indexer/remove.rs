@@ -48,8 +48,10 @@ pub(crate) async fn rollback_block(
         if !script_exists_in_output(&lock_script_hash, tx).await? {
             script_hashes_to_remove.push(lock_script_hash);
         }
-        if !type_script_hash.is_empty() && !script_exists_in_output(&type_script_hash, tx).await? {
-            script_hashes_to_remove.push(type_script_hash);
+        if let Some(type_script_hash) = type_script_hash {
+            if !script_exists_in_output(&type_script_hash, tx).await? {
+                script_hashes_to_remove.push(type_script_hash);
+            }
         }
     }
     remove_batch_by_blobs("script", "script_hash", &script_hashes_to_remove, tx).await?;
@@ -152,16 +154,19 @@ async fn uncle_exists_in_association_table(
 ) -> Result<bool, Error> {
     let row = SQLXPool::new_query(
         r#"
-        SELECT COUNT(*) as count 
-        FROM block_association_uncle WHERE
-        uncle_hash = $1
+        SELECT EXISTS (
+            SELECT 1 
+            FROM block_association_uncle 
+            WHERE uncle_hash = $1
+        )
         "#,
     )
     .bind(uncle_hash)
     .fetch_one(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
-    Ok(row.get::<i64, _>("count") != 0)
+
+    Ok(row.get::<bool, _>(0))
 }
 
 async fn query_transaction_hashes_by_block_hash(
@@ -190,7 +195,7 @@ async fn query_transaction_hashes_by_block_hash(
 async fn query_outputs_by_tx_hashes(
     tx_hashes: &[H256],
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<(OutPoint, Vec<u8>, Vec<u8>)>, Error> {
+) -> Result<Vec<(OutPoint, Vec<u8>, Option<Vec<u8>>)>, Error> {
     if tx_hashes.is_empty() {
         return Ok(vec![]);
     }
@@ -234,9 +239,11 @@ async fn script_exists_in_output(
 ) -> Result<bool, Error> {
     let row = sqlx::query(
         r#"
-        SELECT COUNT(*) as count 
-        FROM output WHERE
-        lock_script_hash = $1 OR type_script_hash = $1
+        SELECT EXISTS (
+            SELECT 1 
+            FROM output 
+            WHERE lock_script_hash = $1 OR type_script_hash = $1
+        )
         "#,
     )
     .bind(script_hash)
@@ -244,5 +251,5 @@ async fn script_exists_in_output(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(row.get::<i64, _>("count") != 0)
+    Ok(row.get::<bool, _>(0))
 }

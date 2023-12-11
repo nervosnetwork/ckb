@@ -81,7 +81,7 @@ pub(crate) async fn bulk_insert_uncle_blocks(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let uncle_blocks = block_views
-        .into_iter()
+        .iter()
         .flat_map(|block_view| {
             block_view.uncles().into_iter().map(|uncle| {
                 let uncle_block_header = uncle.header();
