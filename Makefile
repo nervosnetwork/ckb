@@ -156,18 +156,27 @@ prod-with-debug:
 
 .PHONY: docker
 docker: ## Build docker image
-	docker build -f docker/hub/Dockerfile -t nervos/ckb:$$(git describe) .
-	docker run --rm -it nervos/ckb:$$(git describe) --version
+	docker build -f docker/hub/Dockerfile -t nervos/ckb:x64-$$(git describe) .
+	docker run --rm -it nervos/ckb:x64-$$(git describe) --version
+
+.PHONY: docker-aarch64
+docker-aarch64:
+	docker build -f docker/hub/Dockerfile-aarch64 -t nervos/ckb:aarch64-$$(git describe) .
+	docker run --rm -it nervos/ckb:aarch64-$$(git describe) --version
 
 .PHONY: docker-publish
 docker-publish:
-	docker push nervos/ckb:$$(git describe)
-	docker tag nervos/ckb:$$(git describe) nervos/ckb:latest
-	docker push nervos/ckb:latest
+	docker push nervos/ckb:x64-$$(git describe)
+	docker push nervos/ckb:aarch64-$$(git describe)
+	docker manifest create nervos/ckb:latest nervos/ckb:x64-$$(git describe) nervos/ckb:aarch64-$$(git describe)
+	docker manifest push nervos/ckb:latest
 
 .PHONY: docker-publish-rc
 docker-publish-rc:
-	docker push nervos/ckb:$$(git describe)
+	docker push nervos/ckb:x64-$$(git describe)
+	docker push nervos/ckb:aarch64-$$(git describe)
+	docker manifest create nervos/ckb:$$(git describe) nervos/ckb:x64-$$(git describe) nervos/ckb:aarch64-$$(git describe)
+	docker manifest push nervos/ckb:$$(git describe)
 
 ##@ Code Quality
 .PHONY: fmt
