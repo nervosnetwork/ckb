@@ -1335,7 +1335,7 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
-            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            assume_valid_target: sync_config.assume_valid_target,
             min_chain_work: sync_config.min_chain_work,
         };
 
