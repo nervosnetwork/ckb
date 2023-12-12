@@ -42,18 +42,18 @@ function get_60days_ago_block(){
 	echo ${START_NUMBER}
 }
 
-MAINNET_ASSUME_TARGET_HEIGHT=$(get_60days_ago_block https://mainnet.ckb.dev)
-MAINNET_ASSUME_TARGET_HASH=$(get_block_hash https://mainnet.ckb.dev ${MAINNET_ASSUME_TARGET_HEIGHT})
-MAINNET_ASSUME_TARGET_TIMESTAMP=$(get_block_timestamp https://mainnet.ckb.dev ${MAINNET_ASSUME_TARGET_HEIGHT})
-MAINNET_ASSUME_TARGET_DATE=$(date -d @$((${MAINNET_ASSUME_TARGET_TIMESTAMP} / 1000)))
+function print_60_days_ago_block(){
+  local host=$1
+  ASSUME_TARGET_HEIGHT=$(get_60days_ago_block ${host})
+  ASSUME_TARGET_HASH=$(get_block_hash ${host} ${ASSUME_TARGET_HEIGHT})
+  ASSUME_TARGET_TIMESTAMP=$(get_block_timestamp ${host} ${ASSUME_TARGET_HEIGHT})
+  ASSUME_TARGET_DATE=$(date -d @$((${ASSUME_TARGET_TIMESTAMP} / 1000)))
+  printf "the 60 days ago block is: %d %s in %s\n" ${ASSUME_TARGET_HEIGHT} ${ASSUME_TARGET_HASH} "${ASSUME_TARGET_DATE}"
+}
 
-
-TESTNET_ASSUME_TARGET_HEIGHT=$(get_60days_ago_block https://testnet.ckb.dev)
-TESTNET_ASSUME_TARGET_HASH=$(get_block_hash https://testnet.ckb.dev ${TESTNET_ASSUME_TARGET_HEIGHT})
-TESTNET_ASSUME_TARGET_TIMESTAMP=$(get_block_timestamp https://testnet.ckb.dev ${TESTNET_ASSUME_TARGET_HEIGHT})
-TESTNET_ASSUME_TARGET_DATE=$(date -d @$((${TESTNET_ASSUME_TARGET_TIMESTAMP} / 1000)))
-
-printf "today: %s\n\n" "$(date)"
-
-printf "mainnet: the 60 days ago block is: %d %s in %s\n" ${MAINNET_ASSUME_TARGET_HEIGHT} ${MAINNET_ASSUME_TARGET_HASH} "${MAINNET_ASSUME_TARGET_DATE}"
-printf "testnet: the 60 days ago block is: %d %s in %s\n" ${TESTNET_ASSUME_TARGET_HEIGHT} ${TESTNET_ASSUME_TARGET_HASH} "${MAINNET_ASSUME_TARGET_DATE}"
+printf "Now: %s\n\n" "$(date)"
+printf "Finding the 60 days ago block..., this script may take 1 minute\n\n"
+printf "MainNet:\n"
+print_60_days_ago_block https://mainnet.ckb.dev
+printf "TestNet:\n"
+print_60_days_ago_block https://testnet.ckb.dev
