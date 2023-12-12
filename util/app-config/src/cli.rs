@@ -173,20 +173,13 @@ pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches) {
 }
 
 fn run() -> Command {
-    Command::new(CMD_RUN)
+    let command = Command::new(CMD_RUN)
         .about("Run CKB node")
         .arg(
             Arg::new(ARG_BA_ADVANCED)
                 .long(ARG_BA_ADVANCED)
                 .action(clap::ArgAction::SetTrue)
                 .help("Allow any block assembler code hash and args"),
-        )
-        .arg(
-            Arg::new(ARG_DAEMON)
-            .long(ARG_DAEMON)
-            .action(clap::ArgAction::SetTrue)
-            .help("Starts ckb as a daemon, \
-                which will run in the background and output logs to the specified log file"),
         )
         .arg(
             Arg::new(ARG_SKIP_CHAIN_SPEC_CHECK)
@@ -217,7 +210,19 @@ fn run() -> Command {
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
             .help("Start the built-in indexer service"),
-        )
+        );
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.arg(
+        Arg::new(ARG_DAEMON)
+            .long(ARG_DAEMON)
+            .action(clap::ArgAction::SetTrue)
+            .help(
+                "Starts ckb as a daemon, \
+                which will run in the background and output logs to the specified log file",
+            ),
+    );
+    command
 }
 
 fn miner() -> Command {
