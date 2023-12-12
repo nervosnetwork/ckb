@@ -1,324 +1,33 @@
-use crate::{
-    tests::{always_success_transaction, next_block},
-    RpcServer, ServiceBuilder,
+use super::{
+    setup::{always_success_consensus, setup_rpc_test_suite},
+    RpcTestRequest, RpcTestResponse, RpcTestSuite,
 };
-use ckb_app_config::{
-    BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
-};
-use ckb_chain::chain::ChainService;
-use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
-use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
-use ckb_dao_utils::genesis_dao_data;
-use ckb_network::{Flags, NetworkService, NetworkState};
-use ckb_network_alert::alert_relayer::AlertRelayer;
-use ckb_notify::NotifyService;
-use ckb_shared::SharedBuilder;
-use ckb_sync::SyncShared;
+use crate::tests::always_success_transaction;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_types::{
-    core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, Ratio, TransactionBuilder,
-        TransactionView,
-    },
-    global::DATA_DIR,
-    h256,
-    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
-    prelude::*,
-    H256,
-};
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::cmp;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
+
 use std::fs::{read_dir, File};
 use std::hash;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::{thread::sleep, time::Duration};
 
-use super::{RpcTestRequest, RpcTestResponse, RpcTestSuite};
+use ckb_types::{
+    core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
+    h256,
+    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
+    prelude::*,
+    H256,
+};
 
-const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
-const GENESIS_TARGET: u32 = 0x2001_0000;
-const EPOCH_REWARD: u64 = 125_000_000_000_000;
-const CELLBASE_MATURITY: u64 = 0;
-const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
 const TARGET_HEIGHT: u64 = 1024;
 const EXAMPLE_TX_PARENT: H256 =
     h256!("0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17");
 const EXAMPLE_TX_HASH: H256 =
     h256!("0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3");
-
-// Construct `Consensus` with an always-success cell
-//
-// It is similar to `util::test-chain-utils::always_success_consensus`, but with hard-code
-// genesis timestamp.
-fn always_success_consensus() -> Consensus {
-    let always_success_tx = always_success_transaction();
-    let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
-    let genesis = BlockBuilder::default()
-        .timestamp(GENESIS_TIMESTAMP.pack())
-        .compact_target(GENESIS_TARGET.pack())
-        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
-        .dao(dao)
-        .transaction(always_success_tx)
-        .build();
-    let mut deployments = HashMap::new();
-    let test_dummy = Deployment {
-        bit: 1,
-        start: 0,
-        timeout: 0,
-        min_activation_epoch: 0,
-        period: 10,
-        active_mode: ActiveMode::Never,
-        threshold: Ratio::new(3, 4),
-    };
-    deployments.insert(DeploymentPos::Testdummy, test_dummy);
-    ConsensusBuilder::default()
-        .genesis_block(genesis)
-        .initial_primary_epoch_reward(Capacity::shannons(EPOCH_REWARD))
-        .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
-        .softfork_deployments(deployments)
-        .build()
-}
-
-fn construct_example_transaction() -> TransactionView {
-    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().pack(), 0);
-    let input = CellInput::new(previous_output, 0);
-    let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(always_success_cell().2.clone())
-        .build();
-    let cell_dep = CellDep::new_builder()
-        .out_point(OutPoint::new(always_success_transaction().hash(), 0))
-        .build();
-    TransactionBuilder::default()
-        .input(input)
-        .output(output)
-        .output_data(Default::default())
-        .cell_dep(cell_dep)
-        .header_dep(always_success_consensus().genesis_hash())
-        .build()
-}
-
-fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
-    serde_json::from_value(json!(hex)).expect("JsonBytes")
-}
-
-// Setup the running environment
-fn setup_rpc_test_suite(height: u64) -> RpcTestSuite {
-    let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(always_success_consensus())
-        .block_assembler_config(Some(BlockAssemblerConfig {
-            code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
-            hash_type: ckb_jsonrpc_types::ScriptHashType::Type,
-            args: json_bytes("0xb2e61ff569acf041b3c2c17724e2379c581eeac3"),
-            message: "message".pack().into(),
-            use_binary_version_as_message_prefix: true,
-            binary_version: "TEST".to_string(),
-            update_interval_millis: 800,
-            notify: vec![],
-            notify_scripts: vec![],
-            notify_timeout_millis: 800,
-        }))
-        .build()
-        .unwrap();
-    let chain_controller =
-        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
-
-    // Start network services
-    let temp_dir = tempfile::tempdir().expect("create tempdir failed");
-    DATA_DIR
-        .set(temp_dir.path().join("data"))
-        .expect("DATA_DIR set only once");
-
-    let network_controller = {
-        let network_config = NetworkConfig {
-            path: temp_dir.path().join("network").to_path_buf(),
-            ping_interval_secs: 1,
-            ping_timeout_secs: 1,
-            connect_outbound_interval_secs: 1,
-            ..Default::default()
-        };
-        let network_state =
-            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-        NetworkService::new(
-            Arc::clone(&network_state),
-            Vec::new(),
-            Vec::new(),
-            (
-                shared.consensus().identify_name(),
-                "0.1.0".to_string(),
-                Flags::COMPATIBILITY,
-            ),
-        )
-        .start(shared.async_handle())
-        .expect("Start network service failed")
-    };
-
-    pack.take_tx_pool_builder()
-        .start(network_controller.clone());
-
-    let tx_pool = shared.tx_pool_controller();
-    while !tx_pool.service_started() {
-        sleep(Duration::from_millis(400));
-    }
-
-    // Build chain, insert [1, height) blocks
-    let mut parent = always_success_consensus().genesis_block;
-
-    for _ in 0..height {
-        let block = next_block(&shared, &parent.header());
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .expect("processing new block should be ok");
-        parent = block;
-    }
-    assert_eq!(
-        EXAMPLE_TX_PARENT,
-        parent.tx_hashes()[0].unpack(),
-        "Expect the last cellbase tx hash matches the constant, which is used later in an example tx."
-    );
-
-    let sync_shared = Arc::new(SyncShared::new(
-        shared.clone(),
-        Default::default(),
-        pack.take_relay_tx_receiver(),
-    ));
-
-    let notify_controller =
-        NotifyService::new(Default::default(), shared.async_handle().clone()).start();
-    let (alert_notifier, alert_verifier) = {
-        let alert_relayer = AlertRelayer::new(
-            "0.1.0".to_string(),
-            notify_controller,
-            NetworkAlertConfig::default(),
-        );
-        let alert_notifier = alert_relayer.notifier();
-        let alert = AlertBuilder::default()
-            .raw(
-                RawAlertBuilder::default()
-                    .id(42u32.pack())
-                    .min_version(Some("0.0.1".to_string()).pack())
-                    .max_version(Some("1.0.0".to_string()).pack())
-                    .priority(1u32.pack())
-                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
-                    .message("An example alert message!".pack())
-                    .build(),
-            )
-            .build();
-        alert_notifier.lock().add(&alert);
-        (
-            Arc::clone(alert_notifier),
-            Arc::clone(alert_relayer.verifier()),
-        )
-    };
-
-    // Start rpc services
-    let rpc_config = RpcConfig {
-        listen_address: "127.0.0.1:0".to_owned(),
-        tcp_listen_address: None,
-        ws_listen_address: None,
-        max_request_body_size: 20_000_000,
-        threads: None,
-        // enable all rpc modules in unit test
-        modules: vec![
-            RpcModule::Net,
-            RpcModule::Chain,
-            RpcModule::Miner,
-            RpcModule::Pool,
-            RpcModule::Experiment,
-            RpcModule::Stats,
-            RpcModule::IntegrationTest,
-            RpcModule::Alert,
-            RpcModule::Subscription,
-            RpcModule::Debug,
-        ],
-        reject_ill_transactions: true,
-        // enable deprecated rpc in unit test
-        enable_deprecated_rpc: true,
-        extra_well_known_lock_scripts: vec![],
-        extra_well_known_type_scripts: vec![],
-    };
-
-    let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), vec![], vec![])
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            true,
-        )
-        .enable_net(network_controller.clone(), sync_shared)
-        .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
-        .enable_experiment(shared.clone())
-        .enable_integration_test(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-        )
-        .enable_debug()
-        .enable_alert(alert_verifier, alert_notifier, network_controller);
-    let io_handler = builder.build();
-
-    let rpc_server = RpcServer::new(
-        rpc_config,
-        io_handler,
-        shared.notify_controller(),
-        shared.async_handle().clone().into_inner(),
-    );
-    let rpc_uri = format!(
-        "http://{}:{}/",
-        rpc_server.http_address().ip(),
-        rpc_server.http_address().port()
-    );
-    let rpc_client = reqwest::blocking::Client::new();
-
-    let suite = RpcTestSuite {
-        shared,
-        chain_controller: chain_controller.clone(),
-        rpc_server,
-        rpc_uri,
-        rpc_client,
-        _tmp_dir: temp_dir,
-    };
-
-    suite.wait_block_template_number(height + 1);
-
-    // insert a fork block for rpc `get_fork_block` test
-    {
-        let fork_block = parent
-            .as_advanced_builder()
-            .header(
-                parent
-                    .header()
-                    .as_advanced_builder()
-                    .timestamp((parent.header().timestamp() + 1).pack())
-                    .build(),
-            )
-            .build();
-        chain_controller
-            .process_block(Arc::new(fork_block))
-            .expect("processing new block should be ok");
-    }
-
-    suite.send_example_transaction();
-
-    suite
-}
-
-fn find_comment(line: &str) -> Option<&str> {
-    let line = line.trim();
-    if line.starts_with("///") || line.starts_with("//!") {
-        Some(line[3..].trim())
-    } else {
-        None
-    }
-}
 
 fn find_rpc_method(line: &str) -> Option<&str> {
     let line = line.trim();
@@ -390,6 +99,34 @@ fn collect_code_block(
     }
 
     Ok(())
+}
+
+fn construct_example_transaction() -> TransactionView {
+    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().pack(), 0);
+    let input = CellInput::new(previous_output, 0);
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(always_success_cell().2.clone())
+        .build();
+    let cell_dep = CellDep::new_builder()
+        .out_point(OutPoint::new(always_success_transaction().hash(), 0))
+        .build();
+    TransactionBuilder::default()
+        .input(input)
+        .output(output)
+        .output_data(Default::default())
+        .cell_dep(cell_dep)
+        .header_dep(always_success_consensus().genesis_hash())
+        .build()
+}
+
+fn find_comment(line: &str) -> Option<&str> {
+    let line = line.trim();
+    if line.starts_with("///") || line.starts_with("//!") {
+        Some(line[3..].trim())
+    } else {
+        None
+    }
 }
 
 fn collect_rpc_examples_in_file(
@@ -588,7 +325,8 @@ impl RpcTestSuite {
 /// Edit `around_rpc_example`.
 #[test]
 fn test_rpc_examples() {
-    let suite = setup_rpc_test_suite(TARGET_HEIGHT);
+    let suite = setup_rpc_test_suite(TARGET_HEIGHT, None);
+    suite.send_example_transaction();
     for example in collect_rpc_examples().expect("collect RPC examples") {
         println!("Test RPC Example {}", example.request);
         around_rpc_example(&suite, example);

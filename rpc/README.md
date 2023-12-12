@@ -99,7 +99,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `get_deployments_info`](#method-get_deployments_info)
     * [Module Subscription](#module-subscription)
         * [Method `subscribe`](#method-subscribe)
-        * [Method `unsubscribe`](#method-unsubscribe)
 * [RPC Errors](#rpc-errors)
 * [RPC Types](#rpc-types)
     * [Type `Alert`](#type-alert)
@@ -4956,7 +4955,7 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 ###### Examples
 
-Request
+Subscribe Request
 
 
 ```
@@ -4971,32 +4970,19 @@ Request
 ```
 
 
-Response
+Subscribe Response
 
 
 ```
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x2a"
+  "result": "0xf3"
 }
 ```
 
 
-#### Method `unsubscribe`
-* `unsubscribe(id)`
-    * `id`: `string`
-* result: `boolean`
-
-Unsubscribes from a subscribed topic.
-
-###### Params
-
-*   `id` - Subscription ID
-
-###### Examples
-
-Request
+Unsubscribe Request
 
 
 ```
@@ -5005,13 +4991,13 @@ Request
   "jsonrpc": "2.0",
   "method": "unsubscribe",
   "params": [
-    "0x2a"
+    "0xf3"
   ]
 }
 ```
 
 
-Response
+Unsubscribe Response
 
 
 ```

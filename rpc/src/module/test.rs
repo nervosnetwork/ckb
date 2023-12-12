@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, EpochNumberWithFraction, Transaction};
@@ -20,12 +21,13 @@ use ckb_types::{
 };
 use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 /// RPC for Integration Test.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IntegrationTestRpc {
     /// process block without any block verification.
     ///
@@ -498,12 +500,14 @@ pub trait IntegrationTestRpc {
     fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IntegrationTestRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
     pub chain: ChainController,
 }
 
+#[async_trait]
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();

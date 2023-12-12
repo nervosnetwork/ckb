@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
     Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
@@ -26,7 +27,7 @@ use ckb_types::{
 use ckb_verification::ScriptVerifier;
 use ckb_verification::TxVerifyEnv;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -52,7 +53,8 @@ use std::sync::Arc;
 /// * it is found as an output in any transaction in the [canonical chain](#canonical-chain),
 /// and
 /// * it is not found as an input in any transaction in the canonical chain.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait ChainRpc {
     /// Returns the information about a block by hash.
     ///
@@ -1606,6 +1608,7 @@ pub trait ChainRpc {
     fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct ChainRpcImpl {
     pub shared: Shared,
 }
@@ -1614,6 +1617,7 @@ const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
 const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 
+#[async_trait]
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
         &self,

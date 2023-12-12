@@ -1,12 +1,14 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_jsonrpc_types::Alert;
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
+
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 /// RPC Module Alert for network alerts.
@@ -15,7 +17,8 @@ use std::sync::Arc;
 ///
 /// The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
 /// and belong to early CKB developers.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait AlertRpc {
     /// Sends an alert.
     ///
@@ -70,6 +73,7 @@ pub trait AlertRpc {
     fn send_alert(&self, alert: Alert) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub(crate) struct AlertRpcImpl {
     network_controller: NetworkController,
     verifier: Arc<AlertVerifier>,
@@ -90,6 +94,7 @@ impl AlertRpcImpl {
     }
 }
 
+#[async_trait]
 impl AlertRpc for AlertRpcImpl {
     fn send_alert(&self, alert: Alert) -> Result<()> {
         let alert: packed::Alert = alert.into();

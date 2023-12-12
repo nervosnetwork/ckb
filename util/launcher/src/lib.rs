@@ -20,7 +20,8 @@ use ckb_network::{
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
-use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_rpc::RpcServer;
+use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
@@ -259,7 +260,7 @@ impl Launcher {
         chain_controller: ChainController,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
-    ) -> (NetworkController, RpcServer) {
+    ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
             self.args.config.network.sync.clone(),
@@ -375,7 +376,7 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config)
+        let mut builder = ServiceBuilder::new(&rpc_config)
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
@@ -407,15 +408,12 @@ impl Launcher {
                 &self.args.config.indexer,
             )
             .enable_debug();
+        builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        let rpc_server = RpcServer::new(
-            rpc_config.clone(),
-            io_handler,
-            shared.notify_controller(),
-            self.async_handle.clone().into_inner(),
-        );
+        let async_handle = shared.async_handle();
+        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
 
-        (network_controller, rpc_server)
+        network_controller
     }
 }

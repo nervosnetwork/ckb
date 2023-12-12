@@ -1,14 +1,16 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_indexer::IndexerHandle;
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
     IndexerTip, IndexerTx, JsonBytes, Uint32,
 };
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Indexer.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IndexerRpc {
     /// Returns the indexed tip
     ///
@@ -873,6 +875,7 @@ pub trait IndexerRpc {
     ) -> Result<Option<IndexerCellsCapacity>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IndexerRpcImpl {
     pub(crate) handle: IndexerHandle,
 }
@@ -883,6 +886,7 @@ impl IndexerRpcImpl {
     }
 }
 
+#[async_trait]
 impl IndexerRpc for IndexerRpcImpl {
     fn get_indexer_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle

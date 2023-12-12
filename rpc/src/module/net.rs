@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
@@ -7,14 +8,15 @@ use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
 
 /// RPC Module Net for P2P network.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait NetRpc {
     /// Returns the local node information.
     ///
@@ -531,11 +533,13 @@ pub trait NetRpc {
     fn ping_peers(&self) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub(crate) struct NetRpcImpl {
     pub network_controller: NetworkController,
     pub sync_shared: Arc<SyncShared>,
 }
 
+#[async_trait]
 impl NetRpc for NetRpcImpl {
     fn local_node_info(&self) -> Result<LocalNode> {
         Ok(LocalNode {

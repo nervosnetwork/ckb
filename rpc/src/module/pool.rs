@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_jsonrpc_types::{
@@ -9,11 +10,12 @@ use ckb_shared::shared::Shared;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 /// RPC Module Pool for transaction memory pool.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait PoolRpc {
     /// Submits a new transaction into the transaction pool. If the transaction is already in the
     /// pool, rebroadcast it to peers.
@@ -324,6 +326,7 @@ pub trait PoolRpc {
     fn tx_pool_ready(&self) -> Result<bool>;
 }
 
+#[derive(Clone)]
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
     well_known_lock_scripts: Vec<packed::Script>,
@@ -428,6 +431,7 @@ fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
     }).expect("checked json str").into_iter().map(Into::into).collect()
 }
 
+#[async_trait]
 impl PoolRpc for PoolRpcImpl {
     fn tx_pool_ready(&self) -> Result<bool> {
         let tx_pool = self.shared.tx_pool_controller();
