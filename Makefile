@@ -157,10 +157,12 @@ prod-with-debug:
 .PHONY: docker
 docker: ## Build docker image
 	docker build -f docker/hub/Dockerfile -t nervos/ckb:x64-$$(git describe) .
-	docker run --rm -it nervos/ckb:$$(git describe) --version
+	docker run --rm -it nervos/ckb:x64-$$(git describe) --version
 
+.PHONY: docker-aarch64
 docker-aarch64:
 	docker build -f docker/hub/Dockerfile-aarch64 -t nervos/ckb:aarch64-$$(git describe) .
+	docker run --rm -it nervos/ckb:aarch64-$$(git describe) --version
 
 .PHONY: docker-publish
 docker-publish:
