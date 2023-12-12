@@ -1700,8 +1700,8 @@ pub struct SyncState {
 }
 
 impl SyncState {
-    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
-        self.assume_valid_target.lock()
+    pub fn assume_valid_target(&self) -> Option<&H256> {
+        self.assume_valid_target.as_ref()
     }
 
     pub fn min_chain_work(&self) -> &U256 {
