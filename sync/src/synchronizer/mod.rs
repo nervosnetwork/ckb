@@ -117,7 +117,6 @@ impl BlockFetchCMD {
                 let number = best_known.number();
                 let assume_valid_target: Byte32 = state
                     .assume_valid_target()
-                    .as_ref()
                     .map(Pack::pack)
                     .expect("assume valid target must exist");
 
@@ -167,7 +166,7 @@ impl BlockFetchCMD {
 
         let assume_valid_target_find = |flag: &mut CanStart| {
             let mut assume_valid_target = state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
+            if let Some(target) = assume_valid_target {
                 match state.header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
