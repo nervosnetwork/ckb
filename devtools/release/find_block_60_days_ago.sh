@@ -31,7 +31,7 @@ function get_60days_ago_block(){
 	do
 		MID_NUMBER=$(printf "0x%x\n" $(( ($START_NUMBER + $END_NUMBER) / 2 )))
 		MID_TIMESTAMP=$(get_block_timestamp ${host} ${MID_NUMBER})
-		
+
 		if [[ $(($MID_TIMESTAMP + ((61 * 24 * 60 * 60 * 1000)) )) -gt ${TIP_TIMESTAMP} ]]; then
 			END_NUMBER=${MID_NUMBER}
 		else
