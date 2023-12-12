@@ -107,7 +107,7 @@ impl Setup {
 
         if let Some(ref assume_valid_target) = config.network.sync.assume_valid_target {
             if assume_valid_target
-                == &H256::from_slice(&vec![0; 32]).expect("must parse Zero h256 successful")
+                == &H256::from_slice(&[0; 32]).expect("must parse Zero h256 successful")
             {
                 info!("Disable assume valid target since assume_valid_target is zero");
                 config.network.sync.assume_valid_target = None
