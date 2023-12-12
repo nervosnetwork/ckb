@@ -48,7 +48,7 @@ CREATE TABLE tx_association_header_dep(
 CREATE TABLE tx_association_cell_dep(
     id BIGSERIAL,
     tx_id BIGINT NOT NULL,
-    output_tx_id BIGINT NOT NULL,
+    output_tx_hash BYTEA NOT NULL,
     output_index INTEGER NOT NULL,
     dep_type SMALLINT NOT NULL
 );

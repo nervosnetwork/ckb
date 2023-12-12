@@ -48,7 +48,7 @@ CREATE TABLE tx_association_header_dep(
 CREATE TABLE tx_association_cell_dep(
     id INTEGER PRIMARY KEY,
     tx_id INTEGER NOT NULL,
-    output_tx_id INTEGER NOT NULL,
+    output_tx_hash BLOB NOT NULL,
     output_index INTEGER NOT NULL,
     dep_type INTEGER NOT NULL
 );

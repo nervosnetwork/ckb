@@ -6,7 +6,7 @@ use ckb_indexer_sync::Error;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockView, TransactionView},
-    packed::{Byte, CellInput, CellOutput, OutPoint, OutPointBuilder, ScriptBuilder},
+    packed::{Byte, CellInput, CellOutput, OutPoint, ScriptBuilder},
     prelude::*,
 };
 use seq_macro::seq;
@@ -273,64 +273,54 @@ async fn bulk_insert_block_association_uncle_table(
     Ok(())
 }
 
-pub(crate) async fn bulk_insert_transaction_table<'a, T>(
-    tx_views: T,
+pub(crate) async fn insert_transaction_table(
+    block_id: i64,
+    tx_index: usize,
+    tx_view: &TransactionView,
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error>
-where
-    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
-{
-    let tx_rows: Vec<_> = tx_views
-        .map(|(block_hash, tx_index, transaction)| {
-            (
-                transaction.hash().raw_data().to_vec(),
-                transaction.version() as i16,
-                transaction.inputs().len() as i32,
-                transaction.outputs().len() as i32,
-                transaction.witnesses().as_bytes().to_vec(),
-                block_hash.to_vec(),
-                *tx_index as i32,
-            )
-        })
-        .collect();
+) -> Result<i64, Error> {
+    let tx_row = (
+        tx_view.hash().raw_data().to_vec(),
+        tx_view.version() as i16,
+        tx_view.inputs().len() as i32,
+        tx_view.outputs().len() as i32,
+        tx_view.witnesses().as_bytes().to_vec(),
+        block_id,
+        tx_index as i32,
+    );
 
-    for start in (0..tx_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
-        let end = (start + BATCH_SIZE_THRESHOLD).min(tx_rows.len());
-
-        // build query str
-        let mut builder = SqlBuilder::insert_into("ckb_transaction");
-        builder.field(
-            r#"tx_hash, 
+    // build query str
+    let mut builder = SqlBuilder::insert_into("ckb_transaction");
+    builder.field(
+        r#"tx_hash, 
             version, 
             input_count, 
             output_count, 
             witnesses,
-            block_hash,   
+            block_id,   
             tx_index"#,
-        );
-        push_values_placeholders(&mut builder, 7, end - start);
-        let sql = builder
-            .sql()
-            .map_err(|err| Error::DB(err.to_string()))?
-            .trim_end_matches(';')
-            .to_string();
+    );
+    push_values_placeholders(&mut builder, 7, 1);
+    let sql = builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+    let sql = format!("{} RETURNING id", sql);
 
-        // bind
-        let mut query = SQLXPool::new_query(&sql);
-        for row in tx_rows[start..end].iter() {
-            seq!(i in 0..7 {
-                query = query.bind(&row.i);
-            });
-        }
+    // bind
+    let mut query = SQLXPool::new_query(&sql);
+    seq!(i in 0..7 {
+        query = query.bind(&tx_row.i);
+    });
 
-        // execute
-        query
-            .execute(&mut *tx)
-            .await
-            .map_err(|err| Error::DB(err.to_string()))?;
-    }
+    // execute
+    let row = query
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(())
+    Ok(row.get::<i64, _>("id"))
 }
 
 pub(crate) fn build_output_cell_rows(
@@ -338,32 +328,18 @@ pub(crate) fn build_output_cell_rows(
     tx_view: &TransactionView,
     output_index: usize,
     data: &Bytes,
-    output_cell_rows: &mut Vec<(
-        Vec<u8>,
-        i64,
-        Vec<u8>,
-        Vec<u8>,
-        Option<Vec<u8>>,
-        Vec<u8>,
-        i32,
-    )>,
+    output_cell_rows: &mut Vec<(Vec<u8>, i32, i64, Vec<u8>, Option<Vec<u8>>, Vec<u8>)>,
 ) -> Result<(), Error> {
     let cell_capacity: u64 = cell.capacity().unpack();
     let cell_row = (
-        OutPointBuilder::default()
-            .tx_hash(tx_view.hash())
-            .index(output_index.pack())
-            .build()
-            .as_bytes()
-            .to_vec(),
+        tx_view.hash().raw_data().to_vec(),
+        i32::try_from(output_index).map_err(|err| Error::DB(err.to_string()))?,
         i64::try_from(cell_capacity).map_err(|err| Error::DB(err.to_string()))?,
-        data.to_vec(),
         cell.lock().calc_script_hash().raw_data().to_vec(),
         cell.type_()
             .to_opt()
             .map(|type_script| type_script.calc_script_hash().raw_data().to_vec()),
-        tx_view.hash().raw_data().to_vec(),
-        i32::try_from(output_index).map_err(|err| Error::DB(err.to_string()))?,
+        data.to_vec(),
     );
     output_cell_rows.push(cell_row);
     Ok(())
@@ -371,7 +347,7 @@ pub(crate) fn build_output_cell_rows(
 
 pub(crate) async fn build_script_set(
     cell: &CellOutput,
-    script_set: &mut HashSet<(Vec<u8>, Vec<u8>, Vec<u8>, i16)>,
+    script_set: &mut HashSet<(Vec<u8>, Vec<u8>, i16, Vec<u8>)>,
 ) -> Result<(), Error> {
     if let Some(type_script) = cell.type_().to_opt() {
         let type_hash = type_script.calc_script_hash().raw_data();
@@ -380,11 +356,11 @@ pub(crate) async fn build_script_set(
         let type_script_row = (
             type_hash.to_vec(),
             type_script.code_hash().raw_data().to_vec(),
-            type_script_args.to_vec(),
             i16::try_from(
                 u8::try_from(type_script.hash_type()).map_err(|err| Error::DB(err.to_string()))?,
             )
             .map_err(|err| Error::DB(err.to_string()))?,
+            type_script_args.to_vec(),
         );
         script_set.insert(type_script_row);
     }
@@ -395,32 +371,13 @@ pub(crate) async fn build_script_set(
     let lock_script_row = (
         lock_hash.to_vec(),
         lock_script.code_hash().raw_data().to_vec(),
-        lock_script_args.to_vec(),
         i16::try_from(
             u8::try_from(lock_script.hash_type()).map_err(|err| Error::DB(err.to_string()))?,
         )
         .map_err(|err| Error::DB(err.to_string()))?,
+        lock_script_args.to_vec(),
     );
     script_set.insert(lock_script_row);
-
-    Ok(())
-}
-
-pub(crate) fn build_output_association_script_rows(
-    cell: &CellOutput,
-    out_point: &OutPoint,
-    output_association_script_rows: &mut Vec<(Vec<u8>, Vec<u8>)>,
-) -> Result<(), Error> {
-    if let Some(type_script) = cell.type_().to_opt() {
-        let type_hash = type_script.calc_script_hash().raw_data();
-        let row = (out_point.as_bytes().to_vec(), type_hash.to_vec());
-        output_association_script_rows.push(row)
-    }
-
-    let lock_script = cell.lock();
-    let lock_hash = lock_script.calc_script_hash().raw_data();
-    let row = (out_point.as_bytes().to_vec(), lock_hash.to_vec());
-    output_association_script_rows.push(row);
 
     Ok(())
 }
@@ -443,15 +400,7 @@ pub(crate) fn build_input_rows(
 }
 
 pub(crate) async fn bulk_insert_output_table(
-    output_cell_rows: &[(
-        Vec<u8>,
-        i64,
-        Vec<u8>,
-        Vec<u8>,
-        Option<Vec<u8>>,
-        Vec<u8>,
-        i32,
-    )],
+    output_cell_rows: &[(Vec<u8>, i32, i64, Vec<u8>, Option<Vec<u8>>, Vec<u8>)],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // bulk insert
@@ -462,15 +411,14 @@ pub(crate) async fn bulk_insert_output_table(
         let mut builder = SqlBuilder::insert_into("output");
         builder.field(
             r#"
-            out_point,
+            tx_id,
+            output_index,
             capacity,
-            data,
-            lock_script_hash,
-            type_script_hash,
-            tx_hash,
-            output_index"#,
+            lock_script_id,
+            type_script_id,
+            data"#,
         );
-        push_values_placeholders(&mut builder, 7, end - start);
+        push_values_placeholders(&mut builder, 6, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -480,7 +428,7 @@ pub(crate) async fn bulk_insert_output_table(
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in output_cell_rows[start..end].iter() {
-            seq!(i in 0..7 {
+            seq!(i in 0..6 {
                 query = query.bind(&row.i);
             });
         }
@@ -538,7 +486,7 @@ pub(crate) async fn bulk_insert_input_table(
 }
 
 pub(crate) async fn bulk_insert_script_table(
-    script_set: &HashSet<(Vec<u8>, Vec<u8>, Vec<u8>, i16)>,
+    script_set: &HashSet<(Vec<u8>, Vec<u8>, i16, Vec<u8>)>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let script_rows = script_set.iter().cloned().collect::<Vec<_>>();
@@ -580,23 +528,15 @@ pub(crate) async fn bulk_insert_script_table(
     Ok(())
 }
 
-pub(crate) async fn bulk_insert_tx_association_header_dep_table<'a, T>(
-    tx_views: T,
+pub(crate) async fn bulk_insert_tx_association_header_dep_table(
+    tx_id: i64,
+    tx_view: &TransactionView,
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error>
-where
-    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
-{
+) -> Result<(), Error> {
     let mut tx_association_header_dep_rows = Vec::new();
-
-    for (_, _, tx_view) in tx_views {
-        for header_dep in tx_view.header_deps_iter() {
-            let row = (
-                tx_view.hash().raw_data().to_vec(),
-                header_dep.raw_data().to_vec(),
-            );
-            tx_association_header_dep_rows.push(row);
-        }
+    for header_dep in tx_view.header_deps_iter() {
+        let row = (tx_id, header_dep.raw_data().to_vec());
+        tx_association_header_dep_rows.push(row);
     }
 
     // bulk insert
@@ -607,7 +547,7 @@ where
         let mut builder = SqlBuilder::insert_into("tx_association_header_dep");
         builder.field(
             r#"
-            tx_hash,
+            tx_id,
             block_hash"#,
         );
         push_values_placeholders(&mut builder, 2, end - start);
@@ -635,27 +575,23 @@ where
     Ok(())
 }
 
-pub(crate) async fn bulk_insert_tx_association_cell_dep_table<'a, T>(
-    tx_views: T,
+pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
+    tx_id: i64,
+    tx_view: &TransactionView,
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error>
-where
-    T: Iterator<Item = &'a (Vec<u8>, usize, TransactionView)>,
-{
-    let mut tx_association_cell_dep_rows = Vec::new();
-
-    for (_, _, tx_view) in tx_views {
-        for cell_dep in tx_view.cell_deps_iter() {
-            let row = (
-                tx_view.hash().raw_data().to_vec(),
-                cell_dep.out_point().as_bytes().to_vec(),
-                i16::try_from(
-                    u8::try_from(cell_dep.dep_type()).map_err(|err| Error::DB(err.to_string()))?,
-                )
-                .map_err(|err| Error::DB(err.to_string()))?,
-            );
-            tx_association_cell_dep_rows.push(row);
-        }
+) -> Result<(), Error> {
+    let mut tx_association_cell_dep_rows: Vec<(i64, Vec<u8>, i32, i16)> = Vec::new();
+    for cell_dep in tx_view.cell_deps_iter() {
+        let row = (
+            tx_id,
+            cell_dep.out_point().tx_hash().raw_data().to_vec(),
+            {
+                let idx: u32 = cell_dep.out_point().index().unpack();
+                idx as i32
+            },
+            u8::try_from(cell_dep.dep_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+        );
+        tx_association_cell_dep_rows.push(row);
     }
 
     // bulk insert
@@ -666,11 +602,12 @@ where
         let mut builder = SqlBuilder::insert_into("tx_association_cell_dep");
         builder.field(
             r#"
-            tx_hash,
-            out_point,
+            tx_id,
+            output_tx_hash,
+            output_index,
             dep_type"#,
         );
-        push_values_placeholders(&mut builder, 3, end - start);
+        push_values_placeholders(&mut builder, 4, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -680,7 +617,7 @@ where
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in tx_association_cell_dep_rows[start..end].iter() {
-            seq!(i in 0..3 {
+            seq!(i in 0..4 {
                 query = query.bind(&row.i);
             });
         }
