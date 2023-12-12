@@ -184,6 +184,7 @@ impl BlockFetchCMD {
                             .saturating_sub(state.shared_best_header_ref().timestamp())
                             < MAX_TIP_AGE
                         {
+                            warn!("the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on");
                             *flag = CanStart::Ready;
                             assume_valid_target.take();
                         }
