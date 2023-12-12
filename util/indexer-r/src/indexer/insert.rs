@@ -23,18 +23,18 @@ use std::collections::HashSet;
 // which should be within the above limits.
 pub(crate) const BATCH_SIZE_THRESHOLD: usize = 1_000;
 
-pub(crate) async fn append_blocks(
-    block_views: &[BlockView],
+pub(crate) async fn append_block(
+    block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
+) -> Result<i64, Error> {
+    let block_views = vec![block_view.clone()];
+
     // insert "uncle" first so that the row with the maximum ID in the "block" table corresponds to the tip block.
-    bulk_insert_uncle_blocks(block_views, tx).await?;
-
-    bulk_insert_block_table(block_views, tx).await?;
-    bulk_insert_block_association_proposal_table(block_views, tx).await?;
-    bulk_insert_block_association_uncle_table(block_views, tx).await?;
-
-    Ok(())
+    let uncle_id_list = bulk_insert_uncle_blocks(block_view, tx).await?;
+    let block_id_list = bulk_insert_block_table(&block_views, tx).await?;
+    bulk_insert_block_association_proposal_table(&block_id_list, &block_views, tx).await?;
+    bulk_insert_block_association_uncle_table(block_id_list[0], &uncle_id_list, tx).await?;
+    Ok(block_id_list[0])
 }
 
 pub(crate) async fn bulk_insert_blocks_simple(
@@ -77,32 +77,31 @@ pub(crate) async fn bulk_insert_blocks_simple(
 }
 
 pub(crate) async fn bulk_insert_uncle_blocks(
-    block_views: &[BlockView],
+    block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let uncle_blocks = block_views
-        .iter()
-        .flat_map(|block_view| {
-            block_view.uncles().into_iter().map(|uncle| {
-                let uncle_block_header = uncle.header();
-                BlockView::new_advanced_builder()
-                    .header(uncle_block_header)
-                    .proposals(uncle.data().proposals())
-                    .build()
-            })
+) -> Result<Vec<i64>, Error> {
+    let uncle_blocks = block_view
+        .uncles()
+        .into_iter()
+        .map(|uncle| {
+            let uncle_block_header = uncle.header();
+            BlockView::new_advanced_builder()
+                .header(uncle_block_header)
+                .proposals(uncle.data().proposals())
+                .build()
         })
         .collect::<Vec<_>>();
 
-    bulk_insert_block_table(&uncle_blocks, tx).await?;
-    bulk_insert_block_association_proposal_table(&uncle_blocks, tx).await?;
+    let uncle_id_list = bulk_insert_block_table(&uncle_blocks, tx).await?;
+    bulk_insert_block_association_proposal_table(&uncle_id_list, &uncle_blocks, tx).await?;
 
-    Ok(())
+    Ok(uncle_id_list)
 }
 
 async fn bulk_insert_block_table(
     block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
+) -> Result<Vec<i64>, Error> {
     let block_rows: Vec<_> = block_views
         .iter()
         .map(|block_view| {
@@ -125,6 +124,7 @@ async fn bulk_insert_block_table(
         })
         .collect();
 
+    let mut block_id_list = Vec::new();
     for start in (0..block_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
         let end = (start + BATCH_SIZE_THRESHOLD).min(block_rows.len());
 
@@ -154,6 +154,7 @@ async fn bulk_insert_block_table(
             .map_err(|err| Error::DB(err.to_string()))?
             .trim_end_matches(';')
             .to_string();
+        let sql = format!("{} RETURNING id", sql);
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -164,25 +165,28 @@ async fn bulk_insert_block_table(
         }
 
         // execute
-        query
-            .execute(&mut *tx)
+        let mut rows = query
+            .fetch_all(&mut *tx)
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
+        block_id_list.append(&mut rows);
     }
-    Ok(())
+    let ret: Vec<_> = block_id_list
+        .iter()
+        .map(|row| row.get::<i64, _>("id"))
+        .collect();
+    Ok(ret)
 }
 
 async fn bulk_insert_block_association_proposal_table(
+    block_id_list: &[i64],
     block_views: &[BlockView],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let mut block_association_proposal_rows: Vec<_> = Vec::new();
-    for block_view in block_views {
+    for (block_id, block_view) in block_id_list.iter().zip(block_views) {
         for proposal_hash in block_view.data().proposals().into_iter() {
-            let row = (
-                block_view.hash().raw_data().to_vec(),
-                proposal_hash.raw_data().to_vec(),
-            );
+            let row = (block_id, proposal_hash.raw_data().to_vec());
             block_association_proposal_rows.push(row);
         }
     }
@@ -195,7 +199,7 @@ async fn bulk_insert_block_association_proposal_table(
         let mut builder = SqlBuilder::insert_into("block_association_proposal");
         builder.field(
             r#"
-            block_hash,
+            block_id,
             proposal"#,
         );
         push_values_placeholders(&mut builder, 2, end - start);
@@ -224,20 +228,14 @@ async fn bulk_insert_block_association_proposal_table(
 }
 
 async fn bulk_insert_block_association_uncle_table(
-    block_views: &[BlockView],
+    block_id: i64,
+    uncle_id_list: &[i64],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let mut block_association_uncle_rows: Vec<_> = Vec::new();
-
-    for block_view in block_views {
-        for uncle in block_view.uncles().into_iter() {
-            let row = (
-                block_view.hash().raw_data().to_vec(),
-                uncle.hash().raw_data().to_vec(),
-            );
-            block_association_uncle_rows.push(row);
-        }
-    }
+    let block_association_uncle_rows: Vec<_> = uncle_id_list
+        .into_iter()
+        .map(|uncle_id| (block_id, uncle_id))
+        .collect();
 
     // bulk insert
     for start in (0..block_association_uncle_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
@@ -247,8 +245,8 @@ async fn bulk_insert_block_association_uncle_table(
         let mut builder = SqlBuilder::insert_into("block_association_uncle");
         builder.field(
             r#"
-            block_hash,
-            uncle_hash"#,
+            block_id,
+            uncle_id"#,
         );
         push_values_placeholders(&mut builder, 2, end - start);
         let sql = builder

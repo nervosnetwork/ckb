@@ -137,7 +137,7 @@ impl AsyncIndexerR {
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         if self.custom_filters.is_block_filter_match(block) {
-            append_blocks(&[block.clone()], &mut tx).await?;
+            let _block_id = append_block(block, &mut tx).await?;
             self.insert_transactions(&vec![block.clone()], &mut tx)
                 .await?;
         } else {
