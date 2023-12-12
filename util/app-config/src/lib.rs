@@ -112,7 +112,7 @@ impl Setup {
                 info!("Disable assume valid target since assume_valid_target is zero");
                 config.network.sync.assume_valid_target = None
             } else {
-                info!("assume_valid_target set to {:?}", assume_valid_target);
+                info!("assume_valid_target set to 0x{}", assume_valid_target);
             }
         }
 
