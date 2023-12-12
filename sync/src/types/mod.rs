@@ -1695,7 +1695,7 @@ pub struct SyncState {
 
     /* cached for sending bulk */
     tx_relay_receiver: Receiver<TxVerificationResult>,
-    assume_valid_target: Mutex<Option<H256>>,
+    assume_valid_target: Option<H256>,
     min_chain_work: U256,
 }
 
