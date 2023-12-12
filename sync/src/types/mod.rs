@@ -1463,9 +1463,10 @@ impl SyncShared {
     ) -> Result<bool, CKBError> {
         let ret = {
             let mut assume_valid_target = self.state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
+            if let Some(target) = assume_valid_target {
                 // if the target has been reached, delete it
-                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                let block_hash: H256 = Unpack::<H256>::unpack(&core::BlockView::hash(&block));
+                let switch = if target.eq(&block_hash) {
                     assume_valid_target.take();
                     Switch::NONE
                 } else {
