@@ -4,7 +4,7 @@ mod remove;
 pub(crate) use insert::*;
 pub(crate) use remove::*;
 
-use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, AsyncIndexerRHandle, IndexerRHandle};
+use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, IndexerRHandle};
 
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
@@ -147,25 +147,15 @@ impl AsyncIndexerR {
     }
 
     pub(crate) async fn rollback(&self) -> Result<(), Error> {
-        let indexer_handle = AsyncIndexerRHandle::new(self.store.clone(), self.pool.clone());
-        let tip = indexer_handle
-            .query_indexer_tip()
+        let mut tx = self
+            .store
+            .transaction()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
 
-        if let Some(tip) = tip {
-            let mut tx = self
-                .store
-                .transaction()
-                .await
-                .map_err(|err| Error::DB(err.to_string()))?;
+        rollback_block(&mut tx).await?;
 
-            rollback_block(tip.block_hash, &mut tx).await?;
-
-            return tx.commit().await.map_err(|err| Error::DB(err.to_string()));
-        }
-
-        Ok(())
+        tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
 
     pub(crate) async fn insert_transactions(
@@ -198,13 +188,7 @@ impl AsyncIndexerR {
                 .custom_filters
                 .is_cell_filter_match(&cell, &data.pack())
             {
-                build_output_cell_rows(
-                    &cell,
-                    &tx_view,
-                    output_index,
-                    &data,
-                    &mut output_cell_rows,
-                )?;
+                build_output_cell_rows(&cell, output_index, &data, &mut output_cell_rows);
                 build_script_set(&cell, &mut script_set).await?;
                 is_tx_matched = true;
             }
@@ -212,22 +196,32 @@ impl AsyncIndexerR {
 
         if tx_index != 0 {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
-                let mut is_match = true;
-                if self.custom_filters.is_cell_filter_enabled() {
-                    let out_point = input.previous_output();
-                    let (output, output_data) =
-                        query_cell_output(&out_point, tx)
-                            .await?
-                            .ok_or(Error::DB(format!(
-                                "Failed to query output by out_point: {:?}",
-                                out_point
-                            )))?;
-                    is_match = self
-                        .custom_filters
-                        .is_cell_filter_match(&output, &output_data.pack());
-                }
-                if is_match {
-                    build_input_rows(&tx_view, &input, input_index, &mut input_rows)?;
+                let out_point = input.previous_output();
+                let (output_tx_id, output_index) =
+                    query_out_point(&out_point, tx)
+                        .await?
+                        .ok_or(Error::DB(format!(
+                            "Failed to query out_point: {:?}",
+                            out_point
+                        )))?;
+                let (output_id, output, output_data) =
+                    query_cell_output(output_tx_id, output_index, tx)
+                        .await?
+                        .ok_or(Error::DB(format!(
+                            "Failed to query output by output_tx_id {:?} and output_index {:?}",
+                            output_tx_id, output_index
+                        )))?;
+                if self
+                    .custom_filters
+                    .is_cell_filter_match(&output, &output_data.pack())
+                {
+                    build_input_rows(
+                        output_id,
+                        &input,
+                        tx_view.hash().raw_data().to_vec(),
+                        input_index,
+                        &mut input_rows,
+                    );
                     is_tx_matched = true;
                 }
             }
@@ -241,10 +235,8 @@ impl AsyncIndexerR {
         bulk_insert_tx_association_header_dep_table(tx_id, &tx_view, tx).await?;
         bulk_insert_tx_association_cell_dep_table(tx_id, &tx_view, tx).await?;
 
-        bulk_insert_output_table(&output_cell_rows, tx).await?;
+        bulk_insert_input_table(tx_id, &input_rows, tx).await?;
         bulk_insert_script_table(&script_set, tx).await?;
-        bulk_insert_input_table(&input_rows, tx).await?;
-
-        Ok(())
+        bulk_insert_output_table(tx_id, &output_cell_rows, tx).await
     }
 }

@@ -64,7 +64,7 @@ CREATE TABLE output(
 );
 
 CREATE TABLE input(
-    previous_output_id BIGINT PRIMARY KEY,
+    output_id BIGINT PRIMARY KEY,
     since BYTEA NOT NULL,
     consumed_tx_id BIGINT NOT NULL,
     input_index INTEGER NOT NULL
@@ -74,5 +74,6 @@ CREATE TABLE script(
     id BIGSERIAL PRIMARY KEY,
     code_hash BYTEA,
     hash_type SMALLINT,
-    args BYTEA
+    args BYTEA,
+    UNIQUE(code_hash, args)
 );

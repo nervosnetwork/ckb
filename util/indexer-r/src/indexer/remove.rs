@@ -1,92 +1,59 @@
 use super::*;
-use crate::indexer_handle::{bytes_to_h256, sqlx_param_placeholders};
+use crate::indexer_handle::sqlx_param_placeholders;
 
 use ckb_indexer_sync::Error;
-use ckb_types::{bytes::Bytes, packed::OutPoint, H256};
 use sql_builder::SqlBuilder;
 use sqlx::{Any, Row, Transaction};
 
-pub(crate) async fn rollback_block(
-    block_hash: H256,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let tx_hashes = query_transaction_hashes_by_block_hash(block_hash.as_bytes(), tx).await?;
-    let outputs = query_outputs_by_tx_hashes(&tx_hashes, tx).await?;
+pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), Error> {
+    let block_id = if let Some(block_id) = query_tip_id(tx).await? {
+        block_id
+    } else {
+        return Ok(());
+    };
 
-    // remove transactions, associations, inputs
-    let tx_hashes_to_remove: Vec<Vec<u8>> = tx_hashes
-        .iter()
-        .map(|hash| hash.as_bytes().to_vec())
-        .collect();
-    remove_batch_by_blobs("ckb_transaction", "tx_hash", &tx_hashes_to_remove, tx).await?;
-    remove_batch_by_blobs(
-        "tx_association_cell_dep",
-        "tx_hash",
-        &tx_hashes_to_remove,
-        tx,
-    )
-    .await?;
-    remove_batch_by_blobs(
-        "tx_association_header_dep",
-        "tx_hash",
-        &tx_hashes_to_remove,
-        tx,
-    )
-    .await?;
-    remove_batch_by_blobs("input", "tx_hash", &tx_hashes_to_remove, tx).await?;
+    let tx_id_list = query_tx_id_list_by_block_id(block_id, tx).await?;
+    let output_lock_type_list = query_outputs_by_tx_id_list(&tx_id_list, tx).await?;
 
-    // remove output and association
-    let out_points_to_remove: Vec<Vec<u8>> = outputs
-        .iter()
-        .map(|(out_point, _, _)| out_point.as_bytes().to_vec())
-        .collect();
-    remove_batch_by_blobs("output", "out_point", &out_points_to_remove, tx).await?;
+    // remove transactions, associations, inputs, output
+    remove_batch_by_blobs("ckb_transaction", "id", &tx_id_list, tx).await?;
+    remove_batch_by_blobs("tx_association_cell_dep", "tx_id", &tx_id_list, tx).await?;
+    remove_batch_by_blobs("tx_association_header_dep", "tx_id", &tx_id_list, tx).await?;
+    remove_batch_by_blobs("input", "consumed_tx_id", &tx_id_list, tx).await?;
+    remove_batch_by_blobs("output", "tx_id", &tx_id_list, tx).await?;
 
     // remove script
-    let mut script_hashes_to_remove = Vec::new();
-    for (_, lock_script_hash, type_script_hash) in outputs {
-        if !script_exists_in_output(&lock_script_hash, tx).await? {
-            script_hashes_to_remove.push(lock_script_hash);
+    let mut script_id_list_to_remove = Vec::new();
+    for (_, lock_script_id, type_script_id) in output_lock_type_list {
+        if !script_exists_in_output(lock_script_id, tx).await? {
+            script_id_list_to_remove.push(lock_script_id);
         }
-        if let Some(type_script_hash) = type_script_hash {
-            if !script_exists_in_output(&type_script_hash, tx).await? {
-                script_hashes_to_remove.push(type_script_hash);
+        if let Some(type_script_id) = type_script_id {
+            if !script_exists_in_output(type_script_id, tx).await? {
+                script_id_list_to_remove.push(type_script_id);
             }
         }
     }
-    remove_batch_by_blobs("script", "script_hash", &script_hashes_to_remove, tx).await?;
+    remove_batch_by_blobs("script", "id", &script_id_list_to_remove, tx).await?;
 
     // remove block and block associations
-    let uncle_hashes = query_uncle_hashes_by_block_hash(block_hash.as_bytes(), tx).await?;
-    let block_hashes_to_remove = vec![block_hash.as_bytes().to_vec()];
-    remove_batch_by_blobs("block", "block_hash", &block_hashes_to_remove, tx).await?;
-    remove_batch_by_blobs(
-        "block_association_proposal",
-        "block_hash",
-        &block_hashes_to_remove,
-        tx,
-    )
-    .await?;
-    remove_batch_by_blobs(
-        "block_association_uncle",
-        "block_hash",
-        &block_hashes_to_remove,
-        tx,
-    )
-    .await?;
+    let uncle_id_list = query_uncle_id_list_by_block_id(block_id, tx).await?;
+    remove_batch_by_blobs("block", "id", &[block_id], tx).await?;
+    remove_batch_by_blobs("block_association_proposal", "block_id", &[block_id], tx).await?;
+    remove_batch_by_blobs("block_association_uncle", "block_id", &[block_id], tx).await?;
 
     // remove uncles
-    let mut uncle_hashes_to_remove = Vec::new();
-    for uncle_hash in uncle_hashes {
-        if !uncle_exists_in_association_table(uncle_hash.as_bytes(), tx).await? {
-            uncle_hashes_to_remove.push(uncle_hash.as_bytes().to_vec());
+    let mut uncle_id_list_to_remove = Vec::new();
+    for uncle_id in uncle_id_list {
+        if !uncle_exists_in_association_table(uncle_id, tx).await? {
+            uncle_id_list_to_remove.push(uncle_id);
         }
     }
-    remove_batch_by_blobs("block", "block_hash", &uncle_hashes_to_remove, tx).await?;
+    remove_batch_by_blobs("block", "block_id", &uncle_id_list_to_remove, tx).await?;
     remove_batch_by_blobs(
         "block_association_proposal",
-        "block_hash",
-        &uncle_hashes_to_remove,
+        "block_id",
+        &uncle_id_list_to_remove,
         tx,
     )
     .await?;
@@ -97,23 +64,23 @@ pub(crate) async fn rollback_block(
 async fn remove_batch_by_blobs(
     table_name: &str,
     column_name: &str,
-    blobs: &[Vec<u8>],
+    ids: &[i64],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    if blobs.is_empty() {
+    if ids.is_empty() {
         return Ok(());
     }
 
     // build query str
     let mut query_builder = SqlBuilder::delete_from(table_name);
     let sql = query_builder
-        .and_where_in(column_name, &sqlx_param_placeholders(1..blobs.len())?)
+        .and_where_in(column_name, &sqlx_param_placeholders(1..ids.len())?)
         .sql()
         .map_err(|err| Error::DB(err.to_string()))?;
 
     // bind
     let mut query: sqlx::query::Query<'_, Any, sqlx::any::AnyArguments<'_>> = sqlx::query(&sql);
-    for hash in blobs {
+    for hash in ids {
         query = query.bind(hash);
     }
 
@@ -126,30 +93,26 @@ async fn remove_batch_by_blobs(
     Ok(())
 }
 
-async fn query_uncle_hashes_by_block_hash(
-    block_hash: &[u8],
+async fn query_uncle_id_list_by_block_id(
+    block_id: i64,
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<H256>, Error> {
+) -> Result<Vec<i64>, Error> {
     SQLXPool::new_query(
         r#"
-            SELECT DISTINCT uncle_hash 
+            SELECT DISTINCT uncle_id 
             FROM block_association_uncle
-            WHERE block_hash = $1
+            WHERE block_id = $1
             "#,
     )
-    .bind(block_hash)
+    .bind(block_id)
     .fetch_all(tx)
     .await
-    .map(|rows| {
-        rows.into_iter()
-            .map(|row| bytes_to_h256(row.get("uncle_hash")))
-            .collect()
-    })
+    .map(|rows| rows.into_iter().map(|row| row.get("uncle_id")).collect())
     .map_err(|err| Error::DB(err.to_string()))
 }
 
 async fn uncle_exists_in_association_table(
-    uncle_hash: &[u8],
+    uncle_id: i64,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
     let row = SQLXPool::new_query(
@@ -157,11 +120,11 @@ async fn uncle_exists_in_association_table(
         SELECT EXISTS (
             SELECT 1 
             FROM block_association_uncle 
-            WHERE uncle_hash = $1
+            WHERE uncle_id = $1
         )
         "#,
     )
-    .bind(uncle_hash)
+    .bind(uncle_id)
     .fetch_one(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
@@ -169,50 +132,64 @@ async fn uncle_exists_in_association_table(
     Ok(row.get::<bool, _>(0))
 }
 
-async fn query_transaction_hashes_by_block_hash(
-    block_hash: &[u8],
-    tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<H256>, Error> {
+async fn query_tip_id(tx: &mut Transaction<'_, Any>) -> Result<Option<i64>, Error> {
     SQLXPool::new_query(
         r#"
-        SELECT tx_hash FROM ckb_transaction
-        WHERE block_hash = $1
-        ORDER BY tx_index
+            SELECT id FROM block
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+    )
+    .fetch_optional(tx)
+    .await
+    .map(|res| res.map(|row| row.get::<i64, _>("id")))
+    .map_err(|err| Error::DB(err.to_string()))
+}
+
+async fn query_tx_id_list_by_block_id(
+    block_id: i64,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<Vec<i64>, Error> {
+    SQLXPool::new_query(
+        r#"
+        SELECT id FROM ckb_transaction
+        WHERE block_id = $1
+        ORDER BY id
         ASC
         "#,
     )
-    .bind(block_hash)
+    .bind(block_id)
     .fetch_all(tx)
     .await
     .map(|rows| {
         rows.into_iter()
-            .map(|row| bytes_to_h256(row.get("tx_hash")))
+            .map(|row| row.get::<i64, _>("id"))
             .collect()
     })
     .map_err(|err| Error::DB(err.to_string()))
 }
 
-async fn query_outputs_by_tx_hashes(
-    tx_hashes: &[H256],
+async fn query_outputs_by_tx_id_list(
+    tx_id_list: &[i64],
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<(OutPoint, Vec<u8>, Option<Vec<u8>>)>, Error> {
-    if tx_hashes.is_empty() {
+) -> Result<Vec<(i64, i64, Option<i64>)>, Error> {
+    if tx_id_list.is_empty() {
         return Ok(vec![]);
     }
 
     // build query str
     let mut query_builder = SqlBuilder::select_from("output");
     let sql = query_builder
-        .fields(&["out_point", "lock_script_hash", "type_script_hash"])
-        .and_where_in("tx_hash", &sqlx_param_placeholders(1..tx_hashes.len())?)
+        .fields(&["id", "lock_script_id", "type_script_id"])
+        .and_where_in("tx_id", &sqlx_param_placeholders(1..tx_id_list.len())?)
         .order_by("output_index", false)
         .sql()
         .map_err(|err| Error::DB(err.to_string()))?;
 
     // bind
     let mut query = SQLXPool::new_query(&sql);
-    for hash in tx_hashes {
-        query = query.bind(hash.as_bytes());
+    for tx_id in tx_id_list {
+        query = query.bind(tx_id);
     }
 
     // execute
@@ -224,9 +201,9 @@ async fn query_outputs_by_tx_hashes(
             rows.iter()
                 .map(|row| {
                     (
-                        OutPoint::new_unchecked(Bytes::copy_from_slice(row.get("out_point"))),
-                        row.get("lock_script_hash"),
-                        row.get("type_script_hash"),
+                        row.get("id"),
+                        row.get("lock_script_id"),
+                        row.get("type_script_id"),
                     )
                 })
                 .collect()
@@ -234,7 +211,7 @@ async fn query_outputs_by_tx_hashes(
 }
 
 async fn script_exists_in_output(
-    script_hash: &[u8],
+    script_id: i64,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
     let row = sqlx::query(
@@ -242,11 +219,11 @@ async fn script_exists_in_output(
         SELECT EXISTS (
             SELECT 1 
             FROM output 
-            WHERE lock_script_hash = $1 OR type_script_hash = $1
+            WHERE lock_script_id = $1 OR type_script_id = $1
         )
         "#,
     )
-    .bind(script_hash)
+    .bind(script_id)
     .fetch_one(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;

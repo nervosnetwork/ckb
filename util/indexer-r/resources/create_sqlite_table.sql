@@ -64,7 +64,7 @@ CREATE TABLE output(
 );
 
 CREATE TABLE input(
-    previous_output_id INTEGER PRIMARY KEY,
+    output_id INTEGER PRIMARY KEY,
     since BLOB NOT NULL,
     consumed_tx_id INTEGER NOT NULL,
     input_index INTEGER NOT NULL
@@ -74,5 +74,6 @@ CREATE TABLE script(
     id INTEGER PRIMARY KEY,
     code_hash BLOB,
     hash_type INTEGER,
-    args BLOB
+    args BLOB,
+    UNIQUE(code_hash, args)
 );

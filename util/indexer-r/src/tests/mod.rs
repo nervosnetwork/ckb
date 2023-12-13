@@ -52,7 +52,7 @@ async fn test_query_tip() {
 }
 
 #[tokio::test]
-async fn test_rollback_block() {
+async fn test_append_blocks() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncIndexerR::new(
         storage.clone(),
@@ -105,6 +105,27 @@ async fn test_rollback_block() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn test_rollback_block() {
+    let storage = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncIndexerR::new(
+        storage.clone(),
+        100,
+        1000,
+        None,
+        CustomFilters::new(
+            Some("block.header.number.to_uint() >= \"0x0\".to_uint()"),
+            None,
+        ),
+    );
+
+    let data_path = String::from(BLOCK_DIR);
+    indexer
+        .append(&read_block_view(0, data_path.clone()).into())
+        .await
+        .unwrap();
 
     indexer.rollback().await.unwrap();
 
