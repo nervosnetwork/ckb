@@ -111,27 +111,6 @@ async fn query_uncle_id_list_by_block_id(
     .map_err(|err| Error::DB(err.to_string()))
 }
 
-async fn uncle_exists_in_association_table(
-    uncle_id: i64,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<bool, Error> {
-    let row = SQLXPool::new_query(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 
-            FROM block_association_uncle 
-            WHERE uncle_id = $1
-        )
-        "#,
-    )
-    .bind(uncle_id)
-    .fetch_one(tx)
-    .await
-    .map_err(|err| Error::DB(err.to_string()))?;
-
-    Ok(row.get::<bool, _>(0))
-}
-
 async fn query_tip_id(tx: &mut Transaction<'_, Any>) -> Result<Option<i64>, Error> {
     SQLXPool::new_query(
         r#"
@@ -224,6 +203,27 @@ async fn script_exists_in_output(
         "#,
     )
     .bind(script_id)
+    .fetch_one(tx)
+    .await
+    .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(row.get::<bool, _>(0))
+}
+
+async fn uncle_exists_in_association_table(
+    uncle_id: i64,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<bool, Error> {
+    let row = SQLXPool::new_query(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 
+            FROM block_association_uncle 
+            WHERE uncle_id = $1
+        )
+        "#,
+    )
+    .bind(uncle_id)
     .fetch_one(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;

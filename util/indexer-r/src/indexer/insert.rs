@@ -37,6 +37,57 @@ pub(crate) async fn append_block(
     Ok(block_id_list[0])
 }
 
+pub(crate) async fn insert_transaction_table(
+    block_id: i64,
+    tx_index: usize,
+    tx_view: &TransactionView,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<i64, Error> {
+    let tx_row = (
+        tx_view.hash().raw_data().to_vec(),
+        tx_view.version() as i16,
+        tx_view.inputs().len() as i32,
+        tx_view.outputs().len() as i32,
+        tx_view.witnesses().as_bytes().to_vec(),
+        block_id,
+        tx_index as i32,
+    );
+
+    // build query str
+    let mut builder = SqlBuilder::insert_into("ckb_transaction");
+    builder.field(
+        r#"
+        tx_hash, 
+        version, 
+        input_count, 
+        output_count, 
+        witnesses,
+        block_id,   
+        tx_index"#,
+    );
+    push_values_placeholders(&mut builder, 7, 1);
+    let sql = builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+    let sql = format!("{} RETURNING id", sql);
+
+    // bind
+    let mut query = SQLXPool::new_query(&sql);
+    seq!(i in 0..7 {
+        query = query.bind(&tx_row.i);
+    });
+
+    // execute
+    let row = query
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(row.get::<i64, _>("id"))
+}
+
 pub(crate) async fn bulk_insert_blocks_simple(
     block_rows: &[(Vec<u8>, i64)],
     tx: &mut Transaction<'_, Any>,
@@ -233,7 +284,7 @@ async fn bulk_insert_block_association_uncle_table(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let block_association_uncle_rows: Vec<_> = uncle_id_list
-        .into_iter()
+        .iter()
         .map(|uncle_id| (block_id, uncle_id))
         .collect();
 
@@ -271,129 +322,6 @@ async fn bulk_insert_block_association_uncle_table(
     }
 
     Ok(())
-}
-
-pub(crate) async fn insert_transaction_table(
-    block_id: i64,
-    tx_index: usize,
-    tx_view: &TransactionView,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<i64, Error> {
-    let tx_row = (
-        tx_view.hash().raw_data().to_vec(),
-        tx_view.version() as i16,
-        tx_view.inputs().len() as i32,
-        tx_view.outputs().len() as i32,
-        tx_view.witnesses().as_bytes().to_vec(),
-        block_id,
-        tx_index as i32,
-    );
-
-    // build query str
-    let mut builder = SqlBuilder::insert_into("ckb_transaction");
-    builder.field(
-        r#"
-        tx_hash, 
-        version, 
-        input_count, 
-        output_count, 
-        witnesses,
-        block_id,   
-        tx_index"#,
-    );
-    push_values_placeholders(&mut builder, 7, 1);
-    let sql = builder
-        .sql()
-        .map_err(|err| Error::DB(err.to_string()))?
-        .trim_end_matches(';')
-        .to_string();
-    let sql = format!("{} RETURNING id", sql);
-
-    // bind
-    let mut query = SQLXPool::new_query(&sql);
-    seq!(i in 0..7 {
-        query = query.bind(&tx_row.i);
-    });
-
-    // execute
-    let row = query
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::DB(err.to_string()))?;
-
-    Ok(row.get::<i64, _>("id"))
-}
-
-pub(crate) fn build_output_cell_rows(
-    cell: &CellOutput,
-    output_index: usize,
-    data: &Bytes,
-    output_cell_rows: &mut Vec<(
-        i32,
-        i64,
-        (Vec<u8>, Vec<u8>),
-        Option<(Vec<u8>, Vec<u8>)>,
-        Vec<u8>,
-    )>,
-) {
-    let cell_capacity: u64 = cell.capacity().unpack();
-    let cell_row = (
-        output_index as i32,
-        cell_capacity as i64,
-        (
-            cell.lock().code_hash().raw_data().to_vec(),
-            cell.lock().args().raw_data().to_vec(),
-        ),
-        (cell.type_().to_opt().map(|type_script| {
-            (
-                type_script.code_hash().raw_data().to_vec(),
-                type_script.args().raw_data().to_vec(),
-            )
-        })),
-        data.to_vec(),
-    );
-    output_cell_rows.push(cell_row);
-}
-
-pub(crate) async fn build_script_set(
-    cell: &CellOutput,
-    script_row: &mut HashSet<(Vec<u8>, i16, Vec<u8>)>,
-) -> Result<(), Error> {
-    let lock_script = cell.lock();
-    let lock_script_row = (
-        lock_script.code_hash().raw_data().to_vec(),
-        u8::try_from(lock_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
-        lock_script.args().raw_data().to_vec(),
-    );
-    script_row.insert(lock_script_row);
-
-    if let Some(type_script) = cell.type_().to_opt() {
-        let type_script_row = (
-            type_script.code_hash().raw_data().to_vec(),
-            u8::try_from(type_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
-            type_script.args().raw_data().to_vec(),
-        );
-        script_row.insert(type_script_row);
-    }
-
-    Ok(())
-}
-
-pub(crate) fn build_input_rows(
-    output_id: i64,
-    input: &CellInput,
-    consumed_tx_hash: Vec<u8>,
-    input_index: usize,
-    input_rows: &mut Vec<(i64, Vec<u8>, Vec<u8>, i32)>,
-) {
-    let since: u64 = input.since().unpack();
-    let input_row = (
-        output_id,
-        since.to_be_bytes().to_vec(),
-        consumed_tx_hash,
-        input_index as i32,
-    );
-    input_rows.push(input_row);
 }
 
 pub(crate) async fn bulk_insert_output_table(
@@ -471,7 +399,7 @@ pub(crate) async fn bulk_insert_input_table(
 ) -> Result<(), Error> {
     // replace tx_hash with tx_id
     let input_rows = input_rows
-        .into_iter()
+        .iter()
         .map(|row| (row.0, &row.1, tx_id, row.3))
         .collect::<Vec<_>>();
 
@@ -753,6 +681,78 @@ pub(crate) async fn query_script_id(
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
+}
+
+pub(crate) fn build_output_cell_rows(
+    cell: &CellOutput,
+    output_index: usize,
+    data: &Bytes,
+    output_cell_rows: &mut Vec<(
+        i32,
+        i64,
+        (Vec<u8>, Vec<u8>),
+        Option<(Vec<u8>, Vec<u8>)>,
+        Vec<u8>,
+    )>,
+) {
+    let cell_capacity: u64 = cell.capacity().unpack();
+    let cell_row = (
+        output_index as i32,
+        cell_capacity as i64,
+        (
+            cell.lock().code_hash().raw_data().to_vec(),
+            cell.lock().args().raw_data().to_vec(),
+        ),
+        (cell.type_().to_opt().map(|type_script| {
+            (
+                type_script.code_hash().raw_data().to_vec(),
+                type_script.args().raw_data().to_vec(),
+            )
+        })),
+        data.to_vec(),
+    );
+    output_cell_rows.push(cell_row);
+}
+
+pub(crate) async fn build_script_set(
+    cell: &CellOutput,
+    script_row: &mut HashSet<(Vec<u8>, i16, Vec<u8>)>,
+) -> Result<(), Error> {
+    let lock_script = cell.lock();
+    let lock_script_row = (
+        lock_script.code_hash().raw_data().to_vec(),
+        u8::try_from(lock_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+        lock_script.args().raw_data().to_vec(),
+    );
+    script_row.insert(lock_script_row);
+
+    if let Some(type_script) = cell.type_().to_opt() {
+        let type_script_row = (
+            type_script.code_hash().raw_data().to_vec(),
+            u8::try_from(type_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+            type_script.args().raw_data().to_vec(),
+        );
+        script_row.insert(type_script_row);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn build_input_rows(
+    output_id: i64,
+    input: &CellInput,
+    consumed_tx_hash: Vec<u8>,
+    input_index: usize,
+    input_rows: &mut Vec<(i64, Vec<u8>, Vec<u8>, i32)>,
+) {
+    let since: u64 = input.since().unpack();
+    let input_row = (
+        output_id,
+        since.to_be_bytes().to_vec(),
+        consumed_tx_hash,
+        input_index as i32,
+    );
+    input_rows.push(input_row);
 }
 
 fn build_cell_output(row: Option<AnyRow>) -> Result<Option<(i64, CellOutput, Bytes)>, Error> {

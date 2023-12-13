@@ -21,8 +21,10 @@ use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 const MEMORY_DB: &str = ":memory:";
-const SQL_CREATE_SQLITE: &str = include_str!("../../resources/create_sqlite_table.sql");
-const SQL_CREATE_POSTGRES: &str = include_str!("../../resources/create_postgres_table.sql");
+const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../../resources/create_sqlite_table.sql");
+const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../../resources/create_sqlite_index.sql");
+const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../../resources/create_postgres_table.sql");
+const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../../resources/create_postgres_index.sql");
 
 #[derive(Clone)]
 pub struct SQLXPool {
@@ -234,7 +236,12 @@ impl SQLXPool {
 
     async fn create_tables_for_sqlite(&self, config: &IndexerRConfig) -> Result<()> {
         let mut tx = self.transaction().await?;
-        sqlx::query(SQL_CREATE_SQLITE).execute(&mut *tx).await?;
+        sqlx::query(SQL_SQLITE_CREATE_TABLE)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(SQL_SQLITE_CREATE_INDEX)
+            .execute(&mut *tx)
+            .await?;
         if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
             let blocks_simple = vec![(
                 config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
@@ -246,8 +253,9 @@ impl SQLXPool {
     }
 
     async fn create_tables_for_postgres(&mut self, config: &IndexerRConfig) -> Result<()> {
-        let commands = SQL_CREATE_POSTGRES.split(';');
-        for command in commands {
+        let commands_table = SQL_POSTGRES_CREATE_TABLE.split(';');
+        let commands_index = SQL_POSTGRES_CREATE_INDEX.split(';');
+        for command in commands_table.chain(commands_index) {
             if !command.trim().is_empty() {
                 let pool = self.get_pool()?;
                 sqlx::query(command).execute(pool).await?;
