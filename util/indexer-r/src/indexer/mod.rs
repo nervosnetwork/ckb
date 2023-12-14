@@ -189,7 +189,7 @@ impl AsyncIndexerR {
                 .is_cell_filter_match(&cell, &data.pack())
             {
                 build_output_cell_rows(&cell, output_index, &data, &mut output_cell_rows);
-                build_script_set(&cell, &mut script_set).await?;
+                build_script_set(&cell, &mut script_set).await;
                 is_tx_matched = true;
             }
         }
@@ -197,24 +197,32 @@ impl AsyncIndexerR {
         if tx_index != 0 {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let out_point = input.previous_output();
-                let (output_tx_id, output_index) =
-                    query_out_point(&out_point, tx)
-                        .await?
-                        .ok_or(Error::DB(format!(
-                            "Failed to query out_point: {:?}",
-                            out_point
-                        )))?;
-                let (output_id, output, output_data) =
-                    query_cell_output(output_tx_id, output_index, tx)
-                        .await?
-                        .ok_or(Error::DB(format!(
-                            "Failed to query output by output_tx_id {:?} and output_index {:?}",
-                            output_tx_id, output_index
-                        )))?;
-                if self
-                    .custom_filters
-                    .is_cell_filter_match(&output, &output_data.pack())
-                {
+                if self.custom_filters.is_cell_filter_enabled() {
+                    if let Some((output_id, output, output_data)) =
+                        query_output_cell(&out_point, tx).await?
+                    {
+                        if self
+                            .custom_filters
+                            .is_cell_filter_match(&output, &output_data.pack())
+                        {
+                            build_input_rows(
+                                output_id,
+                                &input,
+                                tx_view.hash().raw_data().to_vec(),
+                                input_index,
+                                &mut input_rows,
+                            );
+                            is_tx_matched = true;
+                        }
+                    }
+                } else {
+                    let output_id =
+                        query_output_id(&out_point, tx)
+                            .await?
+                            .ok_or(Error::DB(format!(
+                                "Failed to query output id by out_point {:?}",
+                                out_point
+                            )))?;
                     build_input_rows(
                         output_id,
                         &input,

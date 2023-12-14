@@ -329,8 +329,8 @@ pub(crate) async fn bulk_insert_output_table(
     output_cell_rows: &[(
         i32,
         i64,
-        (Vec<u8>, Vec<u8>),
-        Option<(Vec<u8>, Vec<u8>)>,
+        (Vec<u8>, i16, Vec<u8>),
+        Option<(Vec<u8>, i16, Vec<u8>)>,
         Vec<u8>,
     )],
     tx: &mut Transaction<'_, Any>,
@@ -341,9 +341,9 @@ pub(crate) async fn bulk_insert_output_table(
             tx_id,
             row.0,
             row.1,
-            query_script_id(&row.2 .0, &row.2 .1, tx).await?,
+            query_script_id(&row.2 .0, row.2 .1, &row.2 .2, tx).await?,
             if let Some(type_script) = &row.3 {
-                query_script_id(&type_script.0, &type_script.1, tx).await?
+                query_script_id(&type_script.0, type_script.1, &type_script.2, tx).await?
             } else {
                 None
             },
@@ -544,7 +544,7 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
                 let idx: u32 = cell_dep.out_point().index().unpack();
                 idx as i32
             },
-            u8::try_from(cell_dep.dep_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+            u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK") as i16,
         );
         tx_association_cell_dep_rows.push(row);
     }
@@ -602,34 +602,13 @@ pub fn push_values_placeholders(
     }
 }
 
-pub(crate) async fn query_out_point(
+pub(crate) async fn query_output_cell(
     out_point: &OutPoint,
     tx: &mut Transaction<'_, Any>,
-) -> Result<Option<(i64, i32)>, Error> {
+) -> Result<Option<(i64, CellOutput, Bytes)>, Error> {
     let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
     let output_index: u32 = out_point.index().unpack();
 
-    sqlx::query(
-        r#"
-        SELECT id
-        FROM 
-            ckb_transaction 
-        WHERE 
-            tx_hash = $1
-        "#,
-    )
-    .bind(output_tx_hash)
-    .fetch_optional(tx)
-    .await
-    .map_err(|err| Error::DB(err.to_string()))
-    .map(|row| row.map(|row| (row.get::<i64, _>("id"), output_index as i32)))
-}
-
-pub(crate) async fn query_cell_output(
-    tx_id: i64,
-    output_index: i32,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<Option<(i64, CellOutput, Bytes)>, Error> {
     let row = sqlx::query(
         r#"
         SELECT 
@@ -649,11 +628,12 @@ pub(crate) async fn query_cell_output(
         LEFT JOIN 
             script AS type_script ON output.type_script_id = type_script.id
         WHERE 
-            output.tx_id = $1 AND output.output_index = $2
+            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1) 
+            AND output.output_index = $2
         "#,
     )
-    .bind(tx_id)
-    .bind(output_index)
+    .bind(output_tx_hash)
+    .bind(output_index as i32)
     .fetch_optional(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
@@ -661,8 +641,34 @@ pub(crate) async fn query_cell_output(
     build_cell_output(row)
 }
 
+pub(crate) async fn query_output_id(
+    out_point: &OutPoint,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<Option<i64>, Error> {
+    let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
+    let output_index: u32 = out_point.index().unpack();
+
+    sqlx::query(
+        r#"
+        SELECT id
+        FROM 
+            output 
+        WHERE 
+            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1) 
+            AND output_index = $2
+        "#,
+    )
+    .bind(output_tx_hash)
+    .bind(output_index as i32)
+    .fetch_optional(tx)
+    .await
+    .map_err(|err| Error::DB(err.to_string()))
+    .map(|row| row.map(|row| row.get::<i64, _>("id")))
+}
+
 pub(crate) async fn query_script_id(
     code_hash: &[u8],
+    hash_type: i16,
     args: &[u8],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Option<i64>, Error> {
@@ -672,10 +678,11 @@ pub(crate) async fn query_script_id(
         FROM 
             script 
         WHERE 
-            code_hash = $1 AND args = $2
+            code_hash = $1 AND hash_type = $2 AND args = $3
         "#,
     )
     .bind(code_hash)
+    .bind(hash_type)
     .bind(args)
     .fetch_optional(tx)
     .await
@@ -690,8 +697,8 @@ pub(crate) fn build_output_cell_rows(
     output_cell_rows: &mut Vec<(
         i32,
         i64,
-        (Vec<u8>, Vec<u8>),
-        Option<(Vec<u8>, Vec<u8>)>,
+        (Vec<u8>, i16, Vec<u8>),
+        Option<(Vec<u8>, i16, Vec<u8>)>,
         Vec<u8>,
     )>,
 ) {
@@ -701,11 +708,13 @@ pub(crate) fn build_output_cell_rows(
         cell_capacity as i64,
         (
             cell.lock().code_hash().raw_data().to_vec(),
+            u8::try_from(cell.lock().hash_type()).expect("hash_type to u8 should be OK") as i16,
             cell.lock().args().raw_data().to_vec(),
         ),
         (cell.type_().to_opt().map(|type_script| {
             (
                 type_script.code_hash().raw_data().to_vec(),
+                u8::try_from(type_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
                 type_script.args().raw_data().to_vec(),
             )
         })),
@@ -717,11 +726,11 @@ pub(crate) fn build_output_cell_rows(
 pub(crate) async fn build_script_set(
     cell: &CellOutput,
     script_row: &mut HashSet<(Vec<u8>, i16, Vec<u8>)>,
-) -> Result<(), Error> {
+) {
     let lock_script = cell.lock();
     let lock_script_row = (
         lock_script.code_hash().raw_data().to_vec(),
-        u8::try_from(lock_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+        u8::try_from(lock_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
         lock_script.args().raw_data().to_vec(),
     );
     script_row.insert(lock_script_row);
@@ -729,13 +738,11 @@ pub(crate) async fn build_script_set(
     if let Some(type_script) = cell.type_().to_opt() {
         let type_script_row = (
             type_script.code_hash().raw_data().to_vec(),
-            u8::try_from(type_script.hash_type()).map_err(|err| Error::DB(err.to_string()))? as i16,
+            u8::try_from(type_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
             type_script.args().raw_data().to_vec(),
         );
         script_row.insert(type_script_row);
     }
-
-    Ok(())
 }
 
 pub(crate) fn build_input_rows(
