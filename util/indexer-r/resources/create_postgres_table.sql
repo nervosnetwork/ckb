@@ -72,8 +72,8 @@ CREATE TABLE input(
 
 CREATE TABLE script(
     id BIGSERIAL PRIMARY KEY,
-    code_hash BYTEA,
-    hash_type SMALLINT,
+    code_hash BYTEA NOT NULL,
+    hash_type SMALLINT NOT NULL,
     args BYTEA,
-    UNIQUE(code_hash, args)
+    UNIQUE(code_hash, hash_type, args)
 );

@@ -72,8 +72,8 @@ CREATE TABLE input(
 
 CREATE TABLE script(
     id INTEGER PRIMARY KEY,
-    code_hash BLOB,
-    hash_type INTEGER,
+    code_hash BLOB NOT NULL,
+    hash_type INTEGER NOT NULL,
     args BLOB,
-    UNIQUE(code_hash, args)
+    UNIQUE(code_hash, hash_type, args)
 );

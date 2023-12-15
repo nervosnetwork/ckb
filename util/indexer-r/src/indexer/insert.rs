@@ -464,7 +464,10 @@ pub(crate) async fn bulk_insert_script_table(
             .map_err(|err| Error::DB(err.to_string()))?
             .trim_end_matches(';')
             .to_string();
-        let sql = format!("{} ON CONFLICT (code_hash, args) DO NOTHING", sql);
+        let sql = format!(
+            "{} ON CONFLICT (code_hash, hash_type, args) DO NOTHING",
+            sql
+        );
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
