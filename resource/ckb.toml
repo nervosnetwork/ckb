@@ -196,6 +196,7 @@ block_uncles_cache_size    = 30
 # # Or you may want use more flexible scripts, block template as arg.
 # notify_scripts = ["{cmd} {blocktemplate}"]
 #
+# # CKB built-in indexer settings. Existing indexes can be cleaned up using the `ckb reset-data --indexer` subcommand.
 # [indexer_v2]
 # # Indexing the pending txs in the ckb tx-pool
 # index_tx_pool = false
