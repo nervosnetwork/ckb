@@ -20,7 +20,12 @@ use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed,
+    prelude::*,
+    H256,
+};
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
@@ -132,32 +137,38 @@ impl IndexerService {
 
     fn apply_init_tip(&self) {
         if let Some(init_tip_hash) = &self.init_tip_hash {
-            if self
+            let indexer_tip = self
                 .store
                 .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
                 .expect("iter Header should be OK")
                 .next()
-                .is_none()
-            {
-                loop {
-                    if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-                        error!("secondary_db try_catch_up_with_primary error {}", e);
+                .map(|(key, _)| {
+                    BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key"))
+                });
+            if let Some(indexer_tip) = indexer_tip {
+                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    if indexer_tip >= init_tip.number() {
+                        return;
                     }
-                    if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack())
-                    {
-                        let init_tip_number = header.number();
-                        let mut batch = self.store.batch().expect("create batch should be OK");
-                        batch
-                            .put_kv(
-                                Key::Header(init_tip_number, &init_tip_hash.pack(), true),
-                                vec![],
-                            )
-                            .expect("insert init tip header should be OK");
-                        batch.commit().expect("commit batch should be OK");
-                        break;
-                    }
-                    sleep(Duration::from_secs(1));
                 }
+            }
+            loop {
+                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+                    error!("secondary_db try_catch_up_with_primary error {}", e);
+                }
+                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    let init_tip_number = header.number();
+                    let mut batch = self.store.batch().expect("create batch should be OK");
+                    batch
+                        .put_kv(
+                            Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                            vec![],
+                        )
+                        .expect("insert init tip header should be OK");
+                    batch.commit().expect("commit batch should be OK");
+                    break;
+                }
+                sleep(Duration::from_secs(1));
             }
         }
     }
