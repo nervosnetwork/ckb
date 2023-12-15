@@ -193,21 +193,35 @@ async fn script_exists_in_output(
     script_id: i64,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
-    let row = sqlx::query(
+    let row_lock = sqlx::query(
         r#"
         SELECT EXISTS (
             SELECT 1 
             FROM output 
-            WHERE lock_script_id = $1 OR type_script_id = $1
+            WHERE lock_script_id = $1
         )
         "#,
     )
     .bind(script_id)
-    .fetch_one(tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(row.get::<bool, _>(0))
+    let row_type = sqlx::query(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 
+            FROM output 
+            WHERE type_script_id = $1
+        )
+        "#,
+    )
+    .bind(script_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(row_lock.get::<bool, _>(0) || row_type.get::<bool, _>(0))
 }
 
 async fn uncle_exists_in_association_table(
