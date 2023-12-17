@@ -954,28 +954,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-indexer-r"
-version = "0.114.0-pre"
-dependencies = [
- "anyhow",
- "ckb-app-config",
- "ckb-async-runtime",
- "ckb-indexer-sync",
- "ckb-jsonrpc-types",
- "ckb-notify",
- "ckb-types",
- "futures",
- "log",
- "once_cell",
- "seq-macro",
- "serde_json",
- "sql-builder",
- "sqlx",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "ckb-indexer-sync"
 version = "0.114.0-pre"
 dependencies = [
@@ -1395,6 +1373,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-rich-indexer"
+version = "0.113.0-pre"
+dependencies = [
+ "anyhow",
+ "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-indexer-sync",
+ "ckb-jsonrpc-types",
+ "ckb-notify",
+ "ckb-types",
+ "futures",
+ "log",
+ "once_cell",
+ "seq-macro",
+ "serde_json",
+ "sql-builder",
+ "sqlx",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "ckb-rocksdb"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1421,7 +1421,6 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-error",
  "ckb-indexer",
- "ckb-indexer-r",
  "ckb-indexer-sync",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -1432,6 +1431,7 @@ dependencies = [
  "ckb-notify",
  "ckb-pow",
  "ckb-reward-calculator",
+ "ckb-rich-indexer",
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",

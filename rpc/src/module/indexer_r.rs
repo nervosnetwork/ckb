@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_indexer_r::AsyncIndexerRHandle;
 use ckb_jsonrpc_types::IndexerTip;
+use ckb_rich_indexer::AsyncIndexerRHandle;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 

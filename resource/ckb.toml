@@ -207,7 +207,7 @@ block_uncles_cache_size    = 30
 # # The initial tip can be set higher than the current indexer tip as the starting height for indexing.
 # init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
 #
-# # The 'ckb-indexer-r' is an indexer built on relational databases. 
+# # The 'ckb-rich-indexer' is an indexer built on relational databases. 
 # [indexer_v2.indexer_r]
 # # The initial tip number and hash can be set as the starting height for building indexes in indexer-r. Effective only during the initial index creation.
 # init_tip_number = 0
@@ -216,7 +216,7 @@ block_uncles_cache_size    = 30
 # # By default, it uses an embedded SQLite database. 
 # # Alternatively, you can prepare a PostgreSQL database service and provide the connection parameters.
 # db_type = "postgres"
-# db_name = "ckb-indexer-r"
+# db_name = "ckb-rich-indexer"
 # db_host = "127.0.0.1"
 # db_port = 5432
 # db_user = "postgres"
