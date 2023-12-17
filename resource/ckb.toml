@@ -115,7 +115,7 @@ listen_address = "127.0.0.1:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "IndexerR"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "RichIndexer"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
 # dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
@@ -208,8 +208,8 @@ block_uncles_cache_size    = 30
 # init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
 #
 # # The 'ckb-rich-indexer' is an indexer built on relational databases. 
-# [indexer_v2.indexer_r]
-# # The initial tip number and hash can be set as the starting height for building indexes in indexer-r. Effective only during the initial index creation.
+# [indexer_v2.rich_indexer]
+# # The initial tip number and hash can be set as the starting height for building indexes in rich-indexer. Effective only during the initial index creation.
 # init_tip_number = 0
 # # The initial tip hash must match the tip number; otherwise, it will result in a rollback.
 # init_tip_hash = "0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"

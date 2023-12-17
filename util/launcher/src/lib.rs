@@ -237,8 +237,8 @@ impl Launcher {
         if self.args.indexer && !config.indexer_enable() {
             config.modules.push(RpcModule::Indexer);
         }
-        if self.args.indexer_r && !config.indexer_r_enable() {
-            config.modules.push(RpcModule::IndexerR);
+        if self.args.rich_indexer && !config.rich_indexer_enable() {
+            config.modules.push(RpcModule::RichIndexer);
         }
         config
     }

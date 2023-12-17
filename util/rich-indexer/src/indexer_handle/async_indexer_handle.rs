@@ -7,21 +7,21 @@ use sqlx::{any::AnyRow, Row};
 
 use std::sync::{Arc, RwLock};
 
-/// Async handle to the indexer-r.
+/// Async handle to the rich-indexer.
 #[derive(Clone)]
-pub struct AsyncIndexerRHandle {
+pub struct AsyncRichIndexerHandle {
     store: SQLXPool,
     _pool: Option<Arc<RwLock<Pool>>>,
 }
 
-impl AsyncIndexerRHandle {
-    /// Construct new AsyncIndexerRHandle instance
+impl AsyncRichIndexerHandle {
+    /// Construct new AsyncRichIndexerHandle instance
     pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>) -> Self {
         Self { store, _pool: pool }
     }
 }
 
-impl AsyncIndexerRHandle {
+impl AsyncRichIndexerHandle {
     /// Get indexer current tip
     pub async fn query_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
         let query = SQLXPool::new_query(

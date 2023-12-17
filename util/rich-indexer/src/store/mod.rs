@@ -5,7 +5,7 @@ use page::COUNT_COLUMN;
 pub use page::{build_next_cursor, PaginationRequest, PaginationResponse};
 
 use anyhow::{anyhow, Result};
-use ckb_app_config::{DBDriver, IndexerRConfig};
+use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
@@ -72,7 +72,7 @@ impl SQLXPool {
         SQLXPool::new(10, 0, 60, 1800, 30)
     }
 
-    pub async fn connect(&mut self, db_config: &IndexerRConfig) -> Result<()> {
+    pub async fn connect(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
         self.driver
             .set(db_config.db_type.clone())
             .map_err(|_| anyhow!("set db driver failed!"))?;
@@ -234,7 +234,7 @@ impl SQLXPool {
         self.max_conn
     }
 
-    async fn create_tables_for_sqlite(&self, config: &IndexerRConfig) -> Result<()> {
+    async fn create_tables_for_sqlite(&self, config: &RichIndexerConfig) -> Result<()> {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_SQLITE_CREATE_TABLE)
             .execute(&mut *tx)
@@ -252,7 +252,7 @@ impl SQLXPool {
         tx.commit().await.map_err(Into::into)
     }
 
-    async fn create_tables_for_postgres(&mut self, config: &IndexerRConfig) -> Result<()> {
+    async fn create_tables_for_postgres(&mut self, config: &RichIndexerConfig) -> Result<()> {
         let commands_table = SQL_POSTGRES_CREATE_TABLE.split(';');
         let commands_index = SQL_POSTGRES_CREATE_INDEX.split(';');
         for command in commands_table.chain(commands_index) {
@@ -272,7 +272,10 @@ impl SQLXPool {
         tx.commit().await.map_err(Into::into)
     }
 
-    pub async fn is_postgres_require_init(&mut self, db_config: &IndexerRConfig) -> Result<bool> {
+    pub async fn is_postgres_require_init(
+        &mut self,
+        db_config: &RichIndexerConfig,
+    ) -> Result<bool> {
         // Connect to the "postgres" database first
         let mut temp_config = db_config.clone();
         temp_config.db_name = "postgres".to_string();
@@ -304,11 +307,11 @@ pub(crate) fn fetch_count_sql(table_name: &str) -> String {
     format!("SELECT COUNT(*) as {} FROM {}", COUNT_COLUMN, table_name)
 }
 
-fn build_url_for_sqlite(db_config: &IndexerRConfig) -> String {
+fn build_url_for_sqlite(db_config: &RichIndexerConfig) -> String {
     db_config.db_type.to_string() + db_config.store.to_str().expect("get store path")
 }
 
-fn build_url_for_postgres(db_config: &IndexerRConfig) -> String {
+fn build_url_for_postgres(db_config: &RichIndexerConfig) -> String {
     db_config.db_type.to_string()
         + db_config.db_user.as_str()
         + ":"
@@ -321,7 +324,7 @@ fn build_url_for_postgres(db_config: &IndexerRConfig) -> String {
         + db_config.db_name.as_str()
 }
 
-fn is_sqlite_require_init(db_config: &IndexerRConfig) -> bool {
+fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
     // for test
     if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
         return true;

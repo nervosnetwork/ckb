@@ -4,7 +4,7 @@ mod remove;
 pub(crate) use insert::*;
 pub(crate) use remove::*;
 
-use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, IndexerRHandle};
+use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, RichIndexerHandle};
 
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
@@ -31,15 +31,15 @@ use std::sync::{Arc, RwLock};
 /// - tx_association_cell_dep
 /// The detailed table design can be found in the SQL files in the resources folder of this crate
 
-/// Indexer-r, which is based on a relational database
+/// Rich-Indexer, which is based on a relational database
 #[derive(Clone)]
-pub(crate) struct IndexerR {
-    async_indexer_r: AsyncIndexerR,
+pub(crate) struct RichIndexer {
+    async_rich_indexer: AsyncRichIndexer,
     async_runtime: Handle,
 }
 
-impl IndexerR {
-    /// Construct new IndexerR instance
+impl RichIndexer {
+    /// Construct new Rich Indexer instance
     pub fn new(
         store: SQLXPool,
         keep_num: u64,
@@ -49,7 +49,7 @@ impl IndexerR {
         async_runtime: Handle,
     ) -> Self {
         Self {
-            async_indexer_r: AsyncIndexerR::new(
+            async_rich_indexer: AsyncRichIndexer::new(
                 store,
                 keep_num,
                 prune_interval,
@@ -61,12 +61,12 @@ impl IndexerR {
     }
 }
 
-impl IndexerSync for IndexerR {
+impl IndexerSync for RichIndexer {
     /// Retrieves the tip of the indexer
     fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
-        let indexer_handle = IndexerRHandle::new(
-            self.async_indexer_r.store.clone(),
-            self.async_indexer_r.pool.clone(),
+        let indexer_handle = RichIndexerHandle::new(
+            self.async_rich_indexer.store.clone(),
+            self.async_rich_indexer.pool.clone(),
             self.async_runtime.clone(),
         );
         indexer_handle
@@ -77,13 +77,13 @@ impl IndexerSync for IndexerR {
 
     /// Appends a new block to the indexer
     fn append(&self, block: &BlockView) -> Result<(), Error> {
-        let future = self.async_indexer_r.append(block);
+        let future = self.async_rich_indexer.append(block);
         self.async_runtime.block_on(future)
     }
 
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error> {
-        let future = self.async_indexer_r.rollback();
+        let future = self.async_rich_indexer.rollback();
         self.async_runtime.block_on(future)
     }
 
@@ -93,9 +93,9 @@ impl IndexerSync for IndexerR {
     }
 }
 
-/// Async indexer-r.
+/// Async rich-indexer.
 #[derive(Clone)]
-pub(crate) struct AsyncIndexerR {
+pub(crate) struct AsyncRichIndexer {
     /// storage
     pub(crate) store: SQLXPool,
     /// number of blocks to keep for rollback and forking, for example:
@@ -110,8 +110,8 @@ pub(crate) struct AsyncIndexerR {
     custom_filters: CustomFilters,
 }
 
-impl AsyncIndexerR {
-    /// Construct new AsyncIndexerR instance
+impl AsyncRichIndexer {
+    /// Construct new AsyncRichIndexer instance
     pub fn new(
         store: SQLXPool,
         keep_num: u64,
@@ -129,7 +129,7 @@ impl AsyncIndexerR {
     }
 }
 
-impl AsyncIndexerR {
+impl AsyncRichIndexer {
     pub(crate) async fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut tx = self
             .store

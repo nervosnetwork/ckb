@@ -1,12 +1,11 @@
 #![allow(deprecated)]
 use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
-    add_experiment_rpc_methods, add_indexer_r_rpc_methods, add_indexer_rpc_methods,
-    add_integration_test_rpc_methods, add_miner_rpc_methods, add_net_rpc_methods,
-    add_pool_rpc_methods, add_stats_rpc_methods, add_subscription_rpc_methods, AlertRpcImpl,
-    ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRRpcImpl, IndexerRpcImpl,
-    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
-    SubscriptionRpcImpl,
+    add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
+    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods,
+    add_stats_rpc_methods, add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl,
+    ExperimentRpcImpl, IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl,
+    PoolRpcImpl, RichIndexerRpcImpl, StatsRpcImpl, SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -16,7 +15,7 @@ use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
-use ckb_rich_indexer::IndexerRService;
+use ckb_rich_indexer::RichIndexerService;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
@@ -191,7 +190,7 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
-        // Initialize instances of data sources that will be shared for use by indexer and indexer-r.
+        // Initialize instances of data sources that will be shared for use by indexer and rich-indexer.
         let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
         let mut pool_service =
             PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
@@ -219,27 +218,27 @@ impl<'a> ServiceBuilder<'a> {
             methods
         );
 
-        // Init indexer-r service
-        let indexer_r = IndexerRService::new(
+        // Init rich-indexer service
+        let rich_indexer = RichIndexerService::new(
             ckb_secondary_db,
             pool_service.clone(),
             indexer_config,
             shared.async_handle().clone(),
         );
-        let indexer_r_handle = indexer_r.async_handle();
-        let indexer_r_methods = IndexerRRpcImpl::new(indexer_r_handle);
-        if self.config.indexer_r_enable() {
-            indexer_r.spawn_poll(shared.notify_controller().clone());
+        let rich_indexer_handle = rich_indexer.async_handle();
+        let rich_indexer_methods = RichIndexerRpcImpl::new(rich_indexer_handle);
+        if self.config.rich_indexer_enable() {
+            rich_indexer.spawn_poll(shared.notify_controller().clone());
             if indexer_config.index_tx_pool {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
         }
         set_rpc_module_methods!(
             self,
-            "IndexerR",
-            indexer_r_enable,
-            add_indexer_r_rpc_methods,
-            indexer_r_methods
+            "RichIndexer",
+            rich_indexer_enable,
+            add_rich_indexer_rpc_methods,
+            rich_indexer_methods
         )
     }
 

@@ -5,7 +5,7 @@ use std::{default::Default, path::PathBuf};
 const PGSQL: &str = "postgres://";
 const SQLITE: &str = "sqlite://";
 
-/// IndexerR database type.
+/// Rich indexer database type.
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DBDriver {
@@ -25,23 +25,23 @@ impl ToString for DBDriver {
     }
 }
 
-/// IndexerR config options.
+/// Rich indexer config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct IndexerRConfig {
+pub struct RichIndexerConfig {
     /// The init tip block number
     #[serde(default)]
     pub init_tip_number: Option<u64>,
     /// The init tip block hash
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
-    /// IndexerR database type.
+    /// Rich indexer database type.
     #[serde(default)]
     pub db_type: DBDriver,
     /// The index-r store path, default `data_dir / indexer / sqlite / sqlite.db`,
     /// which will be realized through IndexerConfig::adjust.
     #[serde(default)]
     pub store: PathBuf,
-    /// The database name, default `indexer_r`.
+    /// The database name, default `ckb-rich-indexer`.
     #[serde(default = "default_db_name")]
     pub db_name: String,
     /// The database host.
@@ -58,7 +58,7 @@ pub struct IndexerRConfig {
     pub db_password: String,
 }
 
-impl Default for IndexerRConfig {
+impl Default for RichIndexerConfig {
     fn default() -> Self {
         Self {
             init_tip_number: None,
@@ -75,7 +75,7 @@ impl Default for IndexerRConfig {
 }
 
 fn default_db_name() -> String {
-    "indexer_r".to_string()
+    "ckb-rich-indexer".to_string()
 }
 
 fn default_db_host() -> String {

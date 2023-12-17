@@ -59,8 +59,8 @@ pub struct RunArgs {
     /// Whether start in daemon mode
     #[cfg(not(target_os = "windows"))]
     pub daemon: bool,
-    /// Whether start indexer-r, default false
-    pub indexer_r: bool,
+    /// Whether start rich-indexer, default false
+    pub rich_indexer: bool,
 }
 
 /// Enable profile on blocks in the range `[from, to]`.

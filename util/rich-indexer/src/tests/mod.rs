@@ -1,7 +1,7 @@
 use crate::store::SQLXPool;
-use crate::{AsyncIndexerR, AsyncIndexerRHandle};
+use crate::{AsyncRichIndexer, AsyncRichIndexerHandle};
 
-use ckb_app_config::IndexerRConfig;
+use ckb_app_config::RichIndexerConfig;
 use ckb_indexer_sync::CustomFilters;
 use ckb_jsonrpc_types::BlockView as JsonBlockView;
 
@@ -10,7 +10,7 @@ const BLOCK_DIR: &str = "./src/tests/data/blocks/";
 
 async fn connect_sqlite(store_path: &str) -> SQLXPool {
     let mut pool = SQLXPool::default();
-    let config = IndexerRConfig {
+    let config = RichIndexerConfig {
         store: store_path.into(),
         ..Default::default()
     };
@@ -20,7 +20,7 @@ async fn connect_sqlite(store_path: &str) -> SQLXPool {
 
 async fn insert_blocks(store: SQLXPool) {
     let data_path = String::from(BLOCK_DIR);
-    let indexer = AsyncIndexerR::new(store, 100, 1000, None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(store, 100, 1000, None, CustomFilters::new(None, None));
     for i in 0..10 {
         indexer
             .append(&read_block_view(i, data_path.clone()).into())
@@ -38,7 +38,7 @@ pub fn read_block_view(number: u64, dir_path: String) -> JsonBlockView {
 #[tokio::test]
 async fn test_query_tip() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncIndexerRHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
     let res = indexer.query_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
@@ -54,7 +54,7 @@ async fn test_query_tip() {
 #[tokio::test]
 async fn test_append_blocks() {
     let storage = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncIndexerR::new(
+    let indexer = AsyncRichIndexer::new(
         storage.clone(),
         100,
         1000,
@@ -110,7 +110,7 @@ async fn test_append_blocks() {
 #[tokio::test]
 async fn test_rollback_block() {
     let storage = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncIndexerR::new(
+    let indexer = AsyncRichIndexer::new(
         storage.clone(),
         100,
         1000,
@@ -168,7 +168,7 @@ async fn test_rollback_block() {
 #[tokio::test]
 async fn test_block_filter_and_rollback_block() {
     let storage = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncIndexerR::new(
+    let indexer = AsyncRichIndexer::new(
         storage.clone(),
         100,
         1000,

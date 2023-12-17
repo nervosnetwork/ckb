@@ -1,19 +1,19 @@
-//！The indexer-r service.
+//！The rich-indexer service.
 
-use crate::indexer::IndexerR;
+use crate::indexer::RichIndexer;
 use crate::store::SQLXPool;
-use crate::{AsyncIndexerRHandle, IndexerRHandle};
+use crate::{AsyncRichIndexerHandle, RichIndexerHandle};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, IndexerSyncService, PoolService, SecondaryDB};
 use ckb_notify::NotifyController;
 
-pub(crate) const SUBSCRIBER_NAME: &str = "Indexer-R";
+pub(crate) const SUBSCRIBER_NAME: &str = "Rich-Indexer";
 
-/// Indexer-R service
+/// Rich-Indexer service
 #[derive(Clone)]
-pub struct IndexerRService {
+pub struct RichIndexerService {
     store: SQLXPool,
     sync: IndexerSyncService,
     block_filter: Option<String>,
@@ -21,8 +21,8 @@ pub struct IndexerRService {
     async_handle: Handle,
 }
 
-impl IndexerRService {
-    /// Construct new IndexerRService instance
+impl RichIndexerService {
+    /// Construct new RichIndexerService instance
     pub fn new(
         ckb_db: SecondaryDB,
         pool_service: PoolService,
@@ -31,8 +31,8 @@ impl IndexerRService {
     ) -> Self {
         let mut store = SQLXPool::default();
         async_handle
-            .block_on(store.connect(&config.indexer_r))
-            .expect("Failed to connect to indexer-r database");
+            .block_on(store.connect(&config.rich_indexer))
+            .expect("Failed to connect to rich-indexer database");
 
         let sync =
             IndexerSyncService::new(ckb_db, pool_service, &config.into(), async_handle.clone());
@@ -45,10 +45,10 @@ impl IndexerRService {
         }
     }
 
-    fn get_indexer(&self) -> IndexerR {
+    fn get_indexer(&self) -> RichIndexer {
         // assume that long fork will not happen >= 100 blocks.
         let keep_num = 100;
-        IndexerR::new(
+        RichIndexer::new(
             self.store.clone(),
             keep_num,
             1000,
@@ -67,23 +67,23 @@ impl IndexerRService {
         )
     }
 
-    /// Returns a handle to the indexer-r.
+    /// Returns a handle to the rich-indexer.
     ///
-    /// The returned handle can be used to get data from indexer-r,
+    /// The returned handle can be used to get data from rich-indexer,
     /// and can be cloned to allow moving the Handle to other threads.
-    pub fn handle(&self) -> IndexerRHandle {
-        IndexerRHandle::new(
+    pub fn handle(&self) -> RichIndexerHandle {
+        RichIndexerHandle::new(
             self.store.clone(),
             self.sync.pool(),
             self.async_handle.clone(),
         )
     }
 
-    /// Returns a handle to the indexer-r.
+    /// Returns a handle to the rich-indexer.
     ///
-    /// The returned handle can be used to get data from indexer-r,
+    /// The returned handle can be used to get data from rich-indexer,
     /// and can be cloned to allow moving the Handle to other threads.
-    pub fn async_handle(&self) -> AsyncIndexerRHandle {
-        AsyncIndexerRHandle::new(self.store.clone(), self.sync.pool())
+    pub fn async_handle(&self) -> AsyncRichIndexerHandle {
+        AsyncRichIndexerHandle::new(self.store.clone(), self.sync.pool())
     }
 }

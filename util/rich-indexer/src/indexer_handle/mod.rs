@@ -10,21 +10,21 @@ use ckb_jsonrpc_types::IndexerTip;
 
 use std::sync::{Arc, RwLock};
 
-/// Handle to the indexer-r.
+/// Handle to the rich-indexer.
 ///
 /// The handle is internally reference-counted and can be freely cloned.
-/// A handle can be obtained using the IndexerRService::handle method.
+/// A handle can be obtained using the RichIndexerService::handle method.
 #[derive(Clone)]
-pub struct IndexerRHandle {
-    async_handle: AsyncIndexerRHandle,
+pub struct RichIndexerHandle {
+    async_handle: AsyncRichIndexerHandle,
     async_runtime: Handle,
 }
 
-impl IndexerRHandle {
-    /// Construct new IndexerRHandle instance
+impl RichIndexerHandle {
+    /// Construct new RichIndexerHandle instance
     pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>, async_handle: Handle) -> Self {
         Self {
-            async_handle: AsyncIndexerRHandle::new(store, pool),
+            async_handle: AsyncRichIndexerHandle::new(store, pool),
             async_runtime: async_handle,
         }
     }
