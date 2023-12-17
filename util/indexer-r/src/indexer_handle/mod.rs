@@ -14,6 +14,7 @@ use std::sync::{Arc, RwLock};
 ///
 /// The handle is internally reference-counted and can be freely cloned.
 /// A handle can be obtained using the IndexerRService::handle method.
+#[derive(Clone)]
 pub struct IndexerRHandle {
     async_handle: AsyncIndexerRHandle,
     async_runtime: Handle,

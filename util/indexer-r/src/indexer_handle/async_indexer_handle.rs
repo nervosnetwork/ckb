@@ -8,6 +8,7 @@ use sqlx::{any::AnyRow, Row};
 use std::sync::{Arc, RwLock};
 
 /// Async handle to the indexer-r.
+#[derive(Clone)]
 pub struct AsyncIndexerRHandle {
     store: SQLXPool,
     _pool: Option<Arc<RwLock<Pool>>>,

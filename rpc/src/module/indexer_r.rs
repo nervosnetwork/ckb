@@ -1,11 +1,13 @@
 use crate::error::RPCError;
-use ckb_indexer_r::IndexerRHandle;
+use async_trait::async_trait;
+use ckb_indexer_r::AsyncIndexerRHandle;
 use ckb_jsonrpc_types::IndexerTip;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Indexer.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IndexerRRpc {
     /// Returns the indexed tip
     ///
@@ -38,23 +40,26 @@ pub trait IndexerRRpc {
     /// }
     /// ```
     #[rpc(name = "get_indexer_r_tip")]
-    fn get_indexer_r_tip(&self) -> Result<Option<IndexerTip>>;
+    async fn get_indexer_r_tip(&self) -> Result<Option<IndexerTip>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IndexerRRpcImpl {
-    pub(crate) handle: IndexerRHandle,
+    pub(crate) handle: AsyncIndexerRHandle,
 }
 
 impl IndexerRRpcImpl {
-    pub fn new(handle: IndexerRHandle) -> Self {
+    pub fn new(handle: AsyncIndexerRHandle) -> Self {
         IndexerRRpcImpl { handle }
     }
 }
 
+#[async_trait]
 impl IndexerRRpc for IndexerRRpcImpl {
-    fn get_indexer_r_tip(&self) -> Result<Option<IndexerTip>> {
+    async fn get_indexer_r_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle
-            .get_indexer_tip()
+            .query_indexer_tip()
+            .await
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 }

@@ -1,10 +1,11 @@
 #![allow(deprecated)]
 use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
-    add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
-    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
-    add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl,
-    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
+    add_experiment_rpc_methods, add_indexer_r_rpc_methods, add_indexer_rpc_methods,
+    add_integration_test_rpc_methods, add_miner_rpc_methods, add_net_rpc_methods,
+    add_pool_rpc_methods, add_stats_rpc_methods, add_subscription_rpc_methods, AlertRpcImpl,
+    ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRRpcImpl, IndexerRpcImpl,
+    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
     SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
@@ -210,7 +211,7 @@ impl<'a> ServiceBuilder<'a> {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
         }
-        set_rpc_module_methods!(
+        self = set_rpc_module_methods!(
             self,
             "Indexer",
             indexer_enable,
@@ -225,7 +226,7 @@ impl<'a> ServiceBuilder<'a> {
             indexer_config,
             shared.async_handle().clone(),
         );
-        let indexer_r_handle = indexer_r.handle();
+        let indexer_r_handle = indexer_r.async_handle();
         let indexer_r_methods = IndexerRRpcImpl::new(indexer_r_handle);
         if self.config.indexer_r_enable() {
             indexer_r.spawn_poll(shared.notify_controller().clone());
