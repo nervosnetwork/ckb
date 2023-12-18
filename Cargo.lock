@@ -1687,6 +1687,7 @@ dependencies = [
  "hyper",
  "lru",
  "multi_index_map",
+ "num_cpus",
  "rand 0.8.5",
  "rustc-hash",
  "sentry",

@@ -8,6 +8,7 @@ pub(crate) mod orphan;
 pub(crate) mod pool_map;
 pub(crate) mod recent_reject;
 pub(crate) mod sort_key;
+pub(crate) mod verify_queue;
 
 #[cfg(test)]
 mod tests;

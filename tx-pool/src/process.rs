@@ -315,31 +315,14 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
-            match ret {
-                Ok(processed) => {
-                    if let ProcessResult::Completed(completed) = processed {
-                        self.after_process(tx, remote, &snapshot, &Ok(completed))
-                            .await;
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    self.after_process(tx, remote, &snapshot, &Err(e.clone()))
-                        .await;
-                    Err(e)
-                }
-            }
-        } else {
-            Ok(())
-        }
+        self.add_tx_to_verify_queue(tx, remote).await
     }
 
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<Completed, Reject> {
+    ) -> Result<(), Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
@@ -347,16 +330,7 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
-            self.after_process(tx, remote, &snapshot, &ret).await;
-            ret
-        } else {
-            // currently, the returned cycles is not been used, mock 0 if delay
-            Ok(Completed {
-                cycles: 0,
-                fee: Capacity::zero(),
-            })
-        }
+        self.add_tx_to_verify_queue(tx, remote).await
     }
 
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
@@ -651,6 +625,16 @@ impl TxPoolService {
             },
         );
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
+    }
+
+    async fn add_tx_to_verify_queue(
+        &self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<(), Reject> {
+        let mut queue = self.verify_queue.write().await;
+        queue.add_tx(tx, remote);
+        Ok(())
     }
 
     async fn _resumeble_process_tx(

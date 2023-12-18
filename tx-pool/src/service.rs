@@ -4,7 +4,8 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
 use crate::component::pool_map::{PoolEntry, Status};
-use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
+use crate::component::verify_queue;
+use crate::component::{chunk::ChunkQueue, orphan::OrphanPool, verify_queue::VerifyQueue};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
 use crate::util::after_delay_window;
@@ -379,6 +380,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
+    pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) block_assembler_channel: (
         mpsc::Sender<BlockAssemblerMessage>,
@@ -402,6 +404,7 @@ impl TxPoolServiceBuilder {
         let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
+        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
         let controller = TxPoolController {
@@ -429,6 +432,7 @@ impl TxPoolServiceBuilder {
             chunk_rx,
             chunk,
             started,
+            verify_queue,
             block_assembler_channel,
         };
 
@@ -481,6 +485,7 @@ impl TxPoolServiceBuilder {
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
             chunk: self.chunk,
+            verify_queue: self.verify_queue,
             network,
             consensus,
             delay: Arc::new(RwLock::new(LinkedHashMap::new())),
@@ -637,6 +642,7 @@ pub(crate) struct TxPoolService {
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
+    pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
     pub(crate) after_delay: Arc<AtomicBool>,
