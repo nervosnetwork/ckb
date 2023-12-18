@@ -43,20 +43,8 @@ pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), 
     remove_batch_by_blobs("block_association_uncle", "block_id", &[block_id], tx).await?;
 
     // remove uncles
-    let mut uncle_id_list_to_remove = Vec::new();
-    for uncle_id in uncle_id_list {
-        if !uncle_exists_in_association_table(uncle_id, tx).await? {
-            uncle_id_list_to_remove.push(uncle_id);
-        }
-    }
-    remove_batch_by_blobs("block", "block_id", &uncle_id_list_to_remove, tx).await?;
-    remove_batch_by_blobs(
-        "block_association_proposal",
-        "block_id",
-        &uncle_id_list_to_remove,
-        tx,
-    )
-    .await?;
+    remove_batch_by_blobs("block", "id", &uncle_id_list, tx).await?;
+    remove_batch_by_blobs("block_association_proposal", "block_id", &uncle_id_list, tx).await?;
 
     Ok(())
 }
@@ -222,25 +210,4 @@ async fn script_exists_in_output(
     .map_err(|err| Error::DB(err.to_string()))?;
 
     Ok(row_lock.get::<bool, _>(0) || row_type.get::<bool, _>(0))
-}
-
-async fn uncle_exists_in_association_table(
-    uncle_id: i64,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<bool, Error> {
-    let row = SQLXPool::new_query(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 
-            FROM block_association_uncle 
-            WHERE uncle_id = $1
-        )
-        "#,
-    )
-    .bind(uncle_id)
-    .fetch_one(tx)
-    .await
-    .map_err(|err| Error::DB(err.to_string()))?;
-
-    Ok(row.get::<bool, _>(0))
 }

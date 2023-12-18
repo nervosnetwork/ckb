@@ -235,6 +235,10 @@ impl AsyncRichIndexer {
             }
         }
 
+        if !self.custom_filters.is_cell_filter_enabled() {
+            is_tx_matched = true;
+        }
+
         if !is_tx_matched {
             return Ok(());
         }
