@@ -205,13 +205,7 @@ impl AsyncRichIndexer {
                             .custom_filters
                             .is_cell_filter_match(&output, &output_data.pack())
                         {
-                            build_input_rows(
-                                output_id,
-                                &input,
-                                tx_view.hash().raw_data().to_vec(),
-                                input_index,
-                                &mut input_rows,
-                            );
+                            build_input_rows(output_id, &input, input_index, &mut input_rows);
                             is_tx_matched = true;
                         }
                     }
@@ -223,13 +217,7 @@ impl AsyncRichIndexer {
                                 "Failed to query output id by out_point {:?}",
                                 out_point
                             )))?;
-                    build_input_rows(
-                        output_id,
-                        &input,
-                        tx_view.hash().raw_data().to_vec(),
-                        input_index,
-                        &mut input_rows,
-                    );
+                    build_input_rows(output_id, &input, input_index, &mut input_rows);
                     is_tx_matched = true;
                 }
             }

@@ -45,7 +45,7 @@ pub(crate) async fn insert_transaction_table(
 ) -> Result<i64, Error> {
     let tx_row = (
         tx_view.hash().raw_data().to_vec(),
-        tx_view.version() as i16,
+        tx_view.version().to_be_bytes().to_vec(),
         tx_view.inputs().len() as i32,
         tx_view.outputs().len() as i32,
         tx_view.witnesses().as_bytes().to_vec(),
@@ -158,16 +158,14 @@ async fn bulk_insert_block_table(
         .map(|block_view| {
             (
                 block_view.hash().raw_data().to_vec(),
-                block_view.number() as i32,
-                block_view.compact_target() as i32,
+                block_view.number() as i64,
+                block_view.compact_target().to_be_bytes().to_vec(),
                 block_view.parent_hash().raw_data().to_vec(),
                 block_view.nonce().to_be_bytes().to_vec(),
                 block_view.timestamp() as i64,
-                block_view.version() as i16,
+                block_view.version().to_be_bytes().to_vec(),
                 block_view.transactions_root().raw_data().to_vec(),
-                block_view.epoch().number() as i32,
-                block_view.epoch().index() as i32,
-                block_view.epoch().length() as i32,
+                block_view.epoch().full_value().to_be_bytes().to_vec(),
                 block_view.dao().raw_data().to_vec(),
                 block_view.proposals_hash().raw_data().to_vec(),
                 block_view.extra_hash().raw_data().to_vec(),
@@ -192,14 +190,12 @@ async fn bulk_insert_block_table(
             timestamp,
             version,
             transactions_root,
-            epoch_number,
-            epoch_index,
-            epoch_length,
+            epoch,
             dao,
             proposals_hash,
             extra_hash"#,
         );
-        push_values_placeholders(&mut builder, 14, end - start);
+        push_values_placeholders(&mut builder, 12, end - start);
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -210,7 +206,7 @@ async fn bulk_insert_block_table(
         // bind
         let mut query = SQLXPool::new_query(&sql);
         for row in block_rows[start..end].iter() {
-            seq!(i in 0..14 {
+            seq!(i in 0..12 {
                 query = query.bind(&row.i);
             });
         }
@@ -394,13 +390,13 @@ pub(crate) async fn bulk_insert_output_table(
 
 pub(crate) async fn bulk_insert_input_table(
     tx_id: i64,
-    input_rows: &[(i64, Vec<u8>, Vec<u8>, i32)],
+    input_rows: &[(i64, Vec<u8>, i32)],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     // replace tx_hash with tx_id
     let input_rows = input_rows
         .iter()
-        .map(|row| (row.0, &row.1, tx_id, row.3))
+        .map(|row| (row.0, &row.1, tx_id, row.2))
         .collect::<Vec<_>>();
 
     // bulk insert
@@ -751,17 +747,11 @@ pub(crate) async fn build_script_set(
 pub(crate) fn build_input_rows(
     output_id: i64,
     input: &CellInput,
-    consumed_tx_hash: Vec<u8>,
     input_index: usize,
-    input_rows: &mut Vec<(i64, Vec<u8>, Vec<u8>, i32)>,
+    input_rows: &mut Vec<(i64, Vec<u8>, i32)>,
 ) {
     let since: u64 = input.since().unpack();
-    let input_row = (
-        output_id,
-        since.to_be_bytes().to_vec(),
-        consumed_tx_hash,
-        input_index as i32,
-    );
+    let input_row = (output_id, since.to_be_bytes().to_vec(), input_index as i32);
     input_rows.push(input_row);
 }
 
