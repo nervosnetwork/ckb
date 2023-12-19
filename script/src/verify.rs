@@ -1019,7 +1019,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(machine)
     }
 
-    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+    /// Runs a single program, then returns the exit code together with the entire
+    /// machine to the caller for more inspections.
+    pub fn detailed_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<(i8, Machine), ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let context = Default::default();
         let mut machine = self.build_machine(script_group, max_cycles, context)?;
@@ -1037,6 +1043,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
+
+        Ok((code, machine))
+    }
+
+    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        let (code, machine) = self.detailed_run(script_group, max_cycles)?;
+
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
