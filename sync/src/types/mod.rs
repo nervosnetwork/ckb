@@ -2085,6 +2085,13 @@ impl ActiveChain {
         self.store().get_block_filter_hash(hash)
     }
 
+    pub fn get_latest_built_filter_block_number(&self) -> BlockNumber {
+        self.snapshot
+            .get_latest_built_filter_data_block_hash()
+            .and_then(|hash| self.snapshot.get_block_number(&hash))
+            .unwrap_or_default()
+    }
+
     pub fn shared(&self) -> &SyncShared {
         &self.shared
     }
