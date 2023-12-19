@@ -1,4 +1,4 @@
-FROM nervos/ckb-docker-builder:bionic-rust-1.71.1 as ckb-docker-builder
+FROM nervos/ckb-docker-builder:bionic-rust-1.71.1-openssl-3.1.3 as ckb-docker-builder
 
 WORKDIR /ckb
 COPY ./ .
