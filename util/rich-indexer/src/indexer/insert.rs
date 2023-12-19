@@ -57,12 +57,12 @@ pub(crate) async fn insert_transaction_table(
     let mut builder = SqlBuilder::insert_into("ckb_transaction");
     builder.field(
         r#"
-        tx_hash, 
-        version, 
-        input_count, 
-        output_count, 
+        tx_hash,
+        version,
+        input_count,
+        output_count,
         witnesses,
-        block_id,   
+        block_id,
         tx_index"#,
     );
     push_values_placeholders(&mut builder, 7, 1);
@@ -239,17 +239,22 @@ async fn bulk_insert_block_association_proposal_table(
     }
 
     // bulk insert
-    for start in (0..block_association_proposal_rows.len()).step_by(BATCH_SIZE_THRESHOLD) {
-        let end = (start + BATCH_SIZE_THRESHOLD).min(block_association_proposal_rows.len());
-
+    let fields = &["block_id", "proposal"];
+    let table = "block_association_proposal";
+    for (chunk_index, rows) in block_association_proposal_rows
+        .chunks(BATCH_SIZE_THRESHOLD)
+        .enumerate()
+    {
         // build query str
-        let mut builder = SqlBuilder::insert_into("block_association_proposal");
-        builder.field(
-            r#"
-            block_id,
-            proposal"#,
-        );
-        push_values_placeholders(&mut builder, 2, end - start);
+        let mut builder = SqlBuilder::insert_into(table);
+        builder.fields(fields);
+
+        let placeholders = (BATCH_SIZE_THRESHOLD * chunk_index
+            ..BATCH_SIZE_THRESHOLD * chunk_index + rows.len())
+            .map(|i| format!("${}", i + 1))
+            .collect::<Vec<String>>();
+        builder.values(&placeholders);
+
         let sql = builder
             .sql()
             .map_err(|err| Error::DB(err.to_string()))?
@@ -258,7 +263,7 @@ async fn bulk_insert_block_association_proposal_table(
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
-        for row in block_association_proposal_rows[start..end].iter() {
+        for row in rows {
             seq!(i in 0..2 {
                 query = query.bind(&row.i);
             });
@@ -610,7 +615,7 @@ pub(crate) async fn query_output_cell(
 
     let row = sqlx::query(
         r#"
-        SELECT 
+        SELECT
             output.id,
             output.capacity,
             output.data,
@@ -620,14 +625,14 @@ pub(crate) async fn query_output_cell(
             type_script.code_hash AS type_code_hash,
             type_script.hash_type AS type_hash_type,
             type_script.args AS type_args
-        FROM 
-            output 
-        LEFT JOIN 
+        FROM
+            output
+        LEFT JOIN
             script AS lock_script ON output.lock_script_id = lock_script.id
-        LEFT JOIN 
+        LEFT JOIN
             script AS type_script ON output.type_script_id = type_script.id
-        WHERE 
-            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1) 
+        WHERE
+            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1)
             AND output.output_index = $2
         "#,
     )
@@ -650,10 +655,10 @@ pub(crate) async fn query_output_id(
     sqlx::query(
         r#"
         SELECT id
-        FROM 
-            output 
-        WHERE 
-            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1) 
+        FROM
+            output
+        WHERE
+            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1)
             AND output_index = $2
         "#,
     )
@@ -674,9 +679,9 @@ pub(crate) async fn query_script_id(
     sqlx::query(
         r#"
         SELECT id
-        FROM 
-            script 
-        WHERE 
+        FROM
+            script
+        WHERE
             code_hash = $1 AND hash_type = $2 AND args = $3
         "#,
     )
