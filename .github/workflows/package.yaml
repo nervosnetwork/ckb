@@ -61,7 +61,7 @@ jobs:
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu -e OPENSSL_INCLUDE_DIR=/usr/include $BUILDER_IMAGE make ${{ matrix.build_target }}
+        docker run --rm -i -w /ckb -v $(pwd):/ckb -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib64 -e OPENSSL_INCLUDE_DIR=/usr/local/include $BUILDER_IMAGE make ${{ matrix.build_target }}
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
@@ -78,7 +78,7 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.71.1
+      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.71.1-openssl-3.1.3
       REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-linux-aarch64:
@@ -94,6 +94,24 @@ jobs:
       run: rustup target add aarch64-unknown-linux-gnu
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+    - name: Install OpenSSL
+      run: |
+        mkdir target && cd target
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
+
+        gpg --keyserver keys.openpgp.org --recv-keys EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5
+        gpg --verify openssl-3.1.3.tar.gz.asc openssl-3.1.3.tar.gz
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.sha256
+        echo $(cat openssl-3.1.3.tar.gz.sha256) openssl-3.1.3.tar.gz | sha256sum --check
+
+        tar -xzf openssl-3.1.3.tar.gz
+        cd openssl-3.1.3
+        CC=aarch64-linux-gnu-gcc ./Configure --prefix=$(pwd)/openssl-3.1.3/build linux-aarch64 no-shared
+        CC=aarch64-linux-gnu-gcc make -j $(nproc)
+        CC=aarch64-linux-gnu-gcc make -j $(nproc) install_sw
     - name: Build CKB and Package CKB
       env:
         LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -103,16 +121,13 @@ jobs:
         SKIP_CKB_CLI: true
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        export TOP_DIR=$(pwd)
-        curl -LO https://www.openssl.org/source/openssl-1.1.1.tar.gz
-        tar -xzf openssl-1.1.1.tar.gz
-        cd openssl-1.1.1
-        CC=aarch64-linux-gnu-gcc ./Configure linux-aarch64 shared
-        CC=aarch64-linux-gnu-gcc make
-        cd ..
-        export OPENSSL_LIB_DIR=${TOP_DIR}/openssl-1.1.1
-        export OPENSSL_INCLUDE_DIR=${TOP_DIR}/openssl-1.1.1/include
+
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
+        export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
+        export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib64
+        export OPENSSL_STATIC=1
         PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
+
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
@@ -170,7 +185,7 @@ jobs:
         name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
         path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.71.1
+      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.71.1-openssl-3.1.3
       REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-mac:
@@ -189,13 +204,37 @@ jobs:
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
         echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+    - name: Install Dependencies
+      run: |
+        mkdir target && cd target
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
+
+        gpg --keyserver keys.openpgp.org --recv-keys EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5
+        gpg --verify openssl-3.1.3.tar.gz.asc openssl-3.1.3.tar.gz
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.sha256
+        echo $(cat openssl-3.1.3.tar.gz.sha256) openssl-3.1.3.tar.gz | sha256sum --check
+
+        tar -xzf openssl-3.1.3.tar.gz
+        cd openssl-3.1.3
+        ./Configure --prefix=$(pwd)/openssl-3.1.3/build no-shared
+        make
+        make install_sw
     - name: Build CKB and Package CKB
       env:
         LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl@1.1/include ${{ matrix.build_target }}
+
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
+        export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib
+        export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
+        export OPENSSL_STATIC=1
+        make ${{ matrix.build_target }}
+
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
@@ -230,12 +269,13 @@ jobs:
         echo /opt/homebrew/bin >> $GITHUB_PATH
         echo /opt/homebrew/sbin >> $GITHUB_PATH
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
+    - uses: actions/checkout@v3
+    - name: Set Env
+      run: |
+        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
+        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
     - name: Install Depedencies
       run: |
-        if ! [ -d /opt/homebrew/opt/openssl@1.1 ]; then
-          brew install "openssl@1.1"
-        fi
         if ! type -f gpg &> /dev/null; then
           brew install gnupg
         fi
@@ -243,18 +283,36 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         fi
 
-    - uses: actions/checkout@v3
-    - name: Set Env
-      run: |
-        export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+        mkdir target && cd target
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.asc
+
+        gpg --keyserver keys.openpgp.org --recv-keys EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5
+        gpg --verify openssl-3.1.3.tar.gz.asc openssl-3.1.3.tar.gz
+
+        curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz.sha256
+        echo $(cat openssl-3.1.3.tar.gz.sha256) openssl-3.1.3.tar.gz | sha256sum --check
+
+        tar -xzf openssl-3.1.3.tar.gz
+        cd openssl-3.1.3
+        ./Configure --prefix=$(pwd)/openssl-3.1.3/build no-shared
+        make
+        make install_sw
+
     - name: Build CKB and Package CKB
       env:
         LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
         GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
       run: |
         export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-        make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl@1.1/lib OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@1.1/include ${{ matrix.build_target }}
+
+        export OPENSSL_DIR=$(pwd)/target/openssl-3.1.3/build
+        export OPENSSL_LIB_DIR=${OPENSSL_DIR}/lib
+        export OPENSSL_INCLUDE_DIR=${OPENSSL_DIR}/include
+        export OPENSSL_STATIC=1
+        make ${{ matrix.build_target }}
+
         gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
         gpg --import devtools/ci/signer.asc
         devtools/ci/package.sh target/prod/ckb
