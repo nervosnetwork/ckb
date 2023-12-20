@@ -10,9 +10,11 @@ use futures::TryStreamExt;
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 use sql_builder::SqlBuilder;
-use sqlx::any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, AnyRow};
-use sqlx::query::{Query, QueryAs};
-use sqlx::{ConnectOptions, IntoArguments, Row, Transaction};
+use sqlx::{
+    any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, AnyRow},
+    query::{Query, QueryAs},
+    ConnectOptions, IntoArguments, Row, Transaction,
+};
 
 use std::fs::OpenOptions;
 use std::marker::{Send, Unpin};
