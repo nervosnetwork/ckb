@@ -7,7 +7,6 @@ import argparse
 
 from matplotlib.ticker import MultipleLocator
 
-
 def parse_sync_statics(log_file):
     """
     parse sync statics from log file
@@ -23,9 +22,9 @@ def parse_sync_statics(log_file):
     print("total lines: ", total_lines)
 
     with open(log_file, 'r') as f:
-        pbar = tqdm.tqdm(total=total_lines)
+        # pbar = tqdm.tqdm(total=total_lines)
         for line_idx, line in enumerate(f):
-            pbar.update(1)
+            # pbar.update(1)
             if line_idx == 0:
                 timestamp_str = re.search(r'^(\S+ \S+)', line).group(1)  # Extract the timestamp string
                 timestamp = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f").timestamp()
@@ -43,7 +42,7 @@ def parse_sync_statics(log_file):
                     duration.append(timestamp / 60 / 60)
                     height.append(block_number)
 
-        pbar.close()
+        # pbar.close()
 
     return duration, height
 
@@ -68,25 +67,59 @@ result_path = args.result_path[0]
 fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
 lgs = []
-for ckb_log_file, label in tasks:
+
+def process_task(task):
+    ckb_log_file, label = task
     print("ckb_log_file: ", ckb_log_file)
     print("label: ", label)
     duration, height = parse_sync_statics(ckb_log_file)
+    return (duration, height, label)
+
+
+tasks = [(ckb_log_file, label) for ckb_log_file, label in tasks]
+    
+
+import multiprocessing
+with multiprocessing.Pool() as pool:
+    results = pool.map(process_task, tasks)
+
+alabels = []
+
+import matplotlib.ticker as ticker
+
+for duration, height, label in results:
+# for ckb_log_file, label in tasks:
+#     print("ckb_log_file: ", ckb_log_file)
+#     print("label: ", label)
+#     duration, height = parse_sync_statics(ckb_log_file)
+
 
     lg = ax.scatter(duration, height, s=1, label=label)
     ax.plot(duration, height, label=label)
+
 
     lgs.append(lg)
 
     for i, h in enumerate(height):
         if h % 1_000_000 == 0:
             ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
-            ax.annotate(str(round(duration[i], 1)),
-                        xy=(duration[i], 0),
-                        xycoords='axes fraction',
-                        xytext=(duration[i], -0.05),
-                        arrowprops=dict(arrowstyle="->", color='b')
-                        )
+
+        if h == 10_000_000:
+            alabels.append(((duration[i],h),label))
+
+        if h == 10_000_000 or h == 11_000_000:
+            ax.vlines([duration[i]], 0, h, colors="black", linestyles="dashed")
+            voff=-60
+            if h == 11_000_000:
+                voff=-75
+            ax.annotate(round(duration[i],1),
+                fontsize=8,
+                xy=(duration[i], 0), xycoords='data',
+                xytext=(0, voff), textcoords='offset points',
+                bbox=dict(boxstyle="round", fc="0.9"),
+                arrowprops=dict(arrowstyle="-"),
+                horizontalalignment='center', verticalalignment='bottom')
+
 
     ax.get_yaxis().get_major_formatter().set_scientific(False)
     ax.get_yaxis().get_major_formatter().set_useOffset(False)
@@ -105,13 +138,35 @@ for ckb_log_file, label in tasks:
     ax.xaxis.set_minor_locator(xminorLocator)
 
     yminorLocator = MultipleLocator(1_000_000)
-    ax.yaxis.set_minor_locator(yminorLocator)
+    ax.yaxis.set_major_locator(yminorLocator)
+
 
     # plt.xticks(ax.get_xticks(), ax.get_xticklabels(which='both'))
     # plt.setp(ax.get_xticklabels(which='both'), rotation=30, horizontalalignment='right')
 
-plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
+# sort alabsle by .0.1
+alabels.sort(key=lambda x: x[0][0])
+
+lheight=80
+loffset=-40
+count=len(alabels)
+for (duration,h), label in alabels:
+
+    ax.annotate(label,
+                fontsize=8,
+                xy=(duration, h), xycoords='data',
+                xytext=(loffset, lheight), textcoords='offset points',
+                bbox=dict(boxstyle="round", fc="0.9"),
+                arrowprops=dict(arrowstyle="->"),
+                horizontalalignment='center', verticalalignment='bottom')
+    loffset += round(80/count,0)
+    if loffset <0:
+        lheight += 20
+    elif loffset > 0:
+        lheight -= 20
+
+# plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
 plt.title('CKB Block Sync progress Chart')
 plt.xlabel('Timecost (hours)')
 plt.ylabel('Block Height')
-plt.savefig(result_path)
+plt.savefig(result_path, bbox_inches='tight', dpi=300)
