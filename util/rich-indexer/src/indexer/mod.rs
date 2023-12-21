@@ -141,7 +141,7 @@ impl AsyncRichIndexer {
             self.insert_transactions(block_id, block, &mut tx).await?;
         } else {
             let block_headers = vec![(block.hash().raw_data().to_vec(), block.number() as i64)];
-            bulk_insert_blocks_simple(&block_headers, &mut tx).await?;
+            bulk_insert_blocks_simple(block_headers, &mut tx).await?;
         }
         tx.commit().await.map_err(|err| Error::DB(err.to_string()))
     }
@@ -235,8 +235,8 @@ impl AsyncRichIndexer {
         bulk_insert_tx_association_header_dep_table(tx_id, &tx_view, tx).await?;
         bulk_insert_tx_association_cell_dep_table(tx_id, &tx_view, tx).await?;
 
-        bulk_insert_input_table(tx_id, &input_rows, tx).await?;
-        bulk_insert_script_table(&script_set, tx).await?;
-        bulk_insert_output_table(tx_id, &output_cell_rows, tx).await
+        bulk_insert_input_table(tx_id, input_rows, tx).await?;
+        bulk_insert_script_table(script_set, tx).await?;
+        bulk_insert_output_table(tx_id, output_cell_rows, tx).await
     }
 }

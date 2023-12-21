@@ -88,10 +88,10 @@ impl SQLXPool {
             DBDriver::Sqlite => {
                 let require_init = is_sqlite_require_init(db_config);
                 let uri = build_url_for_sqlite(db_config);
-                log::debug!("sqlite uri: {}", uri);
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
+                log::info!("SQLite is connected.");
                 self.pool
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed!"))?;
@@ -103,7 +103,7 @@ impl SQLXPool {
             DBDriver::Postgres => {
                 let require_init = self.is_postgres_require_init(db_config).await?;
                 let uri = build_url_for_postgres(db_config);
-                log::debug!("postgres uri: {}", uri);
+                log::info!("PostgreSQL is connected.");
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
@@ -249,7 +249,7 @@ impl SQLXPool {
                 config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
                 config.init_tip_number.unwrap() as i64,
             )];
-            bulk_insert_blocks_simple(&blocks_simple, &mut tx).await?;
+            bulk_insert_blocks_simple(blocks_simple, &mut tx).await?;
         }
         tx.commit().await.map_err(Into::into)
     }
@@ -269,7 +269,7 @@ impl SQLXPool {
                 config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
                 config.init_tip_number.unwrap() as i64,
             )];
-            bulk_insert_blocks_simple(&blocks_simple, &mut tx).await?;
+            bulk_insert_blocks_simple(blocks_simple, &mut tx).await?;
         }
         tx.commit().await.map_err(Into::into)
     }
@@ -282,7 +282,6 @@ impl SQLXPool {
         let mut temp_config = db_config.clone();
         temp_config.db_name = "postgres".to_string();
         let uri = build_url_for_postgres(&temp_config);
-        log::info!("postgres uri: {}", uri);
         let mut connection_options = AnyConnectOptions::from_str(&uri)?;
         connection_options.log_statements(LevelFilter::Trace);
         let tmp_pool_options = AnyPoolOptions::new();
