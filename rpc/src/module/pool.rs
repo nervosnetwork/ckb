@@ -27,7 +27,7 @@ pub trait PoolRpc {
     /// ## Params
     ///
     /// * `transaction` - The transaction.
-    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
     ///
     /// ## Errors
     ///
