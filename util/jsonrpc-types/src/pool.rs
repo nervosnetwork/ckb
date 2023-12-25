@@ -8,7 +8,6 @@ use ckb_types::prelude::Unpack;
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Ancestors;
 
 /// Transaction pool information.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
