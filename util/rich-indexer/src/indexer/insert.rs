@@ -170,7 +170,7 @@ pub(crate) async fn insert_transaction_table(
         block_id.into(),
         (tx_index as i32).into(),
     ];
-    bulk_insert_table_and_return_ids(
+    bulk_insert_and_return_ids(
         "ckb_transaction",
         &[
             "tx_hash",
@@ -196,7 +196,7 @@ pub(crate) async fn bulk_insert_blocks_simple(
         .into_iter()
         .map(|(block_hash, block_number)| vec![block_hash.into(), block_number.into()])
         .collect();
-    bulk_insert_table(
+    bulk_insert(
         "block",
         &["block_hash", "block_number"],
         &simple_block_rows,
@@ -210,7 +210,7 @@ async fn bulk_insert_block_table(
     block_rows: &[Vec<FieldValue>],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<i64>, Error> {
-    bulk_insert_table_and_return_ids(
+    bulk_insert_and_return_ids(
         "block",
         &[
             "block_hash",
@@ -236,7 +236,7 @@ async fn bulk_insert_block_association_proposal_table(
     block_association_proposal_rows: &[Vec<FieldValue>],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    bulk_insert_table(
+    bulk_insert(
         "block_association_proposal",
         &["block_id", "proposal"],
         &block_association_proposal_rows,
@@ -255,7 +255,7 @@ async fn bulk_insert_block_association_uncle_table(
         .iter()
         .map(|uncle_id| vec![block_id.into(), (*uncle_id).into()])
         .collect();
-    bulk_insert_table(
+    bulk_insert(
         "block_association_uncle",
         &["block_id", "uncle_id"],
         &block_association_uncle_rows,
@@ -295,7 +295,7 @@ pub(crate) async fn bulk_insert_output_table(
         ];
         new_rows.push(new_row);
     }
-    bulk_insert_table(
+    bulk_insert(
         "output",
         &[
             "tx_id",
@@ -321,7 +321,7 @@ pub(crate) async fn bulk_insert_input_table(
         .into_iter()
         .map(|row| vec![row.0.into(), row.1.into(), tx_id.into(), row.2.into()])
         .collect::<Vec<Vec<FieldValue>>>();
-    bulk_insert_table(
+    bulk_insert(
         "input",
         &["output_id", "since", "consumed_tx_id", "input_index"],
         &input_rows,
@@ -340,7 +340,7 @@ pub(crate) async fn bulk_insert_script_table(
         .into_iter()
         .map(|(code_hash, hash_type, args)| vec![code_hash.into(), hash_type.into(), args.into()])
         .collect::<Vec<_>>();
-    bulk_insert_table(
+    bulk_insert(
         "script",
         &["code_hash", "hash_type", "args"],
         &script_rows,
@@ -359,7 +359,7 @@ pub(crate) async fn bulk_insert_tx_association_header_dep_table(
         .header_deps_iter()
         .map(|header_dep| vec![tx_id.into(), header_dep.raw_data().to_vec().into()])
         .collect::<Vec<Vec<FieldValue>>>();
-    bulk_insert_table(
+    bulk_insert(
         "tx_association_header_dep",
         &["tx_id", "block_hash"],
         &tx_association_header_dep_rows,
@@ -387,7 +387,7 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
             ]
         })
         .collect::<Vec<Vec<FieldValue>>>();
-    bulk_insert_table(
+    bulk_insert(
         "tx_association_cell_dep",
         &["tx_id", "output_tx_hash", "output_index", "dep_type"],
         &tx_association_cell_dep_rows,
@@ -599,7 +599,7 @@ fn build_cell_output(row: Option<AnyRow>) -> Result<Option<(i64, CellOutput, Byt
     Ok(Some((id, cell_output, data.into())))
 }
 
-async fn bulk_insert_table(
+async fn bulk_insert(
     table: &str,
     fields: &[&str],
     rows: &[Vec<FieldValue>],
@@ -630,7 +630,7 @@ async fn bulk_insert_table(
     Ok(())
 }
 
-async fn bulk_insert_table_and_return_ids(
+async fn bulk_insert_and_return_ids(
     table: &str,
     fields: &[&str],
     rows: &[Vec<FieldValue>],

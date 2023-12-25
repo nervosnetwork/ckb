@@ -31,7 +31,6 @@ const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../../resources/create_pos
 #[derive(Clone)]
 pub struct SQLXPool {
     pool: Arc<OnceCell<AnyPool>>,
-    driver: OnceCell<DBDriver>,
     max_conn: u32,
     min_conn: u32,
     conn_timeout: Duration,
@@ -61,7 +60,6 @@ impl SQLXPool {
     ) -> Self {
         SQLXPool {
             pool: Arc::new(OnceCell::new()),
-            driver: OnceCell::new(),
             max_conn: max_connections,
             min_conn: min_connections,
             conn_timeout: Duration::from_secs(connection_timeout),
@@ -75,9 +73,6 @@ impl SQLXPool {
     }
 
     pub async fn connect(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
-        self.driver
-            .set(db_config.db_type.clone())
-            .map_err(|_| anyhow!("set db driver failed!"))?;
         let pool_options = AnyPoolOptions::new()
             .max_connections(self.max_conn)
             .min_connections(self.min_conn)
