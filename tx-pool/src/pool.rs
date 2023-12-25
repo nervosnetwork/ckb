@@ -652,7 +652,7 @@ impl TxPool {
                 proposed_count: ids.proposed.len(),
                 descendants_count: self.pool_map.calc_descendants(id).len(),
                 ancestors_count: self.pool_map.calc_ancestors(id).len(),
-                score_sortkey: entry.inner.as_score_key().to_string(),
+                score_sortkey: entry.inner.as_score_key().into(),
             };
             Some(res)
         } else {
