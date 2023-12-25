@@ -200,6 +200,7 @@ impl PoolMap {
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
+        self.update_stat_for_add_tx(entry.size, entry.cycles);
         Ok(true)
     }
 
@@ -224,7 +225,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
-            self.update_statics_for_remove_tx(entry.inner.size, entry.inner.cycles);
+            self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
     }
@@ -507,8 +508,7 @@ impl PoolMap {
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
-        let inputs = entry.transaction().input_pts_iter();
-        for i in inputs {
+        for i in entry.transaction().input_pts_iter() {
             // release input record
             self.edges.remove_input(&i);
         }
@@ -531,7 +531,6 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
-        self.update_statics_for_add_tx(entry.size, entry.cycles);
     }
 
     fn track_entry_statics(&self) {
@@ -551,15 +550,15 @@ impl PoolMap {
         }
     }
 
-    /// Update size and cycles statics for add tx
-    fn update_statics_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
+    /// Update size and cycles statistics for add tx
+    fn update_stat_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
         self.total_tx_size += tx_size;
         self.total_tx_cycles += cycles;
     }
 
-    /// Update size and cycles statics for remove tx
+    /// Update size and cycles statistics for remove tx
     /// cycles overflow is possible, currently obtaining cycles is not accurate
-    pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
+    fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
             error!(
                 "total_tx_size {} overflown by sub {}",

@@ -555,9 +555,13 @@ fn test_package_multi_best_scores() {
         TxEntry::dummy_resolve(tx2_3.clone(), 0, Capacity::shannons(150), 100),
         TxEntry::dummy_resolve(tx2_4.clone(), 0, Capacity::shannons(150), 100),
         TxEntry::dummy_resolve(tx3_1.clone(), 0, Capacity::shannons(1000), 1000),
-        TxEntry::dummy_resolve(tx4_1.clone(), 0, Capacity::shannons(300), 250),
+        TxEntry::dummy_resolve(tx4_1.clone(), 100, Capacity::shannons(300), 250),
     ];
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
+
+    let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
+    assert_eq!(tx_pool_info.total_tx_size, 2400);
+    assert_eq!(tx_pool_info.total_tx_cycles, 100);
 
     // 250 size best scored txs
     let txs = tx_pool.package_txs(Some(250)).unwrap();

@@ -200,8 +200,7 @@ impl TxPool {
             debug!("remove_committed_tx for {}", tx.hash());
         }
         {
-            let conflicts = self.pool_map.resolve_conflict(tx);
-            for (entry, reject) in conflicts {
+            for (entry, reject) in self.pool_map.resolve_conflict(tx) {
                 debug!(
                     "removed {} for commited: {}",
                     entry.transaction().hash(),
