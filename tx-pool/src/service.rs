@@ -1,7 +1,7 @@
 //! Tx-pool background service
 
 use crate::block_assembler::{self, BlockAssembler};
-use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
+use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
 use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
@@ -437,7 +437,7 @@ impl TxPoolServiceBuilder {
     }
 
     /// Register new pending callback
-    pub fn register_pending(&mut self, callback: Callback) {
+    pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
     }
 
@@ -904,7 +904,6 @@ async fn process(mut service: TxPoolService, message: Message) {
             let max_block_cycles = service.consensus.max_block_cycles();
             let max_block_bytes = service.consensus.max_block_bytes();
             let tx_pool = service.tx_pool.read().await;
-            eprintln!("tx_pool total_size: {}", tx_pool.pool_map.total_tx_size);
             let (txs, _size, _cycles) = tx_pool.package_txs(
                 max_block_cycles,
                 bytes_limit.unwrap_or(max_block_bytes) as usize,

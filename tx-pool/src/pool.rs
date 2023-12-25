@@ -289,7 +289,7 @@ impl TxPool {
 
     pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
         let entries = self.pool_map.remove_entry_and_descendants(id);
-        return !entries.is_empty();
+        !entries.is_empty()
     }
 
     pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {

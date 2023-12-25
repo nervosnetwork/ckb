@@ -1102,19 +1102,19 @@ fn _submit_entry(
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone())? {
                 debug!("submit_entry pending {}", tx_hash);
-                callbacks.call_pending(tx_pool, &entry);
+                callbacks.call_pending(&entry);
             }
         }
         TxStatus::Gap => {
             if tx_pool.add_gap(entry.clone())? {
                 debug!("submit_entry gap {}", tx_hash);
-                callbacks.call_pending(tx_pool, &entry);
+                callbacks.call_pending(&entry);
             }
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
                 debug!("submit_entry proposed {}", tx_hash);
-                callbacks.call_proposed(tx_pool, &entry, true);
+                callbacks.call_proposed(&entry);
             }
         }
     }
@@ -1174,7 +1174,7 @@ fn _update_tx_pool_for_reorg(
                 );
                 callbacks.call_reject(tx_pool, &entry, e);
             } else {
-                callbacks.call_proposed(tx_pool, &entry, false)
+                callbacks.call_proposed(&entry)
             }
         }
 

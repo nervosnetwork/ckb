@@ -381,20 +381,18 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         fee: entry.fee,
         timestamp: entry.timestamp,
     };
-    tx_pool_builder.register_pending(Box::new(move |_tx_pool: &mut TxPool, entry: &TxEntry| {
+    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
 
     let notify_proposed = notify.clone();
-    tx_pool_builder.register_proposed(Box::new(
-        move |_tx_pool: &mut TxPool, entry: &TxEntry, _new: bool| {
-            // notify
-            let notify_tx_entry = create_notify_entry(entry);
-            notify_proposed.notify_proposed_transaction(notify_tx_entry);
-        },
-    ));
+    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntry| {
+        // notify
+        let notify_tx_entry = create_notify_entry(entry);
+        notify_proposed.notify_proposed_transaction(notify_tx_entry);
+    }));
 
     let notify_reject = notify;
     tx_pool_builder.register_reject(Box::new(
