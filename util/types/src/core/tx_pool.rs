@@ -348,9 +348,13 @@ pub struct TxPoolInfo {
 /// A struct as a sorted key in tx-pool
 #[derive(Eq, PartialEq, Clone, Debug, Default)]
 pub struct AncestorsScoreSortKey {
+    /// fee
     pub fee: Capacity,
+    /// weight
     pub weight: u64,
+    /// ancestors_fee
     pub ancestors_fee: Capacity,
+    /// ancestors_weight
     pub ancestors_weight: u64,
 }
 
