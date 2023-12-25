@@ -1,4 +1,6 @@
-use ckb_types::core::{Capacity, FeeRate};
+use ckb_types::core::{
+    tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey, Capacity, FeeRate,
+};
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -43,6 +45,17 @@ impl Ord for AncestorsScoreSortKey {
             self.ancestors_weight.cmp(&other.ancestors_weight)
         } else {
             self_weight.cmp(&other_weight)
+        }
+    }
+}
+
+impl Into<CoreAncestorsScoreSortKey> for AncestorsScoreSortKey {
+    fn into(self) -> CoreAncestorsScoreSortKey {
+        CoreAncestorsScoreSortKey {
+            fee: self.fee,
+            weight: self.weight,
+            ancestors_fee: self.ancestors_fee,
+            ancestors_weight: self.ancestors_weight,
         }
     }
 }
