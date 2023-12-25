@@ -13,7 +13,6 @@ pub type RejectCallback = Box<dyn Fn(&mut TxPool, &TxEntry, Reject) + Sync + Sen
 pub struct Callbacks {
     pub(crate) pending: Option<Callback>,
     pub(crate) proposed: Option<ProposedCallback>,
-    pub(crate) committed: Option<Callback>,
     pub(crate) reject: Option<RejectCallback>,
 }
 
@@ -29,7 +28,6 @@ impl Callbacks {
         Callbacks {
             pending: None,
             proposed: None,
-            committed: None,
             reject: None,
         }
     }
@@ -42,11 +40,6 @@ impl Callbacks {
     /// Register a new proposed callback
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.proposed = Some(callback);
-    }
-
-    /// Register a new committed callback
-    pub fn register_committed(&mut self, callback: Callback) {
-        self.committed = Some(callback);
     }
 
     /// Register a new abandon callback
@@ -65,13 +58,6 @@ impl Callbacks {
     pub fn call_proposed(&self, tx_pool: &mut TxPool, entry: &TxEntry, new: bool) {
         if let Some(call) = &self.proposed {
             call(tx_pool, entry, new)
-        }
-    }
-
-    /// Call on after proposed
-    pub fn call_committed(&self, tx_pool: &mut TxPool, entry: &TxEntry) {
-        if let Some(call) = &self.committed {
-            call(tx_pool, entry)
         }
     }
 

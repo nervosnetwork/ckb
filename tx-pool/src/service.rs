@@ -451,11 +451,6 @@ impl TxPoolServiceBuilder {
         self.callbacks.register_proposed(callback);
     }
 
-    /// Register new committed callback
-    pub fn register_committed(&mut self, callback: Callback) {
-        self.callbacks.register_committed(callback);
-    }
-
     /// Register new abandon callback
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.callbacks.register_reject(callback);
