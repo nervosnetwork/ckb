@@ -345,6 +345,19 @@ pub struct TxPoolInfo {
     pub max_tx_pool_size: u64,
 }
 
+/// A struct as a sorted key in tx-pool
+#[derive(Eq, PartialEq, Clone, Debug, Default)]
+pub struct AncestorsScoreSortKey {
+    /// fee
+    pub fee: Capacity,
+    /// weight
+    pub weight: u64,
+    /// ancestors_fee
+    pub ancestors_fee: Capacity,
+    /// ancestors_weight
+    pub ancestors_weight: u64,
+}
+
 /// A Tx details info in tx-pool.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct PoolTxDetailInfo {
@@ -363,7 +376,7 @@ pub struct PoolTxDetailInfo {
     /// The ancestors count of tx
     pub ancestors_count: usize,
     /// The score key details, useful to debug
-    pub score_sortkey: String,
+    pub score_sortkey: AncestorsScoreSortKey,
 }
 
 impl PoolTxDetailInfo {
