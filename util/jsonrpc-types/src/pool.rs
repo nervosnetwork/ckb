@@ -218,9 +218,13 @@ pub enum RawTxPool {
 /// A struct as a sorted key for tx-pool
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AncestorsScoreSortKey {
+    /// Fee
     pub fee: Uint64,
+    /// Weight
     pub weight: Uint64,
+    /// Ancestors fee
     pub ancestors_fee: Uint64,
+    /// Ancestors weight
     pub ancestors_weight: Uint64,
 }
 
