@@ -49,13 +49,13 @@ impl Ord for AncestorsScoreSortKey {
     }
 }
 
-impl Into<CoreAncestorsScoreSortKey> for AncestorsScoreSortKey {
-    fn into(self) -> CoreAncestorsScoreSortKey {
+impl From<AncestorsScoreSortKey> for CoreAncestorsScoreSortKey {
+    fn from(val: AncestorsScoreSortKey) -> Self {
         CoreAncestorsScoreSortKey {
-            fee: self.fee,
-            weight: self.weight,
-            ancestors_fee: self.ancestors_fee,
-            ancestors_weight: self.ancestors_weight,
+            fee: val.fee,
+            weight: val.weight,
+            ancestors_fee: val.ancestors_fee,
+            ancestors_weight: val.ancestors_weight,
         }
     }
 }
