@@ -35,10 +35,6 @@ pub struct TxPool {
     pub(crate) pool_map: PoolMap,
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
-    // sum of all tx_pool tx's virtual sizes.
-    pub(crate) total_tx_size: usize,
-    // sum of all tx_pool tx's cycles.
-    pub(crate) total_tx_cycles: Cycle,
     /// storage snapshot reference
     pub(crate) snapshot: Arc<Snapshot>,
     /// record recent reject
@@ -55,8 +51,6 @@ impl TxPool {
         TxPool {
             pool_map: PoolMap::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
-            total_tx_size: 0,
-            total_tx_cycles: 0,
             config,
             snapshot,
             recent_reject,
@@ -81,12 +75,6 @@ impl TxPool {
     /// Get tx-pool size
     pub fn status_size(&self, status: Status) -> usize {
         self.get_by_status(status).len()
-    }
-
-    /// Update size and cycles statics for add tx
-    pub fn update_statics_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        self.total_tx_size += tx_size;
-        self.total_tx_cycles += cycles;
     }
 
     /// Check whether tx-pool enable RBF
@@ -125,27 +113,6 @@ impl TxPool {
             );
             None
         }
-    }
-
-    /// Update size and cycles statics for remove tx
-    /// cycles overflow is possible, currently obtaining cycles is not accurate
-    pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
-            error!(
-                "total_tx_size {} overflown by sub {}",
-                self.total_tx_size, tx_size
-            );
-            0
-        });
-        let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
-            error!(
-                "total_tx_cycles {} overflown by sub {}",
-                self.total_tx_cycles, cycles
-            );
-            0
-        });
-        self.total_tx_size = total_tx_size;
-        self.total_tx_cycles = total_tx_cycles;
     }
 
     /// Add tx with pending status
@@ -267,7 +234,7 @@ impl TxPool {
 
     // Remove transactions from the pool until total size <= size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
-        while self.total_tx_size > self.config.max_tx_pool_size {
+        while self.pool_map.total_tx_size > self.config.max_tx_pool_size {
             let next_evict_entry = || {
                 self.pool_map
                     .next_evict_entry(Status::Pending)
@@ -323,18 +290,7 @@ impl TxPool {
 
     pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
         let entries = self.pool_map.remove_entry_and_descendants(id);
-        if !entries.is_empty() {
-            for entry in entries {
-                self.update_statics_for_remove_tx(entry.size, entry.cycles);
-            }
-            return true;
-        }
-
-        if let Some(entry) = self.pool_map.remove_entry(id) {
-            self.update_statics_for_remove_tx(entry.size, entry.cycles);
-            return true;
-        }
-        false
+        return !entries.is_empty();
     }
 
     pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
@@ -456,7 +412,7 @@ impl TxPool {
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
         let mut txs = CommitTxsScanner::new(&self.pool_map)
-            .txs_to_commit(self.total_tx_size, self.total_tx_cycles)
+            .txs_to_commit(self.pool_map.total_tx_size, self.pool_map.total_tx_cycles)
             .0
             .into_iter()
             .map(|tx_entry| tx_entry.into_transaction())
@@ -477,8 +433,6 @@ impl TxPool {
             .map(|e| e.inner.into_transaction())
             .collect::<Vec<_>>();
         txs.append(&mut gap);
-        self.total_tx_size = 0;
-        self.total_tx_cycles = 0;
         self.pool_map.clear();
         txs
     }
@@ -487,8 +441,6 @@ impl TxPool {
         self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-        self.total_tx_size = 0;
-        self.total_tx_cycles = 0;
     }
 
     pub(crate) fn package_proposals(

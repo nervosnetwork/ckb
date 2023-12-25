@@ -909,6 +909,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             let max_block_cycles = service.consensus.max_block_cycles();
             let max_block_bytes = service.consensus.max_block_bytes();
             let tx_pool = service.tx_pool.read().await;
+            eprintln!("tx_pool total_size: {}", tx_pool.pool_map.total_tx_size);
             let (txs, _size, _cycles) = tx_pool.package_txs(
                 max_block_cycles,
                 bytes_limit.unwrap_or(max_block_bytes) as usize,
@@ -932,8 +933,8 @@ impl TxPoolService {
             pending_size: tx_pool.pool_map.pending_size(),
             proposed_size: tx_pool.pool_map.proposed_size(),
             orphan_size: orphan.len(),
-            total_tx_size: tx_pool.total_tx_size,
-            total_tx_cycles: tx_pool.total_tx_cycles,
+            total_tx_size: tx_pool.pool_map.total_tx_size,
+            total_tx_cycles: tx_pool.pool_map.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
