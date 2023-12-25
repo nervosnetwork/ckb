@@ -105,6 +105,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
     * [Type `AlertPriority`](#type-alertpriority)
+    * [Type `AncestorsScoreSortKey`](#type-ancestorsscoresortkey)
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
@@ -4701,7 +4702,12 @@ Response
        "pending_count": "0x1",
        "proposed_count": "0x0",
        "rank_in_pending": "0x1",
-       "score_sortkey": "fee: 0x16923F7DCF, ancestors_fee: 0x16923F7DCF, weight: 0x112, ancestors_weight: 0x112",
+       "score_sortkey": {
+           "ancestors_fee": "0x16923f7dcf",
+           "ancestors_weight": "0x112",
+           "fee": "0x16923f7dcf",
+           "weight": "0x112"
+       },
        "timestamp": "0x18aa1baa54c"
    },
    "id": 42
@@ -5249,6 +5255,23 @@ An alert sent by RPC `send_alert`.
 Alerts are sorted by priority. Greater integers mean higher priorities.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+
+### Type `AncestorsScoreSortKey`
+
+A struct as a sorted key for tx-pool
+
+#### Fields
+
+`AncestorsScoreSortKey` is a JSON object with the following fields.
+
+*   `fee`: [`Uint64`](#type-uint64) - Fee
+
+*   `weight`: [`Uint64`](#type-uint64) - Weight
+
+*   `ancestors_fee`: [`Uint64`](#type-uint64) - Ancestors fee
+
+*   `ancestors_weight`: [`Uint64`](#type-uint64) - Ancestors weight
+
 
 ### Type `BannedAddr`
 
@@ -6565,7 +6588,7 @@ A Tx details info in tx-pool.
 
 *   `ancestors_count`: [`Uint64`](#type-uint64) - The ancestors count of tx
 
-*   `score_sortkey`: `string` - The score key details, useful to debug
+*   `score_sortkey`: [`AncestorsScoreSortKey`](#type-ancestorsscoresortkey) - The score key details, useful to debug
 
 
 ### Type `ProposalShortId`
