@@ -552,8 +552,22 @@ impl PoolMap {
 
     /// Update size and cycles statistics for add tx
     fn update_stat_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        self.total_tx_size += tx_size;
-        self.total_tx_cycles += cycles;
+        let total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
+            error!(
+                "total_tx_size {} overflown by add {}",
+                self.total_tx_size, tx_size
+            );
+            self.total_tx_size
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).unwrap_or_else(|| {
+            error!(
+                "total_tx_cycles {} overflown by add {}",
+                self.total_tx_cycles, cycles
+            );
+            self.total_tx_cycles
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
     }
 
     /// Update size and cycles statistics for remove tx
