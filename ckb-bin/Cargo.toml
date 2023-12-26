@@ -10,7 +10,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 clap = { version = "4" }
-daemonize = { version = "0.5.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 serde_plain = "0.3.0"
@@ -46,7 +45,9 @@ sentry = { version = "0.26.0", optional = true }
 is-terminal = "0.4.7"
 fdlimit = "0.2.1"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.114.0-pre" }
+
 [target.'cfg(not(target_os="windows"))'.dependencies]
+daemonize = { version = "0.5.0" }
 nix = { version = "0.24.0", default-features = false, features = ["signal"] }
 colored = "2.0"
 

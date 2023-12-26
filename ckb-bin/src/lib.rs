@@ -10,14 +10,15 @@ use ckb_build_info::Version;
 use ckb_logger::{debug, info};
 use ckb_network::tokio;
 use clap::ArgMatches;
-use colored::Colorize;
-use daemonize::Daemonize;
 use helper::raise_fd_limit;
 use setup_guard::SetupGuard;
 
 #[cfg(not(target_os = "windows"))]
+use colored::Colorize;
+#[cfg(not(target_os = "windows"))]
+use daemonize::Daemonize;
+#[cfg(not(target_os = "windows"))]
 use subcommand::check_process;
-
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
@@ -62,14 +63,16 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .subcommand()
         .expect("SubcommandRequiredElseHelp");
 
+    #[cfg(not(target_os = "windows"))]
     if run_deamon(cmd, matches) {
-        run_app_in_daemon(version, bin_name, cmd, matches)
-    } else {
-        debug!("ckb version: {}", version);
-        run_app_inner(version, bin_name, cmd, matches)
+        return run_app_in_daemon(version, bin_name, cmd, matches);
     }
+
+    debug!("ckb version: {}", version);
+    run_app_inner(version, bin_name, cmd, matches)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn run_app_in_daemon(
     version: Version,
     bin_name: String,
@@ -151,10 +154,8 @@ fn run_app_inner(
     ret
 }
 
+#[cfg(not(target_os = "windows"))]
 fn run_deamon(cmd: &str, matches: &ArgMatches) -> bool {
-    #[cfg(target_os = "windows")]
-    return false;
-
     match cmd {
         cli::CMD_RUN => matches.get_flag(cli::ARG_DAEMON),
         _ => false,
