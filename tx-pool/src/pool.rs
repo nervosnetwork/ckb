@@ -410,7 +410,7 @@ impl TxPool {
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
         let mut txs = CommitTxsScanner::new(&self.pool_map)
-            .txs_to_commit(self.pool_map.total_tx_size, self.pool_map.total_tx_cycles)
+            .txs_to_commit(usize::MAX, Cycle::MAX)
             .0
             .into_iter()
             .map(|tx_entry| tx_entry.into_transaction())
