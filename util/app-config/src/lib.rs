@@ -15,7 +15,7 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
+    DaemonArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
@@ -98,6 +98,7 @@ impl Setup {
             overwrite_chain_spec: matches.get_flag(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
             indexer: matches.get_flag(cli::ARG_INDEXER),
+            daemon: matches.get_flag(cli::ARG_DAEMON),
         })
     }
 
@@ -215,6 +216,18 @@ impl Setup {
             config,
             consensus,
             target,
+        })
+    }
+
+    /// Executes `ckb daemon`.
+    pub fn daemon(self, matches: &ArgMatches) -> Result<DaemonArgs, ExitCode> {
+        let check = matches.get_flag(cli::ARG_DAEMON_CHECK);
+        let stop = matches.get_flag(cli::ARG_DAEMON_STOP);
+        let pid_file = Setup::daemon_pid_file_path(matches)?;
+        Ok(DaemonArgs {
+            check,
+            stop,
+            pid_file,
         })
     }
 
@@ -345,6 +358,12 @@ impl Setup {
         };
         std::fs::create_dir_all(&config_dir)?;
         Ok(config_dir)
+    }
+
+    /// Resolves the pid file path for ckb from the command line arguments.
+    pub fn daemon_pid_file_path(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
+        let root_dir = Self::root_dir_from_matches(matches)?;
+        Ok(root_dir.join("data/daemon/ckb-run.pid"))
     }
 
     /// Loads the chain spec.

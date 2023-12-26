@@ -46,6 +46,11 @@ is-terminal = "0.4.7"
 fdlimit = "0.2.1"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.114.0-pre" }
 
+[target.'cfg(not(target_os="windows"))'.dependencies]
+daemonize = { version = "0.5.0" }
+nix = { version = "0.24.0", default-features = false, features = ["signal"] }
+colored = "2.0"
+
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
 profiling = ["ckb-memory-tracker/profiling"]

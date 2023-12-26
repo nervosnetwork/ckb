@@ -1,3 +1,5 @@
+#[cfg(not(target_os = "windows"))]
+mod daemon;
 mod export;
 mod import;
 mod init;
@@ -10,6 +12,8 @@ mod reset_data;
 mod run;
 mod stats;
 
+#[cfg(not(target_os = "windows"))]
+pub use self::daemon::{check_process, daemon};
 pub use self::export::export;
 pub use self::import::import;
 pub use self::init::init;

@@ -17,6 +17,17 @@ pub struct ExportArgs {
     pub target: PathBuf,
 }
 
+#[derive(Debug)]
+/// Parsed command line arguments for `ckb daemon`.
+pub struct DaemonArgs {
+    /// Check the daemon status
+    pub check: bool,
+    /// Stop daemon process
+    pub stop: bool,
+    /// The pid file path
+    pub pid_file: PathBuf,
+}
+
 /// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
     /// Parsed `ckb.toml`.
@@ -45,6 +56,8 @@ pub struct RunArgs {
     pub chain_spec_hash: Byte32,
     /// Whether start indexer, default false
     pub indexer: bool,
+    /// Whether start in daemon mode
+    pub daemon: bool,
 }
 
 /// Enable profile on blocks in the range `[from, to]`.
