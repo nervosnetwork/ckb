@@ -557,6 +557,19 @@ fn test_package_multi_best_scores() {
         TxEntry::dummy_resolve(tx3_1.clone(), 0, Capacity::shannons(1000), 1000),
         TxEntry::dummy_resolve(tx4_1.clone(), 100, Capacity::shannons(300), 250),
     ];
+
+    let shared_tip_number = shared.snapshot().tip_number().into();
+    while {
+        let template_tip_number = tx_pool
+            .get_block_template(None, None, None)
+            .expect("must fetch block template result")
+            .expect("must have block template")
+            .number;
+        template_tip_number <= shared_tip_number
+    } {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     tx_pool.plug_entry(entries, PlugTarget::Proposed).unwrap();
 
     let tx_pool_info = tx_pool.get_tx_pool_info().unwrap();
