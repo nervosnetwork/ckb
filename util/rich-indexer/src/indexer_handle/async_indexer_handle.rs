@@ -2,8 +2,11 @@ use crate::store::SQLXPool;
 
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::IndexerTip;
-use ckb_types::{core::BlockNumber, H256};
-use sqlx::{any::AnyRow, Row};
+use ckb_jsonrpc_types::{
+    IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, JsonBytes, Uint32,
+};
+use ckb_types::H256;
+use sqlx::Row;
 
 use std::sync::{Arc, RwLock};
 
@@ -43,21 +46,15 @@ impl AsyncRichIndexerHandle {
             .map_err(|err| Error::DB(err.to_string()))
     }
 
-    /// Get block info by id
-    pub async fn query_block_info_by_id(&self, id: i64) -> Result<(H256, BlockNumber), Error> {
-        let query = SQLXPool::new_query(
-            r#"
-            SELECT block_hash, block_number 
-            FROM block
-            WHERE id = $1
-            "#,
-        )
-        .bind(id);
-        self.store
-            .fetch_one(query)
-            .await
-            .map(to_simple_block)
-            .map_err(|err| Error::DB(err.to_string()))
+    /// Get cells
+    pub async fn query_cells(
+        &self,
+        _search_key: IndexerSearchKey,
+        _order: IndexerOrder,
+        _limit: Uint32,
+        _after: Option<JsonBytes>,
+    ) -> Result<IndexerPagination<IndexerCell>, Error> {
+        unimplemented!()
     }
 }
 
@@ -72,14 +69,4 @@ pub(crate) fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<V
     Ok((1..=range.end)
         .map(|i| format!("${}", i))
         .collect::<Vec<String>>())
-}
-
-fn to_simple_block(block: AnyRow) -> (H256, BlockNumber) {
-    (
-        bytes_to_h256(block.get("block_hash")),
-        block
-            .get::<i32, _>("block_number")
-            .try_into()
-            .expect("i32 to u64"),
-    )
 }
