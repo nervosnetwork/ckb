@@ -50,7 +50,7 @@ async-stream = "0.3.3"
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.114.0-pre" }
 # issue tracking: https://github.com/GREsau/schemars/pull/251
 schemars = { version = "0.8.16", package = "ckb_schemars" }
-ckb-channel = { path = "../util/channel", version = "= 0.113.0-pre" }
+ckb-channel = { path = "../util/channel", version = "= 0.114.0-pre" }
 
 [dev-dependencies]
 reqwest = { version = "=0.11.20", features = ["blocking", "json"] }

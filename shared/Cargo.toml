@@ -30,8 +30,8 @@ ckb-channel = { path = "../util/channel", version = "= 0.114.0-pre" }
 ckb-app-config = {path = "../util/app-config", version = "= 0.114.0-pre"}
 ckb-migrate = { path = "../util/migrate", version = "= 0.114.0-pre" }
 once_cell = "1.8.0"
-ckb-network = { path = "../network", version = "= 0.113.0-pre" }
-ckb-util = { path = "../util", version = "= 0.113.0-pre" }
+ckb-network = { path = "../network", version = "= 0.114.0-pre" }
+ckb-util = { path = "../util", version = "= 0.114.0-pre" }
 bitflags = "1.0"
 tokio = { version = "1", features = ["sync"] }
 tempfile.workspace = true
