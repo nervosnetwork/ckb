@@ -88,13 +88,13 @@ impl Migration for BlockExt2019ToZero {
                     old_block_ext.cycles = None;
                     db_txn.insert_block_ext(&hash, &old_block_ext)?;
 
-                    header = db_txn
-                        .get_block_header(&header.parent_hash())
-                        .expect("db must have header");
-
                     if header.is_genesis() {
                         break;
                     }
+
+                    header = db_txn
+                        .get_block_header(&header.parent_hash())
+                        .expect("db must have header");
 
                     pbi.inc(1);
                 }
