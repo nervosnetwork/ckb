@@ -5,7 +5,7 @@ use crate::{
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
-use ckb_chain::chain::ChainService;
+use ckb_chain::start_chain_services;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
@@ -87,8 +87,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         }))
         .build()
         .unwrap();
-    let chain_controller =
-        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     // Start network services
     let temp_dir = tempfile::tempdir().expect("create tmp_dir failed");
@@ -131,7 +130,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .blocking_process_block(Arc::new(block.clone()))
             .expect("processing new block should be ok");
         parent = block;
     }
@@ -206,7 +205,11 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             chain_controller.clone(),
             true,
         )
-        .enable_net(network_controller.clone(), sync_shared)
+        .enable_net(
+            network_controller.clone(),
+            sync_shared,
+            Arc::new(chain_controller.clone()),
+        )
         .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(
@@ -256,7 +259,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             )
             .build();
         chain_controller
-            .process_block(Arc::new(fork_block))
+            .blocking_process_block(Arc::new(fork_block))
             .expect("processing new block should be ok");
     }
 
