@@ -11,8 +11,9 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         &args.config.db,
         None,
         async_handle,
+        args.consensus,
     )?;
-    let (shared, mut pack) = builder.consensus(args.consensus).build()?;
+    let (shared, mut pack) = builder.build()?;
 
     let chain_service = ChainService::new(shared, pack.take_proposal_table());
     let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));

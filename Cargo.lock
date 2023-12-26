@@ -748,12 +748,15 @@ name = "ckb-db-migration"
 version = "0.114.0-pre"
 dependencies = [
  "ckb-app-config",
+ "ckb-channel",
  "ckb-db",
  "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
+ "ckb-stop-handler",
  "console",
  "indicatif",
+ "once_cell",
  "tempfile",
 ]
 

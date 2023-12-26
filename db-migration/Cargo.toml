@@ -15,6 +15,9 @@ ckb-db = { path = "../db", version = "= 0.114.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.114.0-pre" }
 ckb-error = { path = "../error", version = "= 0.114.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.114.0-pre" }
+ckb-channel = { path = "../util/channel", version = "= 0.114.0-pre" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.114.0-pre" }
+once_cell = "1.8.0"
 indicatif = "0.16"
 console = ">=0.9.1, <1.0.0"
 

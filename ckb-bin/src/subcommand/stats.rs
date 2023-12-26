@@ -32,8 +32,9 @@ impl Statics {
             &args.config.db,
             None,
             async_handle,
+            args.consensus,
         )?;
-        let (shared, _) = shared_builder.consensus(args.consensus).build()?;
+        let (shared, _) = shared_builder.build()?;
 
         let tip_number = shared.snapshot().tip_number();
 
