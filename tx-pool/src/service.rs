@@ -993,44 +993,29 @@ impl TxPoolService {
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        if let Err(err) = tx_pool.add_pending(entry) {
-                            error!("Plug entry add_pending error {}", err);
-                        }
+                        tx_pool
+                            .add_pending(entry)
+                            .expect("Plug entry add_pending error");
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
-                        if let Err(err) = tx_pool.add_proposed(entry) {
-                            error!("Plug entry add_proposed error {}", err);
-                        }
+                        tx_pool
+                            .add_proposed(entry)
+                            .expect("Plug entry add_proposed error");
                     }
                 }
             };
         }
 
         if self.should_notify_block_assembler() {
-            match target {
-                PlugTarget::Pending => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Pending)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
-                PlugTarget::Proposed => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Proposed)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
+            let msg = match target {
+                PlugTarget::Pending => BlockAssemblerMessage::Pending,
+                PlugTarget::Proposed => BlockAssemblerMessage::Proposed,
             };
+            if self.block_assembler_sender.send(msg).await.is_err() {
+                error!("block_assembler receiver dropped");
+            }
         }
     }
 
