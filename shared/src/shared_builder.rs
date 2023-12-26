@@ -399,39 +399,22 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         fee: entry.fee,
         timestamp: entry.timestamp,
     };
-    tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
-        // update statics
-        tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
-
+    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
 
     let notify_proposed = notify.clone();
-    tx_pool_builder.register_proposed(Box::new(
-        move |tx_pool: &mut TxPool, entry: &TxEntry, new: bool| {
-            // update statics
-            if new {
-                tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
-            }
-
-            // notify
-            let notify_tx_entry = create_notify_entry(entry);
-            notify_proposed.notify_proposed_transaction(notify_tx_entry);
-        },
-    ));
-
-    tx_pool_builder.register_committed(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
-        tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntry| {
+        // notify
+        let notify_tx_entry = create_notify_entry(entry);
+        notify_proposed.notify_proposed_transaction(notify_tx_entry);
     }));
 
     let notify_reject = notify;
     tx_pool_builder.register_reject(Box::new(
         move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
-            // update statics
-            tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
-
             let tx_hash = entry.transaction().hash();
             // record recent reject
             if matches!(reject, Reject::Resolve(..) | Reject::RBFRejected(..)) {
