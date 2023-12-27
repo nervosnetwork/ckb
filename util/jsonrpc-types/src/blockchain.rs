@@ -588,6 +588,8 @@ pub enum Status {
 pub struct TxStatus {
     /// The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
     pub status: Status,
+    /// The block number of the block which has committed this transaction in the canonical chain.
+    pub block_number: Option<BlockNumber>,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
     /// The reason why the transaction is rejected
