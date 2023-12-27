@@ -1,12 +1,15 @@
+extern crate rustc_hash;
+extern crate slab;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed::ProposalShortId,
 };
-use ckb_util::{shrink_to_fit, LinkedHashMap};
+use ckb_util::shrink_to_fit;
+use multi_index_map::MultiIndexMap;
 
-const SHRINK_THRESHOLD: usize = 100;
-pub(crate) const DEFAULT_MAX_CHUNK_TRANSACTIONS: usize = 100;
+const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
+const SHRINK_THRESHOLD: usize = 120;
 
 #[derive(Debug, Clone, Eq)]
 pub(crate) struct Entry {
@@ -20,18 +23,32 @@ impl PartialEq for Entry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VerifyStatus {
+    Fresh,
+    Verifying,
+    Completed,
+}
+
+#[derive(MultiIndexMap, Clone)]
+pub struct VerifyEntry {
+    #[multi_index(hashed_unique)]
+    pub id: ProposalShortId,
+    #[multi_index(hashed_non_unique)]
+    pub status: VerifyStatus,
+    // other sort key
+    pub inner: Entry,
+}
+
 #[derive(Default)]
 pub(crate) struct VerifyQueue {
-    inner: LinkedHashMap<ProposalShortId, Entry>,
-    // memory last pop value for atomic reset
-    front: Option<Entry>,
+    inner: MultiIndexVerifyEntryMap,
 }
 
 impl VerifyQueue {
     pub(crate) fn new() -> Self {
         VerifyQueue {
-            inner: LinkedHashMap::default(),
-            front: None,
+            inner: MultiIndexVerifyEntryMap::default(),
         }
     }
 
@@ -45,49 +62,26 @@ impl VerifyQueue {
     }
 
     pub fn is_full(&self) -> bool {
-        self.len() > DEFAULT_MAX_CHUNK_TRANSACTIONS
+        self.len() > DEFAULT_MAX_VERIFY_TRANSACTIONS
     }
 
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.front
-            .as_ref()
-            .map(|e| e.tx.proposal_short_id())
-            .as_ref()
-            == Some(id)
-            || self.inner.contains_key(id)
+        self.inner.get_by_id(id).is_some()
     }
 
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
     }
 
-    pub fn clean_front(&mut self) {
-        self.front = None;
-    }
-
-    pub fn pop_front(&mut self) -> Option<Entry> {
-        if let Some(entry) = &self.front {
-            Some(entry.clone())
-        } else {
-            match self.inner.pop_front() {
-                Some((_id, entry)) => {
-                    self.front = Some(entry.clone());
-                    Some(entry)
-                }
-                None => None,
-            }
-        }
-    }
-
-    pub fn remove_chunk_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
-        let ret = self.inner.remove(id);
+    pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
+        let ret = self.inner.remove_by_id(id);
         self.shrink_to_fit();
-        ret
+        Some(ret.unwrap().inner)
     }
 
-    pub fn remove_chunk_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
+    pub fn remove_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
         for id in ids {
-            self.inner.remove(&id);
+            self.inner.remove_by_id(&id);
         }
         self.shrink_to_fit();
     }
@@ -98,16 +92,18 @@ impl VerifyQueue {
         if self.contains_key(&tx.proposal_short_id()) {
             return false;
         }
-
-        self.inner
-            .insert(tx.proposal_short_id(), Entry { tx, remote })
-            .is_none()
+        let entry = Entry { tx, remote };
+        self.inner.insert(VerifyEntry {
+            id: tx.proposal_short_id(),
+            status: VerifyStatus::Fresh,
+            inner: entry.clone(),
+        });
+        true
     }
 
     /// Clears the map, removing all elements.
     pub fn clear(&mut self) {
         self.inner.clear();
-        self.clean_front();
         self.shrink_to_fit()
     }
 }
