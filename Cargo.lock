@@ -1487,6 +1487,7 @@ dependencies = [
  "serde",
  "tempfile",
  "tiny-keccak",
+ "tokio",
 ]
 
 [[package]]

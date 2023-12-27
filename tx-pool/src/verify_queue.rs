@@ -3,7 +3,7 @@ extern crate slab;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Cycle, TransactionView},
-    packed::ProposalShortId,
+    packed::{ProposalShortId, Time},
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
@@ -12,7 +12,7 @@ const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
 const SHRINK_THRESHOLD: usize = 120;
 
 #[derive(Debug, Clone, Eq)]
-pub(crate) struct Entry {
+pub struct Entry {
     pub(crate) tx: TransactionView,
     pub(crate) remote: Option<(Cycle, PeerIndex)>,
 }
@@ -36,12 +36,13 @@ pub struct VerifyEntry {
     pub id: ProposalShortId,
     #[multi_index(hashed_non_unique)]
     pub status: VerifyStatus,
+    #[multi_index(ordered_non_unique)]
+    pub added_time: u64,
     // other sort key
     pub inner: Entry,
 }
 
-#[derive(Default)]
-pub(crate) struct VerifyQueue {
+pub struct VerifyQueue {
     inner: MultiIndexVerifyEntryMap,
 }
 
@@ -86,17 +87,28 @@ impl VerifyQueue {
         self.shrink_to_fit();
     }
 
+    pub fn get_first(&self) -> Option<Entry> {
+        self.inner
+            .iter_by_added_time()
+            .filter(|e| e.status == VerifyStatus::Fresh)
+            .next()
+            .map(|entry| entry.inner.clone())
+    }
+
     /// If the queue did not have this tx present, true is returned.
     /// If the queue did have this tx present, false is returned.
     pub fn add_tx(&mut self, tx: TransactionView, remote: Option<(Cycle, PeerIndex)>) -> bool {
         if self.contains_key(&tx.proposal_short_id()) {
             return false;
         }
-        let entry = Entry { tx, remote };
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
             status: VerifyStatus::Fresh,
-            inner: entry.clone(),
+            added_time: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("timestamp")
+                .as_millis() as u64,
+            inner: Entry { tx, remote },
         });
         true
     }
