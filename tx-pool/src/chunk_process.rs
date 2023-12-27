@@ -357,7 +357,7 @@ fn exceeded_maximum_cycles_error<
         .nth(current)
         .map(|(_hash, group)| ScriptError::ExceededMaximumCycles(max_cycles).source(group))
         .unwrap_or_else(|| {
-            ScriptError::VMInternalError(format!("suspended state group missing {current:?}"))
+            ScriptError::Other(format!("suspended state group missing {current:?}"))
                 .unknown_source()
         })
         .into()

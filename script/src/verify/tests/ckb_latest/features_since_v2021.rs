@@ -55,7 +55,7 @@ fn test_hint_instructions() {
             pc: 65_656,
             instruction: 36_906,
         };
-        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
+        let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
@@ -105,7 +105,7 @@ fn test_b_extension() {
             pc: 0x10182,
             instruction: 0x60291913,
         };
-        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
+        let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
@@ -1018,7 +1018,7 @@ fn load_code_into_global() {
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
         let vm_error = VmError::MemWriteOnFreezedPage;
-        let script_error = ScriptError::VMInternalError(format!("{vm_error:?}"));
+        let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     }
 }
