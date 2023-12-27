@@ -632,6 +632,9 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn notify(&self) {
+        if !self.need_to_notify() {
+            return;
+        }
         let template = self.get_current().await;
         if let Ok(template_json) = serde_json::to_string(&template) {
             let notify_timeout = Duration::from_millis(self.config.notify_timeout_millis);
@@ -686,6 +689,10 @@ impl BlockAssembler {
                 });
             }
         }
+    }
+
+    fn need_to_notify(&self) -> bool {
+        !self.config.notify.is_empty() || !self.config.notify_scripts.is_empty()
     }
 }
 
