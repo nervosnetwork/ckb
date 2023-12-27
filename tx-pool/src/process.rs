@@ -191,7 +191,7 @@ impl TxPoolService {
     }
 
     pub(crate) async fn chunk_contains(&self, tx: &TransactionView) -> bool {
-        let chunk = self.chunk.read().await;
+        let chunk = self.verify_queue.read().await;
         chunk.contains_key(&tx.proposal_short_id())
     }
 
@@ -293,23 +293,40 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
-        if self.chunk_contains(&tx).await {
-            return Err(Reject::Duplicated(tx.hash()));
-        }
-
         if self.orphan_contains(&tx).await {
             debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        self.add_tx_to_verify_queue(tx, remote).await
+        if self.chunk_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        if let Some((ret, snapshot)) = self.verify_or_add_to_queue(tx.clone(), remote).await {
+            match ret {
+                Ok(processed) => {
+                    if let ProcessResult::Completed(completed) = processed {
+                        self.after_process(tx, remote, &snapshot, &Ok(completed))
+                            .await;
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    self.after_process(tx, remote, &snapshot, &Err(e.clone()))
+                        .await;
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
+    ) -> Result<Completed, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
@@ -317,7 +334,16 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        self.add_tx_to_verify_queue(tx, remote).await
+        if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
+            self.after_process(tx, remote, &snapshot, &ret).await;
+            ret
+        } else {
+            // currently, the returned cycles is not been used, mock 0 if delay
+            Ok(Completed {
+                cycles: 0,
+                fee: Capacity::zero(),
+            })
+        }
     }
 
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
@@ -601,14 +627,121 @@ impl TxPoolService {
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
     }
 
-    async fn add_tx_to_verify_queue(
+    async fn verify_or_add_to_queue(
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
-        let mut queue = self.verify_queue.write().await;
-        queue.add_tx(tx, remote);
-        Ok(())
+    ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
+        let tx_hash = tx.hash();
+
+        let (ret, snapshot) = self.pre_check(&tx).await;
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
+            return None;
+        }
+
+        let cached = self.fetch_tx_verify_cache(&tx_hash).await;
+        let tip_header = snapshot.tip_header();
+        let tx_env = Arc::new(status.with_env(tip_header));
+
+        let data_loader = snapshot.as_data_loader();
+
+        let completed = if let Some(ref entry) = cached {
+            match entry {
+                CacheEntry::Completed(completed) => {
+                    let ret = TimeRelativeTransactionVerifier::new(
+                        Arc::clone(&rtx),
+                        Arc::clone(&self.consensus),
+                        data_loader,
+                        tx_env,
+                    )
+                    .verify()
+                    .map_err(Reject::Verification);
+                    try_or_return_with_snapshot!(ret, snapshot);
+                    *completed
+                }
+                CacheEntry::Suspended(_) => {
+                    return Some((Ok(ProcessResult::Suspended), snapshot));
+                }
+            }
+        } else {
+            let is_chunk_full = self.is_chunk_full().await;
+
+            let ret = block_in_place(|| {
+                let verifier = ContextualTransactionVerifier::new(
+                    Arc::clone(&rtx),
+                    Arc::clone(&self.consensus),
+                    data_loader,
+                    tx_env,
+                );
+
+                let (ret, fee) = verifier
+                    .resumable_verify(self.tx_pool_config.max_tx_verify_cycles)
+                    .map_err(Reject::Verification)?;
+
+                match ret {
+                    ScriptVerifyResult::Completed(cycles) => {
+                        if let Err(e) = DaoScriptSizeVerifier::new(
+                            Arc::clone(&rtx),
+                            Arc::clone(&self.consensus),
+                            snapshot.as_data_loader(),
+                        )
+                        .verify()
+                        {
+                            return Err(Reject::Verification(e));
+                        }
+                        if let Some((declared, _)) = remote {
+                            if declared != cycles {
+                                return Err(Reject::DeclaredWrongCycles(declared, cycles));
+                            }
+                        }
+                        Ok(CacheEntry::completed(cycles, fee))
+                    }
+                    ScriptVerifyResult::Suspended(state) => {
+                        if is_chunk_full {
+                            Err(Reject::Full("chunk".to_owned()))
+                        } else {
+                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
+                            Ok(CacheEntry::suspended(snap, fee))
+                        }
+                    }
+                }
+            });
+
+            let entry = try_or_return_with_snapshot!(ret, snapshot);
+            match entry {
+                cached @ CacheEntry::Suspended(_) => {
+                    let ret = self
+                        .enqueue_suspended_tx(rtx.transaction.clone(), cached, remote)
+                        .await;
+                    try_or_return_with_snapshot!(ret, snapshot);
+                    return Some((Ok(ProcessResult::Suspended), snapshot));
+                }
+                CacheEntry::Completed(completed) => completed,
+            }
+        };
+
+        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        try_or_return_with_snapshot!(ret, submit_snapshot);
+
+        self.notify_block_assembler(status).await;
+        if cached.is_none() {
+            // update cache
+            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
+            tokio::spawn(async move {
+                let mut guard = txs_verify_cache.write().await;
+                guard.put(tx_hash, CacheEntry::Completed(completed));
+            });
+        }
+
+        Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
     }
 
     async fn _resumeble_process_tx(
@@ -730,7 +863,7 @@ impl TxPoolService {
     }
 
     pub(crate) async fn is_chunk_full(&self) -> bool {
-        self.chunk.read().await.is_full()
+        self.verify_queue.read().await.is_full()
     }
 
     pub(crate) async fn enqueue_suspended_tx(
@@ -740,7 +873,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
         let tx_hash = tx.hash();
-        let mut chunk = self.chunk.write().await;
+        let mut chunk = self.verify_queue.write().await;
         if chunk.add_tx(tx, remote) {
             let mut guard = self.txs_verify_cache.write().await;
             guard.put(tx_hash, cached);

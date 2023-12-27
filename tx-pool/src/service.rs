@@ -2,13 +2,14 @@
 
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
-use crate::chunk_process::ChunkCommand;
 use crate::component::pool_map::{PoolEntry, Status};
-use crate::component::verify_queue;
-use crate::component::{chunk::ChunkQueue, orphan::OrphanPool, verify_queue::VerifyQueue};
+use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
 use crate::util::after_delay_window;
+use crate::verify_mgr::ChunkCommand;
+use crate::verify_mgr::VerifyMgr;
+use crate::verify_queue::VerifyQueue;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
@@ -379,9 +380,10 @@ pub struct TxPoolServiceBuilder {
     pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
+    //pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
+    pub(crate) verify_mgr: Arc<RwLock<VerifyMgr>>,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) block_assembler_channel: (
         mpsc::Sender<BlockAssemblerMessage>,
@@ -406,6 +408,11 @@ impl TxPoolServiceBuilder {
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
+        let verify_mgr = Arc::new(RwLock::new(VerifyMgr::new(
+            chunk_rx,
+            signal_receiver.clone(),
+            verify_queue.clone(),
+        )));
         let started = Arc::new(AtomicBool::new(false));
 
         let controller = TxPoolController {
@@ -430,10 +437,11 @@ impl TxPoolServiceBuilder {
             signal_receiver,
             handle: handle.clone(),
             tx_relay_sender,
-            chunk_rx,
             chunk,
+            //chunk_rx,
             started,
             verify_queue,
+            verify_mgr,
             block_assembler_channel,
         };
 
@@ -493,14 +501,10 @@ impl TxPoolServiceBuilder {
             after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
-        let signal_receiver = self.signal_receiver.clone();
-        let chunk_process = crate::chunk_process::ChunkProcess::new(
-            service.clone(),
-            self.chunk_rx,
-            signal_receiver,
-        );
+        let verify_mgr = Arc::clone(&self.verify_mgr);
+        self.handle
+            .spawn(async move { verify_mgr.write().await.run().await });
 
-        self.handle.spawn(async move { chunk_process.run().await });
         let mut receiver = self.receiver;
         let mut reorg_receiver = self.reorg_receiver;
         let handle_clone = self.handle.clone();

@@ -12,6 +12,7 @@ use ckb_vm::{
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{self, unbounded_channel};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -227,6 +228,36 @@ impl ResumableMachine {
     /// Run machine.
     pub fn run(&mut self) -> Result<i8, VMInternalError> {
         self.machine_mut().run()
+    }
+}
+
+async fn run_with_pause(
+    mut machine: Machine,
+    mut pause_signal: mpsc::UnboundedReceiver<()>,
+) -> Result<(Result<i8, ckb_vm::Error>, Machine), Error> {
+    let pause = machine.machine.pause();
+    let (res_tx, mut res_rx) = unbounded_channel();
+    let jh = tokio::spawn(async move {
+        let result = machine.run();
+        res_tx.send(result).unwrap();
+        return machine;
+    });
+
+    loop {
+        tokio::select! {
+            _ = pause_signal.recv() => {
+                eprintln!("received pause signal ...");
+                pause.interrupt();
+            }
+            Some(res) = res_rx.recv() => {
+                eprintln!("finished ...");
+                let machine = jh.await.unwrap();
+                return Ok((res, machine));
+            }
+            else => {
+                eprintln!("no signal ...");
+            }
+        }
     }
 }
 
