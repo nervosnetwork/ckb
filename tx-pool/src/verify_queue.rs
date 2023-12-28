@@ -3,7 +3,7 @@ extern crate slab;
 use ckb_network::PeerIndex;
 use ckb_types::{
     core::{Cycle, TransactionView},
-    packed::{ProposalShortId, Time},
+    packed::ProposalShortId,
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
@@ -85,6 +85,15 @@ impl VerifyQueue {
             self.inner.remove_by_id(&id);
         }
         self.shrink_to_fit();
+    }
+
+    pub fn pop_first(&mut self) -> Option<Entry> {
+        if let Some(entry) = self.get_first() {
+            self.remove_tx(&entry.tx.proposal_short_id());
+            Some(entry)
+        } else {
+            None
+        }
     }
 
     pub fn get_first(&self) -> Option<Entry> {
