@@ -240,3 +240,10 @@ impl AsyncRichIndexer {
         bulk_insert_output_table(tx_id, output_cell_rows, tx).await
     }
 }
+
+pub(crate) fn to_fixed_array<const LEN: usize>(input: &[u8]) -> [u8; LEN] {
+    assert_eq!(input.len(), LEN);
+    let mut list = [0; LEN];
+    list.copy_from_slice(input);
+    list
+}

@@ -1,5 +1,6 @@
 #![allow(clippy::needless_borrow)]
 
+use super::to_fixed_array;
 use crate::store::SQLXPool;
 
 use ckb_indexer_sync::Error;
@@ -680,13 +681,6 @@ fn build_bulk_insert_sql(
         .trim_end_matches(';')
         .to_string();
     Ok(sql)
-}
-
-fn to_fixed_array<const LEN: usize>(input: &[u8]) -> [u8; LEN] {
-    assert_eq!(input.len(), LEN);
-    let mut list = [0; LEN];
-    list.copy_from_slice(input);
-    list
 }
 
 fn block_view_to_field_values(block_view: &BlockView) -> Vec<FieldValue> {

@@ -1,5 +1,4 @@
 use super::*;
-use crate::indexer_handle::sqlx_param_placeholders;
 
 use ckb_indexer_sync::Error;
 use sql_builder::SqlBuilder;
@@ -210,4 +209,13 @@ async fn script_exists_in_output(
     .map_err(|err| Error::DB(err.to_string()))?;
 
     Ok(row_lock.get::<bool, _>(0) || row_type.get::<bool, _>(0))
+}
+
+fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>, Error> {
+    if range.start == 0 {
+        return Err(Error::Params("no valid parameter".to_owned()));
+    }
+    Ok((1..=range.end)
+        .map(|i| format!("${}", i))
+        .collect::<Vec<String>>())
 }

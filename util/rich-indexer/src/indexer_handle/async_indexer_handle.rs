@@ -1,3 +1,4 @@
+use crate::indexer::to_fixed_array;
 use crate::store::SQLXPool;
 
 use ckb_indexer_sync::{Error, Pool};
@@ -9,7 +10,7 @@ use ckb_types::packed::{CellOutputBuilder, OutPointBuilder, ScriptBuilder};
 use ckb_types::prelude::*;
 use ckb_types::H256;
 use sql_builder::{name, name::SqlName, SqlBuilder};
-use sqlx::Row;
+use sqlx::{any::AnyRow, Row};
 
 use std::sync::{Arc, RwLock};
 
@@ -53,9 +54,9 @@ impl AsyncRichIndexerHandle {
     pub async fn query_cells(
         &self,
         search_key: IndexerSearchKey,
-        _order: IndexerOrder,
-        _limit: Uint32,
-        _after: Option<JsonBytes>,
+        order: IndexerOrder,
+        limit: Uint32,
+        after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
         // sub query for script
         let mut query_builder = SqlBuilder::select_from("script");
@@ -82,8 +83,7 @@ impl AsyncRichIndexerHandle {
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
         query_builder
-            .field("ckb_transaction.tx_index")
-            .field("ckb_transaction.tx_hash")
+            .field("output.id")
             .field("output.output_index")
             .field("output.capacity")
             .field("lock_script.code_hash AS lock_code_hash")
@@ -92,6 +92,8 @@ impl AsyncRichIndexerHandle {
             .field("type_script.code_hash AS type_code_hash")
             .field("type_script.hash_type AS type_hash_type")
             .field("type_script.args AS type_args")
+            .field("ckb_transaction.tx_index")
+            .field("ckb_transaction.tx_hash")
             .field("block.block_number");
         match search_key.with_data {
             Some(true) | None => {
@@ -120,6 +122,18 @@ impl AsyncRichIndexerHandle {
             .on("output.tx_id = ckb_transaction.id")
             .join("block")
             .on("ckb_transaction.block_id = block.id");
+        if let Some(after) = after {
+            let after = decode_i64(after.as_bytes())?;
+            match order {
+                IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
+                IndexerOrder::Desc => query_builder.and_where_lt("output.id", after),
+            };
+        }
+        match order {
+            IndexerOrder::Asc => query_builder.order_by("output.id", false),
+            IndexerOrder::Desc => query_builder.order_by("output.id", true),
+        };
+        query_builder.limit(limit.value());
 
         // sql string
         let sql = query_builder
@@ -136,71 +150,22 @@ impl AsyncRichIndexerHandle {
             .bind(search_key.script.args.as_bytes());
 
         // fetch
+        let mut last_cursor = Vec::new();
         let cells = self
             .store
             .fetch_all(query)
             .await
-            .map_err(|err| Error::DB(err.to_string()))
-            .map(|rows| {
-                rows.iter()
-                    .map(|row| {
-                        (
-                            row.get::<i32, _>("tx_index"),
-                            row.get::<Vec<u8>, _>("tx_hash"),
-                            row.get::<i32, _>("output_index"),
-                            row.get::<i64, _>("capacity"),
-                            row.get::<Vec<u8>, _>("lock_code_hash"),
-                            row.get::<i16, _>("lock_hash_type"),
-                            row.get::<Vec<u8>, _>("lock_args"),
-                            row.get::<Option<Vec<u8>>, _>("type_code_hash"),
-                            row.get::<Option<i16>, _>("type_hash_type"),
-                            row.get::<Option<Vec<u8>>, _>("type_args"),
-                            row.get::<Option<Vec<u8>>, _>("output_data"),
-                            row.get::<i64, _>("block_number"),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })?;
-
-        let cells = cells
-            .into_iter()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .iter()
             .map(|row| {
-                let out_point = OutPointBuilder::default()
-                    .tx_hash(to_fixed_array::<32>(&row.1).pack())
-                    .index((row.2 as u32).pack())
-                    .build();
-
-                let lock_script = ScriptBuilder::default()
-                    .code_hash(to_fixed_array::<32>(&row.4).pack())
-                    .hash_type((row.5 as u8).into())
-                    .args(row.6.pack())
-                    .build();
-                let type_script = row.7.as_ref().map(|value| {
-                    ScriptBuilder::default()
-                        .code_hash(to_fixed_array::<32>(value).pack())
-                        .hash_type((row.8.unwrap() as u8).into())
-                        .args(row.9.unwrap().pack())
-                        .build()
-                });
-                let output = CellOutputBuilder::default()
-                    .capacity((row.3 as u64).pack())
-                    .lock(lock_script)
-                    .type_(type_script.pack())
-                    .build();
-
-                IndexerCell {
-                    output: output.into(),
-                    output_data: row.10.map(|value| JsonBytes::from_vec(value)),
-                    out_point: out_point.into(),
-                    block_number: (row.11 as u64).into(),
-                    tx_index: (row.0 as u32).into(),
-                }
+                last_cursor = row.get::<i64, _>("id").to_le_bytes().to_vec();
+                build_indexer_cell(row)
             })
             .collect::<Vec<_>>();
 
         Ok(IndexerPagination {
             objects: cells,
-            last_cursor: JsonBytes::from_vec(vec![]),
+            last_cursor: JsonBytes::from_vec(last_cursor),
         })
     }
 }
@@ -209,18 +174,49 @@ pub(crate) fn bytes_to_h256(input: &[u8]) -> H256 {
     H256::from_slice(&input[0..32]).expect("bytes to h256")
 }
 
-pub(crate) fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>, Error> {
-    if range.start == 0 {
-        return Err(Error::Params("no valid parameter".to_owned()));
+fn build_indexer_cell(row: &AnyRow) -> IndexerCell {
+    let out_point = OutPointBuilder::default()
+        .tx_hash(to_fixed_array::<32>(&row.get::<Vec<u8>, _>("tx_hash")).pack())
+        .index((row.get::<i32, _>("output_index") as u32).pack())
+        .build();
+    let lock_script = ScriptBuilder::default()
+        .code_hash(to_fixed_array::<32>(&row.get::<Vec<u8>, _>("lock_code_hash")).pack())
+        .hash_type((row.get::<i16, _>("lock_hash_type") as u8).into())
+        .args(row.get::<Vec<u8>, _>("lock_args").pack())
+        .build();
+    let type_script = row
+        .get::<Option<Vec<u8>>, _>("type_code_hash")
+        .as_ref()
+        .map(|value| {
+            ScriptBuilder::default()
+                .code_hash(to_fixed_array::<32>(value).pack())
+                .hash_type((row.get::<Option<i16>, _>("type_hash_type").unwrap() as u8).into())
+                .args(row.get::<Option<Vec<u8>>, _>("type_args").unwrap().pack())
+                .build()
+        });
+    let output = CellOutputBuilder::default()
+        .capacity((row.get::<i64, _>("capacity") as u64).pack())
+        .lock(lock_script)
+        .type_(type_script.pack())
+        .build();
+
+    IndexerCell {
+        output: output.into(),
+        output_data: row
+            .get::<Option<Vec<u8>>, _>("output_data")
+            .map(JsonBytes::from_vec),
+        out_point: out_point.into(),
+        block_number: (row.get::<i64, _>("block_number") as u64).into(),
+        tx_index: (row.get::<i32, _>("tx_index") as u32).into(),
     }
-    Ok((1..=range.end)
-        .map(|i| format!("${}", i))
-        .collect::<Vec<String>>())
 }
 
-fn to_fixed_array<const LEN: usize>(input: &[u8]) -> [u8; LEN] {
-    assert_eq!(input.len(), LEN);
-    let mut list = [0; LEN];
-    list.copy_from_slice(input);
-    list
+pub(crate) fn decode_i64(data: &[u8]) -> Result<i64, Error> {
+    if data.len() != 8 {
+        return Err(Error::Params(
+            "unable to convert from bytes to i64 due to insufficient data in little-endian format"
+                .to_string(),
+        ));
+    }
+    Ok(i64::from_le_bytes(to_fixed_array(&data[0..8])))
 }
