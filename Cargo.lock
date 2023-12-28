@@ -1384,6 +1384,7 @@ dependencies = [
  "ckb-notify",
  "ckb-types",
  "futures",
+ "hex",
  "log",
  "once_cell",
  "serde_json",
