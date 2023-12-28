@@ -1,15 +1,10 @@
-pub mod page;
-
 use crate::indexer::bulk_insert_blocks_simple;
-use page::COUNT_COLUMN;
-pub use page::{build_next_cursor, PaginationRequest, PaginationResponse};
 
 use anyhow::{anyhow, Result};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
-use sql_builder::SqlBuilder;
 use sqlx::{
     any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, AnyRow},
     query::{Query, QueryAs},
@@ -23,10 +18,10 @@ use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 const MEMORY_DB: &str = ":memory:";
-const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../../resources/create_sqlite_table.sql");
-const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../../resources/create_sqlite_index.sql");
-const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../../resources/create_postgres_table.sql");
-const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../../resources/create_postgres_index.sql");
+const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../resources/create_sqlite_table.sql");
+const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_index.sql");
+const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
+const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
 
 #[derive(Clone)]
 pub struct SQLXPool {
@@ -115,10 +110,9 @@ impl SQLXPool {
 
     pub async fn fetch_count(&self, table_name: &str) -> Result<u64> {
         let pool = self.get_pool()?;
-        let row = sqlx::query(&fetch_count_sql(table_name))
-            .fetch_one(pool)
-            .await?;
-        let count: i64 = row.get::<i64, _>(COUNT_COLUMN);
+        let sql = format!("SELECT COUNT(*) as count FROM {}", table_name);
+        let row = sqlx::query(&sql).fetch_one(pool).await?;
+        let count: i64 = row.get::<i64, _>("count");
         Ok(count.try_into().expect("i64 to u64"))
     }
 
@@ -179,41 +173,6 @@ impl SQLXPool {
     {
         let pool = self.get_pool()?;
         query.fetch_one(pool).await.map_err(Into::into)
-    }
-
-    pub async fn fetch_page<'a>(
-        &self,
-        query: Query<'a, Any, AnyArguments<'a>>,
-        query_total: Query<'a, Any, AnyArguments<'a>>,
-        pagination: &PaginationRequest,
-    ) -> Result<PaginationResponse<AnyRow>> {
-        let response = self.fetch(query).await?;
-        let count = if pagination.return_count {
-            let count = self
-                .fetch_one(query_total)
-                .await?
-                .get::<i64, _>(COUNT_COLUMN) as u64;
-            Some(count)
-        } else {
-            None
-        };
-
-        let next_cursor = if response.is_empty() {
-            None
-        } else {
-            build_next_cursor(
-                pagination.limit.unwrap_or(u16::MAX),
-                response.last().unwrap().get::<i64, _>("id") as u64,
-                response.len(),
-                count,
-            )
-        };
-
-        Ok(PaginationResponse {
-            response,
-            next_cursor,
-            count,
-        })
     }
 
     pub async fn transaction(&self) -> Result<Transaction<'_, Any>> {
@@ -297,10 +256,6 @@ impl SQLXPool {
             Ok(false)
         }
     }
-}
-
-pub(crate) fn fetch_count_sql(table_name: &str) -> String {
-    format!("SELECT COUNT(*) as {} FROM {}", COUNT_COLUMN, table_name)
 }
 
 fn build_url_for_sqlite(db_config: &RichIndexerConfig) -> String {
