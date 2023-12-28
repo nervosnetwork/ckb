@@ -1,6 +1,7 @@
 use ckb_channel::Receiver;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
@@ -54,31 +55,42 @@ impl Worker {
         tokio::spawn(async move {
             let mut pause = false;
             loop {
-                let msg = match self.inbox.try_recv() {
-                    Ok(msg) => Some(msg),
-                    Err(_err) => None,
+                match self.inbox.try_recv() {
+                    Ok(msg) => match msg {
+                        ChunkCommand::Shutdown => {
+                            break;
+                        }
+                        ChunkCommand::Suspend => {
+                            pause = true;
+                            continue;
+                        }
+                        ChunkCommand::Resume => {
+                            pause = false;
+                        }
+                    },
+                    Err(err) => {
+                        if !err.is_empty() {
+                            eprintln!("error: {:?}", err);
+                            break;
+                        }
+                    }
                 };
-                // check command
-                if Some(ChunkCommand::Shutdown) == msg {
-                    return;
-                }
 
-                if Some(ChunkCommand::Suspend) == msg {
-                    pause = true;
-                    continue;
-                }
-
-                if Some(ChunkCommand::Resume) == msg {
-                    pause = false;
-                }
-                // pick a entry to run verify
                 if !pause {
-                    let entry = match self.tasks.write().await.get_first() {
+                    if self.tasks.read().await.get_first().is_none() {
+                        // sleep for 100 ms
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                    // pick a entry to run verify
+                    let entry = match self.tasks.write().await.pop_first() {
                         Some(entry) => entry,
-                        None => return,
+                        None => continue,
                     };
-
                     self.run_verify_tx(&entry)
+                } else {
+                    // sleep for 100 ms
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
         })
@@ -132,15 +144,14 @@ impl VerifyMgr {
         }
     }
 
-    async fn resume(&mut self) {
+    async fn send_command(&mut self, command: ChunkCommand) {
+        eprintln!(
+            "send workers {:?} command: {:?}",
+            std::time::SystemTime::now(),
+            command
+        );
         for worker in self.workers.iter_mut() {
-            worker.0.send(ChunkCommand::Resume).unwrap();
-        }
-    }
-
-    async fn suspend(&mut self) {
-        for worker in self.workers.iter_mut() {
-            worker.0.send(ChunkCommand::Suspend).unwrap();
+            worker.0.send(command.clone()).unwrap();
         }
     }
 
@@ -154,31 +165,24 @@ impl VerifyMgr {
     }
 
     async fn start_loop(&mut self) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_micros(1500));
+        let mut interval = tokio::time::interval(Duration::from_micros(1500));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = self.chunk_rx.changed() => {
                     self.current_state = self.chunk_rx.borrow().to_owned();
-                    if matches!(self.current_state, ChunkCommand::Resume) {
-                        self.resume().await;
-                    }
-                    if matches!(self.current_state, ChunkCommand::Suspend) {
-                        self.suspend().await;
-                    }
-                },
-                _ = interval.tick() => {
-                    if matches!(self.current_state, ChunkCommand::Resume) {
-                        self.resume().await;
-                    }
+                    self.send_command(self.current_state.clone()).await;
                 },
                 res = self.worker_notify.recv() => {
                     eprintln!("res: {:?}", res);
                 }
                 _ = self.signal_exit.cancelled() => {
+                    self.send_command(ChunkCommand::Shutdown).await;
                     break;
                 },
-                else => break,
+                _ = interval.tick() => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
             }
         }
     }
