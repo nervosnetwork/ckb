@@ -368,7 +368,7 @@ impl IndexerHandle {
                     match filter_script_type {
                         IndexerScriptType::Lock => {
                             let script_len = extract_raw_data(&output.lock()).len();
-                            if script_len < r0 || script_len > r1 {
+                            if script_len < r0 || script_len >= r1 {
                                 return None;
                             }
                         }
@@ -378,7 +378,7 @@ impl IndexerHandle {
                                 .to_opt()
                                 .map(|script| extract_raw_data(&script).len())
                                 .unwrap_or_default();
-                            if script_len < r0 || script_len > r1 {
+                            if script_len < r0 || script_len >= r1 {
                                 return None;
                             }
                         }
