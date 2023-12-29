@@ -57,6 +57,7 @@ pub struct RunArgs {
     /// Whether start indexer, default false
     pub indexer: bool,
     /// Whether start in daemon mode
+    #[cfg(not(target_os = "windows"))]
     pub daemon: bool,
 }
 
