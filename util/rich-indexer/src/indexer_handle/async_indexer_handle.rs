@@ -5,7 +5,7 @@ use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, JsonBytes, Uint32,
 };
-use ckb_jsonrpc_types::{IndexerScriptType, IndexerSearchMode, IndexerTip};
+use ckb_jsonrpc_types::{IndexerRange, IndexerScriptType, IndexerSearchMode, IndexerTip};
 use ckb_types::packed::{CellOutputBuilder, OutPointBuilder, ScriptBuilder};
 use ckb_types::prelude::*;
 use ckb_types::H256;
@@ -115,7 +115,7 @@ impl AsyncRichIndexerHandle {
             .on("ckb_transaction.block_id = block.id")
             .left()
             .join(name!("script";"lock_script"))
-            .on("output.lock_script_id = lock_script.id")   
+            .on("output.lock_script_id = lock_script.id")
             .join(name!("script";"type_script"))
             .on("output.type_script_id = type_script.id")
             .join("input")
@@ -146,23 +146,17 @@ impl AsyncRichIndexerHandle {
             if let Some(script_len_range) = &filter.script_len_range {
                 match search_key.script_type {
                     IndexerScriptType::Lock => {
-                        query_builder.and_where_ge(
-                            "length(lock_script.code_hash)+1+LENGTH(lock_script.args)",
-                            script_len_range.start(),
-                        );
-                        query_builder.and_where_lt(
-                            "length(lock_script.code_hash)+1+LENGTH(lock_script.args)",
-                            script_len_range.end(),
+                        add_filter_script_len_range_conditions(
+                            &mut query_builder,
+                            "type",
+                            script_len_range,
                         );
                     }
                     IndexerScriptType::Type => {
-                        query_builder.and_where_ge(
-                            "LENGTH(type_script.code_hash)+1+LENGTH(type_script.args)",
-                            script_len_range.start(),
-                        );
-                        query_builder.and_where_lt(
-                            "LENGTH(type_script.code_hash)+1+LENGTH(type_script.args)",
-                            script_len_range.end(),
+                        add_filter_script_len_range_conditions(
+                            &mut query_builder,
+                            "lock",
+                            script_len_range,
                         );
                     }
                 }
@@ -275,7 +269,7 @@ impl AsyncRichIndexerHandle {
     }
 }
 
-pub(crate) fn bytes_to_h256(input: &[u8]) -> H256 {
+fn bytes_to_h256(input: &[u8]) -> H256 {
     H256::from_slice(&input[0..32]).expect("bytes to h256")
 }
 
@@ -316,7 +310,7 @@ fn build_indexer_cell(row: &AnyRow) -> IndexerCell {
     }
 }
 
-pub(crate) fn decode_i64(data: &[u8]) -> Result<i64, Error> {
+fn decode_i64(data: &[u8]) -> Result<i64, Error> {
     if data.len() != 8 {
         return Err(Error::Params(
             "unable to convert from bytes to i64 due to insufficient data in little-endian format"
@@ -324,4 +318,19 @@ pub(crate) fn decode_i64(data: &[u8]) -> Result<i64, Error> {
         ));
     }
     Ok(i64::from_le_bytes(to_fixed_array(&data[0..8])))
+}
+
+fn add_filter_script_len_range_conditions(
+    query_builder: &mut SqlBuilder,
+    script_name: &str,
+    range: &IndexerRange,
+) {
+    let condition = format!(
+        "COALESCE(LENGTH({}_script.code_hash), 0) \
+        + (CASE WHEN {}_script.hash_type IS NULL THEN 0 ELSE 1 END) \
+        + COALESCE(LENGTH({}_script.args), 0)",
+        script_name, script_name, script_name
+    );
+    query_builder.and_where_ge(&condition, range.start());
+    query_builder.and_where_lt(&condition, range.end());
 }

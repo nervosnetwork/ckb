@@ -39,14 +39,13 @@ async fn query_cells() {
                 .pack(),
         )
         .build();
-    let script_len = extract_raw_data(&lock_script).len() as u64;
     let search_key = IndexerSearchKey {
         script: lock_script.into(),
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Prefix),
         filter: Some(IndexerSearchKeyFilter {
             script: None,
-            script_len_range: Some(IndexerRange::new(script_len, script_len + 10)),
+            script_len_range: Some(IndexerRange::new(0, 1)),
             output_data_len_range: Some(IndexerRange::new(0u64, 10u64)),
             output_capacity_range: Some(IndexerRange::new(
                 840_000_000_000_000_000_u64,
@@ -81,6 +80,55 @@ async fn query_cells() {
     assert_eq!(cell.out_point.index, 6u32.into());
     assert_eq!(cell.output.type_, None);
     assert_eq!(cell.output_data, None);
+
+    let type_script = ScriptBuilder::default()
+        .code_hash(
+            h256!("0x00000000000000000000000000000000000000000000000000545950455f4944").pack(),
+        )
+        .hash_type((ScriptHashType::Type as u8).into())
+        .args(
+            h256!("0xb2a8500929d6a1294bf9bf1bf565f549fa4a5f1316a3306ad3d4783e64bcf626")
+                .as_bytes()
+                .pack(),
+        )
+        .build();
+    let lock_script = ScriptBuilder::default()
+        .code_hash(
+            h256!("0x0000000000000000000000000000000000000000000000000000000000000000").pack(),
+        )
+        .hash_type((ScriptHashType::Data as u8).into())
+        .args(vec![].as_slice().pack())
+        .build();
+    let lock_script_len = extract_raw_data(&lock_script).len() as u64;
+    let search_key = IndexerSearchKey {
+        script: type_script.into(),
+        script_type: IndexerScriptType::Type,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: Some(IndexerSearchKeyFilter {
+            script: None,
+            script_len_range: Some(IndexerRange::new(lock_script_len, lock_script_len + 1)),
+            output_data_len_range: None,
+            output_capacity_range: Some(IndexerRange::new(
+                16_00_000_000_000_u64,
+                16_00_100_000_000_u64,
+            )),
+            block_range: Some(IndexerRange::new(0u64, 1u64)),
+            data: None,
+            data_filter_mode: None,
+        }),
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let cells = indexer
+        .query_cells(
+            search_key,
+            IndexerOrder::Asc,
+            10u32.into(),
+            Some(vec![1u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cells.objects.len(), 1);
 }
 
 #[tokio::test]
