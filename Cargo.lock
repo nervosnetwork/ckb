@@ -934,7 +934,6 @@ version = "0.115.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
- "ckb-db-schema",
  "ckb-indexer-sync",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -1374,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
-version = "0.113.0-pre"
+version = "0.114.0-pre"
 dependencies = [
  "anyhow",
  "ckb-app-config",

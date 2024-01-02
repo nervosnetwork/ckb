@@ -1,5 +1,5 @@
 [package]
-name = "ckb-indexer-r"
+name = "ckb-rich-indexer"
 version = "0.114.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
