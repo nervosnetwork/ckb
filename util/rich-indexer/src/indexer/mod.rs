@@ -192,14 +192,7 @@ impl AsyncRichIndexer {
                             is_tx_matched = true;
                         }
                     }
-                } else {
-                    let output_id =
-                        query_output_id(&out_point, tx)
-                            .await?
-                            .ok_or(Error::DB(format!(
-                                "Failed to query output id by out_point {:?}",
-                                out_point
-                            )))?;
+                } else if let Some(output_id) = query_output_id(&out_point, tx).await? {
                     build_input_rows(output_id, &input, input_index, &mut input_rows);
                     is_tx_matched = true;
                 }

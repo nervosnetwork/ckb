@@ -657,7 +657,7 @@ fn build_ungrouped_indexer_tx(
 ) -> Vec<IndexerTx> {
     cells
         .into_iter()
-        .map(
+        .flat_map(
             |(
                 output_tx_hash,
                 output_block_number,
@@ -703,7 +703,6 @@ fn build_ungrouped_indexer_tx(
                 indexer_txs
             },
         )
-        .flatten()
         .collect()
 }
 
@@ -768,7 +767,7 @@ fn build_grouped_indexer_tx(
     }
 
     grouped_cells
-        .into_iter()
-        .map(|(_, v)| IndexerTx::Grouped(v))
+        .into_values()
+        .map(IndexerTx::Grouped)
         .collect()
 }

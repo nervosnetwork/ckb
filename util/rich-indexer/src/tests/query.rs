@@ -119,8 +119,8 @@ async fn get_cells() {
             output_data_filter_mode: None,
             output_data_len_range: None,
             output_capacity_range: Some(IndexerRange::new(
-                16_00_000_000_000_u64,
-                16_00_100_000_000_u64,
+                1_600_000_000_000_u64,
+                1_600_100_000_000_u64,
             )),
             block_range: Some(IndexerRange::new(0u64, 1u64)),
         }),
