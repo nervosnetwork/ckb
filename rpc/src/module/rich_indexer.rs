@@ -1,7 +1,8 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{
-    IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, IndexerTip, JsonBytes, Uint32,
+    IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, IndexerTip, IndexerTx,
+    JsonBytes, Uint32,
 };
 use ckb_rich_indexer::AsyncRichIndexerHandle;
 use jsonrpc_core::Result;
@@ -52,6 +53,15 @@ pub trait RichIndexerRpc {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>>;
+
+    #[rpc(name = "get_rich_indexer_transactions")]
+    async fn get_rich_indexer_transactions(
+        &self,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
+        limit: Uint32,
+        after: Option<JsonBytes>,
+    ) -> Result<IndexerPagination<IndexerTx>>;
 }
 
 #[derive(Clone)]
@@ -69,7 +79,7 @@ impl RichIndexerRpcImpl {
 impl RichIndexerRpc for RichIndexerRpcImpl {
     async fn get_rich_indexer_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle
-            .query_indexer_tip()
+            .get_indexer_tip()
             .await
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
@@ -82,7 +92,20 @@ impl RichIndexerRpc for RichIndexerRpcImpl {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>> {
         self.handle
-            .query_cells(search_key, order, limit, after)
+            .get_cells(search_key, order, limit, after)
+            .await
+            .map_err(|e| RPCError::custom(RPCError::Indexer, e))
+    }
+
+    async fn get_rich_indexer_transactions(
+        &self,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
+        limit: Uint32,
+        after: Option<JsonBytes>,
+    ) -> Result<IndexerPagination<IndexerTx>> {
+        self.handle
+            .get_transactions(search_key, order, limit, after)
             .await
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }

@@ -31,7 +31,7 @@ impl RichIndexerHandle {
 
     /// Get indexer current tip
     pub fn get_indexer_tip(&self) -> Result<Option<IndexerTip>, Error> {
-        let future = self.async_handle.query_indexer_tip();
+        let future = self.async_handle.get_indexer_tip();
         self.async_runtime.block_on(future)
     }
 }

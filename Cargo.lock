@@ -1387,6 +1387,7 @@ dependencies = [
  "hex",
  "log",
  "once_cell",
+ "rand 0.8.5",
  "serde_json",
  "sql-builder",
  "sqlx",

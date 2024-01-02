@@ -9,9 +9,8 @@ use ckb_app_config::RichIndexerConfig;
 use ckb_indexer_sync::CustomFilters;
 use ckb_jsonrpc_types::{
     BlockView as JsonBlockView, IndexerOrder, IndexerScriptType, IndexerSearchKey,
-    IndexerSearchMode, JsonBytes, ScriptHashType,
+    IndexerSearchMode, JsonBytes,
 };
-use ckb_types::packed::ScriptBuilder;
 use ckb_types::prelude::*;
 use ckb_types::{h160, h256};
 
