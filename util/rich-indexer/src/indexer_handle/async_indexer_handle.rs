@@ -3,7 +3,8 @@ use crate::store::SQLXPool;
 
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
-    IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, JsonBytes, Uint32,
+    IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
+    JsonBytes, Uint32,
 };
 use ckb_jsonrpc_types::{
     IndexerCellType, IndexerRange, IndexerScriptType, IndexerSearchMode, IndexerTip, IndexerTx,
@@ -319,6 +320,152 @@ impl AsyncRichIndexerHandle {
             objects: indexer_txs,
             last_cursor: JsonBytes::from_vec(last_cursor),
         })
+    }
+
+    /// Get cells_capacity by specified search_key
+    pub async fn get_cells_capacity(
+        &self,
+        search_key: IndexerSearchKey,
+    ) -> Result<Option<IndexerCellsCapacity>, Error> {
+        // sub query for script
+        let script_sub_query_sql = build_script_sub_query_sql(&search_key.script_search_mode)?;
+
+        // query output
+        let mut query_builder = SqlBuilder::select_from("output");
+        query_builder.field("output.capacity");
+        match search_key.with_data {
+            Some(true) | None => {
+                query_builder.field("output.data as output_data");
+            }
+            Some(false) => {
+                query_builder.field("NULL as output_data");
+            }
+        }
+        query_builder.join(&format!("{} script_res", script_sub_query_sql));
+        match search_key.script_type {
+            IndexerScriptType::Lock => {
+                query_builder.on("output.lock_script_id = script_res.id");
+            }
+            IndexerScriptType::Type => {
+                query_builder.on("output.type_script_id = script_res.id");
+            }
+        }
+        query_builder
+            .left()
+            .join(name!("script";"lock_script"))
+            .on("output.lock_script_id = lock_script.id")
+            .join(name!("script";"type_script"))
+            .on("output.type_script_id = type_script.id")
+            .join("input")
+            .on("output.id = input.output_id");
+        query_builder.and_where("input.output_id IS NULL"); // live cells
+
+        // sql string
+        let sql = query_builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
+
+        // bind
+        let mut query = SQLXPool::new_query(&sql);
+        query = query
+            .bind(search_key.script.code_hash.as_bytes())
+            .bind(search_key.script.hash_type as i16);
+        match search_key.script_search_mode {
+            Some(IndexerSearchMode::Prefix) | None => {
+                let mut new_args = search_key.script.args.as_bytes().to_vec();
+                new_args.push(0x25); // End with %
+                query = query.bind(new_args);
+            }
+            Some(IndexerSearchMode::Exact) => {
+                query = query.bind(search_key.script.args.as_bytes());
+            }
+            Some(IndexerSearchMode::Partial) => {
+                let mut new_args = vec![0x25]; // Start with %
+                new_args.extend_from_slice(search_key.script.args.as_bytes());
+                new_args.push(0x25); // End with %
+                query = query.bind(new_args);
+            }
+        }
+        if let Some(filter) = search_key.filter.as_ref() {
+            if let Some(script) = filter.script.as_ref() {
+                query = query
+                    .bind(script.code_hash.as_bytes())
+                    .bind(script.hash_type.clone() as i16);
+                // Default prefix search
+                let mut new_args = script.args.as_bytes().to_vec();
+                new_args.push(0x25); // End with %
+                query = query.bind(new_args);
+            }
+            if let Some(data) = &filter.output_data {
+                match filter.output_data_filter_mode {
+                    Some(IndexerSearchMode::Prefix) | None => {
+                        let mut new_data = data.as_bytes().to_vec();
+                        new_data.push(0x25); // End with %
+                        query = query.bind(new_data);
+                    }
+                    Some(IndexerSearchMode::Exact) => {
+                        query = query.bind(data.as_bytes());
+                    }
+                    Some(IndexerSearchMode::Partial) => {
+                        let mut new_data = vec![0x25]; // Start with %
+                        new_data.extend_from_slice(data.as_bytes());
+                        new_data.push(0x25); // End with %
+                        query = query.bind(new_data);
+                    }
+                }
+            }
+        }
+
+        let mut tx = self
+            .store
+            .transaction()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        // fetch
+        let capacity = query
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?
+            .iter()
+            .map(|row| row.get::<i64, _>("capacity") as u64)
+            .sum::<u64>();
+
+        if capacity == 0 {
+            return Ok(None);
+        }
+
+        let (block_hash, block_number) = SQLXPool::new_query(
+            r#"
+                SELECT block_hash, block_number FROM block
+                ORDER BY id DESC
+                LIMIT 1
+                "#,
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map(|res| {
+            res.map(|row| {
+                (
+                    bytes_to_h256(row.get("block_hash")),
+                    row.get::<i64, _>("block_number") as u64,
+                )
+            })
+        })
+        .map_err(|err| Error::DB(err.to_string()))?
+        .unwrap();
+
+        tx.commit()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        Ok(Some(IndexerCellsCapacity {
+            capacity: capacity.into(),
+            block_hash,
+            block_number: block_number.into(),
+        }))
     }
 }
 

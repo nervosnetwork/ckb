@@ -528,35 +528,37 @@ async fn script_search_mode_rpc() {
         "total size should be cellbase tx count + total_block"
     );
 
-    // // test get_cells_capacity rpc with exact search mode
-    // let capacity = rpc
-    //     .get_cells_capacity(IndexerSearchKey {
-    //         script: lock_script1.clone().into(),
-    //         script_search_mode: Some(IndexerSearchMode::Exact),
-    //         ..Default::default()
-    //     })
-    //     .unwrap()
-    //     .unwrap();
+    // test get_cells_capacity rpc with exact search mode
+    let capacity = rpc
+        .get_cells_capacity(IndexerSearchKey {
+            script: lock_script1.clone().into(),
+            script_search_mode: Some(IndexerSearchMode::Exact),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .unwrap();
 
-    // assert_eq!(
-    //     1000 * 100000000 * (total_blocks + 1),
-    //     capacity.capacity.value(),
-    //     "cellbases + last block live cell"
-    // );
+    assert_eq!(
+        1000 * 100000000 * (total_blocks + 1),
+        capacity.capacity.value(),
+        "cellbases + last block live cell"
+    );
 
-    // // test get_cells_capacity rpc with prefix search mode (by default)
-    // let capacity = rpc
-    //     .get_cells_capacity(IndexerSearchKey {
-    //         script: lock_script1.into(),
-    //         ..Default::default()
-    //     })
-    //     .unwrap()
-    //     .unwrap();
+    // test get_cells_capacity rpc with prefix search mode (by default)
+    let capacity = rpc
+        .get_cells_capacity(IndexerSearchKey {
+            script: lock_script1.into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .unwrap();
 
-    // assert_eq!(
-    //     1000 * 100000000 * (total_blocks + 1) + 2000 * 100000000,
-    //     capacity.capacity.value()
-    // );
+    assert_eq!(
+        1000 * 100000000 * (total_blocks + 1) + 2000 * 100000000,
+        capacity.capacity.value()
+    );
 }
 
 /// helper fn extracts script fields raw data
