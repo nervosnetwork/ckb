@@ -148,10 +148,6 @@ pub struct IndexerSearchKeyFilter {
     pub output_capacity_range: Option<IndexerRange>,
     /// filter cells by block number range
     pub block_range: Option<IndexerRange>,
-    /// filter cells by data
-    pub data: Option<JsonBytes>,
-    /// data filter mode, optional default is `prefix`, means search data with prefix
-    pub data_filter_mode: Option<IndexerSearchMode>,
 }
 
 /// ScriptType `Lock` | `Type`

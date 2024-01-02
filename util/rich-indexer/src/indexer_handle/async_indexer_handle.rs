@@ -145,8 +145,8 @@ impl AsyncRichIndexerHandle {
                 new_args.push(0x25); // End with %
                 query = query.bind(new_args);
             }
-            if let Some(data) = &filter.data {
-                match filter.data_filter_mode {
+            if let Some(data) = &filter.output_data {
+                match filter.output_data_filter_mode {
                     Some(IndexerSearchMode::Prefix) | None => {
                         let mut new_data = data.as_bytes().to_vec();
                         new_data.push(0x25); // End with %
@@ -264,8 +264,8 @@ impl AsyncRichIndexerHandle {
                 new_args.push(0x25); // End with %
                 query = query.bind(new_args);
             }
-            if let Some(data) = &filter.data {
-                match filter.data_filter_mode {
+            if let Some(data) = &filter.output_data {
+                match filter.output_data_filter_mode {
                     Some(IndexerSearchMode::Prefix) | None => {
                         let mut new_data = data.as_bytes().to_vec();
                         new_data.push(0x25); // End with %
@@ -469,8 +469,8 @@ async fn build_sql_by_filter(
             query_builder.and_where_ge("block.block_number", block_range.start());
             query_builder.and_where_lt("block.block_number", block_range.end());
         }
-        if filter.data.is_some() {
-            match filter.data_filter_mode {
+        if filter.output_data.is_some() {
+            match filter.output_data_filter_mode {
                 Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
                     query_builder.and_where("output.data LIKE ?");
                 }
