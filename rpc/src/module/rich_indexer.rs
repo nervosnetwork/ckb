@@ -1,8 +1,8 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_jsonrpc_types::{
-    IndexerCell, IndexerOrder, IndexerPagination, IndexerSearchKey, IndexerTip, IndexerTx,
-    JsonBytes, Uint32, IndexerCellsCapacity
+    IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
+    IndexerTip, IndexerTx, JsonBytes, Uint32,
 };
 use ckb_rich_indexer::AsyncRichIndexerHandle;
 use jsonrpc_core::Result;
@@ -119,10 +119,10 @@ impl RichIndexerRpc for RichIndexerRpcImpl {
     async fn get_rich_indexer_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
-    ) -> Result<Option<IndexerCellsCapacity>>{
+    ) -> Result<Option<IndexerCellsCapacity>> {
         self.handle
-        .cells_capacity(search_key)
-        .await
-        .map_err(|e| RPCError::custom(RPCError::Indexer, e))
+            .get_cells_capacity(search_key)
+            .await
+            .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 }

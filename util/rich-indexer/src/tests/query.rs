@@ -309,13 +309,7 @@ async fn get_transactions() {
 #[tokio::test]
 async fn script_search_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexer::new(
-        pool.clone(),
-        100,
-        1000,
-        None,
-        CustomFilters::new(None, None),
-    );
+    let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
     let rpc = AsyncRichIndexerHandle::new(pool, None);
 
     // setup test data

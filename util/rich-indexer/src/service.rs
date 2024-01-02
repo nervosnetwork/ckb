@@ -46,12 +46,8 @@ impl RichIndexerService {
     }
 
     fn get_indexer(&self) -> RichIndexer {
-        // assume that long fork will not happen >= 100 blocks.
-        let keep_num = 100;
         RichIndexer::new(
             self.store.clone(),
-            keep_num,
-            1000,
             self.sync.pool(),
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
             self.async_handle.clone(),

@@ -29,7 +29,7 @@ async fn connect_sqlite(store_path: &str) -> SQLXPool {
 
 async fn insert_blocks(store: SQLXPool) {
     let data_path = String::from(BLOCK_DIR);
-    let indexer = AsyncRichIndexer::new(store, 100, 1000, None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(store, None, CustomFilters::new(None, None));
     for i in 0..10 {
         indexer
             .append(&read_block_view(i, data_path.clone()).into())

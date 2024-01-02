@@ -424,7 +424,7 @@ pub(crate) async fn query_output_cell(
         LEFT JOIN
             script AS type_script ON output.type_script_id = type_script.id
         WHERE
-            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1)
+            output.tx_id = (SELECT ckb_transaction.id FROM ckb_transaction WHERE tx_hash = $1)
             AND output.output_index = $2
         "#,
     )
@@ -434,7 +434,7 @@ pub(crate) async fn query_output_cell(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    build_cell_output(row)
+    Ok(build_cell_output(row))
 }
 
 pub(crate) async fn query_output_id(
@@ -446,12 +446,12 @@ pub(crate) async fn query_output_id(
 
     sqlx::query(
         r#"
-        SELECT id
+        SELECT output.id
         FROM
             output
         WHERE
-            output.tx_id = (SELECT id FROM ckb_transaction WHERE tx_hash = $1)
-            AND output_index = $2
+            output.tx_id = (SELECT ckb_transaction.id FROM ckb_transaction WHERE tx_hash = $1)
+            AND output.output_index = $2
         "#,
     )
     .bind(output_tx_hash)
@@ -552,10 +552,10 @@ pub(crate) fn build_input_rows(
     input_rows.push(input_row);
 }
 
-fn build_cell_output(row: Option<AnyRow>) -> Result<Option<(i64, CellOutput, Bytes)>, Error> {
+fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
     let row = match row {
         Some(row) => row,
-        None => return Ok(None),
+        None => return None,
     };
     let id: i64 = row.get("id");
     let capacity: i64 = row.get("capacity");
@@ -587,7 +587,7 @@ fn build_cell_output(row: Option<AnyRow>) -> Result<Option<(i64, CellOutput, Byt
         type_builder = type_builder.args(type_args.pack());
     }
     if let Some(type_hash_type) = type_hash_type {
-        type_builder = lock_builder.hash_type(Byte::new(type_hash_type as u8));
+        type_builder = type_builder.hash_type(Byte::new(type_hash_type as u8));
     }
     let type_script = type_builder.build();
 
@@ -597,7 +597,7 @@ fn build_cell_output(row: Option<AnyRow>) -> Result<Option<(i64, CellOutput, Byt
         .type_(Some(type_script).pack())
         .build();
 
-    Ok(Some((id, cell_output, data.into())))
+    Some((id, cell_output, data.into()))
 }
 
 async fn bulk_insert(

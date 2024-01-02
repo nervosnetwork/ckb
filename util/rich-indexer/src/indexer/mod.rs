@@ -42,20 +42,12 @@ impl RichIndexer {
     /// Construct new Rich Indexer instance
     pub fn new(
         store: SQLXPool,
-        keep_num: u64,
-        prune_interval: u64,
         pool: Option<Arc<RwLock<Pool>>>,
         custom_filters: CustomFilters,
         async_runtime: Handle,
     ) -> Self {
         Self {
-            async_rich_indexer: AsyncRichIndexer::new(
-                store,
-                keep_num,
-                prune_interval,
-                pool,
-                custom_filters,
-            ),
+            async_rich_indexer: AsyncRichIndexer::new(store, pool, custom_filters),
             async_runtime,
         }
     }
@@ -98,11 +90,6 @@ impl IndexerSync for RichIndexer {
 pub(crate) struct AsyncRichIndexer {
     /// storage
     pub(crate) store: SQLXPool,
-    /// number of blocks to keep for rollback and forking, for example:
-    /// keep_num: 100, current tip: 321, will prune data where block_number <= 221
-    _keep_num: u64,
-    /// prune interval
-    _prune_interval: u64,
     /// An optional overlay to index the pending txs in the ckb tx pool
     /// currently only supports removals of dead cells from the pending txs
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
@@ -114,15 +101,11 @@ impl AsyncRichIndexer {
     /// Construct new AsyncRichIndexer instance
     pub fn new(
         store: SQLXPool,
-        keep_num: u64,
-        prune_interval: u64,
         pool: Option<Arc<RwLock<Pool>>>,
         custom_filters: CustomFilters,
     ) -> Self {
         Self {
             store,
-            _keep_num: keep_num,
-            _prune_interval: prune_interval,
             pool,
             custom_filters,
         }
