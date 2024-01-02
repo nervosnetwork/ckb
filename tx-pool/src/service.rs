@@ -380,10 +380,9 @@ pub struct TxPoolServiceBuilder {
     pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    //pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
+    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) chunk: Arc<RwLock<ChunkQueue>>,
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
-    pub(crate) verify_mgr: Arc<RwLock<VerifyMgr>>,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) block_assembler_channel: (
         mpsc::Sender<BlockAssemblerMessage>,
@@ -408,11 +407,6 @@ impl TxPoolServiceBuilder {
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let chunk = Arc::new(RwLock::new(ChunkQueue::new()));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
-        let verify_mgr = Arc::new(RwLock::new(VerifyMgr::new(
-            chunk_rx,
-            signal_receiver.clone(),
-            verify_queue.clone(),
-        )));
         let started = Arc::new(AtomicBool::new(false));
 
         let controller = TxPoolController {
@@ -438,10 +432,9 @@ impl TxPoolServiceBuilder {
             handle: handle.clone(),
             tx_relay_sender,
             chunk,
-            //chunk_rx,
+            chunk_rx,
             started,
             verify_queue,
-            verify_mgr,
             block_assembler_channel,
         };
 
@@ -501,7 +494,11 @@ impl TxPoolServiceBuilder {
             after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
-        let verify_mgr = Arc::clone(&self.verify_mgr);
+        let verify_mgr = Arc::new(RwLock::new(VerifyMgr::new(
+            service.clone(),
+            self.chunk_rx,
+            self.signal_receiver.clone(),
+        )));
         self.handle
             .spawn(async move { verify_mgr.write().await.run().await });
 
