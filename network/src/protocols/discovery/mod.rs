@@ -16,7 +16,7 @@ use p2p::{
 use rand::seq::SliceRandom;
 
 pub use self::{
-    addr::{AddrKnown, AddressManager, MisbehaveResult, Misbehavior},
+    addr::{AddressManager, MisbehaveResult, Misbehavior},
     protocol::{DiscoveryMessage, Node, Nodes},
     state::SessionState,
 };
