@@ -38,8 +38,8 @@ use ckb_vm::{
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
 use std::collections::{BTreeMap, HashMap};
+use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
-use std::{cell::RefCell, sync::RwLock};
 use tokio::{select, sync::mpsc};
 
 #[cfg(test)]

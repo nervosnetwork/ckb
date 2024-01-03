@@ -16,18 +16,13 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
-use ckb_types::{
-    core::{cell::ResolvedTransaction, Cycle},
-    packed::Byte32,
-};
-use ckb_verification::cache::TxVerificationCache;
+use ckb_types::core::{cell::ResolvedTransaction, Cycle};
+//use ckb_verification::cache::TxVerificationCache;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier, ScriptError, ScriptVerifier,
-    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionSnapshot,
-    TxVerifyEnv,
+    ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier, ScriptVerifier,
+    TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
-use tokio::task::block_in_place;
 
 type Stop = bool;
 
@@ -221,14 +216,14 @@ impl Worker {
         &mut self,
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
-        max_cycles: Cycle,
+        _max_cycles: Cycle,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
     ) -> Result<State, Reject> {
         let script_verifier = ScriptVerifier::new(rtx, data_loader, consensus, tx_env);
-        let CYCLE_LIMIT = 1000000000;
-        let res = script_verifier
-            .resumable_verify_with_signal(CYCLE_LIMIT, &mut self.command_rx)
+        let cycle_limit = 1000000000;
+        let _res = script_verifier
+            .resumable_verify_with_signal(cycle_limit, &mut self.command_rx)
             .await
             .unwrap();
         return Ok(State::Completed(0));
@@ -260,7 +255,6 @@ impl VerifyMgr {
                 let signal_exit = signal_exit.clone();
                 let service = service.clone();
                 move |_| {
-                    //let (command_tx, command_rx) = ckb_channel::unbounded();
                     let worker = Worker::new(
                         service.clone(),
                         Arc::clone(&tasks),

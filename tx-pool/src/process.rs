@@ -361,8 +361,8 @@ impl TxPoolService {
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         {
-            let mut chunk = self.chunk.write().await;
-            if chunk.remove_chunk_tx(&id).is_some() {
+            let mut chunk = self.verify_queue.write().await;
+            if chunk.remove_tx(&id).is_some() {
                 return true;
             }
         }
@@ -528,7 +528,7 @@ impl TxPoolService {
                         tx.hash(),
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.chunk
+                    self.verify_queue
                         .write()
                         .await
                         .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
@@ -994,7 +994,7 @@ impl TxPoolService {
 
             let txs_opt = if is_in_delay_window {
                 {
-                    self.chunk.write().await.clear();
+                    self.verify_queue.write().await.clear();
                 }
                 Some(tx_pool.drain_all_transactions())
             } else {
@@ -1065,8 +1065,8 @@ impl TxPoolService {
 
         self.remove_orphan_txs_by_attach(&attached).await;
         {
-            let mut chunk = self.chunk.write().await;
-            chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+            let mut chunk = self.verify_queue.write().await;
+            chunk.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
     }
 
